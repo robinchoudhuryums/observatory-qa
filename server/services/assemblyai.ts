@@ -85,11 +85,20 @@ export class AssemblyAIService {
       },
       body: JSON.stringify({
         audio_url: audioUrl,
-        speech_model: "nano", // Use the latest, most accurate model.
-        sentiment_analysis: true, // Already enabled, which is good.
-        auto_highlights: true, // Enables a more advanced summary.
-        auto_chapters: true, // Already enabled.
-        speaker_labels: true, // Already enabled.
+        speech_model: "nano",
+        
+        // --- Enhanced Analysis Features ---
+        summarization: true,
+        summary_model: "informative", // Use a better model for the summary
+        summary_type: "bullets", // Get a bulleted list summary
+        
+        sentiment_analysis: true, // This enables detailed sentiment results
+        
+        entity_detection: true, // Detects entities like person, organization, etc.
+        
+        auto_highlights: true, // Extracts key phrases and sentences
+        
+        speaker_labels: true,
         punctuate: true,
         format_text: true
       })
