@@ -184,21 +184,23 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
           </div>
         </div>
         
-        <div className="space-y-4">
-          <div className="bg-muted rounded-lg p-4">
-            <h4 className="font-semibold text-foreground mb-3">Call Summary</h4>
-            <div className="space-y-2 text-sm">
-              <p><strong>Duration:</strong> {call.duration ? `${Math.floor(call.duration / 60)}m ${call.duration % 60}s` : 'Unknown'}</p>
-              <p><strong>Status:</strong> <Badge>{call.status}</Badge></p>
-              <p><strong>Sentiment:</strong> {call.sentiment?.overallSentiment ? (
-                <Badge className={getSentimentColor(call.sentiment.overallSentiment)}>
-                  {call.sentiment.overallSentiment.charAt(0).toUpperCase() + call.sentiment.overallSentiment.slice(1)}
-                </Badge>
-              ) : 'Unknown'}</p>
-              <p><strong>Performance Score:</strong> {call.analysis?.performanceScore?.toFixed(1) || 'N/A'}/10</p>
-            </div>
+      <div className="space-y-4">
+        {/* --- Section 1: Call Summary --- */}
+        <div className="bg-muted rounded-lg p-4">
+          <h4 className="font-semibold text-foreground mb-3">Call Summary</h4>
+          <div className="space-y-2 text-sm">
+            <p><strong>Duration:</strong> {call.duration ? `${Math.floor(call.duration / 60)}m ${call.duration % 60}s` : 'Unknown'}</p>
+            <p><strong>Status:</strong> <Badge>{call.status}</Badge></p>
+            <p><strong>Sentiment:</strong> {call.sentiment?.overallSentiment ? (
+              <Badge className={getSentimentColor(call.sentiment.overallSentiment)}>
+                {call.sentiment.overallSentiment.charAt(0).toUpperCase() + call.sentiment.overallSentiment.slice(1)}
+              </Badge>
+            ) : 'Unknown'}</p>
+            <p><strong>Performance Score:</strong> {call.analysis?.performanceScore?.toFixed(1) || 'N/A'}/10</p>
+          </div>
+        </div>
 
-                  {call.analysis?.summary && (
+      {call.analysis?.summary && (
           <div className="bg-muted rounded-lg p-4">
             <h4 className="font-semibold text-foreground mb-3">Key Points</h4>
             <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
