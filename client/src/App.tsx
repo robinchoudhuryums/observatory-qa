@@ -8,6 +8,7 @@ import Upload from "@/pages/upload";
 import Transcripts from "@/pages/transcripts";
 import SentimentPage from "@/pages/sentiment";
 import PerformancePage from "@/pages/performance";
+import ReportsPage from "@/pages/reports";
 import Search from "@/pages/search";
 import NotFound from "@/pages/not-found";
 import Sidebar from "@/components/layout/sidebar";
@@ -24,7 +25,8 @@ function Router() {
           <Route path="/transcripts/:id" component={Transcripts} />
           <Route path="/search" component={Search} />
           <Route path="/sentiment" component={SentimentPage} />
-          <Route path="/performance" component={PerformancePage} /> 
+          <Route path="/performance" component={PerformancePage} />
+          <Route path="/reports" component={ReportsPage} />
           <Route component={NotFound} />
         </Switch>
       </main>
