@@ -85,10 +85,11 @@ export class AssemblyAIService {
       },
       body: JSON.stringify({
         audio_url: audioUrl,
-        sentiment_analysis: options.sentiment_analysis ?? true,
-        auto_chapters: options.auto_chapters ?? true,
-        iab_categories: options.iab_categories ?? true,
-        speaker_labels: options.speaker_labels ?? true,
+        speech_model: "nano", // Use the latest, most accurate model.
+        sentiment_analysis: true, // Already enabled, which is good.
+        auto_highlights: true, // Enables a more advanced summary.
+        auto_chapters: true, // Already enabled.
+        speaker_labels: true, // Already enabled.
         punctuate: true,
         format_text: true
       })
