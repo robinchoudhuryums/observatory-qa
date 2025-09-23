@@ -198,7 +198,6 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
             ) : 'Unknown'}</p>
             <p><strong>Performance Score:</strong> {call.analysis?.performanceScore?.toFixed(1) || 'N/A'}/10</p>
           </div>
-        </div>
 
       {call.analysis?.summary && (
           <div className="bg-muted rounded-lg p-4">
