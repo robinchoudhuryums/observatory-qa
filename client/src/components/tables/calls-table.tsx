@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import type { CallWithDetails } from "@shared/schema";
+import { AudioWaveform } from "lucide-react";
 
 export default function CallsTable() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -20,18 +21,14 @@ export default function CallsTable() {
     }],
   });
 
-  if (isLoading) {
-    return (
-      <div className="bg-card rounded-lg border border-border p-6">
-        <div className="animate-pulse space-y-4">
-          <div className="h-6 bg-muted rounded w-1/3"></div>
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-16 bg-muted rounded"></div>
-          ))}
-        </div>
-      </div>
-    );
-  }
+if (isLoading) {
+  return (
+    <div className="flex items-center justify-center h-64">
+      <AudioWaveform className="w-8 h-8 animate-spin text-primary" />
+      <p className="ml-2 text-muted-foreground">Analyzing performance...</p>
+    </div>
+  );
+}
 
   const getSentimentBadge = (sentiment?: string) => {
     if (!sentiment) return <Badge variant="secondary">Unknown</Badge>;
