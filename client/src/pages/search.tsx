@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import type { CallWithDetails, Employee } from "@shared/schema";
+import { useToast } from "@/hooks/use-toast";
 
 export default function SearchPage() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -29,9 +30,20 @@ export default function SearchPage() {
     queryKey: ["/api/employees"],
   });
 
+  const { toast } = useToast(); // Make sure useToast is called at the top of the component
+
   const { data: searchResults, isLoading } = useQuery<CallWithDetails[]>({
     queryKey: ["/api/search", { q: debouncedQuery }],
     enabled: debouncedQuery.length > 0,
+    
+    // ADD THIS ERROR HANDLER
+    onError: (error) => {
+      toast({
+        title: "Search Failed",
+        description: error.message || "Could not connect to the server.",
+        variant: "destructive",
+      });
+    },
   });
 
   const { data: allCalls } = useQuery<CallWithDetails[]>({
