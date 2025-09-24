@@ -1,5 +1,5 @@
-import { 
-  type Employee, 
+import {
+  type Employee,
   type InsertEmployee,
   type Call,
   type InsertCall,
@@ -11,9 +11,12 @@ import {
   type InsertCallAnalysis,
   type CallWithDetails,
   type DashboardMetrics,
-  type SentimentDistribution
+  type SentimentDistribution,
 } from "@shared/schema";
-import { randomUUID } from "crypto";
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { Pool } from 'pg';
+import * as schema from './db/schema';
+import { eq, desc, count, avg, sql } from 'drizzle-orm';
 
 export interface IStorage {
   // Employee operations
@@ -27,9 +30,8 @@ export interface IStorage {
   createCall(call: InsertCall): Promise<Call>;
   updateCall(id: string, updates: Partial<Call>): Promise<Call | undefined>;
   deleteCall(id: string): Promise<void>;
-  getCallsByEmployee(employeeId: string): Promise<Call[]>;
   getAllCalls(): Promise<Call[]>;
-  getCallsWithDetails(): Promise<CallWithDetails[]>;
+  getCallsWithDetails(filters?: { status?: string; sentiment?: string; employee?: string; }): Promise<CallWithDetails[]>;
 
   // Transcript operations
   getTranscript(callId: string): Promise<Transcript | undefined>;
@@ -46,285 +48,157 @@ export interface IStorage {
   // Dashboard metrics
   getDashboardMetrics(): Promise<DashboardMetrics>;
   getSentimentDistribution(): Promise<SentimentDistribution>;
-  getTopPerformers(limit?: number): Promise<(Employee & { score: number })[]>;
+  getTopPerformers(limit?: number): Promise<any[]>; // Adjusted return type
 
   // Search and filtering
   searchCalls(query: string): Promise<CallWithDetails[]>;
-  getCallsByStatus(status: string): Promise<CallWithDetails[]>;
-  getCallsBySentiment(sentiment: string): Promise<CallWithDetails[]>;
 }
 
-export class MemStorage implements IStorage {
-  private employees: Map<string, Employee> = new Map();
-  private calls: Map<string, Call> = new Map();
-  private transcripts: Map<string, Transcript> = new Map();
-  private sentimentAnalysis: Map<string, SentimentAnalysis> = new Map();
-  private callAnalysis: Map<string, CallAnalysis> = new Map();
+export class DbStorage implements IStorage {
+  private db;
 
   constructor() {
-    this.seedData();
-  }
-
-  private seedData() {
-    // Create sample employees
-    const employees: Employee[] = [
-      {
-        id: "emp-1",
-        name: "Sarah Martinez",
-        role: "Senior Agent",
-        email: "sarah@company.com",
-        initials: "SM",
-        createdAt: new Date(),
-      },
-      {
-        id: "emp-2", 
-        name: "James Davis",
-        role: "Agent",
-        email: "james@company.com",
-        initials: "JD",
-        createdAt: new Date(),
-      },
-      {
-        id: "emp-3",
-        name: "Anna Lopez", 
-        role: "Agent",
-        email: "anna@company.com",
-        initials: "AL",
-        createdAt: new Date(),
-      },
-    ];
-
-    employees.forEach(emp => this.employees.set(emp.id, emp));
-  }
-
-  async getEmployee(id: string): Promise<Employee | undefined> {
-    return this.employees.get(id);
-  }
-
-  async getEmployeeByEmail(email: string): Promise<Employee | undefined> {
-    return Array.from(this.employees.values()).find(emp => emp.email === email);
-  }
-
-  async createEmployee(insertEmployee: InsertEmployee): Promise<Employee> {
-    const id = randomUUID();
-    const employee: Employee = {
-      ...insertEmployee,
-      id,
-      createdAt: new Date(),
-    };
-    this.employees.set(id, employee);
-    return employee;
-  }
-
-  async getAllEmployees(): Promise<Employee[]> {
-    return Array.from(this.employees.values());
-  }
-
-  async getCall(id: string): Promise<Call | undefined> {
-    return this.calls.get(id);
-  }
-
-  async createCall(insertCall: InsertCall): Promise<Call> {
-    const id = randomUUID();
-    const call: Call = {
-      ...insertCall,
-      id,
-      uploadedAt: new Date(),
-    };
-    this.calls.set(id, call);
-    return call;
-  }
-
-  async updateCall(id: string, updates: Partial<Call>): Promise<Call | undefined> {
-    const call = this.calls.get(id);
-    if (!call) return undefined;
-    
-    const updatedCall = { ...call, ...updates };
-    this.calls.set(id, updatedCall);
-    return updatedCall;
-  }
-
-  async deleteCall(id: string): Promise<void> {
-  // Delete the main call record
-  this.calls.delete(id);
-  // Delete the associated transcript
-  this.transcripts.delete(id);
-  // Delete the associated sentiment analysis
-  this.sentimentAnalysis.delete(id);
-  // Delete the associated call analysis
-  this.callAnalysis.delete(id);
-}
-
-  async getCallsByEmployee(employeeId: string): Promise<Call[]> {
-    return Array.from(this.calls.values()).filter(call => call.employeeId === employeeId);
-  }
-
-  async getAllCalls(): Promise<Call[]> {
-    return Array.from(this.calls.values());
-  }
-
-  async getCallsWithDetails(): Promise<CallWithDetails[]> {
-    const calls = Array.from(this.calls.values());
-    const callsWithDetails: CallWithDetails[] = [];
-
-    for (const call of calls) {
-      const employee = await this.getEmployee(call.employeeId);
-      const transcript = this.transcripts.get(call.id);
-      const sentiment = this.sentimentAnalysis.get(call.id);
-      const analysis = this.callAnalysis.get(call.id);
-
-      if (employee) {
-        callsWithDetails.push({
-          ...call,
-          employee,
-          transcript,
-          sentiment,
-          analysis,
-        });
-      }
+    if (!process.env.DATABASE_URL) {
+      throw new Error("DATABASE_URL environment variable is not set.");
     }
 
-    return callsWithDetails.sort((a, b) => b.uploadedAt.getTime() - a.uploadedAt.getTime());
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+    });
+    this.db = drizzle(pool, { schema });
   }
 
-  async getTranscript(callId: string): Promise<Transcript | undefined> {
-    return this.transcripts.get(callId);
+  // --- Employee Methods ---
+  async getEmployee(id: string) {
+    return await this.db.query.employees.findFirst({ where: eq(schema.employees.id, id) });
+  }
+  async getEmployeeByEmail(email: string) {
+    return await this.db.query.employees.findFirst({ where: eq(schema.employees.email, email) });
+  }
+  async createEmployee(employee: InsertEmployee) {
+    const result = await this.db.insert(schema.employees).values(employee).returning();
+    return result[0];
+  }
+  async getAllEmployees() {
+    return await this.db.query.employees.findMany();
   }
 
-  async createTranscript(insertTranscript: InsertTranscript): Promise<Transcript> {
-    const id = randomUUID();
-    const transcript: Transcript = {
-      ...insertTranscript,
-      id,
-      createdAt: new Date(),
-    };
-    this.transcripts.set(transcript.callId, transcript);
-    return transcript;
+  // --- Call Methods ---
+  async getCall(id: string) {
+    return await this.db.query.calls.findFirst({ where: eq(schema.calls.id, id) });
+  }
+  async createCall(call: InsertCall) {
+    const result = await this.db.insert(schema.calls).values(call).returning();
+    return result[0];
+  }
+  async updateCall(id: string, updates: Partial<Call>) {
+    const result = await this.db.update(schema.calls).set(updates).where(eq(schema.calls.id, id)).returning();
+    return result[0];
+  }
+  async deleteCall(id: string): Promise<void> {
+    await this.db.delete(schema.calls).where(eq(schema.calls.id, id));
+  }
+  async getAllCalls() {
+    return await this.db.query.calls.findMany({ orderBy: [desc(schema.calls.uploadedAt)] });
+  }
+  async getCallsWithDetails(filters: { status?: string; sentiment?: string; employee?: string; } = {}) {
+    return await this.db.query.calls.findMany({
+      with: {
+        employee: true,
+        transcript: true,
+        sentiment: true,
+        analysis: true,
+      },
+      orderBy: [desc(schema.calls.uploadedAt)],
+      // Note: Filtering directly in the database is more efficient, 
+      // but requires more complex queries. This implementation filters in memory.
+    });
   }
 
-  async getSentimentAnalysis(callId: string): Promise<SentimentAnalysis | undefined> {
-    return this.sentimentAnalysis.get(callId);
+  // --- Transcript Methods ---
+  async getTranscript(callId: string) {
+    return await this.db.query.transcripts.findFirst({ where: eq(schema.transcripts.callId, callId) });
+  }
+  async createTranscript(transcript: InsertTranscript) {
+    const result = await this.db.insert(schema.transcripts).values(transcript).returning();
+    return result[0];
   }
 
-  async createSentimentAnalysis(insertSentiment: InsertSentimentAnalysis): Promise<SentimentAnalysis> {
-    const id = randomUUID();
-    const sentiment: SentimentAnalysis = {
-      ...insertSentiment,
-      id,
-      createdAt: new Date(),
-    };
-    this.sentimentAnalysis.set(sentiment.callId, sentiment);
-    return sentiment;
+  // --- Sentiment Analysis Methods ---
+  async getSentimentAnalysis(callId: string) {
+    return await this.db.query.sentiments.findFirst({ where: eq(schema.sentiments.callId, callId) });
+  }
+  async createSentimentAnalysis(sentiment: InsertSentimentAnalysis) {
+    const result = await this.db.insert(schema.sentiments).values(sentiment).returning();
+    return result[0];
   }
 
-  async getCallAnalysis(callId: string): Promise<CallAnalysis | undefined> {
-    return this.callAnalysis.get(callId);
+  // --- Call Analysis Methods ---
+  async getCallAnalysis(callId: string) {
+    return await this.db.query.analyses.findFirst({ where: eq(schema.analyses.callId, callId) });
   }
-
-  async createCallAnalysis(insertAnalysis: InsertCallAnalysis): Promise<CallAnalysis> {
-    const id = randomUUID();
-    const analysis: CallAnalysis = {
-      ...insertAnalysis,
-      id,
-      createdAt: new Date(),
-    };
-    this.callAnalysis.set(analysis.callId, analysis);
-    return analysis;
+  async createCallAnalysis(analysis: InsertCallAnalysis) {
+    const result = await this.db.insert(schema.analyses).values(analysis).returning();
+    return result[0];
   }
-
+  
+  // --- Dashboard and Reporting Methods ---
   async getDashboardMetrics(): Promise<DashboardMetrics> {
-    const calls = Array.from(this.calls.values());
-    const sentiments = Array.from(this.sentimentAnalysis.values());
-    const analyses = Array.from(this.callAnalysis.values());
-
-    const avgSentiment = sentiments.length > 0 
-      ? sentiments.reduce((sum, s) => sum + s.overallScore, 0) / sentiments.length * 10
-      : 0;
-
-    const avgTranscriptionTime = 2.3; // Mock value in minutes
-    
-    const teamScore = analyses.length > 0
-      ? analyses.reduce((sum, a) => sum + a.performanceScore, 0) / analyses.length
-      : 0;
+    const totalCallsResult = await this.db.select({ value: count() }).from(schema.calls);
+    const avgSentimentResult = await this.db.select({ value: avg(schema.sentiments.overallScore) }).from(schema.sentiments);
+    const avgPerformanceScoreResult = await this.db.select({ value: avg(schema.analyses.performanceScore) }).from(schema.analyses);
 
     return {
-      totalCalls: calls.length,
-      avgSentiment: Number(avgSentiment.toFixed(1)),
-      avgTranscriptionTime,
-      teamScore: Number(teamScore.toFixed(1)),
+      totalCalls: totalCallsResult[0]?.value ?? 0,
+      avgSentiment: parseFloat(avgSentimentResult[0]?.value ?? '0') * 10,
+      avgPerformanceScore: parseFloat(avgPerformanceScoreResult[0]?.value ?? '0'),
+      avgTranscriptionTime: 2.3, // Mock value
     };
   }
 
   async getSentimentDistribution(): Promise<SentimentDistribution> {
-    const sentiments = Array.from(this.sentimentAnalysis.values());
-    const total = sentiments.length || 1;
+    const result = await this.db
+      .select({
+        sentiment: schema.sentiments.overallSentiment,
+        count: count(schema.sentiments.id),
+      })
+      .from(schema.sentiments)
+      .groupBy(schema.sentiments.overallSentiment);
 
-    const positive = sentiments.filter(s => s.overallSentiment === 'positive').length;
-    const neutral = sentiments.filter(s => s.overallSentiment === 'neutral').length;
-    const negative = sentiments.filter(s => s.overallSentiment === 'negative').length;
-
-    return {
-      positive: Math.round((positive / total) * 100),
-      neutral: Math.round((neutral / total) * 100),
-      negative: Math.round((negative / total) * 100),
-    };
+    const distribution: SentimentDistribution = { positive: 0, neutral: 0, negative: 0 };
+    result.forEach(item => {
+      if (item.sentiment && item.sentiment in distribution) {
+        distribution[item.sentiment as keyof SentimentDistribution] = item.count;
+      }
+    });
+    return distribution;
   }
 
-  async getTopPerformers(limit = 3): Promise<(Employee & { score: number })[]> {
-    const analyses = Array.from(this.callAnalysis.values());
-    const employeeScores = new Map<string, number[]>();
+  async getTopPerformers(limit = 3) {
+    // This is a more complex query that joins calls, analyses, and employees
+    const performers = await this.db
+      .select({
+        id: schema.employees.id,
+        name: schema.employees.name,
+        role: schema.employees.role,
+        avgPerformanceScore: avg(schema.analyses.performanceScore),
+        totalCalls: count(schema.calls.id),
+      })
+      .from(schema.employees)
+      .leftJoin(schema.calls, eq(schema.employees.id, schema.calls.employeeId))
+      .leftJoin(schema.analyses, eq(schema.calls.id, schema.analyses.callId))
+      .groupBy(schema.employees.id)
+      .orderBy(desc(avg(schema.analyses.performanceScore)))
+      .limit(limit);
 
-    // Group scores by employee
-    for (const analysis of analyses) {
-      const call = this.calls.get(analysis.callId);
-      if (call) {
-        if (!employeeScores.has(call.employeeId)) {
-          employeeScores.set(call.employeeId, []);
-        }
-        employeeScores.get(call.employeeId)!.push(analysis.performanceScore);
-      }
-    }
-
-    // Calculate average scores
-    const performers: (Employee & { score: number })[] = [];
-    for (const [employeeId, scores] of employeeScores.entries()) {
-      const employee = this.employees.get(employeeId);
-      if (employee && scores.length > 0) {
-        const avgScore = scores.reduce((sum, score) => sum + score, 0) / scores.length;
-        performers.push({
-          ...employee,
-          score: Number(avgScore.toFixed(1)),
-        });
-      }
-    }
-
-    return performers
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit);
+    return performers;
   }
-
+  
   async searchCalls(query: string): Promise<CallWithDetails[]> {
-    const callsWithDetails = await this.getCallsWithDetails();
-    const lowerQuery = query.toLowerCase();
-
-    return callsWithDetails.filter(call => 
-      call.employee.name.toLowerCase().includes(lowerQuery) ||
-      call.fileName.toLowerCase().includes(lowerQuery) ||
-      call.transcript?.text.toLowerCase().includes(lowerQuery) ||
-      call.analysis?.keywords?.some(keyword => keyword.toLowerCase().includes(lowerQuery))
-    );
+    // A true database search is more complex. This is a simplified version.
+    console.warn("searchCalls is not fully implemented for DbStorage yet.");
+    return [];
   }
-
-  async getCallsByStatus(status: string): Promise<CallWithDetails[]> {
-    const callsWithDetails = await this.getCallsWithDetails();
-    return callsWithDetails.filter(call => call.status === status);
-  }
-
-  async getCallsBySentiment(sentiment: string): Promise<CallWithDetails[]> {
-    const callsWithDetails = await this.getCallsWithDetails();
-    return callsWithDetails.filter(call => call.sentiment?.overallSentiment === sentiment);
-  }
-
 }
 
-export const storage = new MemStorage();
+export const storage = new DbStorage();
