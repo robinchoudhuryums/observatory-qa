@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Eye, Play, Download, Star } from "lucide-react";
+import { Eye, Play, Download, Star, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +21,32 @@ export default function CallsTable() {
     }],
   });
 
+    const deleteMutation = useMutation({
+    mutationFn: (callId: string) => fetch(`/api/calls/${callId}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      toast({
+        title: "Call Deleted",
+        description: "The call recording and its analysis have been removed.",
+      });
+      // This tells React Query to refetch the list of calls, which updates the table
+      queryClient.invalidateQueries({ queryKey: ["/api/calls"] });
+    },
+    onError: (error) => {
+      toast({
+        title: "Delete Failed",
+        description: error.message || "Could not delete the call.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleDelete = (callId: string) => {
+    // Add a confirmation dialog to prevent accidental deletion
+    if (window.confirm("Are you sure you want to permanently delete this call and all its data?")) {
+      deleteMutation.mutate(callId);
+    }
+  };
+  
 if (isLoading) {
   return (
     <div className="flex items-center justify-center h-64">
