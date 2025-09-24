@@ -26,6 +26,7 @@ export interface IStorage {
   getCall(id: string): Promise<Call | undefined>;
   createCall(call: InsertCall): Promise<Call>;
   updateCall(id: string, updates: Partial<Call>): Promise<Call | undefined>;
+  deleteCall(id: string): Promise<void>;
   getCallsByEmployee(employeeId: string): Promise<Call[]>;
   getAllCalls(): Promise<Call[]>;
   getCallsWithDetails(): Promise<CallWithDetails[]>;
@@ -142,6 +143,17 @@ export class MemStorage implements IStorage {
     this.calls.set(id, updatedCall);
     return updatedCall;
   }
+
+  async deleteCall(id: string): Promise<void> {
+  // Delete the main call record
+  this.calls.delete(id);
+  // Delete the associated transcript
+  this.transcripts.delete(id);
+  // Delete the associated sentiment analysis
+  this.sentimentAnalysis.delete(id);
+  // Delete the associated call analysis
+  this.callAnalysis.delete(id);
+}
 
   async getCallsByEmployee(employeeId: string): Promise<Call[]> {
     return Array.from(this.calls.values()).filter(call => call.employeeId === employeeId);
@@ -312,6 +324,7 @@ export class MemStorage implements IStorage {
     const callsWithDetails = await this.getCallsWithDetails();
     return callsWithDetails.filter(call => call.sentiment?.overallSentiment === sentiment);
   }
+
 }
 
 export const storage = new MemStorage();
