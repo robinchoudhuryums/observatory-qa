@@ -2,6 +2,7 @@ import 'dotenv/config';
 import fs from 'fs';
 import csv from 'csv-parser';
 import { DbStorage } from './server/storage';
+import dotenv from 'dotenv'; // <-- ADD THIS LINE
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -41,13 +42,11 @@ async function syncFromCSV() {
           continue;
         }
         try {
-          // --- NEW LOGIC: Check if employee already exists ---
           const existingEmployee = await storage.getEmployeeByEmail(employee.email);
 
           if (existingEmployee) {
             console.log(`Skipping existing employee: ${employee.name}`);
           } else {
-            // Only create if they don't exist
             await storage.createEmployee(employee);
             console.log(`Created new employee: ${employee.name}`);
           }
