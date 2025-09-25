@@ -2,7 +2,7 @@ import 'dotenv/config';
 import fs from 'fs';
 import csv from 'csv-parser';
 import { DbStorage } from './server/storage';
-import dotenv from 'dotenv'; // <-- ADD THIS LINE
+import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -31,10 +31,7 @@ async function syncFromCSV() {
         name: row["Agent Name"],
         role: row.Department,
         email: `${row.Extension}@company.com`,
-        initials: row["Agent Name"] ? (
-  (parts => parts.length > 1 ? `${parts[0][0]}${parts[parts.length - 1][0]}` : parts[0].slice(0, 2))
-  (row["Agent Name"].split(' '))
-).toUpperCase() : 'XX',
+        status: row.Status, // Read the status column
       });
     })
     .on('end', async () => {
@@ -48,8 +45,15 @@ async function syncFromCSV() {
           const existingEmployee = await storage.getEmployeeByEmail(employee.email);
 
           if (existingEmployee) {
-            console.log(`Skipping existing employee: ${employee.name}`);
+            // If employee exists, update their status if it's different
+            if (existingEmployee.status !== employee.status) {
+              await storage.updateEmployee(existingEmployee.id, { status: employee.status });
+              console.log(`Updated status for: ${employee.name} to ${employee.status}`);
+            } else {
+              console.log(`Skipping existing employee: ${employee.name}`);
+            }
           } else {
+            // If employee does not exist, create them
             await storage.createEmployee(employee);
             console.log(`Created new employee: ${employee.name}`);
           }
