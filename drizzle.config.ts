@@ -1,12 +1,21 @@
 import { defineConfig } from "drizzle-kit";
-import "dotenv/config"; // This line loads your .env file and environment variables
+import dotenv from "dotenv";
+
+// Explicitly load environment variables
+dotenv.config();
+
+const databaseUrl = process.env.DATABASE_URL;
+
+// This check will give a clear error if the URL is not found
+if (!databaseUrl) {
+  throw new Error("DATABASE_URL environment variable is not set or not accessible!");
+}
 
 export default defineConfig({
   schema: "./server/db/schema.ts",
   dialect: "postgresql",
   dbCredentials: {
-    // This now correctly reads your DATABASE_URL from the Codespaces secrets
-    url: process.env.DATABASE_URL!, 
+    url: databaseUrl,
   },
   verbose: true,
   strict: true,
