@@ -1,16 +1,13 @@
+import 'dotenv/config';
 import fs from 'fs';
 import csv from 'csv-parser';
 import { DbStorage } from './server/storage';
-import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// --- ADD THIS BLOCK TO DEFINE __dirname ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-// --- END OF BLOCK ---
 
-// This logic now works because __dirname is defined
 const envPath = path.resolve(__dirname, '.env');
 const envConfig = dotenv.parse(fs.readFileSync(envPath));
 const databaseUrl = envConfig.DATABASE_URL;
@@ -19,9 +16,7 @@ if (!databaseUrl) {
   throw new Error("Could not find DATABASE_URL in the .env file.");
 }
 
-// Create a new storage instance, passing the URL directly
 const storage = new DbStorage(databaseUrl); 
-
 const csvFilePath = './employees.csv';
 
 async function syncFromCSV() {
@@ -41,13 +36,21 @@ async function syncFromCSV() {
     .on('end', async () => {
       console.log('CSV file successfully processed. Starting database sync...');
       for (const employee of employeesFromCSV) {
-        if (!employee.name) {
-          console.log("Skipping empty row...");
+        if (!employee.name || !employee.email) {
+          console.log("Skipping row with missing name or email...");
           continue;
         }
         try {
-          await storage.createEmployee(employee);
-          console.log(`Synced: ${employee.name}`);
+          // --- NEW LOGIC: Check if employee already exists ---
+          const existingEmployee = await storage.getEmployeeByEmail(employee.email);
+
+          if (existingEmployee) {
+            console.log(`Skipping existing employee: ${employee.name}`);
+          } else {
+            // Only create if they don't exist
+            await storage.createEmployee(employee);
+            console.log(`Created new employee: ${employee.name}`);
+          }
         } catch (error) {
           console.error(`Failed to sync ${employee.name}:`, error);
         }
