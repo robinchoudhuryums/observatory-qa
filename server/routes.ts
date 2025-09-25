@@ -83,30 +83,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get all calls with details
-  app.get("/api/calls", async (req, res) => {
-    try {
-      const { status, sentiment, employee, search } = req.query;
-      let calls = await storage.getCallsWithDetails();
-
-      // Apply filters
-      if (status) {
-        calls = calls.filter(call => call.status === status);
-      }
-      if (sentiment) {
-        calls = calls.filter(call => call.sentiment?.overallSentiment === sentiment);
-      }
-      if (employee) {
-        calls = calls.filter(call => call.employeeId === employee);
-      }
-      if (search) {
-        calls = await storage.searchCalls(search as string);
-      }
-
-      res.json(calls);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to get calls" });
-    }
-  });
+app.get("/api/calls", async (req, res) => {
+  try {
+    const { status, sentiment, employee } = req.query;
+    // Pass the filters directly to the storage function
+    const calls = await storage.getCallsWithDetails({ 
+      status: status as string, 
+      sentiment: sentiment as string, 
+      employee: employee as string 
+    });
+    res.json(calls);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to get calls" });
+  }
+});
 
   // Get single call with details
   app.get("/api/calls/:id", async (req, res) => {

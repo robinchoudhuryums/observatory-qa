@@ -127,8 +127,13 @@ async getAllEmployees() {
   async getAllCalls() {
     return await this.db.query.calls.findMany({ orderBy: [desc(schema.calls.uploadedAt)] });
   }
-  async getCallsWithDetails(filters: { status?: string; sentiment?: string; employee?: string; } = {}) {
-    return await this.db.query.calls.findMany({
+// In server/storage.ts, inside the DbStorage class
+  async getCallsWithDetails(filters: { status?: string; sentiment?: string; employee?: string; } = {}): Promise<CallWithDetails[]> {
+    console.log("Fetching calls with details, using filters:", filters);
+
+    // This query tells Drizzle to fetch calls and include all their related data
+    // from the other tables (employee, transcript, etc.)
+    const calls = await this.db.query.calls.findMany({
       with: {
         employee: true,
         transcript: true,
@@ -136,9 +141,24 @@ async getAllEmployees() {
         analysis: true,
       },
       orderBy: [desc(schema.calls.uploadedAt)],
-      // Note: Filtering directly in the database is more efficient, 
-      // but requires more complex queries. This implementation filters in memory.
     });
+
+    console.log(`Found ${calls.length} total calls with details from the database.`);
+
+    // --- In-memory filtering (can be moved to the database for more efficiency later) ---
+    let filteredCalls = calls;
+    if (filters.status) {
+      filteredCalls = filteredCalls.filter(call => call.status === filters.status);
+    }
+    if (filters.sentiment) {
+      filteredCalls = filteredCalls.filter(call => call.sentiment?.overallSentiment === filters.sentiment);
+    }
+    if (filters.employee) {
+      filteredCalls = filteredCalls.filter(call => call.employeeId === filters.employee);
+    }
+    
+    console.log(`Returning ${filteredCalls.length} filtered calls to the front-end.`);
+    return filteredCalls as CallWithDetails[];
   }
 
   // --- Transcript Methods ---
