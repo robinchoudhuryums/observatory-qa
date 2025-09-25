@@ -1,33 +1,44 @@
-import 'dotenv/config';
 import fs from 'fs';
 import csv from 'csv-parser';
-import { storage } from './server/storage'; // Make sure this path is correct
+import { DbStorage } from './server/storage'; // Import the class directly
+import dotenv from 'dotenv';
+import path from 'path';
 
-const csvFilePath = './employees.csv'; // The CSV file you uploaded
+// --- NEW LOGIC TO READ .env MANUALLY ---
+const envPath = path.resolve(__dirname, '.env');
+const envConfig = dotenv.parse(fs.readFileSync(envPath));
+const databaseUrl = envConfig.DATABASE_URL;
+
+if (!databaseUrl) {
+  throw new Error("Could not find DATABASE_URL in the .env file.");
+}
+// --- END OF NEW LOGIC ---
+
+// Create a new storage instance, passing the URL directly
+const storage = new DbStorage(databaseUrl); 
+
+const csvFilePath = './employees.csv';
 
 async function syncFromCSV() {
   const employeesFromCSV: any[] = [];
-
   console.log('Reading employees from CSV file...');
 
   fs.createReadStream(csvFilePath)
     .pipe(csv())
     .on('data', (row) => {
-      // Reads from the "Name", "Department", and "Extension" columns in your CSV
-    employeesFromCSV.push({
-    name: row["Agent Name"], // This now correctly reads the "Agent Name" column
-    role: row.Department,
-    email: `${row.Extension}@company.com`,
-    initials: row["Agent Name"] ? row["Agent Name"].split(' ').map((n: string) => n[0]).join('') : 'XX',
-    });
+      employeesFromCSV.push({
+        name: row["Agent Name"],
+        role: row.Department,
+        email: `${row.Extension}@company.com`,
+        initials: row["Agent Name"] ? row["Agent Name"].split(' ').map((n: string) => n[0]).join('') : 'XX',
+      });
     })
     .on('end', async () => {
       console.log('CSV file successfully processed. Starting database sync...');
-      
       for (const employee of employeesFromCSV) {
         if (!employee.name) {
-            console.log("Skipping empty row...");
-            continue;
+          console.log("Skipping empty row...");
+          continue;
         }
         try {
           await storage.createEmployee(employee);
@@ -36,9 +47,7 @@ async function syncFromCSV() {
           console.error(`Failed to sync ${employee.name}:`, error);
         }
       }
-      
       console.log('Database sync complete!');
-      // process.exit(0) is removed to allow the script to exit naturally in Codespaces
     });
 }
 

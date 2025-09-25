@@ -57,14 +57,14 @@ export interface IStorage {
 export class DbStorage implements IStorage {
   private db;
 
-  constructor() {
-    if (!process.env.DATABASE_URL) {
-      throw new Error("DATABASE_URL environment variable is not set.");
+  constructor(databaseUrl?: string) {
+    const connectionString = databaseUrl || process.env.DATABASE_URL;
+
+    if (!connectionString) {
+      throw new Error("DATABASE_URL is not set in environment or passed to constructor.");
     }
 
-    const pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-    });
+    const pool = new Pool({ connectionString });
     this.db = drizzle(pool, { schema });
   }
 
