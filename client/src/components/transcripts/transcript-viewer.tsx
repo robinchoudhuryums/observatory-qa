@@ -181,7 +181,7 @@ if (isLoading) {
                   {call.sentiment.overallSentiment.charAt(0).toUpperCase() + call.sentiment.overallSentiment.slice(1)}
                 </Badge>
               ) : 'Unknown'}</p>
-              <p><strong>Performance Score:</strong> {call.analysis?.performanceScore?.toFixed(1) || 'N/A'}/10</p>
+<p><strong>Performance Score:</strong> {call.analysis?.performanceScore ? Number(call.analysis.performanceScore).toFixed(1) : 'N/A'}/10</p>
             </div>
           </div>
 
