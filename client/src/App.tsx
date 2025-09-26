@@ -6,6 +6,9 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import Dashboard from "@/pages/dashboard";
 import Upload from "@/pages/upload";
 import Transcripts from "@/pages/transcripts";
+import PerformancePage from "@/pages/performance";
+import SentimentPage from "@/pages/sentiment";
+import ReportsPage from "@/pages/reports";
 import SearchPage from "@/pages/search"; // Using the simplified search page
 import NotFound from "@/pages/not-found";
 import Sidebar from "@/components/layout/sidebar";
@@ -22,7 +25,9 @@ function Router() {
           <Route path="/transcripts" component={Transcripts} />
           <Route path="/transcripts/:id" component={Transcripts} />
           <Route path="/search" component={SearchPage} />
-          {/* Add other page routes back here if you have them */}
+          <Route path="/performance" component={PerformancePage} />
+          <Route path="/sentiment" component={SentimentPage} />
+          <Route path="/reports" component={ReportsPage} />
           <Route component={NotFound} />
         </Switch>
       </main>
