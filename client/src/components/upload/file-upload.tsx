@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { useDropzone } from "react-dropzone";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+// --- THIS LINE IS THE FIX ---
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CloudUpload, FileAudio, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -90,9 +91,6 @@ export default function FileUpload() {
   };
 
   const uploadAll = () => {
-    // --- THIS IS THE CRUCIAL TEST ---
-    console.log("--- 'Upload All' button was clicked. Attempting to start upload process. ---");
-
     uploadFiles.forEach((file, index) => {
       if (file.status === 'pending' && file.employeeId) {
         uploadFile(index);
@@ -140,3 +138,4 @@ export default function FileUpload() {
     </div>
   );
 }
+
