@@ -56,6 +56,7 @@ export const analyses = pgTable('analyses', {
   summary: text('summary'),
   actionItems: jsonb('action_items'),
   feedback: jsonb('feedback'),
+  lemurResponse: jsonb('lemur_response'), // <-- ADD THIS LINE
   createdAt: timestamp('created_at').defaultNow(),
 });
 
