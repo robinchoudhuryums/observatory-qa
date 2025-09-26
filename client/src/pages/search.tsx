@@ -55,12 +55,14 @@ export default function SearchPage() {
   const isLoading = isLoadingSearch || isLoadingCalls;
 
   const getSentimentBadge = (sentiment?: string) => {
+    console.log('Sentiment:', sentiment); 
     if (!sentiment) return <Badge variant="secondary">Unknown</Badge>;
     const variants: Record<string, any> = { positive: "default", neutral: "secondary", negative: "destructive" };
     return <Badge variant={variants[sentiment] || "secondary"}>{sentiment.charAt(0).toUpperCase() + sentiment.slice(1)}</Badge>;
   };
 
   const getStatusBadge = (status?: string) => {
+    console.log('Status:', status); 
     if (!status) return <Badge variant="secondary">Unknown</Badge>;
     const colors: Record<string, string> = { completed: "bg-green-100 text-green-800", processing: "bg-blue-100 text-blue-800", failed: "bg-red-100 text-red-800" };
     return <Badge className={colors[status] || "bg-gray-100 text-gray-800"}>{status.charAt(0).toUpperCase() + status.slice(1)}</Badge>;
