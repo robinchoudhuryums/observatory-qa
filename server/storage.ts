@@ -113,8 +113,16 @@ async getAllEmployees() {
   async getCall(id: string) {
     return await this.db.query.calls.findFirst({ where: eq(schema.calls.id, id) });
   }
-  async createCall(call: InsertCall) {
-    const result = await this.db.insert(schema.calls).values(call).returning();
+  async createCall(call: InsertCall): Promise<Call> {
+    const newId = randomUUID(); // 1. Generate a new unique ID
+
+    const newCall = {
+      ...call,
+      id: newId, // 2. Add the new ID to the call object
+    };
+    
+    // 3. Save the complete object (with an ID) to the database
+    const result = await this.db.insert(schema.calls).values(newCall).returning();
     return result[0];
   }
   async updateCall(id: string, updates: Partial<Call>) {
