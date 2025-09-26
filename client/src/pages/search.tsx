@@ -81,7 +81,12 @@ export default function SearchPage() {
                 <SelectTrigger><User className="w-4 h-4 mr-2" /><SelectValue placeholder="All Employees" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Employees</SelectItem>
-                  {employees?.map((employee) => (<SelectItem key={employee.id} value={employee.id}>{employee.name}</SelectItem>))}
+                  {/* --- FINAL SAFETY CHECK ADDED HERE --- */}
+                  {employees?.filter(e => e && e.id && e.name).map((employee) => (
+                    <SelectItem key={employee.id} value={employee.id}>
+                      {employee.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <Select value={sentimentFilter} onValueChange={setSentimentFilter}>
