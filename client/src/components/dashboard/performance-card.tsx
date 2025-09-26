@@ -1,7 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import type { Employee } from "@shared/schema";
+import { AudioWaveform } from "lucide-react";
 
-type TopPerformer = Employee & { score: number };
+// Define a more robust type for a performer
+type TopPerformer = Partial<Employee> & {
+  score?: number | null;
+  avgPerformanceScore?: number | null;
+  totalCalls?: number | null;
+};
 
 export default function PerformanceCard() {
   const { data: performers, isLoading } = useQuery<TopPerformer[]>({
@@ -23,13 +29,18 @@ export default function PerformanceCard() {
     );
   }
 
-  const getInitialsColor = (initials: string) => {
+  // A safer way to get the color for initials
+  const getInitialsColor = (initials?: string | null) => {
     const colors = [
       'bg-green-100 text-green-600',
       'bg-blue-100 text-blue-600',
       'bg-purple-100 text-purple-600',
       'bg-orange-100 text-orange-600',
     ];
+    // Safety check: if initials are missing, return a default color
+    if (!initials) {
+      return colors[0];
+    }
     return colors[initials.charCodeAt(0) % colors.length];
   };
 
@@ -43,27 +54,28 @@ export default function PerformanceCard() {
       </div>
       
       <div className="space-y-4">
-        {performers?.map((employee, index) => (
+        {/* Add a filter to remove any invalid performer data before rendering */}
+        {performers?.filter(p => p && p.id && p.name).map((employee, index) => (
           <div key={employee.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
             <div className="flex items-center space-x-3">
               <div className={`w-10 h-10 rounded-full flex items-center justify-center ${getInitialsColor(employee.initials)}`}>
-                <span className="font-semibold text-sm">{employee.initials}</span>
+                <span className="font-semibold text-sm">{employee.initials ?? 'N/A'}</span>
               </div>
               <div>
                 <p className="font-medium text-foreground" data-testid={`performer-name-${index}`}>
-                  {employee.name}
+                  {employee.name ?? 'Unknown Employee'}
                 </p>
-                <p className="text-sm text-muted-foreground">{employee.role}</p>
+                <p className="text-sm text-muted-foreground">{employee.role ?? 'No role'}</p>
               </div>
             </div>
             <div className="text-right">
               <p className="font-bold text-green-600" data-testid={`performer-score-${index}`}>
-                {employee.score}
+                {(employee.score ?? employee.avgPerformanceScore)?.toFixed(1) ?? 'N/A'}
               </p>
               <p className="text-xs text-muted-foreground">Score</p>
             </div>
           </div>
-        )) ?? []}
+        ))}
 
         {!performers?.length && (
           <div className="text-center py-8">
