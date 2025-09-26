@@ -9,6 +9,7 @@ import Transcripts from "@/pages/transcripts";
 import SentimentPage from "@/pages/sentiment";
 import PerformancePage from "@/pages/performance";
 import ReportsPage from "@/pages/reports";
+import SearchV2Page from "@/pages/search-v2";
 import Search from "@/pages/search";
 import NotFound from "@/pages/not-found";
 import Sidebar from "@/components/layout/sidebar";
@@ -23,7 +24,7 @@ function Router() {
           <Route path="/upload" component={Upload} />
           <Route path="/transcripts" component={Transcripts} />
           <Route path="/transcripts/:id" component={Transcripts} />
-          <Route path="/search" component={Search} />
+          <Route path="/search" component={SearchV2Page} />
           <Route path="/sentiment" component={SentimentPage} />
           <Route path="/performance" component={PerformancePage} />
           <Route path="/reports" component={ReportsPage} />
