@@ -186,7 +186,21 @@ export class GeminiService {
     }
 
     const result = await response.json();
-    const responseText = result.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+    // Gemini 2.5+ models may return a "thought" part before the actual text.
+    // Iterate all parts to find the one with our JSON response.
+    const parts = result.candidates?.[0]?.content?.parts || [];
+    let responseText = "";
+    for (const part of parts) {
+      if (part.text && !part.thought) {
+        responseText = part.text;
+        break;
+      }
+    }
+    // Fallback: if no non-thought part found, use the last part's text
+    if (!responseText && parts.length > 0) {
+      responseText = parts[parts.length - 1].text || "";
+    }
 
     // Extract JSON from response (handle potential markdown fences)
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
@@ -195,7 +209,13 @@ export class GeminiService {
       throw new Error("Gemini response did not contain valid JSON");
     }
 
-    const analysis: GeminiAnalysis = JSON.parse(jsonMatch[0]);
+    let analysis: GeminiAnalysis;
+    try {
+      analysis = JSON.parse(jsonMatch[0]);
+    } catch (parseError) {
+      console.warn(`[${callId}] JSON parse failed:`, (parseError as Error).message, responseText.slice(0, 300));
+      throw new Error("Gemini response contained malformed JSON");
+    }
     console.log(`[${callId}] Gemini analysis complete (score: ${analysis.performance_score}/10, sentiment: ${analysis.sentiment})`);
     return analysis;
   }
