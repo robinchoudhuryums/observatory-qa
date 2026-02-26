@@ -6,6 +6,7 @@ import fs from "fs";
 import passport from "passport";
 import { storage } from "./storage";
 import { assemblyAIService } from "./services/assemblyai";
+import { geminiService } from "./services/gemini";
 import { requireAuth } from "./auth";
 import { insertEmployeeSchema } from "@shared/schema";
 import { z } from "zod";
@@ -266,19 +267,23 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
     }
     console.log(`[${callId}] Step 3/7: Polling complete. Status: ${transcriptResponse.status}`);
 
-    // Step 4: Submit task to LeMUR (optional — account may not have access)
-    let lemurResponse = null;
-    try {
-      console.log(`[${callId}] Step 4/6: Submitting task to LeMUR...`);
-      lemurResponse = await assemblyAIService.submitLeMURTask(transcriptId);
-      console.log(`[${callId}] Step 4/6: LeMUR analysis complete.`);
-    } catch (lemurError) {
-      console.warn(`[${callId}] LeMUR unavailable (continuing without AI analysis):`, (lemurError as Error).message);
+    // Step 4: AI analysis via Gemini (or fall back to defaults)
+    let geminiAnalysis = null;
+    if (geminiService.isAvailable && transcriptResponse.text) {
+      try {
+        console.log(`[${callId}] Step 4/6: Running Gemini AI analysis...`);
+        geminiAnalysis = await geminiService.analyzeCallTranscript(transcriptResponse.text, callId);
+        console.log(`[${callId}] Step 4/6: Gemini analysis complete.`);
+      } catch (geminiError) {
+        console.warn(`[${callId}] Gemini analysis failed (continuing with defaults):`, (geminiError as Error).message);
+      }
+    } else if (!geminiService.isAvailable) {
+      console.log(`[${callId}] Step 4/6: Gemini not configured, using transcript-based defaults.`);
     }
 
     // Step 5: Process combined results
-    console.log(`[${callId}] Step 5/6: Processing combined transcript and LeMUR data...`);
-    const { transcript, sentiment, analysis } = assemblyAIService.processTranscriptData(transcriptResponse, lemurResponse, callId);
+    console.log(`[${callId}] Step 5/6: Processing combined transcript and analysis data...`);
+    const { transcript, sentiment, analysis } = assemblyAIService.processTranscriptData(transcriptResponse, geminiAnalysis, callId);
     console.log(`[${callId}] Step 5/6: Data processing complete.`);
 
     // Step 6: Store rich results in GCS
