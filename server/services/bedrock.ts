@@ -57,8 +57,9 @@ export class BedrockProvider implements AIAnalysisProvider {
     const prompt = buildAnalysisPrompt(transcriptText);
     const region = this.credentials.region;
     const host = `bedrock-runtime.${region}.amazonaws.com`;
-    const path = `/model/${encodeURIComponent(this.model)}/converse`;
-    const url = `https://${host}${path}`;
+    // Raw path for the HTTP request (no encoding — colons in model IDs are fine)
+    const rawPath = `/model/${this.model}/converse`;
+    const url = `https://${host}${rawPath}`;
 
     const body = JSON.stringify({
       messages: [
@@ -72,10 +73,10 @@ export class BedrockProvider implements AIAnalysisProvider {
 
     console.log(`[${callId}] Calling Bedrock (${this.model}) for analysis...`);
 
-    const headers = this.signRequest("POST", host, path, body, region);
+    const headers = this.signRequest("POST", host, rawPath, body, region);
     const response = await fetch(url, {
       method: "POST",
-      headers: { ...headers, "Content-Type": "application/json" },
+      headers,
       body,
     });
 
@@ -100,7 +101,7 @@ export class BedrockProvider implements AIAnalysisProvider {
   private signRequest(
     method: string,
     host: string,
-    path: string,
+    rawPath: string,
     body: string,
     region: string,
   ): Record<string, string> {
@@ -112,18 +113,26 @@ export class BedrockProvider implements AIAnalysisProvider {
 
     const payloadHash = sha256(body);
 
+    // SigV4: canonical URI must have each path segment URI-encoded once
+    const canonicalUri = rawPath
+      .split("/")
+      .map((seg) => encodeURIComponent(seg))
+      .join("/");
+
+    // Headers must be sorted alphabetically by name for canonical form
     const canonicalHeaders =
+      `content-type:application/json\n` +
       `host:${host}\n` +
       `x-amz-date:${amzDate}\n` +
       (creds.sessionToken ? `x-amz-security-token:${creds.sessionToken}\n` : "");
 
     const signedHeaders = creds.sessionToken
-      ? "host;x-amz-date;x-amz-security-token"
-      : "host;x-amz-date";
+      ? "content-type;host;x-amz-date;x-amz-security-token"
+      : "content-type;host;x-amz-date";
 
     const canonicalRequest = [
       method,
-      path,
+      canonicalUri,
       "", // query string
       canonicalHeaders,
       signedHeaders,
@@ -147,6 +156,7 @@ export class BedrockProvider implements AIAnalysisProvider {
       `Signature=${signature}`;
 
     const headers: Record<string, string> = {
+      "Content-Type": "application/json",
       "Host": host,
       "X-Amz-Date": amzDate,
       "Authorization": authHeader,
