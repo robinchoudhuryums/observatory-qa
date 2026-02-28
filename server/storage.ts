@@ -16,6 +16,8 @@ import {
   type SentimentDistribution,
   type AccessRequest,
   type InsertAccessRequest,
+  type PromptTemplate,
+  type InsertPromptTemplate,
 } from "@shared/schema";
 import { GcsClient } from "./services/gcs";
 import { S3Client } from "./services/s3";
@@ -86,6 +88,14 @@ export interface IStorage {
   getAccessRequest(id: string): Promise<AccessRequest | undefined>;
   updateAccessRequest(id: string, updates: Partial<AccessRequest>): Promise<AccessRequest | undefined>;
 
+  // Prompt template operations
+  getPromptTemplate(id: string): Promise<PromptTemplate | undefined>;
+  getPromptTemplateByCategory(callCategory: string): Promise<PromptTemplate | undefined>;
+  getAllPromptTemplates(): Promise<PromptTemplate[]>;
+  createPromptTemplate(template: InsertPromptTemplate): Promise<PromptTemplate>;
+  updatePromptTemplate(id: string, updates: Partial<PromptTemplate>): Promise<PromptTemplate | undefined>;
+  deletePromptTemplate(id: string): Promise<void>;
+
   // Data retention
   purgeExpiredCalls(retentionDays: number): Promise<number>;
 }
@@ -102,6 +112,7 @@ export class MemStorage implements IStorage {
   private analyses = new Map<string, CallAnalysis>();
   private audioFiles = new Map<string, Buffer>(); // objectName -> buffer
   private accessRequests = new Map<string, AccessRequest>();
+  private promptTemplates = new Map<string, PromptTemplate>();
 
   async getUser(_id: string): Promise<User | undefined> { return undefined; }
   async getUserByUsername(_username: string): Promise<User | undefined> { return undefined; }
@@ -303,6 +314,33 @@ export class MemStorage implements IStorage {
     const updated = { ...req, ...updates };
     this.accessRequests.set(id, updated);
     return updated;
+  }
+
+  // Prompt template operations
+  async getPromptTemplate(id: string): Promise<PromptTemplate | undefined> {
+    return this.promptTemplates.get(id);
+  }
+  async getPromptTemplateByCategory(callCategory: string): Promise<PromptTemplate | undefined> {
+    return Array.from(this.promptTemplates.values()).find(t => t.callCategory === callCategory && t.isActive);
+  }
+  async getAllPromptTemplates(): Promise<PromptTemplate[]> {
+    return Array.from(this.promptTemplates.values());
+  }
+  async createPromptTemplate(template: InsertPromptTemplate): Promise<PromptTemplate> {
+    const id = randomUUID();
+    const newTemplate: PromptTemplate = { ...template, id, updatedAt: new Date().toISOString() };
+    this.promptTemplates.set(id, newTemplate);
+    return newTemplate;
+  }
+  async updatePromptTemplate(id: string, updates: Partial<PromptTemplate>): Promise<PromptTemplate | undefined> {
+    const tmpl = this.promptTemplates.get(id);
+    if (!tmpl) return undefined;
+    const updated = { ...tmpl, ...updates, updatedAt: new Date().toISOString() };
+    this.promptTemplates.set(id, updated);
+    return updated;
+  }
+  async deletePromptTemplate(id: string): Promise<void> {
+    this.promptTemplates.delete(id);
   }
 
   async purgeExpiredCalls(retentionDays: number): Promise<number> {
@@ -662,6 +700,34 @@ export class CloudStorage implements IStorage {
     const updated = { ...req, ...updates };
     await this.client.uploadJson(`access-requests/${id}.json`, updated);
     return updated;
+  }
+
+  // --- Prompt Template Methods ---
+  async getPromptTemplate(id: string): Promise<PromptTemplate | undefined> {
+    return this.client.downloadJson<PromptTemplate>(`prompt-templates/${id}.json`);
+  }
+  async getPromptTemplateByCategory(callCategory: string): Promise<PromptTemplate | undefined> {
+    const all = await this.getAllPromptTemplates();
+    return all.find(t => t.callCategory === callCategory && t.isActive);
+  }
+  async getAllPromptTemplates(): Promise<PromptTemplate[]> {
+    return this.client.listAndDownloadJson<PromptTemplate>("prompt-templates/");
+  }
+  async createPromptTemplate(template: InsertPromptTemplate): Promise<PromptTemplate> {
+    const id = randomUUID();
+    const newTemplate: PromptTemplate = { ...template, id, updatedAt: new Date().toISOString() };
+    await this.client.uploadJson(`prompt-templates/${id}.json`, newTemplate);
+    return newTemplate;
+  }
+  async updatePromptTemplate(id: string, updates: Partial<PromptTemplate>): Promise<PromptTemplate | undefined> {
+    const tmpl = await this.getPromptTemplate(id);
+    if (!tmpl) return undefined;
+    const updated = { ...tmpl, ...updates, updatedAt: new Date().toISOString() };
+    await this.client.uploadJson(`prompt-templates/${id}.json`, updated);
+    return updated;
+  }
+  async deletePromptTemplate(id: string): Promise<void> {
+    await this.client.deleteObject(`prompt-templates/${id}.json`);
   }
 
   // --- Data Retention ---

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Play, Pause, Download, Clock, FileText, AlertTriangle, Shield, Pencil, X, Save, History, Award, Gauge } from "lucide-react";
+import { Play, Pause, Download, Clock, FileText, AlertTriangle, Shield, Pencil, X, Save, History, Award, Gauge, ShieldQuestion } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -645,6 +645,52 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
               <Badge variant="outline" className="capitalize">{(call.analysis.callPartyType as string).replace(/_/g, " ")}</Badge>
             </div>
           )}
+
+          {/* AI Confidence Score */}
+          {call.analysis?.confidenceScore && (() => {
+            const confidence = parseFloat(call.analysis.confidenceScore as string);
+            const isLow = confidence < 0.7;
+            const pct = (confidence * 100).toFixed(0);
+            const factors = call.analysis.confidenceFactors as { transcriptConfidence?: number; wordCount?: number; callDuration?: number; aiAnalysis?: boolean } | undefined;
+            const barColor = isLow ? "from-yellow-500 to-amber-400" : confidence >= 0.85 ? "from-green-500 to-emerald-400" : "from-blue-500 to-cyan-400";
+            const bgClass = isLow
+              ? "bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-900"
+              : "bg-muted";
+            return (
+              <div className={`rounded-lg p-4 ${bgClass}`}>
+                <h4 className={`font-semibold mb-2 flex items-center gap-1.5 ${isLow ? "text-yellow-700 dark:text-yellow-400" : "text-foreground"}`}>
+                  <ShieldQuestion className="w-4 h-4" /> AI Confidence
+                </h4>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-lg font-bold ${isLow ? "text-yellow-600 dark:text-yellow-400" : "text-foreground"}`}>{pct}%</span>
+                    {isLow && <Badge className="bg-yellow-200 text-yellow-900 dark:bg-yellow-900 dark:text-yellow-300 text-xs">Needs Review</Badge>}
+                  </div>
+                  <div className="w-full h-2 bg-muted-foreground/20 rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full bg-gradient-to-r ${barColor}`} style={{ width: `${pct}%` }} />
+                  </div>
+                  {factors && (
+                    <div className="text-xs text-muted-foreground space-y-0.5 mt-2">
+                      {factors.transcriptConfidence !== undefined && (
+                        <p>Transcript clarity: {(factors.transcriptConfidence * 100).toFixed(0)}%</p>
+                      )}
+                      {factors.wordCount !== undefined && (
+                        <p>Word count: {factors.wordCount} words</p>
+                      )}
+                      {factors.callDuration !== undefined && (
+                        <p>Call duration: {factors.callDuration}s</p>
+                      )}
+                    </div>
+                  )}
+                  {isLow && (
+                    <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
+                      This analysis may be less reliable. Consider manual review.
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>

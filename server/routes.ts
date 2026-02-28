@@ -10,7 +10,7 @@ import { aiProvider } from "./services/ai-factory";
 import { buildAgentSummaryPrompt } from "./services/ai-provider";
 import { requireAuth, requireRole } from "./auth";
 import { broadcastCallUpdate } from "./services/websocket";
-import { insertEmployeeSchema, insertAccessRequestSchema } from "@shared/schema";
+import { insertEmployeeSchema, insertAccessRequestSchema, insertPromptTemplateSchema } from "@shared/schema";
 import { z } from "zod";
 import csv from "csv-parser";
 
@@ -125,6 +125,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(updated);
     } catch (error) {
       res.status(500).json({ message: "Failed to update access request" });
+    }
+  });
+
+  // ==================== PROMPT TEMPLATE ROUTES (admin only) ====================
+
+  app.get("/api/prompt-templates", requireAuth, requireRole("admin"), async (_req, res) => {
+    try {
+      const templates = await storage.getAllPromptTemplates();
+      res.json(templates);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch prompt templates" });
+    }
+  });
+
+  app.post("/api/prompt-templates", requireAuth, requireRole("admin"), async (req, res) => {
+    try {
+      const parsed = insertPromptTemplateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ message: "Invalid template data", errors: parsed.error.flatten() });
+        return;
+      }
+      const template = await storage.createPromptTemplate({
+        ...parsed.data,
+        updatedBy: req.user?.username,
+      });
+      res.status(201).json(template);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to create prompt template" });
+    }
+  });
+
+  app.patch("/api/prompt-templates/:id", requireAuth, requireRole("admin"), async (req, res) => {
+    try {
+      const updated = await storage.updatePromptTemplate(req.params.id, {
+        ...req.body,
+        updatedBy: req.user?.username,
+      });
+      if (!updated) {
+        res.status(404).json({ message: "Template not found" });
+        return;
+      }
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update prompt template" });
+    }
+  });
+
+  app.delete("/api/prompt-templates/:id", requireAuth, requireRole("admin"), async (req, res) => {
+    try {
+      await storage.deletePromptTemplate(req.params.id);
+      res.json({ message: "Template deleted" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete template" });
     }
   });
 
@@ -433,10 +486,30 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
     // Step 4: AI analysis (Gemini or Bedrock/Claude — or fall back to defaults)
     broadcastCallUpdate(callId, "analyzing", { step: 4, totalSteps: 6, label: "Running AI analysis..." });
     let aiAnalysis = null;
+
+    // Load custom prompt template for this call category (if configured)
+    let promptTemplate = undefined;
+    if (callCategory) {
+      try {
+        const tmpl = await storage.getPromptTemplateByCategory(callCategory);
+        if (tmpl) {
+          promptTemplate = {
+            evaluationCriteria: tmpl.evaluationCriteria,
+            requiredPhrases: tmpl.requiredPhrases,
+            scoringWeights: tmpl.scoringWeights,
+            additionalInstructions: tmpl.additionalInstructions,
+          };
+          console.log(`[${callId}] Using custom prompt template: ${tmpl.name}`);
+        }
+      } catch (tmplError) {
+        console.warn(`[${callId}] Failed to load prompt template (using defaults):`, (tmplError as Error).message);
+      }
+    }
+
     if (aiProvider.isAvailable && transcriptResponse.text) {
       try {
         console.log(`[${callId}] Step 4/6: Running AI analysis (${aiProvider.name})...`);
-        aiAnalysis = await aiProvider.analyzeCallTranscript(transcriptResponse.text, callId, callCategory);
+        aiAnalysis = await aiProvider.analyzeCallTranscript(transcriptResponse.text, callId, callCategory, promptTemplate);
         console.log(`[${callId}] Step 4/6: AI analysis complete.`);
       } catch (aiError) {
         console.warn(`[${callId}] AI analysis failed (continuing with defaults):`, (aiError as Error).message);
@@ -449,7 +522,45 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
     broadcastCallUpdate(callId, "processing", { step: 5, totalSteps: 6, label: "Processing results..." });
     console.log(`[${callId}] Step 5/6: Processing combined transcript and analysis data...`);
     const { transcript, sentiment, analysis } = assemblyAIService.processTranscriptData(transcriptResponse, aiAnalysis, callId);
-    console.log(`[${callId}] Step 5/6: Data processing complete.`);
+
+    // Compute confidence score based on transcript quality and analysis completeness
+    const transcriptConfidence = transcriptResponse.confidence || 0;
+    const wordCount = transcriptResponse.words?.length || 0;
+    const callDuration = Math.floor((transcriptResponse.words?.[transcriptResponse.words.length - 1]?.end || 0) / 1000);
+    const hasAiAnalysis = aiAnalysis !== null;
+
+    // Factors: transcript confidence (0-1), word count adequacy, AI analysis success, call duration
+    const wordConfidence = Math.min(wordCount / 50, 1); // <50 words = low confidence
+    const durationConfidence = callDuration > 30 ? 1 : callDuration / 30; // <30s = low confidence
+    const aiConfidence = hasAiAnalysis ? 1 : 0.3;
+
+    const confidenceScore = (
+      transcriptConfidence * 0.4 +
+      wordConfidence * 0.2 +
+      durationConfidence * 0.15 +
+      aiConfidence * 0.25
+    );
+
+    const confidenceFactors = {
+      transcriptConfidence: Math.round(transcriptConfidence * 100) / 100,
+      wordCount,
+      callDurationSeconds: callDuration,
+      aiAnalysisCompleted: hasAiAnalysis,
+      overallScore: Math.round(confidenceScore * 100) / 100,
+    };
+
+    // Attach confidence to analysis
+    analysis.confidenceScore = confidenceScore.toFixed(3);
+    analysis.confidenceFactors = confidenceFactors;
+
+    // Flag low confidence
+    if (confidenceScore < 0.7) {
+      const existingFlags = (analysis.flags as string[]) || [];
+      existingFlags.push("low_confidence");
+      analysis.flags = existingFlags;
+    }
+
+    console.log(`[${callId}] Step 5/6: Data processing complete. Confidence: ${(confidenceScore * 100).toFixed(0)}%`);
 
     // Step 6: Store results
     broadcastCallUpdate(callId, "saving", { step: 6, totalSteps: 6, label: "Saving results..." });
@@ -1092,6 +1203,123 @@ app.get("/api/performance", requireAuth, async (req, res) => {
     res.status(500).json({ message: "Failed to delete call" });
   }
 });
+
+  // ==================== COMPANY INSIGHTS API ====================
+
+  app.get("/api/insights", requireAuth, async (_req, res) => {
+    try {
+      const allCalls = await storage.getCallsWithDetails();
+      const completed = allCalls.filter(c => c.status === "completed" && c.analysis);
+
+      // Aggregate topic frequency across all calls
+      const topicCounts = new Map<string, number>();
+      const complaintsAndFrustrations: Array<{ topic: string; callId: string; date: string; sentiment: string }> = [];
+      const escalationPatterns: Array<{ summary: string; callId: string; date: string; score: number }> = [];
+      const sentimentByWeek = new Map<string, { positive: number; neutral: number; negative: number; total: number }>();
+
+      for (const call of completed) {
+        const topics = (call.analysis?.topics as string[]) || [];
+        for (const t of topics) {
+          topicCounts.set(t, (topicCounts.get(t) || 0) + 1);
+        }
+
+        // Track negative/frustration calls
+        const sentiment = call.sentiment?.overallSentiment;
+        if (sentiment === "negative") {
+          for (const t of topics) {
+            complaintsAndFrustrations.push({
+              topic: t,
+              callId: call.id,
+              date: call.uploadedAt || "",
+              sentiment: sentiment,
+            });
+          }
+        }
+
+        // Track low-score calls as escalation patterns
+        const score = parseFloat(call.analysis?.performanceScore || "10");
+        if (score <= 4) {
+          escalationPatterns.push({
+            summary: call.analysis?.summary || "",
+            callId: call.id,
+            date: call.uploadedAt || "",
+            score,
+          });
+        }
+
+        // Weekly sentiment trend
+        if (call.uploadedAt) {
+          const d = new Date(call.uploadedAt);
+          const weekStart = new Date(d);
+          weekStart.setDate(d.getDate() - d.getDay());
+          const weekKey = weekStart.toISOString().slice(0, 10);
+          const entry = sentimentByWeek.get(weekKey) || { positive: 0, neutral: 0, negative: 0, total: 0 };
+          entry.total++;
+          if (sentiment === "positive") entry.positive++;
+          else if (sentiment === "negative") entry.negative++;
+          else entry.neutral++;
+          sentimentByWeek.set(weekKey, entry);
+        }
+      }
+
+      // Aggregate complaint topics (topics that appear in negative calls)
+      const complaintTopicCounts = new Map<string, number>();
+      for (const c of complaintsAndFrustrations) {
+        complaintTopicCounts.set(c.topic, (complaintTopicCounts.get(c.topic) || 0) + 1);
+      }
+
+      // Sort topics by frequency
+      const topTopics = Array.from(topicCounts.entries())
+        .map(([topic, count]) => ({ topic, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 20);
+
+      const topComplaints = Array.from(complaintTopicCounts.entries())
+        .map(([topic, count]) => ({ topic, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 15);
+
+      // Weekly trend sorted chronologically
+      const weeklyTrend = Array.from(sentimentByWeek.entries())
+        .map(([week, data]) => ({ week, ...data }))
+        .sort((a, b) => a.week.localeCompare(b.week));
+
+      // Low-confidence calls
+      const lowConfidenceCalls = completed
+        .filter(c => {
+          const conf = parseFloat(c.analysis?.confidenceScore || "1");
+          return conf < 0.7;
+        })
+        .map(c => ({
+          callId: c.id,
+          date: c.uploadedAt || "",
+          confidence: parseFloat(c.analysis?.confidenceScore || "0"),
+          employee: c.employee?.name || "Unassigned",
+        }));
+
+      res.json({
+        totalAnalyzed: completed.length,
+        topTopics,
+        topComplaints,
+        escalationPatterns: escalationPatterns.sort((a, b) => a.score - b.score).slice(0, 20),
+        weeklyTrend,
+        lowConfidenceCalls: lowConfidenceCalls.slice(0, 20),
+        summary: {
+          avgScore: completed.length > 0
+            ? completed.reduce((sum, c) => sum + parseFloat(c.analysis?.performanceScore || "0"), 0) / completed.length
+            : 0,
+          negativeCallRate: completed.length > 0
+            ? completed.filter(c => c.sentiment?.overallSentiment === "negative").length / completed.length
+            : 0,
+          escalationRate: completed.length > 0
+            ? escalationPatterns.length / completed.length
+            : 0,
+        },
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to compute company insights" });
+    }
+  });
 
   const httpServer = createServer(app);
   return httpServer;

@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Eye, Play, Download, Star, Trash2, UserCheck, AlertTriangle, Award, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, CheckSquare, Square, FileAudio } from "lucide-react";
+import { Eye, Play, Download, Star, Trash2, UserCheck, AlertTriangle, Award, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, CheckSquare, Square, FileAudio, ShieldQuestion } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
@@ -409,6 +409,7 @@ export default function CallsTable() {
                       const flags = call.analysis.flags as string[];
                       const hasExceptional = flags.includes("exceptional_call");
                       const hasBad = flags.some(f => f === "low_score" || f.startsWith("agent_misconduct"));
+                      const hasLowConfidence = flags.includes("low_confidence");
                       return (
                         <>
                           {hasExceptional && (
@@ -417,13 +418,18 @@ export default function CallsTable() {
                             </span>
                           )}
                           {hasBad && (
-                            <span title={flags.filter(f => f !== "exceptional_call" && f !== "medicare_call").join(", ")}>
+                            <span title={flags.filter(f => f !== "exceptional_call" && f !== "medicare_call" && f !== "low_confidence").join(", ")}>
                               <AlertTriangle className="w-4 h-4 text-red-500" />
                             </span>
                           )}
                           {!hasExceptional && !hasBad && flags.includes("medicare_call") && (
                             <span title="Medicare Call">
                               <AlertTriangle className="w-4 h-4 text-blue-500" />
+                            </span>
+                          )}
+                          {hasLowConfidence && (
+                            <span title="Low AI Confidence — may need manual review">
+                              <ShieldQuestion className="w-4 h-4 text-yellow-500" />
                             </span>
                           )}
                         </>

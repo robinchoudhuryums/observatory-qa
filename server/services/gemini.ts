@@ -176,13 +176,13 @@ export class GeminiProvider implements AIAnalysisProvider {
 
   // --- Core analysis ---
 
-  async analyzeCallTranscript(transcriptText: string, callId: string, callCategory?: string): Promise<CallAnalysis> {
+  async analyzeCallTranscript(transcriptText: string, callId: string, callCategory?: string, promptTemplate?: any): Promise<CallAnalysis> {
     if (this.authMode === "none") {
       throw new Error("Gemini provider not configured");
     }
 
     const model = this.model;
-    const prompt = buildAnalysisPrompt(transcriptText, callCategory);
+    const prompt = buildAnalysisPrompt(transcriptText, callCategory, promptTemplate);
 
     const requestBody = {
       contents: [{ role: "user", parts: [{ text: prompt }] }],

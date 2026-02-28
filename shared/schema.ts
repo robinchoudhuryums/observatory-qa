@@ -108,6 +108,8 @@ export const insertCallAnalysisSchema = z.object({
   callPartyType: z.string().optional(),
   flags: z.any().optional(),
   manualEdits: z.any().optional(),
+  confidenceScore: z.string().optional(),
+  confidenceFactors: z.any().optional(),
 });
 
 export const callAnalysisSchema = insertCallAnalysisSchema.extend({
@@ -152,6 +154,34 @@ export const accessRequestSchema = insertAccessRequestSchema.extend({
 
 export type InsertAccessRequest = z.infer<typeof insertAccessRequestSchema>;
 export type AccessRequest = z.infer<typeof accessRequestSchema>;
+
+// --- PROMPT TEMPLATE SCHEMAS ---
+export const promptTemplateSchema = z.object({
+  id: z.string(),
+  callCategory: z.string(),
+  name: z.string(),
+  evaluationCriteria: z.string(),
+  requiredPhrases: z.array(z.object({
+    phrase: z.string(),
+    label: z.string(),
+    severity: z.enum(["required", "recommended"]).default("required"),
+  })).optional(),
+  scoringWeights: z.object({
+    compliance: z.number().min(0).max(100).default(25),
+    customerExperience: z.number().min(0).max(100).default(25),
+    communication: z.number().min(0).max(100).default(25),
+    resolution: z.number().min(0).max(100).default(25),
+  }).optional(),
+  additionalInstructions: z.string().optional(),
+  isActive: z.boolean().default(true),
+  updatedAt: z.string().optional(),
+  updatedBy: z.string().optional(),
+});
+
+export const insertPromptTemplateSchema = promptTemplateSchema.omit({ id: true });
+
+export type PromptTemplate = z.infer<typeof promptTemplateSchema>;
+export type InsertPromptTemplate = z.infer<typeof insertPromptTemplateSchema>;
 
 // --- ROLE DEFINITIONS ---
 export const USER_ROLES = [
