@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Download, BarChart2, Smile, Star, User, Users, TrendingUp, Calendar, ArrowRight, AudioWaveform, ChevronUp, ChevronDown, Sparkles, Phone, AlertTriangle } from "lucide-react";
+import { useRef } from "react";
+import { Download, BarChart2, Smile, Star, User, Users, TrendingUp, Calendar, ArrowRight, AudioWaveform, ChevronUp, ChevronDown, Sparkles, Phone, AlertTriangle, Award, Play, Pause, Eye } from "lucide-react";
+import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
@@ -32,6 +34,16 @@ interface AgentProfileData {
   topSuggestions: Array<{ text: string; count: number }>;
   commonTopics: Array<{ text: string; count: number }>;
   scoreTrend: Array<{ month: string; avgScore: number; calls: number }>;
+  flaggedCalls: Array<{
+    id: string;
+    fileName?: string;
+    uploadedAt?: string;
+    score: number | null;
+    summary?: string;
+    flags: string[];
+    sentiment?: string;
+    flagType: "good" | "bad";
+  }>;
 }
 
 // ---- Helpers ----
@@ -643,6 +655,18 @@ export default function ReportsPage() {
               </div>
             )}
 
+            {/* Flagged Calls */}
+            {agentProfile.flaggedCalls && agentProfile.flaggedCalls.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-border">
+                <h4 className="text-sm font-semibold text-foreground mb-3">Flagged Calls</h4>
+                <div className="space-y-2">
+                  {agentProfile.flaggedCalls.map(fc => (
+                    <FlaggedCallCard key={fc.id} call={fc} />
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* AI Summary */}
             <div className="mt-4 pt-4 border-t border-border">
               <div className="flex items-center justify-between mb-2">
@@ -720,6 +744,91 @@ function MetricCard({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function FlaggedCallCard({ call }: {
+  call: {
+    id: string;
+    fileName?: string;
+    uploadedAt?: string;
+    score: number | null;
+    summary?: string;
+    flags: string[];
+    sentiment?: string;
+    flagType: "good" | "bad";
+  };
+}) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+
+  const isGood = call.flagType === "good";
+  const borderClass = isGood ? "border-emerald-200 dark:border-emerald-900" : "border-red-200 dark:border-red-900";
+  const bgClass = isGood ? "bg-emerald-50/50 dark:bg-emerald-950/20" : "bg-red-50/50 dark:bg-red-950/20";
+  const accentClass = isGood ? "text-emerald-600" : "text-red-600";
+  const playerBg = isGood ? "bg-emerald-100 dark:bg-emerald-900/40" : "bg-red-100 dark:bg-red-900/40";
+  const Icon = isGood ? Award : AlertTriangle;
+
+  const togglePlay = () => {
+    if (!audioRef.current) return;
+    if (playing) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play();
+    }
+    setPlaying(!playing);
+  };
+
+  return (
+    <div className={`rounded-lg border p-3 ${borderClass} ${bgClass}`}>
+      <audio
+        ref={audioRef}
+        src={`/api/calls/${call.id}/audio`}
+        preload="none"
+        onEnded={() => setPlaying(false)}
+        onPause={() => setPlaying(false)}
+        onPlay={() => setPlaying(true)}
+      />
+      <div className="flex items-start gap-3">
+        {/* Play button */}
+        <button
+          onClick={togglePlay}
+          className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${playerBg} ${accentClass} hover:opacity-80 transition-opacity`}
+        >
+          {playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+        </button>
+
+        {/* Details */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <Icon className={`w-3.5 h-3.5 shrink-0 ${accentClass}`} />
+            <span className="text-xs font-medium text-muted-foreground">
+              {call.uploadedAt ? new Date(call.uploadedAt).toLocaleDateString() : "Unknown date"}
+            </span>
+            {call.score != null && (
+              <span className={`text-xs font-bold ${accentClass}`}>{call.score.toFixed(1)}/10</span>
+            )}
+            <div className="flex gap-1 ml-auto">
+              {call.flags.map((flag, i) => {
+                const isExceptional = flag === "exceptional_call";
+                const isMisconduct = flag.startsWith("agent_misconduct");
+                const isLow = flag === "low_score";
+                const isMedicare = flag === "medicare_call";
+                const label = isExceptional ? "Exceptional" : isMisconduct ? "Misconduct" : isLow ? "Low Score" : isMedicare ? "Medicare" : flag;
+                const color = isExceptional ? "bg-emerald-200 text-emerald-900" : isMisconduct ? "bg-red-200 text-red-900" : isMedicare ? "bg-blue-200 text-blue-900" : "bg-amber-200 text-amber-900";
+                return <Badge key={i} className={`${color} text-[10px] px-1.5 py-0`}>{label}</Badge>;
+              })}
+            </div>
+          </div>
+          {call.summary && (
+            <p className="text-xs text-muted-foreground line-clamp-2">{call.summary}</p>
+          )}
+          <Link href={`/transcripts/${call.id}`} className="text-xs text-primary hover:underline mt-1 inline-flex items-center gap-1">
+            <Eye className="w-3 h-3" /> View Full Call
+          </Link>
+        </div>
+      </div>
     </div>
   );
 }

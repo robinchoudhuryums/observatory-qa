@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Play, Pause, Download, Clock, FileText, AlertTriangle, Shield, Pencil, X, Save, History } from "lucide-react";
+import { Play, Pause, Download, Clock, FileText, AlertTriangle, Shield, Pencil, X, Save, History, Award } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -559,25 +559,41 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
           )}
 
           {/* Call Flags */}
-          {call.analysis?.flags && (call.analysis.flags as string[]).length > 0 && (
-            <div className="bg-red-50 dark:bg-red-950/30 rounded-lg p-4 border border-red-200 dark:border-red-900">
-              <h4 className="font-semibold text-red-700 dark:text-red-400 mb-2 flex items-center gap-1.5">
-                <AlertTriangle className="w-4 h-4" /> Flags
-              </h4>
-              <div className="flex flex-wrap gap-1.5">
-                {(call.analysis.flags as string[]).map((flag: string, i: number) => {
-                  const isMedicare = flag === "medicare_call";
-                  const isMisconduct = flag.startsWith("agent_misconduct");
-                  const isLow = flag === "low_score";
-                  const label = isMedicare ? "Medicare Call" : isMisconduct ? flag.replace("agent_misconduct:", "Misconduct: ") : isLow ? "Low Score" : flag;
-                  const color = isMisconduct ? "bg-red-200 text-red-900" : isMedicare ? "bg-blue-200 text-blue-900" : "bg-amber-200 text-amber-900";
-                  return (
-                    <Badge key={i} className={`${color} text-xs`}>{label}</Badge>
-                  );
-                })}
+          {call.analysis?.flags && (call.analysis.flags as string[]).length > 0 && (() => {
+            const flags = call.analysis.flags as string[];
+            const hasExceptional = flags.includes("exceptional_call");
+            const hasBad = flags.some(f => f === "low_score" || f.startsWith("agent_misconduct"));
+            const bgClass = hasExceptional && !hasBad
+              ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900"
+              : "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900";
+            const headerClass = hasExceptional && !hasBad
+              ? "text-emerald-700 dark:text-emerald-400"
+              : "text-red-700 dark:text-red-400";
+            const HeaderIcon = hasExceptional && !hasBad ? Award : AlertTriangle;
+            return (
+              <div className={`rounded-lg p-4 border ${bgClass}`}>
+                <h4 className={`font-semibold mb-2 flex items-center gap-1.5 ${headerClass}`}>
+                  <HeaderIcon className="w-4 h-4" /> Flags
+                </h4>
+                <div className="flex flex-wrap gap-1.5">
+                  {flags.map((flag: string, i: number) => {
+                    const isExceptional = flag === "exceptional_call";
+                    const isMedicare = flag === "medicare_call";
+                    const isMisconduct = flag.startsWith("agent_misconduct");
+                    const isLow = flag === "low_score";
+                    const label = isExceptional ? "Exceptional Call" : isMedicare ? "Medicare Call" : isMisconduct ? flag.replace("agent_misconduct:", "Misconduct: ") : isLow ? "Low Score" : flag;
+                    const color = isExceptional ? "bg-emerald-200 text-emerald-900" : isMisconduct ? "bg-red-200 text-red-900" : isMedicare ? "bg-blue-200 text-blue-900" : "bg-amber-200 text-amber-900";
+                    return (
+                      <Badge key={i} className={`${color} text-xs`}>
+                        {isExceptional && <Award className="w-3 h-3 mr-1 inline" />}
+                        {label}
+                      </Badge>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Call Party Type */}
           {call.analysis?.callPartyType && (

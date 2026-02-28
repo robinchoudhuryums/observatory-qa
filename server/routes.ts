@@ -777,6 +777,18 @@ app.get("/api/performance", requireAuth, async (req, res) => {
       const scores: number[] = [];
       const sentimentCounts = { positive: 0, neutral: 0, negative: 0 };
 
+      // Flagged calls (exceptional and problematic)
+      const flaggedCalls: Array<{
+        id: string;
+        fileName?: string;
+        uploadedAt?: string;
+        score: number | null;
+        summary?: string;
+        flags: string[];
+        sentiment?: string;
+        flagType: "good" | "bad";
+      }> = [];
+
       // Trend over time for this agent
       const monthlyScores = new Map<string, { total: number; count: number }>();
 
@@ -789,14 +801,39 @@ app.get("/api/performance", requireAuth, async (req, res) => {
             const fb = typeof call.analysis.feedback === "string"
               ? JSON.parse(call.analysis.feedback)
               : call.analysis.feedback;
-            if (fb.strengths) allStrengths.push(...fb.strengths);
-            if (fb.suggestions) allSuggestions.push(...fb.suggestions);
+            if (fb.strengths) {
+              for (const s of fb.strengths) {
+                allStrengths.push(typeof s === "string" ? s : s.text);
+              }
+            }
+            if (fb.suggestions) {
+              for (const s of fb.suggestions) {
+                allSuggestions.push(typeof s === "string" ? s : s.text);
+              }
+            }
           }
           if (call.analysis.topics) {
             const topics = typeof call.analysis.topics === "string"
               ? JSON.parse(call.analysis.topics)
               : call.analysis.topics;
             if (Array.isArray(topics)) allTopics.push(...topics);
+          }
+
+          // Collect flagged calls
+          const callFlags = Array.isArray(call.analysis.flags) ? call.analysis.flags as string[] : [];
+          const isExceptional = callFlags.includes("exceptional_call");
+          const isBad = callFlags.includes("low_score") || callFlags.some((f: string) => f.startsWith("agent_misconduct"));
+          if (isExceptional || isBad) {
+            flaggedCalls.push({
+              id: call.id,
+              fileName: call.fileName,
+              uploadedAt: call.uploadedAt,
+              score: call.analysis.performanceScore ? parseFloat(call.analysis.performanceScore) : null,
+              summary: call.analysis.summary,
+              flags: callFlags,
+              sentiment: call.sentiment?.overallSentiment,
+              flagType: isExceptional ? "good" : "bad",
+            });
           }
         }
         if (call.sentiment?.overallSentiment) {
@@ -853,6 +890,7 @@ app.get("/api/performance", requireAuth, async (req, res) => {
         topSuggestions: countFrequency(allSuggestions),
         commonTopics: countFrequency(allTopics),
         scoreTrend,
+        flaggedCalls: flaggedCalls.sort((a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime()),
       });
     } catch (error) {
       console.error("Failed to generate agent profile:", error);

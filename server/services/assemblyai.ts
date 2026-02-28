@@ -210,6 +210,9 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
     if (performanceScore <= 2.0 && !flags.includes("low_score")) {
       flags.push("low_score");
     }
+    if (performanceScore >= 9.0 && !flags.includes("exceptional_call")) {
+      flags.push("exceptional_call");
+    }
 
     const analysis: InsertCallAnalysis = {
       callId,

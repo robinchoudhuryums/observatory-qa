@@ -130,7 +130,7 @@ ${evaluationCriteria}
 - Include 2-4 action items that are concrete and actionable
 - Topics should be specific (e.g. "order tracking", "billing dispute") not generic
 - call_party_type: Classify who the agent is speaking with. Use "customer" for general patients/customers, "insurance" for insurance company representatives, "medical_facility" for hospitals/clinics/doctors offices, "medicare" for 1-800-MEDICARE or Medicare representatives, "vendor" for vendors/suppliers, "internal" for coworkers, or "other" if unclear.
-- flags: An array of flag strings. Add "medicare_call" if the call involves 1-800-MEDICARE or a Medicare representative. Add "low_score" if the performance_score is 2.0 or below. Add "agent_misconduct" if the agent displays any of: abusive language toward the caller, hanging up on the caller, refusing to help, making false promises, HIPAA violations, or other serious professional misconduct. Describe the misconduct briefly in the flag like "agent_misconduct:hung up on caller".`;
+- flags: An array of flag strings. Add "medicare_call" if the call involves 1-800-MEDICARE or a Medicare representative. Add "low_score" if the performance_score is 2.0 or below. Add "exceptional_call" if the performance_score is 9.0 or above AND the agent demonstrated outstanding customer service, empathy, problem-solving, or went above and beyond. Add "agent_misconduct" if the agent displays any of: abusive language toward the caller, hanging up on the caller, refusing to help, making false promises, HIPAA violations, or other serious professional misconduct. Describe the misconduct briefly in the flag like "agent_misconduct:hung up on caller".`;
 }
 
 /**
