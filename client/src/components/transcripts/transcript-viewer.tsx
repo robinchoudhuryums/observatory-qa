@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Play, Pause, Download, Clock, FileText, AlertTriangle, Shield, Pencil, X, Save, History, Award } from "lucide-react";
+import { Play, Pause, Download, Clock, FileText, AlertTriangle, Shield, Pencil, X, Save, History, Award, Gauge } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -23,8 +23,20 @@ interface TranscriptWord {
 export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
   const audioRef = useRef<HTMLAudioElement>(null);
   const queryClient = useQueryClient();
+
+  const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+
+  const cycleSpeed = useCallback(() => {
+    setPlaybackRate(prev => {
+      const idx = SPEED_OPTIONS.indexOf(prev);
+      const next = SPEED_OPTIONS[(idx + 1) % SPEED_OPTIONS.length];
+      if (audioRef.current) audioRef.current.playbackRate = next;
+      return next;
+    });
+  }, []);
 
   // Manual edit state
   const [isEditing, setIsEditing] = useState(false);
@@ -256,6 +268,25 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
     URL.revokeObjectURL(url);
   };
 
+  // Build keyword set from detected topics for highlighting
+  const topicKeywords = useMemo(() => {
+    if (!call.analysis?.topics) return [];
+    const topics = call.analysis.topics as string[];
+    return topics.filter(t => t.length >= 3).map(t => t.toLowerCase());
+  }, [call.analysis?.topics]);
+
+  const highlightKeywords = (text: string) => {
+    if (topicKeywords.length === 0) return text;
+    const pattern = topicKeywords.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+    const regex = new RegExp(`(${pattern})`, "gi");
+    const parts = text.split(regex);
+    return parts.map((part, i) =>
+      topicKeywords.includes(part.toLowerCase())
+        ? <mark key={i} className="bg-primary/15 text-primary rounded px-0.5">{part}</mark>
+        : part
+    );
+  };
+
   // Determine which segment is currently active based on audio time
   const activeSegmentIndex = transcriptSegments.findIndex(
     (seg, i) => {
@@ -285,6 +316,16 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
           <Button size="sm" onClick={togglePlayPause} data-testid="play-audio">
             {isPlaying ? <Pause className="w-4 h-4 mr-1" /> : <Play className="w-4 h-4 mr-1" />}
             {isPlaying ? "Pause" : "Play Audio"}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={cycleSpeed}
+            title="Playback speed"
+            className="w-16 text-xs font-mono"
+          >
+            <Gauge className="w-3 h-3 mr-1" />
+            {playbackRate}x
           </Button>
         </div>
       </div>
@@ -350,7 +391,7 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
                         <p className={`text-sm font-medium ${segment.speaker === 'Agent' ? 'text-primary' : 'text-gray-600'}`}>
                           {segment.speaker === 'Agent' ? `Agent (${call.employee?.name}):` : 'Customer:'}
                         </p>
-                        <p className="text-foreground">{segment.text}</p>
+                        <p className="text-foreground">{highlightKeywords(segment.text)}</p>
                       </div>
                       <Badge className={getSentimentColor(segment.sentiment)}>
                         {segment.sentiment.charAt(0).toUpperCase() + segment.sentiment.slice(1)}

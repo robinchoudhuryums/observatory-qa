@@ -91,12 +91,16 @@ const PRESET_LABELS: Record<DatePreset, string> = {
 // ---- Component ----
 
 export default function ReportsPage() {
+  // Check for employee param in URL (from sidebar quick-switch)
+  const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const initialEmployee = urlParams?.get("employee") || "";
+
   // Report config state
-  const [reportType, setReportType] = useState<ReportType>("overall");
+  const [reportType, setReportType] = useState<ReportType>(initialEmployee ? "employee" : "overall");
   const [datePreset, setDatePreset] = useState<DatePreset>("last90");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
-  const [selectedEmployee, setSelectedEmployee] = useState("");
+  const [selectedEmployee, setSelectedEmployee] = useState(initialEmployee);
   const [selectedDepartment, setSelectedDepartment] = useState("");
   const [callPartyFilter, setCallPartyFilter] = useState("all");
 

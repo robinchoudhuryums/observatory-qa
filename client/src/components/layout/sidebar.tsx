@@ -1,8 +1,10 @@
 import { Link, useLocation } from "wouter";
-import { Mic, BarChart3, Upload, FileText, Heart, Users, UserPlus, Search, LogOut, User } from "lucide-react";
+import { Mic, BarChart3, Upload, FileText, Heart, Users, UserPlus, Search, LogOut, User, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient, getQueryFn } from "@/lib/queryClient";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { CallWithDetails, Employee } from "@shared/schema";
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: BarChart3 },
@@ -10,7 +12,7 @@ const navigation = [
   { name: "Transcripts", href: "/transcripts", icon: FileText },
   { name: "Sentiment", href: "/sentiment", icon: Heart },
   { name: "Performance", href: "/performance", icon: Users },
-  { name: "Reports", href: "/reports", icon: BarChart3 },
+  { name: "Reports", href: "/reports", icon: TrendingUp },
   { name: "Employees", href: "/employees", icon: UserPlus },
   { name: "Search", href: "/search", icon: Search },
 ];
@@ -23,13 +25,30 @@ interface AuthUser {
 }
 
 export default function Sidebar() {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
 
   const { data: user } = useQuery<AuthUser>({
     queryKey: ["/api/auth/me"],
     queryFn: getQueryFn({ on401: "returnNull" }),
     staleTime: Infinity,
   });
+
+  // Fetch calls for flagged count badge
+  const { data: calls } = useQuery<CallWithDetails[]>({
+    queryKey: ["/api/calls", { status: "", sentiment: "", employee: "" }],
+    staleTime: 30000,
+  });
+
+  // Fetch employees for quick-switch
+  const { data: employees } = useQuery<Employee[]>({
+    queryKey: ["/api/employees"],
+    staleTime: 60000,
+  });
+
+  const flaggedCount = (calls || []).filter(c => {
+    const flags = c.analysis?.flags as string[] | undefined;
+    return flags && flags.some(f => f === "low_score" || f.startsWith("agent_misconduct"));
+  }).length;
 
   const handleLogout = async () => {
     try {
@@ -40,6 +59,10 @@ export default function Sidebar() {
       // Force reload on error
       window.location.href = "/";
     }
+  };
+
+  const handleQuickSwitch = (employeeId: string) => {
+    navigate(`/reports?employee=${employeeId}`);
   };
 
   return (
@@ -60,6 +83,7 @@ export default function Sidebar() {
         {navigation.map((item) => {
           const Icon = item.icon;
           const isActive = location === item.href || (item.href !== "/" && location.startsWith(item.href));
+          const showBadge = item.name === "Dashboard" && flaggedCount > 0;
 
           return (
             <Link
@@ -75,10 +99,44 @@ export default function Sidebar() {
             >
               <Icon className="w-5 h-5" />
               <span>{item.name}</span>
+              {showBadge && (
+                <span className={cn(
+                  "ml-auto flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-bold",
+                  isActive
+                    ? "bg-red-500 text-white"
+                    : "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"
+                )}>
+                  {flaggedCount}
+                </span>
+              )}
             </Link>
           );
         })}
       </nav>
+
+      {/* Quick-switch Employee Selector */}
+      {employees && employees.length > 0 && (
+        <div className="px-4 pb-3">
+          <p className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider mb-1.5 px-1">Quick View Agent</p>
+          <Select onValueChange={handleQuickSwitch}>
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue placeholder="Jump to agent profile..." />
+            </SelectTrigger>
+            <SelectContent>
+              {employees.filter(e => e.status === "Active").map(emp => (
+                <SelectItem key={emp.id} value={emp.id}>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-4 h-4 rounded-full bg-primary/10 text-primary text-[8px] font-bold flex items-center justify-center shrink-0">
+                      {emp.initials || emp.name?.slice(0, 2).toUpperCase()}
+                    </span>
+                    {emp.name}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       <div className="p-4 border-t border-border">
         <div className="flex items-center space-x-3">

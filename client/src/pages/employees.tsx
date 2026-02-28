@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { UserPlus, Users, Upload, ChevronDown, ChevronRight, Pencil } from "lucide-react";
+import { UserPlus, Users, Upload, ChevronDown, ChevronRight, Pencil, Eye, GitCompare } from "lucide-react";
+import { Link } from "wouter";
 import { POWER_MOBILITY_SUBTEAMS } from "@shared/schema";
 import type { Employee } from "@shared/schema";
 
@@ -93,6 +94,15 @@ export default function EmployeesPage() {
   const [editStatus, setEditStatus] = useState("Active");
 
   const [collapsedDepts, setCollapsedDepts] = useState<Set<string>>(new Set());
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+
+  const toggleCompare = (id: string) => {
+    setCompareIds(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id);
+      if (prev.length >= 2) return [prev[1], id]; // Replace oldest
+      return [...prev, id];
+    });
+  };
 
   const { data: employees, isLoading } = useQuery<Employee[]>({
     queryKey: ["/api/employees"],
@@ -222,7 +232,7 @@ export default function EmployeesPage() {
   const totalActive = employees?.filter(e => e.status === "Active").length || 0;
 
   const renderEmployeeRow = (emp: Employee) => (
-    <tr key={emp.id} className="hover:bg-muted/30">
+    <tr key={emp.id} className={`hover:bg-muted/30 ${compareIds.includes(emp.id) ? "bg-primary/5" : ""}`}>
       <td className="px-4 py-2.5 text-sm font-medium text-foreground">
         <div className="flex items-center gap-2">
           <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center shrink-0">
@@ -240,9 +250,25 @@ export default function EmployeesPage() {
         </span>
       </td>
       <td className="px-4 py-2.5 text-sm">
-        <Button size="sm" variant="ghost" onClick={() => openEditDialog(emp)}>
-          <Pencil className="w-3.5 h-3.5" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Link href={`/reports?employee=${emp.id}`}>
+            <Button size="sm" variant="ghost" title="View Agent Profile">
+              <Eye className="w-3.5 h-3.5" />
+            </Button>
+          </Link>
+          <Button
+            size="sm"
+            variant={compareIds.includes(emp.id) ? "default" : "ghost"}
+            onClick={() => toggleCompare(emp.id)}
+            title="Compare"
+            className="w-7 h-7 p-0"
+          >
+            <GitCompare className="w-3.5 h-3.5" />
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => openEditDialog(emp)}>
+            <Pencil className="w-3.5 h-3.5" />
+          </Button>
+        </div>
       </td>
     </tr>
   );
