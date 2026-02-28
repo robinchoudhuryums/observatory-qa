@@ -10,7 +10,7 @@ import { aiProvider } from "./services/ai-factory";
 import { buildAgentSummaryPrompt } from "./services/ai-provider";
 import { requireAuth, requireRole } from "./auth";
 import { broadcastCallUpdate } from "./services/websocket";
-import { insertEmployeeSchema } from "@shared/schema";
+import { insertEmployeeSchema, insertAccessRequestSchema } from "@shared/schema";
 import { z } from "zod";
 import csv from "csv-parser";
 
@@ -73,6 +73,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(req.user);
     } else {
       res.status(401).json({ message: "Not authenticated" });
+    }
+  });
+
+  // ==================== ACCESS REQUEST ROUTES (unauthenticated) ====================
+
+  // Submit an access request (public — anyone can request from login page)
+  app.post("/api/access-requests", async (req, res) => {
+    try {
+      const parsed = insertAccessRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ message: "Invalid request data", errors: parsed.error.flatten() });
+        return;
+      }
+      const request = await storage.createAccessRequest(parsed.data);
+      res.status(201).json({ message: "Access request submitted. An administrator will review your request.", id: request.id });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to submit access request" });
+    }
+  });
+
+  // ==================== ACCESS REQUEST ADMIN ROUTES (admin only) ====================
+
+  // List all access requests
+  app.get("/api/access-requests", requireAuth, requireRole("admin"), async (_req, res) => {
+    try {
+      const requests = await storage.getAllAccessRequests();
+      res.json(requests);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch access requests" });
+    }
+  });
+
+  // Approve or deny an access request
+  app.patch("/api/access-requests/:id", requireAuth, requireRole("admin"), async (req, res) => {
+    try {
+      const { status } = req.body;
+      if (!status || !["approved", "denied"].includes(status)) {
+        res.status(400).json({ message: "Status must be 'approved' or 'denied'" });
+        return;
+      }
+      const updated = await storage.updateAccessRequest(req.params.id, {
+        status,
+        reviewedBy: req.user?.username,
+        reviewedAt: new Date().toISOString(),
+      });
+      if (!updated) {
+        res.status(404).json({ message: "Access request not found" });
+        return;
+      }
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update access request" });
     }
   });
 

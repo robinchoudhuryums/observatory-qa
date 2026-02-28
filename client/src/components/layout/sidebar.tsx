@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { Mic, BarChart3, Upload, FileText, Heart, Users, UserPlus, Search, LogOut, User, TrendingUp, Sun, Moon } from "lucide-react";
+import { Mic, BarChart3, Upload, FileText, Heart, Users, UserPlus, Search, LogOut, User, TrendingUp, Sun, Moon, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient, getQueryFn } from "@/lib/queryClient";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { CallWithDetails, Employee } from "@shared/schema";
+import type { CallWithDetails, Employee, AccessRequest } from "@shared/schema";
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: BarChart3 },
@@ -65,6 +65,15 @@ export default function Sidebar() {
     queryKey: ["/api/employees"],
     staleTime: 60000,
   });
+
+  // Fetch access requests for admin badge count
+  const { data: accessRequests } = useQuery<AccessRequest[]>({
+    queryKey: ["/api/access-requests"],
+    staleTime: 60000,
+    enabled: user?.role === "admin",
+  });
+
+  const pendingRequestCount = (accessRequests || []).filter(r => r.status === "pending").length;
 
   const flaggedCount = (calls || []).filter(c => {
     const flags = c.analysis?.flags as string[] | undefined;
@@ -142,6 +151,38 @@ export default function Sidebar() {
             </Link>
           );
         })}
+
+        {/* Admin-only link */}
+        {user?.role === "admin" && (
+          <>
+            <div className="pt-2 pb-1 px-1">
+              <p className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider">Admin</p>
+            </div>
+            <Link
+              href="/admin"
+              className={cn(
+                "flex items-center space-x-3 px-3 py-2 rounded-md font-medium transition-colors",
+                location === "/admin"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              )}
+              data-testid="nav-link-admin"
+            >
+              <Shield className="w-5 h-5" />
+              <span>Administration</span>
+              {pendingRequestCount > 0 && (
+                <span className={cn(
+                  "ml-auto flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-bold",
+                  location === "/admin"
+                    ? "bg-yellow-500 text-white"
+                    : "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300"
+                )}>
+                  {pendingRequestCount}
+                </span>
+              )}
+            </Link>
+          </>
+        )}
       </nav>
 
       {/* Quick-switch Employee Selector */}

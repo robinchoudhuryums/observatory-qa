@@ -134,6 +134,46 @@ export type SentimentAnalysis = z.infer<typeof sentimentAnalysisSchema>;
 export type InsertCallAnalysis = z.infer<typeof insertCallAnalysisSchema>;
 export type CallAnalysis = z.infer<typeof callAnalysisSchema>;
 
+// --- ACCESS REQUEST SCHEMAS ---
+export const insertAccessRequestSchema = z.object({
+  name: z.string().min(1),
+  email: z.string().email(),
+  reason: z.string().optional(),
+  requestedRole: z.enum(["viewer", "manager"]).default("viewer"),
+});
+
+export const accessRequestSchema = insertAccessRequestSchema.extend({
+  id: z.string(),
+  status: z.enum(["pending", "approved", "denied"]).default("pending"),
+  reviewedBy: z.string().optional(),
+  reviewedAt: z.string().optional(),
+  createdAt: z.string().optional(),
+});
+
+export type InsertAccessRequest = z.infer<typeof insertAccessRequestSchema>;
+export type AccessRequest = z.infer<typeof accessRequestSchema>;
+
+// --- ROLE DEFINITIONS ---
+export const USER_ROLES = [
+  {
+    value: "viewer" as const,
+    label: "Viewer",
+    description: "View-only access to dashboards, reports, transcripts, and team data. Cannot edit or delete anything.",
+  },
+  {
+    value: "manager" as const,
+    label: "Manager / QA",
+    description: "Everything a Viewer can do, plus: assign calls, edit analysis, manage employees, and export reports.",
+  },
+  {
+    value: "admin" as const,
+    label: "Administrator",
+    description: "Full access. Manage users, approve access requests, bulk import, delete calls, and configure system settings.",
+  },
+] as const;
+
+export type UserRole = typeof USER_ROLES[number]["value"];
+
 // --- COMBINED TYPES ---
 export type CallWithDetails = Call & {
   employee?: Employee;

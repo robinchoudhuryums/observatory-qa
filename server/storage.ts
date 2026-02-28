@@ -14,6 +14,8 @@ import {
   type CallWithDetails,
   type DashboardMetrics,
   type SentimentDistribution,
+  type AccessRequest,
+  type InsertAccessRequest,
 } from "@shared/schema";
 import { GcsClient } from "./services/gcs";
 import { S3Client } from "./services/s3";
@@ -78,6 +80,12 @@ export interface IStorage {
   getAudioFiles(callId: string): Promise<string[]>;
   downloadAudio(objectName: string): Promise<Buffer | undefined>;
 
+  // Access request operations
+  createAccessRequest(request: InsertAccessRequest): Promise<AccessRequest>;
+  getAllAccessRequests(): Promise<AccessRequest[]>;
+  getAccessRequest(id: string): Promise<AccessRequest | undefined>;
+  updateAccessRequest(id: string, updates: Partial<AccessRequest>): Promise<AccessRequest | undefined>;
+
   // Data retention
   purgeExpiredCalls(retentionDays: number): Promise<number>;
 }
@@ -93,6 +101,7 @@ export class MemStorage implements IStorage {
   private sentiments = new Map<string, SentimentAnalysis>();
   private analyses = new Map<string, CallAnalysis>();
   private audioFiles = new Map<string, Buffer>(); // objectName -> buffer
+  private accessRequests = new Map<string, AccessRequest>();
 
   async getUser(_id: string): Promise<User | undefined> { return undefined; }
   async getUserByUsername(_username: string): Promise<User | undefined> { return undefined; }
@@ -271,6 +280,29 @@ export class MemStorage implements IStorage {
     const allCalls = await this.getCallsWithDetails();
     const lowerQuery = query.toLowerCase();
     return allCalls.filter((call) => call.transcript?.text?.toLowerCase().includes(lowerQuery));
+  }
+
+  // Access request operations
+  async createAccessRequest(request: InsertAccessRequest): Promise<AccessRequest> {
+    const id = randomUUID();
+    const newReq: AccessRequest = { ...request, id, status: "pending", createdAt: new Date().toISOString() };
+    this.accessRequests.set(id, newReq);
+    return newReq;
+  }
+  async getAllAccessRequests(): Promise<AccessRequest[]> {
+    return Array.from(this.accessRequests.values()).sort(
+      (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    );
+  }
+  async getAccessRequest(id: string): Promise<AccessRequest | undefined> {
+    return this.accessRequests.get(id);
+  }
+  async updateAccessRequest(id: string, updates: Partial<AccessRequest>): Promise<AccessRequest | undefined> {
+    const req = this.accessRequests.get(id);
+    if (!req) return undefined;
+    const updated = { ...req, ...updates };
+    this.accessRequests.set(id, updated);
+    return updated;
   }
 
   async purgeExpiredCalls(retentionDays: number): Promise<number> {
@@ -603,6 +635,33 @@ export class CloudStorage implements IStorage {
     return allCalls.filter((call) =>
       call.transcript?.text?.toLowerCase().includes(lowerQuery)
     );
+  }
+
+  // --- Access Request Methods ---
+  async createAccessRequest(request: InsertAccessRequest): Promise<AccessRequest> {
+    const id = randomUUID();
+    const newReq: AccessRequest = { ...request, id, status: "pending", createdAt: new Date().toISOString() };
+    await this.client.uploadJson(`access-requests/${id}.json`, newReq);
+    return newReq;
+  }
+
+  async getAllAccessRequests(): Promise<AccessRequest[]> {
+    const requests = await this.client.listAndDownloadJson<AccessRequest>("access-requests/");
+    return requests.sort(
+      (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    );
+  }
+
+  async getAccessRequest(id: string): Promise<AccessRequest | undefined> {
+    return this.client.downloadJson<AccessRequest>(`access-requests/${id}.json`);
+  }
+
+  async updateAccessRequest(id: string, updates: Partial<AccessRequest>): Promise<AccessRequest | undefined> {
+    const req = await this.getAccessRequest(id);
+    if (!req) return undefined;
+    const updated = { ...req, ...updates };
+    await this.client.uploadJson(`access-requests/${id}.json`, updated);
+    return updated;
   }
 
   // --- Data Retention ---
