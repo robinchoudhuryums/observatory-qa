@@ -105,6 +105,9 @@ export const insertCallAnalysisSchema = z.object({
   actionItems: z.any().optional(),
   feedback: z.any().optional(),
   lemurResponse: z.any().optional(),
+  callPartyType: z.string().optional(),
+  flags: z.any().optional(),
+  manualEdits: z.any().optional(),
 });
 
 export const callAnalysisSchema = insertCallAnalysisSchema.extend({

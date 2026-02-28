@@ -49,6 +49,33 @@ export class BedrockProvider implements AIAnalysisProvider {
     return this.credentials !== null;
   }
 
+  async generateText(prompt: string): Promise<string> {
+    if (!this.credentials) {
+      throw new Error("Bedrock provider not configured");
+    }
+
+    const region = this.credentials.region;
+    const host = `bedrock-runtime.${region}.amazonaws.com`;
+    const rawPath = `/model/${this.model}/converse`;
+    const url = `https://${host}${rawPath}`;
+
+    const body = JSON.stringify({
+      messages: [{ role: "user", content: [{ text: prompt }] }],
+      inferenceConfig: { temperature: 0.4, maxTokens: 2048 },
+    });
+
+    const headers = this.signRequest("POST", host, rawPath, body, region);
+    const response = await fetch(url, { method: "POST", headers, body });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Bedrock API error (${response.status}): ${errorText}`);
+    }
+
+    const result = await response.json();
+    return result.output?.message?.content?.[0]?.text || "";
+  }
+
   async analyzeCallTranscript(transcriptText: string, callId: string, callCategory?: string): Promise<CallAnalysis> {
     if (!this.credentials) {
       throw new Error("Bedrock provider not configured");

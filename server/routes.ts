@@ -7,6 +7,7 @@ import passport from "passport";
 import { storage } from "./storage";
 import { assemblyAIService } from "./services/assemblyai";
 import { aiProvider } from "./services/ai-factory";
+import { buildAgentSummaryPrompt } from "./services/ai-provider";
 import { requireAuth } from "./auth";
 import { insertEmployeeSchema } from "@shared/schema";
 import { z } from "zod";
@@ -507,6 +508,59 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
     }
   });
 
+  // Manually edit call analysis (score, summary, feedback, etc.)
+  app.patch("/api/calls/:id/analysis", requireAuth, async (req, res) => {
+    try {
+      const callId = req.params.id;
+      const { updates, reason } = req.body;
+
+      if (!reason || typeof reason !== "string" || reason.trim().length === 0) {
+        res.status(400).json({ message: "A reason for the manual edit is required." });
+        return;
+      }
+
+      const existing = await storage.getCallAnalysis(callId);
+      if (!existing) {
+        res.status(404).json({ message: "Call analysis not found" });
+        return;
+      }
+
+      // Get the current user for the audit signature
+      const user = (req as any).user;
+      const editedBy = user?.name || user?.username || "Unknown User";
+
+      // Record the manual edit in the audit trail
+      const previousEdits = Array.isArray(existing.manualEdits) ? existing.manualEdits : [];
+      const editRecord = {
+        editedBy,
+        editedAt: new Date().toISOString(),
+        reason: reason.trim(),
+        fieldsChanged: Object.keys(updates),
+        previousValues: {} as Record<string, any>,
+      };
+
+      // Capture previous values for changed fields
+      for (const key of Object.keys(updates)) {
+        editRecord.previousValues[key] = (existing as any)[key];
+      }
+
+      const updatedAnalysis = {
+        ...existing,
+        ...updates,
+        manualEdits: [...previousEdits, editRecord],
+      };
+
+      // Re-save the analysis
+      await storage.createCallAnalysis(updatedAnalysis);
+
+      console.log(`[${callId}] Manual edit by ${editedBy}: ${reason} (fields: ${editRecord.fieldsChanged.join(", ")})`);
+      res.json(updatedAnalysis);
+    } catch (error) {
+      console.error("Failed to update call analysis:", error);
+      res.status(500).json({ message: "Failed to update call analysis" });
+    }
+  });
+
   // Search calls
   app.get("/api/search", requireAuth, async (req, res) => {
     try {
@@ -557,7 +611,7 @@ app.get("/api/performance", requireAuth, async (req, res) => {
   // Filtered reports: accepts date range, employee, department filters
   app.get("/api/reports/filtered", requireAuth, async (req, res) => {
     try {
-      const { from, to, employeeId, department } = req.query;
+      const { from, to, employeeId, department, callPartyType } = req.query;
 
       const allCalls = await storage.getCallsWithDetails({ status: "completed" });
       const employees = await storage.getAllEmployees();
@@ -588,6 +642,14 @@ app.get("/api/performance", requireAuth, async (req, res) => {
           if (!c.employeeId) return false;
           const emp = employeeMap.get(c.employeeId);
           return emp?.role === department;
+        });
+      }
+
+      // Filter by call party type
+      if (callPartyType) {
+        filtered = filtered.filter(c => {
+          const partyType = (c.analysis as any)?.callPartyType;
+          return partyType === callPartyType;
         });
       }
 
@@ -795,6 +857,119 @@ app.get("/api/performance", requireAuth, async (req, res) => {
     } catch (error) {
       console.error("Failed to generate agent profile:", error);
       res.status(500).json({ message: "Failed to generate agent profile" });
+    }
+  });
+
+  // Generate AI narrative summary for an agent's performance
+  app.post("/api/reports/agent-summary/:employeeId", requireAuth, async (req, res) => {
+    try {
+      if (!aiProvider.isAvailable || !aiProvider.generateText) {
+        res.status(503).json({ message: "AI provider not configured. Set up Bedrock or Gemini credentials." });
+        return;
+      }
+
+      const { employeeId } = req.params;
+      const { from, to } = req.body;
+
+      const employee = await storage.getEmployee(employeeId);
+      if (!employee) {
+        res.status(404).json({ message: "Employee not found" });
+        return;
+      }
+
+      const allCalls = await storage.getCallsWithDetails({ status: "completed", employee: employeeId });
+
+      let filtered = allCalls;
+      if (from) {
+        const fromDate = new Date(from);
+        filtered = filtered.filter(c => new Date(c.uploadedAt || 0) >= fromDate);
+      }
+      if (to) {
+        const toDate = new Date(to);
+        toDate.setHours(23, 59, 59, 999);
+        filtered = filtered.filter(c => new Date(c.uploadedAt || 0) <= toDate);
+      }
+
+      if (filtered.length === 0) {
+        res.json({ summary: "No analyzed calls found for this employee in the selected period." });
+        return;
+      }
+
+      // Aggregate data
+      const scores: number[] = [];
+      const allStrengths: string[] = [];
+      const allSuggestions: string[] = [];
+      const allTopics: string[] = [];
+      const sentimentCounts = { positive: 0, neutral: 0, negative: 0 };
+
+      for (const call of filtered) {
+        if (call.analysis?.performanceScore) {
+          scores.push(parseFloat(call.analysis.performanceScore));
+        }
+        if (call.analysis?.feedback) {
+          const fb = typeof call.analysis.feedback === "string"
+            ? JSON.parse(call.analysis.feedback) : call.analysis.feedback;
+          if (fb.strengths) {
+            for (const s of fb.strengths) {
+              allStrengths.push(typeof s === "string" ? s : s.text);
+            }
+          }
+          if (fb.suggestions) {
+            for (const s of fb.suggestions) {
+              allSuggestions.push(typeof s === "string" ? s : s.text);
+            }
+          }
+        }
+        if (call.analysis?.topics) {
+          const topics = typeof call.analysis.topics === "string"
+            ? JSON.parse(call.analysis.topics) : call.analysis.topics;
+          if (Array.isArray(topics)) allTopics.push(...topics);
+        }
+        if (call.sentiment?.overallSentiment) {
+          const s = call.sentiment.overallSentiment as keyof typeof sentimentCounts;
+          if (s in sentimentCounts) sentimentCounts[s]++;
+        }
+      }
+
+      const countFreq = (arr: string[]) => {
+        const freq = new Map<string, number>();
+        for (const item of arr) {
+          const n = item.trim().toLowerCase();
+          freq.set(n, (freq.get(n) || 0) + 1);
+        }
+        return Array.from(freq.entries())
+          .sort(([, a], [, b]) => b - a)
+          .slice(0, 10)
+          .map(([text, count]) => ({ text, count }));
+      };
+
+      const avgScore = scores.length > 0
+        ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
+
+      const dateRange = `${from || "all time"} to ${to || "present"}`;
+
+      const prompt = buildAgentSummaryPrompt({
+        name: employee.name,
+        role: employee.role,
+        totalCalls: filtered.length,
+        avgScore,
+        highScore: scores.length > 0 ? Math.max(...scores) : null,
+        lowScore: scores.length > 0 ? Math.min(...scores) : null,
+        sentimentBreakdown: sentimentCounts,
+        topStrengths: countFreq(allStrengths),
+        topSuggestions: countFreq(allSuggestions),
+        commonTopics: countFreq(allTopics),
+        dateRange,
+      });
+
+      console.log(`Generating AI summary for ${employee.name} (${filtered.length} calls)...`);
+      const summary = await aiProvider.generateText(prompt);
+      console.log(`AI summary generated for ${employee.name}.`);
+
+      res.json({ summary });
+    } catch (error) {
+      console.error("Failed to generate agent summary:", error);
+      res.status(500).json({ message: "Failed to generate AI summary" });
     }
   });
 

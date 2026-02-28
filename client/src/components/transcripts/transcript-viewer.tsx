@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Play, Pause, Download, Clock, FileText } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Play, Pause, Download, Clock, FileText, AlertTriangle, Shield, Pencil, X, Save, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import type { CallWithDetails } from "@shared/schema";
 import { AudioWaveform } from "lucide-react";
 
@@ -22,10 +24,61 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const queryClient = useQueryClient();
+
+  // Manual edit state
+  const [isEditing, setIsEditing] = useState(false);
+  const [editScore, setEditScore] = useState("");
+  const [editSummary, setEditSummary] = useState("");
+  const [editReason, setEditReason] = useState("");
 
   const { data: call, isLoading } = useQuery<CallWithDetails>({
     queryKey: ["/api/calls", callId],
   });
+
+  const editMutation = useMutation({
+    mutationFn: async (payload: { updates: Record<string, any>; reason: string }) => {
+      const res = await fetch(`/api/calls/${callId}/analysis`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Failed to save edit");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/calls", callId] });
+      setIsEditing(false);
+      setEditReason("");
+    },
+  });
+
+  const startEditing = () => {
+    setEditScore(call?.analysis?.performanceScore?.toString() || "");
+    setEditSummary(call?.analysis?.summary?.toString() || "");
+    setEditReason("");
+    setIsEditing(true);
+  };
+
+  const handleSaveEdit = () => {
+    if (!editReason.trim()) return;
+    const updates: Record<string, any> = {};
+    if (editScore !== (call?.analysis?.performanceScore?.toString() || "")) {
+      updates.performanceScore = editScore;
+    }
+    if (editSummary !== (call?.analysis?.summary?.toString() || "")) {
+      updates.summary = editSummary;
+    }
+    if (Object.keys(updates).length === 0) {
+      setIsEditing(false);
+      return;
+    }
+    editMutation.mutate({ updates, reason: editReason.trim() });
+  };
 
   // Sync audio time with transcript highlight
   useEffect(() => {
@@ -315,21 +368,93 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
         </div>
 
         <div className="space-y-4">
-          <div className="bg-muted rounded-lg p-4">
-            <h4 className="font-semibold text-foreground mb-3">Call Summary</h4>
-            <div className="space-y-2 text-sm">
-              <p><strong>Duration:</strong> {call.duration ? `${Math.floor(call.duration / 60)}m ${call.duration % 60}s` : 'Unknown'}</p>
-              <p><strong>Status:</strong> <Badge>{call.status}</Badge></p>
-              <p><strong>Sentiment:</strong> {call.sentiment?.overallSentiment ? (
-                <Badge className={getSentimentColor(call.sentiment.overallSentiment)}>
-                  {call.sentiment.overallSentiment.charAt(0).toUpperCase() + call.sentiment.overallSentiment.slice(1)}
-                </Badge>
-              ) : 'Unknown'}</p>
-<p><strong>Performance Score:</strong> {call.analysis?.performanceScore ? Number(call.analysis.performanceScore).toFixed(1) : 'N/A'}/10</p>
+          {/* Manual Edit Indicator */}
+          {call.analysis?.manualEdits && (call.analysis.manualEdits as any[]).length > 0 && (
+            <div className="bg-amber-50 dark:bg-amber-950/30 rounded-lg p-3 border border-amber-200 dark:border-amber-900">
+              <div className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400 text-xs font-medium mb-1">
+                <History className="w-3.5 h-3.5" />
+                Manually Edited ({(call.analysis.manualEdits as any[]).length} edit{(call.analysis.manualEdits as any[]).length > 1 ? "s" : ""})
+              </div>
+              {(call.analysis.manualEdits as any[]).map((edit: any, i: number) => (
+                <div key={i} className="text-xs text-muted-foreground mt-1 pl-5">
+                  <span className="font-medium">{edit.editedBy}</span> — {edit.reason}
+                  <span className="text-muted-foreground/60 ml-1">
+                    ({new Date(edit.editedAt).toLocaleDateString()} {new Date(edit.editedAt).toLocaleTimeString()})
+                  </span>
+                </div>
+              ))}
             </div>
+          )}
+
+          <div className="bg-muted rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="font-semibold text-foreground">Call Summary</h4>
+              {!isEditing && call.analysis && (
+                <Button size="sm" variant="ghost" onClick={startEditing} className="h-7 text-xs">
+                  <Pencil className="w-3 h-3 mr-1" /> Edit
+                </Button>
+              )}
+            </div>
+
+            {isEditing ? (
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">Performance Score (0-10)</Label>
+                  <Input
+                    type="number" min="0" max="10" step="0.1"
+                    value={editScore}
+                    onChange={e => setEditScore(e.target.value)}
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Summary</Label>
+                  <textarea
+                    value={editSummary}
+                    onChange={e => setEditSummary(e.target.value)}
+                    className="w-full min-h-[80px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-red-600">Reason for Edit *</Label>
+                  <Input
+                    value={editReason}
+                    onChange={e => setEditReason(e.target.value)}
+                    placeholder="Why is this edit needed?"
+                    className="h-8 text-sm"
+                  />
+                </div>
+                {editMutation.isError && (
+                  <p className="text-xs text-red-500">{editMutation.error?.message}</p>
+                )}
+                <div className="flex gap-2">
+                  <Button
+                    size="sm" onClick={handleSaveEdit}
+                    disabled={!editReason.trim() || editMutation.isPending}
+                    className="h-7 text-xs"
+                  >
+                    <Save className="w-3 h-3 mr-1" /> {editMutation.isPending ? "Saving..." : "Save"}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setIsEditing(false)} className="h-7 text-xs">
+                    <X className="w-3 h-3 mr-1" /> Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2 text-sm">
+                <p><strong>Duration:</strong> {call.duration ? `${Math.floor(call.duration / 60)}m ${call.duration % 60}s` : 'Unknown'}</p>
+                <p><strong>Status:</strong> <Badge>{call.status}</Badge></p>
+                <p><strong>Sentiment:</strong> {call.sentiment?.overallSentiment ? (
+                  <Badge className={getSentimentColor(call.sentiment.overallSentiment)}>
+                    {call.sentiment.overallSentiment.charAt(0).toUpperCase() + call.sentiment.overallSentiment.slice(1)}
+                  </Badge>
+                ) : 'Unknown'}</p>
+                <p><strong>Performance Score:</strong> {call.analysis?.performanceScore ? Number(call.analysis.performanceScore).toFixed(1) : 'N/A'}/10</p>
+              </div>
+            )}
           </div>
 
-          {call.analysis?.summary && (
+          {!isEditing && call.analysis?.summary && (
             <div className="bg-muted rounded-lg p-4">
               <h4 className="font-semibold text-foreground mb-3">Key Points</h4>
               <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
@@ -374,24 +499,93 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
                 {(call.analysis.feedback as any).strengths?.length > 0 && (
                   <div>
                     <p className="font-medium text-green-600">Strengths:</p>
-                    <ul className="list-disc list-inside text-muted-foreground">
-                      {(call.analysis.feedback as any).strengths.map((strength: string, index: number) => (
-                        <li key={index}>{strength}</li>
-                      ))}
+                    <ul className="space-y-1.5 text-muted-foreground">
+                      {(call.analysis.feedback as any).strengths.map((item: string | { text: string; timestamp?: string }, index: number) => {
+                        const text = typeof item === "string" ? item : item.text;
+                        const ts = typeof item === "object" ? item.timestamp : null;
+                        return (
+                          <li key={index} className="flex items-start gap-2">
+                            <span className="text-green-500 mt-0.5 shrink-0">+</span>
+                            <span className="flex-1">{text}</span>
+                            {ts && (
+                              <button
+                                className="text-xs bg-background text-primary px-1.5 py-0.5 rounded hover:bg-primary hover:text-primary-foreground shrink-0"
+                                onClick={() => {
+                                  const parts = ts.split(":");
+                                  const ms = (parseInt(parts[0]) * 60 + parseInt(parts[1])) * 1000;
+                                  jumpToTime(ms);
+                                }}
+                              >
+                                <Clock className="w-3 h-3 mr-0.5 inline" />{ts}
+                              </button>
+                            )}
+                          </li>
+                        );
+                      })}
                     </ul>
                   </div>
                 )}
                 {(call.analysis.feedback as any).suggestions?.length > 0 && (
                   <div>
                     <p className="font-medium text-primary">Suggestions:</p>
-                    <ul className="list-disc list-inside text-muted-foreground">
-                      {(call.analysis.feedback as any).suggestions.map((suggestion: string, index: number) => (
-                        <li key={index}>{suggestion}</li>
-                      ))}
+                    <ul className="space-y-1.5 text-muted-foreground">
+                      {(call.analysis.feedback as any).suggestions.map((item: string | { text: string; timestamp?: string }, index: number) => {
+                        const text = typeof item === "string" ? item : item.text;
+                        const ts = typeof item === "object" ? item.timestamp : null;
+                        return (
+                          <li key={index} className="flex items-start gap-2">
+                            <span className="text-amber-500 mt-0.5 shrink-0">!</span>
+                            <span className="flex-1">{text}</span>
+                            {ts && (
+                              <button
+                                className="text-xs bg-background text-primary px-1.5 py-0.5 rounded hover:bg-primary hover:text-primary-foreground shrink-0"
+                                onClick={() => {
+                                  const parts = ts.split(":");
+                                  const ms = (parseInt(parts[0]) * 60 + parseInt(parts[1])) * 1000;
+                                  jumpToTime(ms);
+                                }}
+                              >
+                                <Clock className="w-3 h-3 mr-0.5 inline" />{ts}
+                              </button>
+                            )}
+                          </li>
+                        );
+                      })}
                     </ul>
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* Call Flags */}
+          {call.analysis?.flags && (call.analysis.flags as string[]).length > 0 && (
+            <div className="bg-red-50 dark:bg-red-950/30 rounded-lg p-4 border border-red-200 dark:border-red-900">
+              <h4 className="font-semibold text-red-700 dark:text-red-400 mb-2 flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4" /> Flags
+              </h4>
+              <div className="flex flex-wrap gap-1.5">
+                {(call.analysis.flags as string[]).map((flag: string, i: number) => {
+                  const isMedicare = flag === "medicare_call";
+                  const isMisconduct = flag.startsWith("agent_misconduct");
+                  const isLow = flag === "low_score";
+                  const label = isMedicare ? "Medicare Call" : isMisconduct ? flag.replace("agent_misconduct:", "Misconduct: ") : isLow ? "Low Score" : flag;
+                  const color = isMisconduct ? "bg-red-200 text-red-900" : isMedicare ? "bg-blue-200 text-blue-900" : "bg-amber-200 text-amber-900";
+                  return (
+                    <Badge key={i} className={`${color} text-xs`}>{label}</Badge>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Call Party Type */}
+          {call.analysis?.callPartyType && (
+            <div className="bg-muted rounded-lg p-4">
+              <h4 className="font-semibold text-foreground mb-2 flex items-center gap-1.5">
+                <Shield className="w-4 h-4" /> Call Party
+              </h4>
+              <Badge variant="outline" className="capitalize">{(call.analysis.callPartyType as string).replace(/_/g, " ")}</Badge>
             </div>
           )}
         </div>

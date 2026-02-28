@@ -205,6 +205,12 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
       }
     }
 
+    // Determine flags
+    const flags: string[] = aiAnalysis?.flags || [];
+    if (performanceScore <= 2.0 && !flags.includes("low_score")) {
+      flags.push("low_score");
+    }
+
     const analysis: InsertCallAnalysis = {
       callId,
       performanceScore: performanceScore.toString(),
@@ -216,6 +222,8 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
       actionItems: aiAnalysis?.action_items || [],
       feedback: aiAnalysis?.feedback || { strengths: [], suggestions: [] },
       lemurResponse: undefined,
+      callPartyType: aiAnalysis?.call_party_type || undefined,
+      flags: flags.length > 0 ? flags : undefined,
     };
 
     return { transcript, sentiment, analysis };

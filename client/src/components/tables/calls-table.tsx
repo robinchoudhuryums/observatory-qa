@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Eye, Play, Download, Star, Trash2, UserCheck } from "lucide-react";
+import { Eye, Play, Download, Star, Trash2, UserCheck, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
@@ -155,6 +155,7 @@ export default function CallsTable() {
               <th className="text-left py-3 px-2 font-medium text-muted-foreground">Duration</th>
               <th className="text-left py-3 px-2 font-medium text-muted-foreground">Sentiment</th>
               <th className="text-left py-3 px-2 font-medium text-muted-foreground">Score</th>
+              <th className="text-left py-3 px-2 font-medium text-muted-foreground">Party</th>
               <th className="text-left py-3 px-2 font-medium text-muted-foreground">Status</th>
               <th className="text-left py-3 px-2 font-medium text-muted-foreground">Actions</th>
             </tr>
@@ -213,7 +214,23 @@ export default function CallsTable() {
                     </div>
                   )}
                 </td>
-                <td className="py-3 px-2">{getStatusBadge(call.status)}</td>
+                <td className="py-3 px-2">
+                  {call.analysis?.callPartyType ? (
+                    <Badge variant="outline" className="text-xs capitalize">
+                      {(call.analysis.callPartyType as string).replace(/_/g, " ")}
+                    </Badge>
+                  ) : <span className="text-muted-foreground text-xs">—</span>}
+                </td>
+                <td className="py-3 px-2">
+                  <div className="flex items-center gap-1.5">
+                    {getStatusBadge(call.status)}
+                    {call.analysis?.flags && (call.analysis.flags as string[]).length > 0 && (
+                      <span title={(call.analysis.flags as string[]).join(", ")}>
+                        <AlertTriangle className="w-4 h-4 text-red-500" />
+                      </span>
+                    )}
+                  </div>
+                </td>
                 <td className="py-3 px-2">
                   <div className="flex items-center space-x-2">
                     <Link href={`/transcripts/${call.id}`}>
