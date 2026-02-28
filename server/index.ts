@@ -3,6 +3,7 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { setupAuth } from "./auth";
 import { storage } from "./storage";
+import { setupWebSocket } from "./services/websocket";
 import crypto from "crypto";
 
 const app = express();
@@ -130,6 +131,9 @@ app.post("/api/auth/login", rateLimit(15 * 60 * 1000, 5));
     reusePort: true,
   }, () => {
     log(`serving on port ${port}`);
+
+    // WebSocket: real-time call processing notifications
+    setupWebSocket(server);
 
     // HIPAA: Data retention — purge calls older than configured days
     // Default 90 days, configurable via RETENTION_DAYS env var

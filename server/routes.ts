@@ -9,6 +9,7 @@ import { assemblyAIService } from "./services/assemblyai";
 import { aiProvider } from "./services/ai-factory";
 import { buildAgentSummaryPrompt } from "./services/ai-provider";
 import { requireAuth, requireRole } from "./auth";
+import { broadcastCallUpdate } from "./services/websocket";
 import { insertEmployeeSchema } from "@shared/schema";
 import { z } from "zod";
 import csv from "csv-parser";
@@ -341,6 +342,7 @@ app.get("/api/calls", requireAuth, async (req, res) => {
 // Process audio file with AssemblyAI and archive to cloud storage
 async function processAudioFile(callId: string, filePath: string, audioBuffer: Buffer, originalName: string, mimeType: string, callCategory?: string) {
   console.log(`[${callId}] Starting audio processing...`);
+  broadcastCallUpdate(callId, "uploading", { step: 1, totalSteps: 6, label: "Uploading audio..." });
   try {
     // Step 1a: Upload to AssemblyAI
     console.log(`[${callId}] Step 1/7: Uploading audio file to AssemblyAI...`);
@@ -357,6 +359,7 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
     }
 
     // Step 2: Start transcription
+    broadcastCallUpdate(callId, "transcribing", { step: 2, totalSteps: 6, label: "Transcribing audio..." });
     console.log(`[${callId}] Step 2/7: Submitting for transcription...`);
     const transcriptId = await assemblyAIService.transcribeAudio(audioUrl);
     console.log(`[${callId}] Step 2/7: Transcription submitted. Transcript ID: ${transcriptId}`);
@@ -364,6 +367,7 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
     await storage.updateCall(callId, { assemblyAiId: transcriptId });
 
     // Step 3: Poll for transcription completion
+    broadcastCallUpdate(callId, "transcribing", { step: 3, totalSteps: 6, label: "Waiting for transcript..." });
     console.log(`[${callId}] Step 3/7: Polling for transcript results...`);
     const transcriptResponse = await assemblyAIService.pollTranscript(transcriptId);
 
@@ -375,6 +379,7 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
     console.log(`[${callId}] Step 3/7: Polling complete. Status: ${transcriptResponse.status}`);
 
     // Step 4: AI analysis (Gemini or Bedrock/Claude — or fall back to defaults)
+    broadcastCallUpdate(callId, "analyzing", { step: 4, totalSteps: 6, label: "Running AI analysis..." });
     let aiAnalysis = null;
     if (aiProvider.isAvailable && transcriptResponse.text) {
       try {
@@ -389,11 +394,13 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
     }
 
     // Step 5: Process combined results
+    broadcastCallUpdate(callId, "processing", { step: 5, totalSteps: 6, label: "Processing results..." });
     console.log(`[${callId}] Step 5/6: Processing combined transcript and analysis data...`);
     const { transcript, sentiment, analysis } = assemblyAIService.processTranscriptData(transcriptResponse, aiAnalysis, callId);
     console.log(`[${callId}] Step 5/6: Data processing complete.`);
 
     // Step 6: Store results
+    broadcastCallUpdate(callId, "saving", { step: 6, totalSteps: 6, label: "Saving results..." });
     console.log(`[${callId}] Step 6/6: Saving analysis results...`);
     await storage.createTranscript(transcript);
     await storage.createSentimentAnalysis(sentiment);
@@ -406,12 +413,14 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
     console.log(`[${callId}] Step 6/6: Done. Status is now 'completed'.`);
 
     await cleanupFile(filePath);
+    broadcastCallUpdate(callId, "completed", { step: 6, totalSteps: 6, label: "Complete" });
     console.log(`[${callId}] Processing finished successfully.`);
 
   } catch (error) {
     // HIPAA: Only log error message, not full stack which may contain PHI
     console.error(`[${callId}] A critical error occurred during audio processing:`, (error as Error).message);
     await storage.updateCall(callId, { status: "failed" });
+    broadcastCallUpdate(callId, "failed", { label: "Processing failed" });
     await cleanupFile(filePath);
   }
 }

@@ -1,22 +1,34 @@
-import { useEffect } from "react";
+import { useEffect, lazy, Suspense } from "react";
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient, getQueryFn } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import Dashboard from "@/pages/dashboard";
-import Upload from "@/pages/upload";
-import Transcripts from "@/pages/transcripts";
-import PerformancePage from "@/pages/performance";
-import SentimentPage from "@/pages/sentiment";
-import ReportsPage from "@/pages/reports";
-import SearchPage from "@/pages/search";
-import EmployeesPage from "@/pages/employees";
-import AuthPage from "@/pages/auth";
-import NotFound from "@/pages/not-found";
 import Sidebar from "@/components/layout/sidebar";
 import { ErrorBoundary } from "@/components/lib/error-boundary";
 import { AudioWaveform } from "lucide-react";
+import { useWebSocket } from "@/hooks/use-websocket";
+import { AnimatePresence, motion } from "framer-motion";
+
+// Route-level code splitting — each page loads on demand
+const Dashboard = lazy(() => import("@/pages/dashboard"));
+const Upload = lazy(() => import("@/pages/upload"));
+const Transcripts = lazy(() => import("@/pages/transcripts"));
+const PerformancePage = lazy(() => import("@/pages/performance"));
+const SentimentPage = lazy(() => import("@/pages/sentiment"));
+const ReportsPage = lazy(() => import("@/pages/reports"));
+const SearchPage = lazy(() => import("@/pages/search"));
+const EmployeesPage = lazy(() => import("@/pages/employees"));
+const AuthPage = lazy(() => import("@/pages/auth"));
+const NotFound = lazy(() => import("@/pages/not-found"));
+
+function PageLoader() {
+  return (
+    <div className="flex items-center justify-center h-64">
+      <AudioWaveform className="w-8 h-8 animate-spin text-primary" />
+    </div>
+  );
+}
 
 interface AuthUser {
   id: string;
@@ -25,8 +37,26 @@ interface AuthUser {
   role: string;
 }
 
+const pageTransition = {
+  initial: { opacity: 0, y: 8 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: -8 },
+  transition: { duration: 0.2, ease: "easeInOut" },
+};
+
+function AnimatedPage({ children }: { children: React.ReactNode }) {
+  return (
+    <motion.div {...pageTransition}>
+      {children}
+    </motion.div>
+  );
+}
+
 function Router() {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
+
+  // WebSocket listener for real-time notifications
+  useWebSocket();
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -63,18 +93,22 @@ function Router() {
     <div className="flex h-screen">
       <Sidebar />
       <main className="flex-1 overflow-auto">
-        <Switch>
-          <Route path="/" component={Dashboard} />
-          <Route path="/upload" component={Upload} />
-          <Route path="/transcripts" component={Transcripts} />
-          <Route path="/transcripts/:id" component={Transcripts} />
-          <Route path="/search" component={SearchPage} />
-          <Route path="/performance" component={PerformancePage} />
-          <Route path="/sentiment" component={SentimentPage} />
-          <Route path="/reports" component={ReportsPage} />
-          <Route path="/employees" component={EmployeesPage} />
-          <Route component={NotFound} />
-        </Switch>
+        <Suspense fallback={<PageLoader />}>
+          <AnimatePresence mode="wait">
+            <Switch key={location}>
+              <Route path="/">{() => <AnimatedPage><Dashboard /></AnimatedPage>}</Route>
+              <Route path="/upload">{() => <AnimatedPage><Upload /></AnimatedPage>}</Route>
+              <Route path="/transcripts">{() => <AnimatedPage><Transcripts /></AnimatedPage>}</Route>
+              <Route path="/transcripts/:id">{() => <AnimatedPage><Transcripts /></AnimatedPage>}</Route>
+              <Route path="/search">{() => <AnimatedPage><SearchPage /></AnimatedPage>}</Route>
+              <Route path="/performance">{() => <AnimatedPage><PerformancePage /></AnimatedPage>}</Route>
+              <Route path="/sentiment">{() => <AnimatedPage><SentimentPage /></AnimatedPage>}</Route>
+              <Route path="/reports">{() => <AnimatedPage><ReportsPage /></AnimatedPage>}</Route>
+              <Route path="/employees">{() => <AnimatedPage><EmployeesPage /></AnimatedPage>}</Route>
+              <Route>{() => <AnimatedPage><NotFound /></AnimatedPage>}</Route>
+            </Switch>
+          </AnimatePresence>
+        </Suspense>
       </main>
     </div>
   );
@@ -85,7 +119,7 @@ function AuthenticatedApp() {
     queryKey: ["/api/auth/me"],
     queryFn: getQueryFn({ on401: "returnNull" }),
     retry: false,
-    staleTime: Infinity, // Session doesn't change without user action
+    staleTime: Infinity,
     refetchOnWindowFocus: true,
   });
 
@@ -99,11 +133,13 @@ function AuthenticatedApp() {
 
   if (!user || error) {
     return (
-      <AuthPage
-        onLogin={() => {
-          queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-        }}
-      />
+      <Suspense fallback={<PageLoader />}>
+        <AuthPage
+          onLogin={() => {
+            queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+          }}
+        />
+      </Suspense>
     );
   }
 

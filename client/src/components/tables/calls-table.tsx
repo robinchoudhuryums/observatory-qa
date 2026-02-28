@@ -1,12 +1,13 @@
 import { useState, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Eye, Play, Download, Star, Trash2, UserCheck, AlertTriangle, Award, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, CheckSquare, Square } from "lucide-react";
+import { Eye, Play, Download, Star, Trash2, UserCheck, AlertTriangle, Award, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, CheckSquare, Square, FileAudio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import type { CallWithDetails, Employee } from "@shared/schema";
 import { AudioWaveform } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -166,9 +167,29 @@ export default function CallsTable() {
 
   if (isLoadingCalls || isLoadingEmployees) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <AudioWaveform className="w-8 h-8 animate-spin text-primary" />
-        <p className="ml-2 text-muted-foreground">Loading calls...</p>
+      <div className="bg-card rounded-lg border border-border p-6">
+        <div className="flex items-center justify-between mb-4">
+          <Skeleton className="h-6 w-32" />
+          <div className="flex gap-2">
+            <Skeleton className="h-9 w-36" />
+            <Skeleton className="h-9 w-36" />
+          </div>
+        </div>
+        <div className="space-y-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3 py-3 border-b border-border last:border-0">
+              <Skeleton className="h-4 w-4" />
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-8 w-8 rounded-full" />
+              <Skeleton className="h-4 w-20" />
+              <Skeleton className="h-4 w-12" />
+              <Skeleton className="h-5 w-16 rounded-full" />
+              <Skeleton className="h-4 w-16" />
+              <Skeleton className="h-5 w-20 rounded-full" />
+              <Skeleton className="h-8 w-24" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -357,12 +378,22 @@ export default function CallsTable() {
                 </td>
                 <td className="py-3 px-2">{getSentimentBadge(call.sentiment?.overallSentiment)}</td>
                 <td className="py-3 px-2">
-                  {call.analysis?.performanceScore && (
-                    <div className="flex items-center space-x-2">
-                      <span className="font-bold text-green-600">{Number(call.analysis.performanceScore).toFixed(1)}</span>
-                      {renderStars(Number(call.analysis.performanceScore))}
-                    </div>
-                  )}
+                  {call.analysis?.performanceScore && (() => {
+                    const score = Number(call.analysis.performanceScore);
+                    const scoreColor = score >= 8 ? "text-green-600" : score >= 6 ? "text-blue-600" : score >= 4 ? "text-yellow-600" : "text-red-600";
+                    const barColor = score >= 8 ? "from-green-500 to-emerald-400" : score >= 6 ? "from-blue-500 to-cyan-400" : score >= 4 ? "from-yellow-500 to-amber-400" : "from-red-500 to-orange-400";
+                    return (
+                      <div className="space-y-1">
+                        <div className="flex items-center space-x-2">
+                          <span className={`font-bold ${scoreColor}`}>{score.toFixed(1)}</span>
+                          {renderStars(score)}
+                        </div>
+                        <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full bg-gradient-to-r ${barColor}`} style={{ width: `${score * 10}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </td>
                 <td className="py-3 px-2">
                   {call.analysis?.callPartyType ? (
@@ -468,9 +499,15 @@ export default function CallsTable() {
       )}
 
       {!calls?.length && (
-        <div className="text-center py-12">
-          <p className="text-muted-foreground">No call recordings found</p>
-          <Link href="/upload"><Button className="mt-4">Upload Your First Call</Button></Link>
+        <div className="text-center py-16">
+          <div className="mx-auto w-16 h-16 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full flex items-center justify-center mb-4">
+            <FileAudio className="w-8 h-8 text-primary/60" />
+          </div>
+          <h4 className="font-semibold text-foreground mb-1">No call recordings yet</h4>
+          <p className="text-sm text-muted-foreground mb-4 max-w-sm mx-auto">
+            Upload your first audio file to get started with AI-powered call analysis.
+          </p>
+          <Link href="/upload"><Button>Upload Your First Call</Button></Link>
         </div>
       )}
     </div>
