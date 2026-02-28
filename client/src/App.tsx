@@ -1,4 +1,5 @@
-import { Switch, Route } from "wouter";
+import { useEffect } from "react";
+import { Switch, Route, useLocation } from "wouter";
 import { queryClient, getQueryFn } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -25,6 +26,39 @@ interface AuthUser {
 }
 
 function Router() {
+  const [, navigate] = useLocation();
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Ignore when typing in inputs/textareas
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      switch (e.key.toLowerCase()) {
+        case "k":
+          e.preventDefault();
+          navigate("/search");
+          break;
+        case "n":
+          e.preventDefault();
+          navigate("/upload");
+          break;
+        case "d":
+          e.preventDefault();
+          navigate("/");
+          break;
+        case "r":
+          e.preventDefault();
+          navigate("/reports");
+          break;
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [navigate]);
+
   return (
     <div className="flex h-screen">
       <Sidebar />

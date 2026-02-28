@@ -239,6 +239,13 @@ export default function ReportsPage() {
       agentProfile.topSuggestions.forEach(s => lines.push(`  - ${s.text} (x${s.count})`));
     }
 
+    if (aiSummary) {
+      lines.push("");
+      lines.push("AI-Generated Summary");
+      lines.push("--------------------");
+      lines.push(aiSummary);
+    }
+
     if (compareEnabled && compareReport) {
       lines.push("");
       lines.push(`Comparison Period: ${compareDateRange.from} to ${compareDateRange.to}`);

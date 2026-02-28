@@ -74,6 +74,71 @@ function getAllDepartments(employees: Employee[]): string[] {
   return Array.from(set).sort();
 }
 
+interface AgentProfileData {
+  totalCalls: number;
+  avgPerformanceScore: number | null;
+  highScore: number | null;
+  lowScore: number | null;
+  sentimentBreakdown: { positive: number; neutral: number; negative: number };
+}
+
+function CompareCard({ employee }: { employee: Employee }) {
+  const { data: profile, isLoading } = useQuery<AgentProfileData>({
+    queryKey: [`/api/reports/agent-profile/${employee.id}`],
+  });
+
+  return (
+    <div className="bg-muted/50 rounded-lg p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="w-8 h-8 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center">
+          {employee.initials || employee.name?.slice(0, 2).toUpperCase()}
+        </span>
+        <div>
+          <p className="font-semibold text-sm">{employee.name}</p>
+          <p className="text-xs text-muted-foreground">{employee.role || "No department"}</p>
+        </div>
+      </div>
+      {isLoading ? (
+        <p className="text-xs text-muted-foreground">Loading stats...</p>
+      ) : profile ? (
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <div>
+            <p className="text-xs text-muted-foreground">Total Calls</p>
+            <p className="font-bold">{profile.totalCalls}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Avg Score</p>
+            <p className="font-bold text-primary">{profile.avgPerformanceScore?.toFixed(1) ?? "N/A"}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">High / Low</p>
+            <p className="font-bold">
+              <span className="text-green-600">{profile.highScore?.toFixed(1) ?? "—"}</span>
+              {" / "}
+              <span className="text-red-600">{profile.lowScore?.toFixed(1) ?? "—"}</span>
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Sentiment</p>
+            <div className="flex gap-1 text-xs">
+              <span className="text-green-600">{profile.sentimentBreakdown?.positive ?? 0}+</span>
+              <span className="text-gray-500">{profile.sentimentBreakdown?.neutral ?? 0}~</span>
+              <span className="text-red-600">{profile.sentimentBreakdown?.negative ?? 0}-</span>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">No data available</p>
+      )}
+      <Link href={`/reports?employee=${employee.id}`}>
+        <Button size="sm" variant="outline" className="w-full mt-3 text-xs">
+          <Eye className="w-3 h-3 mr-1" /> Full Profile
+        </Button>
+      </Link>
+    </div>
+  );
+}
+
 export default function EmployeesPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -410,6 +475,28 @@ export default function EmployeesPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Team Comparison Panel */}
+      {compareIds.length === 2 && employees && (() => {
+        const emp1 = employees.find(e => e.id === compareIds[0]);
+        const emp2 = employees.find(e => e.id === compareIds[1]);
+        if (!emp1 || !emp2) return null;
+        return (
+          <div className="mx-6 mt-6 bg-card rounded-lg border border-primary/30 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                <GitCompare className="w-5 h-5 text-primary" />
+                Comparing Agents
+              </h3>
+              <Button size="sm" variant="ghost" onClick={() => setCompareIds([])}>Clear</Button>
+            </div>
+            <div className="grid grid-cols-2 gap-6">
+              <CompareCard employee={emp1} />
+              <CompareCard employee={emp2} />
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="p-6">
         {isLoading ? (

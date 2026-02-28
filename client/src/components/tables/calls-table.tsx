@@ -149,16 +149,12 @@ export default function CallsTable() {
   const handleBulkDelete = () => {
     if (selectedIds.size === 0) return;
     if (!window.confirm(`Are you sure you want to permanently delete ${selectedIds.size} call(s)?`)) return;
-    for (const id of selectedIds) {
-      deleteMutation.mutate(id);
-    }
+    Array.from(selectedIds).forEach(id => deleteMutation.mutate(id));
     setSelectedIds(new Set());
   };
 
   const handleBulkAssign = (employeeId: string) => {
-    for (const callId of selectedIds) {
-      assignMutation.mutate({ callId, employeeId });
-    }
+    Array.from(selectedIds).forEach(callId => assignMutation.mutate({ callId, employeeId }));
     setSelectedIds(new Set());
   };
 

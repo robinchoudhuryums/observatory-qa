@@ -1,5 +1,6 @@
+import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { Mic, BarChart3, Upload, FileText, Heart, Users, UserPlus, Search, LogOut, User, TrendingUp } from "lucide-react";
+import { Mic, BarChart3, Upload, FileText, Heart, Users, UserPlus, Search, LogOut, User, TrendingUp, Sun, Moon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient, getQueryFn } from "@/lib/queryClient";
@@ -26,6 +27,26 @@ interface AuthUser {
 
 export default function Sidebar() {
   const [location, navigate] = useLocation();
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains("dark"));
+
+  const toggleDarkMode = () => {
+    const next = !isDark;
+    setIsDark(next);
+    document.documentElement.classList.toggle("dark", next);
+    localStorage.setItem("theme", next ? "dark" : "light");
+  };
+
+  // Initialize dark mode from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem("theme");
+    if (saved === "dark") {
+      document.documentElement.classList.add("dark");
+      setIsDark(true);
+    } else if (saved === "light") {
+      document.documentElement.classList.remove("dark");
+      setIsDark(false);
+    }
+  }, []);
 
   const { data: user } = useQuery<AuthUser>({
     queryKey: ["/api/auth/me"],
@@ -68,14 +89,23 @@ export default function Sidebar() {
   return (
     <aside className="w-64 bg-card border-r border-border flex flex-col" data-testid="sidebar">
       <div className="p-6 border-b border-border">
-        <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-            <Mic className="text-primary-foreground w-4 h-4" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+              <Mic className="text-primary-foreground w-4 h-4" />
+            </div>
+            <div>
+              <h1 className="font-bold text-lg text-foreground">CallAnalyzer</h1>
+              <p className="text-xs text-muted-foreground">Pro Dashboard</p>
+            </div>
           </div>
-          <div>
-            <h1 className="font-bold text-lg text-foreground">CallAnalyzer</h1>
-            <p className="text-xs text-muted-foreground">Pro Dashboard</p>
-          </div>
+          <button
+            onClick={toggleDarkMode}
+            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </button>
         </div>
       </div>
 
