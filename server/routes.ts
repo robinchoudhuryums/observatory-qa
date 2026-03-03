@@ -10,6 +10,7 @@ import { aiProvider } from "./services/ai-factory";
 import { buildAgentSummaryPrompt } from "./services/ai-provider";
 import { requireAuth, requireRole } from "./auth";
 import { broadcastCallUpdate } from "./services/websocket";
+import { logPhiAccess, auditContext } from "./services/audit-log";
 import { insertEmployeeSchema, insertAccessRequestSchema, insertPromptTemplateSchema, insertCoachingSessionSchema } from "@shared/schema";
 import { z } from "zod";
 import csv from "csv-parser";
@@ -27,12 +28,19 @@ const upload = multer({
     fileSize: 100 * 1024 * 1024, // 100MB limit (reasonable for audio files)
   },
   fileFilter: (req, file, cb) => {
+    // Validate both file extension and MIME type
     const allowedTypes = ['.mp3', '.wav', '.m4a', '.mp4', '.flac', '.ogg'];
+    const allowedMimeTypes = [
+      'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/wave', 'audio/x-wav',
+      'audio/mp4', 'audio/x-m4a', 'audio/m4a', 'audio/flac', 'audio/x-flac',
+      'audio/ogg', 'audio/vorbis', 'video/mp4', 'application/octet-stream',
+    ];
     const ext = path.extname(file.originalname).toLowerCase();
-    if (allowedTypes.includes(ext)) {
+    const mimeOk = allowedMimeTypes.includes(file.mimetype);
+    if (allowedTypes.includes(ext) && mimeOk) {
       cb(null, true);
     } else {
-      cb(new Error('Invalid file type. Only audio files are allowed.'), false);
+      cb(new Error('Invalid file type. Only audio files (MP3, WAV, M4A, MP4, FLAC, OGG) are allowed.'), false);
     }
   }
 });
@@ -106,15 +114,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Approve or deny an access request
+  const accessRequestUpdateSchema = z.object({
+    status: z.enum(["approved", "denied"]),
+  }).strict();
+
   app.patch("/api/access-requests/:id", requireAuth, requireRole("admin"), async (req, res) => {
     try {
-      const { status } = req.body;
-      if (!status || !["approved", "denied"].includes(status)) {
+      const parsed = accessRequestUpdateSchema.safeParse(req.body);
+      if (!parsed.success) {
         res.status(400).json({ message: "Status must be 'approved' or 'denied'" });
         return;
       }
       const updated = await storage.updateAccessRequest(req.params.id, {
-        status,
+        status: parsed.data.status,
         reviewedBy: req.user?.username,
         reviewedAt: new Date().toISOString(),
       });
@@ -158,8 +170,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/prompt-templates/:id", requireAuth, requireRole("admin"), async (req, res) => {
     try {
+      // Validate the update: allow only known template fields
+      const { updatedBy: _ignore, id: _ignoreId, ...bodyWithoutMeta } = req.body;
+      const templateUpdateParsed = insertPromptTemplateSchema.partial().safeParse(bodyWithoutMeta);
+      if (!templateUpdateParsed.success) {
+        res.status(400).json({ message: "Invalid template data", errors: templateUpdateParsed.error.flatten() });
+        return;
+      }
       const updated = await storage.updatePromptTemplate(req.params.id, {
-        ...req.body,
+        ...templateUpdateParsed.data,
         updatedBy: req.user?.username,
       });
       if (!updated) {
@@ -240,31 +259,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // HIPAA: Only managers and admins can update employees
+  const updateEmployeeSchema = z.object({
+    name: z.string().min(1).optional(),
+    email: z.string().email().optional(),
+    role: z.string().optional(),
+    status: z.string().optional(),
+    initials: z.string().max(2).optional(),
+    subTeam: z.string().optional(),
+  }).strict();
+
   app.patch("/api/employees/:id", requireAuth, requireRole("manager", "admin"), async (req, res) => {
     try {
+      const parsed = updateEmployeeSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ message: "Invalid update data", errors: parsed.error.flatten() });
+        return;
+      }
       const employee = await storage.getEmployee(req.params.id);
       if (!employee) {
         res.status(404).json({ message: "Employee not found" });
         return;
       }
-      const allowedFields = ["name", "email", "role", "status", "initials", "subTeam"];
-      const updates: Record<string, any> = {};
-      for (const field of allowedFields) {
-        if (req.body[field] !== undefined) {
-          updates[field] = req.body[field];
-        }
-      }
-      const updated = await storage.updateEmployee(req.params.id, updates);
+      const updated = await storage.updateEmployee(req.params.id, parsed.data);
       res.json(updated);
     } catch (error) {
       res.status(500).json({ message: "Failed to update employee" });
     }
   });
 
-  // Assign/reassign employee to a call
-  app.patch("/api/calls/:id/assign", requireAuth, async (req, res) => {
+  // Assign/reassign employee to a call (managers and admins only)
+  const assignCallSchema = z.object({
+    employeeId: z.string().optional(),
+  }).strict();
+
+  app.patch("/api/calls/:id/assign", requireAuth, requireRole("manager", "admin"), async (req, res) => {
     try {
-      const { employeeId } = req.body;
+      const parsed = assignCallSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ message: "Invalid request data", errors: parsed.error.flatten() });
+        return;
+      }
+      const { employeeId } = parsed.data;
       const call = await storage.getCall(req.params.id);
       if (!call) {
         res.status(404).json({ message: "Call not found" });
@@ -367,6 +402,15 @@ app.get("/api/calls", requireAuth, async (req, res) => {
         res.status(404).json({ message: "Call not found" });
         return;
       }
+
+      // HIPAA: Log PHI access (viewing call details includes transcript & analysis)
+      logPhiAccess({
+        ...auditContext(req),
+        timestamp: new Date().toISOString(),
+        event: "view_call_details",
+        resourceType: "call",
+        resourceId: req.params.id,
+      });
 
       const employee = call.employeeId ? await storage.getEmployee(call.employeeId) : undefined;
       const transcript = await storage.getTranscript(call.id);
@@ -657,6 +701,15 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
         return;
       }
 
+      // HIPAA: Log PHI access (audio recording is PHI)
+      logPhiAccess({
+        ...auditContext(req),
+        timestamp: new Date().toISOString(),
+        event: req.query.download === "true" ? "download_audio" : "stream_audio",
+        resourceType: "audio",
+        resourceId: req.params.id,
+      });
+
       // List audio files for this call (stored under audio/{callId}/)
       const audioFiles = await storage.getAudioFiles(req.params.id);
       if (!audioFiles || audioFiles.length === 0) {
@@ -685,8 +738,10 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
 
       // If ?download=true, set Content-Disposition to force download
       if (req.query.download === 'true') {
-        const fileName = call.fileName || `call-${req.params.id}${ext}`;
-        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+        const rawName = call.fileName || `call-${req.params.id}${ext}`;
+        // Sanitize filename: remove path traversal, control chars, and non-ASCII
+        const safeName = path.basename(rawName).replace(/[^\w.\-() ]/g, "_");
+        res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
       }
 
       res.setHeader('Content-Type', contentType);
@@ -705,6 +760,15 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
   // Get transcript for a call
   app.get("/api/calls/:id/transcript", requireAuth, async (req, res) => {
     try {
+      // HIPAA: Log PHI access (transcript is PHI)
+      logPhiAccess({
+        ...auditContext(req),
+        timestamp: new Date().toISOString(),
+        event: "view_transcript",
+        resourceType: "transcript",
+        resourceId: req.params.id,
+      });
+
       const transcript = await storage.getTranscript(req.params.id);
       if (!transcript) {
         res.status(404).json({ message: "Transcript not found" });
@@ -749,6 +813,16 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
     try {
       const callId = req.params.id;
       const { updates, reason } = req.body;
+
+      // HIPAA: Log PHI modification
+      logPhiAccess({
+        ...auditContext(req),
+        timestamp: new Date().toISOString(),
+        event: "edit_call_analysis",
+        resourceType: "analysis",
+        resourceId: callId,
+        detail: `reason: ${reason}; fields: ${updates ? Object.keys(updates).join(",") : "none"}`,
+      });
 
       if (!reason || typeof reason !== "string" || reason.trim().length === 0) {
         res.status(400).json({ message: "A reason for the manual edit is required." });
@@ -1276,9 +1350,17 @@ app.get("/api/performance", requireAuth, async (req, res) => {
   app.delete("/api/calls/:id", requireAuth, requireRole("manager", "admin"), async (req, res) => {
   try {
     const callId = req.params.id;
-    
-    // You'll need to implement deleteCall in your storage/db logic
-    await storage.deleteCall(callId); 
+
+    // HIPAA: Log PHI deletion
+    logPhiAccess({
+      ...auditContext(req),
+      timestamp: new Date().toISOString(),
+      event: "delete_call",
+      resourceType: "call",
+      resourceId: callId,
+    });
+
+    await storage.deleteCall(callId);
     
     console.log(`Successfully deleted call ID: ${callId}`);
     // Send a 204 No Content response for a successful deletion
@@ -1335,13 +1417,23 @@ app.get("/api/performance", requireAuth, async (req, res) => {
   });
 
   // Update a coaching session (status, notes, action plan progress)
+  const updateCoachingSchema = z.object({
+    status: z.enum(["pending", "in_progress", "completed", "cancelled"]).optional(),
+    notes: z.string().optional(),
+    actionPlan: z.array(z.object({ task: z.string(), completed: z.boolean() })).optional(),
+    title: z.string().min(1).optional(),
+    category: z.string().optional(),
+    dueDate: z.string().optional(),
+  }).strict();
+
   app.patch("/api/coaching/:id", requireAuth, requireRole("manager", "admin"), async (req, res) => {
     try {
-      const updates: Record<string, any> = {};
-      const allowed = ["status", "notes", "actionPlan", "title", "category", "dueDate"];
-      for (const key of allowed) {
-        if (req.body[key] !== undefined) updates[key] = req.body[key];
+      const parsed = updateCoachingSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ message: "Invalid update data", errors: parsed.error.flatten() });
+        return;
       }
+      const updates: Record<string, any> = { ...parsed.data };
       if (updates.status === "completed") {
         updates.completedAt = new Date().toISOString();
       }
