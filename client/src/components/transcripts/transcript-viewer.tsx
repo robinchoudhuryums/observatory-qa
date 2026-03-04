@@ -148,19 +148,22 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
     }
   };
 
-  const transcriptSegments = call.transcript?.words ?
+  const transcriptSegments = call.transcript?.words && Array.isArray(call.transcript.words) && call.transcript.words.length > 0 ?
     generateSegmentsFromWords(call.transcript.words as TranscriptWord[]) :
     [];
 
   function generateSegmentsFromWords(words: TranscriptWord[]) {
     const segments: any[] = [];
-    if (!words || words.length === 0) return segments;
+    if (!words || !Array.isArray(words) || words.length === 0) return segments;
+
+    const first = words[0];
+    if (!first || typeof first !== "object") return segments;
 
     let currentSegment = {
-      start: words[0].start,
-      end: words[0].end,
-      text: words[0].text,
-      speaker: words[0].speaker || 'Agent',
+      start: first.start || 0,
+      end: first.end || 0,
+      text: first.text || '',
+      speaker: first.speaker || 'Agent',
       sentiment: 'neutral' as const
     };
 
@@ -251,7 +254,7 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
       lines.push(call.analysis.summary);
     }
 
-    if (call.analysis?.actionItems && call.analysis.actionItems.length > 0) {
+    if (call.analysis?.actionItems && Array.isArray(call.analysis.actionItems) && call.analysis.actionItems.length > 0) {
       lines.push('');
       lines.push(`Action Items`);
       lines.push(`------------`);
@@ -271,12 +274,12 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
 
   // Build keyword set from detected topics for highlighting
   const topicKeywords = useMemo(() => {
-    if (!call.analysis?.topics) return [];
-    const topics = call.analysis.topics as string[];
-    return topics.filter(t => t.length >= 3).map(t => t.toLowerCase());
+    if (!call.analysis?.topics || !Array.isArray(call.analysis.topics)) return [];
+    return (call.analysis.topics as string[]).filter(t => typeof t === "string" && t.length >= 3).map(t => t.toLowerCase());
   }, [call.analysis?.topics]);
 
-  const highlightKeywords = (text: string) => {
+  const highlightKeywords = (text: string | any) => {
+    if (typeof text !== "string") return String(text ?? "");
     if (topicKeywords.length === 0) return text;
     const pattern = topicKeywords.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
     const regex = new RegExp(`(${pattern})`, "gi");
@@ -411,7 +414,7 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
 
         <div className="space-y-4">
           {/* Manual Edit Indicator */}
-          {call.analysis?.manualEdits && (call.analysis.manualEdits as any[]).length > 0 && (
+          {call.analysis?.manualEdits && Array.isArray(call.analysis.manualEdits) && (call.analysis.manualEdits as any[]).length > 0 && (
             <div className="bg-amber-50 dark:bg-amber-950/30 rounded-lg p-3 border border-amber-200 dark:border-amber-900">
               <div className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400 text-xs font-medium mb-1">
                 <History className="w-3.5 h-3.5" />
@@ -525,7 +528,7 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
             )}
           </div>
 
-          {!isEditing && call.analysis?.summary && (
+          {!isEditing && call.analysis?.summary && typeof call.analysis.summary === "string" && (
             <div className="bg-muted rounded-lg p-4">
               <h4 className="font-semibold text-foreground mb-3">Key Points</h4>
               <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
