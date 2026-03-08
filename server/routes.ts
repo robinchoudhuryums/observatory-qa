@@ -424,10 +424,12 @@ app.get("/api/calls", requireAuth, injectOrgContext, async (req, res) => {
         resourceId: req.params.id,
       });
 
-      const employee = call.employeeId ? await storage.getEmployee(req.orgId!, call.employeeId) : undefined;
-      const transcript = await storage.getTranscript(req.orgId!, call.id);
-      const sentiment = await storage.getSentimentAnalysis(req.orgId!, call.id);
-      const rawAnalysis = await storage.getCallAnalysis(req.orgId!, call.id);
+      const [employee, transcript, sentiment, rawAnalysis] = await Promise.all([
+        call.employeeId ? storage.getEmployee(req.orgId!, call.employeeId) : undefined,
+        storage.getTranscript(req.orgId!, call.id),
+        storage.getSentimentAnalysis(req.orgId!, call.id),
+        storage.getCallAnalysis(req.orgId!, call.id),
+      ]);
 
       // Normalize analysis for backward-compatibility with older stored data
       const analysis = rawAnalysis ? {
@@ -486,11 +488,13 @@ app.get("/api/calls", requireAuth, injectOrgContext, async (req, res) => {
       const audioBuffer = fs.readFileSync(req.file.path);
       const originalName = req.file.originalname;
       const mimeType = req.file.mimetype || "audio/mpeg";
-      processAudioFile(req.orgId!, call.id, req.file.path, audioBuffer, originalName, mimeType, callCategory)
+      // Capture orgId before async — req may not be available in .catch()
+      const orgId = req.orgId!;
+      processAudioFile(orgId, call.id, req.file.path, audioBuffer, originalName, mimeType, callCategory)
         .catch(async (error) => {
           console.error(`Failed to process call ${call.id}:`, error);
           try {
-            await storage.updateCall(req.orgId!, call.id, { status: "failed" });
+            await storage.updateCall(orgId, call.id, { status: "failed" });
           } catch (updateErr) {
             console.error(`Failed to mark call ${call.id} as failed:`, updateErr);
           }
@@ -662,37 +666,39 @@ async function processAudioFile(orgId: string, callId: string, filePath: string,
     // Step 6: Store results
     broadcastCallUpdate(callId, "saving", { step: 6, totalSteps: 6, label: "Saving results..." }, orgId);
     console.log(`[${callId}] Step 6/6: Saving analysis results...`);
-    await storage.createTranscript(orgId, transcript);
-    await storage.createSentimentAnalysis(orgId, sentiment);
-    await storage.createCallAnalysis(orgId, analysis);
+    await Promise.all([
+      storage.createTranscript(orgId, transcript),
+      storage.createSentimentAnalysis(orgId, sentiment),
+      storage.createCallAnalysis(orgId, analysis),
+    ]);
 
     // Auto-assign to employee based on detected agent name (if call is unassigned)
     const currentCall = await storage.getCall(orgId, callId);
-    let autoAssigned = false;
+    let assignedEmployeeId: string | undefined;
     if (!currentCall?.employeeId && aiAnalysis?.detected_agent_name) {
       const detectedName = aiAnalysis.detected_agent_name.toLowerCase().trim();
       const allEmployees = await storage.getAllEmployees(orgId);
       const matchedEmployee = allEmployees.find(emp => {
         const empName = emp.name.toLowerCase();
-        // Match on first name, last name, or full name
         return empName === detectedName ||
           empName.split(" ")[0] === detectedName ||
           empName.split(" ").pop() === detectedName;
       });
       if (matchedEmployee) {
-        await storage.updateCall(orgId, callId, { employeeId: matchedEmployee.id });
-        autoAssigned = true;
+        assignedEmployeeId = matchedEmployee.id;
         console.log(`[${callId}] Auto-assigned to employee: ${matchedEmployee.id}`);
       } else {
         console.log(`[${callId}] Detected agent name but no matching employee found.`);
       }
     }
 
+    // Single updateCall with all final fields (avoids double S3 write)
     await storage.updateCall(orgId, callId, {
       status: "completed",
-      duration: Math.floor((transcriptResponse.words?.[transcriptResponse.words.length - 1]?.end || 0) / 1000)
+      duration: Math.floor((transcriptResponse.words?.[transcriptResponse.words.length - 1]?.end || 0) / 1000),
+      ...(assignedEmployeeId ? { employeeId: assignedEmployeeId } : {}),
     });
-    console.log(`[${callId}] Step 6/6: Done. Status is now 'completed'.${autoAssigned ? " (auto-assigned)" : ""}`);
+    console.log(`[${callId}] Step 6/6: Done. Status is now 'completed'.${assignedEmployeeId ? " (auto-assigned)" : ""}`);
 
 
     await cleanupFile(filePath);
@@ -933,9 +939,11 @@ app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
 
   app.get("/api/reports/summary", requireAuth, injectOrgContext, async (req, res) => {
   try {
-    const metrics = await storage.getDashboardMetrics(req.orgId!);
-    const sentiment = await storage.getSentimentDistribution(req.orgId!);
-    const performers = await storage.getTopPerformers(req.orgId!, 5);
+    const [metrics, sentiment, performers] = await Promise.all([
+      storage.getDashboardMetrics(req.orgId!),
+      storage.getSentimentDistribution(req.orgId!),
+      storage.getTopPerformers(req.orgId!, 5),
+    ]);
 
     const reportData = {
       metrics,
@@ -1367,9 +1375,9 @@ app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
         dateRange,
       });
 
-      console.log(`[${req.params.id}] Generating AI summary (${filtered.length} calls)...`);
+      console.log(`[${req.params.employeeId}] Generating AI summary (${filtered.length} calls)...`);
       const summary = await aiProvider.generateText(prompt);
-      console.log(`[${req.params.id}] AI summary generated.`);
+      console.log(`[${req.params.employeeId}] AI summary generated.`);
 
       res.json({ summary });
     } catch (error) {

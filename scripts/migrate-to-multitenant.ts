@@ -42,8 +42,8 @@ const MIGRATE_DIRS = [
   "employees",
   "calls",
   "transcripts",
-  "sentiment",
-  "analysis",
+  "sentiments",
+  "analyses",
   "audio",
   "coaching",
   "access-requests",
@@ -98,20 +98,6 @@ async function copyObject(sourceKey: string, targetKey: string): Promise<void> {
 
 async function createOrgRecord(): Promise<void> {
   const orgKey = `orgs/${ORG_ID}/org.json`;
-
-  // Check if org record already exists
-  try {
-    const existing = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: orgKey }));
-    if (existing.Body) {
-      console.log(`[SKIP] Organization record already exists at ${orgKey}`);
-      return;
-    }
-  } catch (e: any) {
-    if (e.name !== "NoSuchKey" && e.$metadata?.httpStatusCode !== 404) {
-      throw e;
-    }
-  }
-
   const orgData = {
     id: ORG_ID,
     name: ORG_NAME,
@@ -123,10 +109,10 @@ async function createOrgRecord(): Promise<void> {
 
   if (DRY_RUN) {
     console.log(`[DRY RUN] Would create org record: ${orgKey}`);
-    console.log(`  ${JSON.stringify(orgData, null, 2)}`);
     return;
   }
 
+  // PutObject is idempotent — no need to check existence first
   await s3.send(new PutObjectCommand({
     Bucket: BUCKET,
     Key: orgKey,
@@ -153,39 +139,30 @@ async function migrateDirectory(dir: string): Promise<{ copied: number; skipped:
   console.log(`  Found ${keysToMigrate.length} file(s) to migrate.`);
 
   let copied = 0;
-  let skipped = 0;
 
-  for (const sourceKey of keysToMigrate) {
-    // Compute target key: employees/abc.json → orgs/{orgId}/employees/abc.json
-    const targetKey = `orgs/${ORG_ID}/${sourceKey}`;
-
-    // Check if target already exists
-    try {
-      await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: targetKey }));
-      console.log(`  [SKIP] ${targetKey} (already exists)`);
-      skipped++;
-      continue;
-    } catch (e: any) {
-      if (e.name !== "NoSuchKey" && e.$metadata?.httpStatusCode !== 404) {
-        throw e;
+  // Copy in batches of 10 for bounded concurrency
+  const BATCH_SIZE = 10;
+  for (let i = 0; i < keysToMigrate.length; i += BATCH_SIZE) {
+    const batch = keysToMigrate.slice(i, i + BATCH_SIZE);
+    await Promise.all(batch.map(async (sourceKey) => {
+      const targetKey = `orgs/${ORG_ID}/${sourceKey}`;
+      // CopyObject is idempotent — no need to check existence first
+      await copyObject(sourceKey, targetKey);
+      if (!DRY_RUN) {
+        console.log(`  [COPIED] ${sourceKey} → ${targetKey}`);
       }
-    }
-
-    await copyObject(sourceKey, targetKey);
-    if (!DRY_RUN) {
-      console.log(`  [COPIED] ${sourceKey} → ${targetKey}`);
-    }
-    copied++;
+      copied++;
+    }));
   }
 
-  return { copied, skipped };
+  return { copied, skipped: 0 };
 }
 
 async function injectOrgIdIntoJsonFiles(): Promise<number> {
   console.log(`\nInjecting orgId into JSON files...`);
 
   // For each JSON entity file, we need to add orgId if it's missing
-  const entityDirs = ["employees", "calls", "transcripts", "sentiment", "analysis", "coaching", "access-requests", "prompt-templates"];
+  const entityDirs = ["employees", "calls", "transcripts", "sentiments", "analyses", "coaching", "access-requests", "prompt-templates"];
   let updated = 0;
 
   for (const dir of entityDirs) {
@@ -236,21 +213,15 @@ async function main() {
   // Step 1: Create org record
   await createOrgRecord();
 
-  // Step 2: Copy files from flat structure to org-prefixed
-  let totalCopied = 0;
-  let totalSkipped = 0;
-  for (const dir of MIGRATE_DIRS) {
-    const { copied, skipped } = await migrateDirectory(dir);
-    totalCopied += copied;
-    totalSkipped += skipped;
-  }
+  // Step 2: Copy files from flat structure to org-prefixed (parallel across directories)
+  const results = await Promise.all(MIGRATE_DIRS.map(dir => migrateDirectory(dir)));
+  const totalCopied = results.reduce((sum, r) => sum + r.copied, 0);
 
   // Step 3: Inject orgId into JSON entities
   const injected = await injectOrgIdIntoJsonFiles();
 
   console.log("\n=== Migration Summary ===");
   console.log(`Files copied:    ${totalCopied}`);
-  console.log(`Files skipped:   ${totalSkipped}`);
   console.log(`Files updated:   ${injected} (orgId injected)`);
   console.log(`Mode:            ${DRY_RUN ? "DRY RUN" : "COMPLETE"}`);
 
