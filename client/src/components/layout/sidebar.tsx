@@ -27,6 +27,8 @@ interface AuthUser {
   username: string;
   name: string;
   role: string;
+  orgId: string;
+  orgSlug: string;
 }
 
 export default function Sidebar() {
@@ -108,8 +110,8 @@ export default function Sidebar() {
               <Mic className="text-primary-foreground w-4 h-4" />
             </div>
             <div>
-              <h1 className="font-bold text-lg text-foreground">CallAnalyzer</h1>
-              <p className="text-xs text-muted-foreground">Pro Dashboard</p>
+              <h1 className="font-bold text-lg text-foreground">Observatory</h1>
+              <p className="text-xs text-muted-foreground">QA Dashboard</p>
             </div>
           </div>
           <button

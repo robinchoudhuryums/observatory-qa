@@ -40,6 +40,8 @@ interface AuthUser {
   username: string;
   name: string;
   role: string;
+  orgId: string;
+  orgSlug: string;
 }
 
 const pageTransition = {
