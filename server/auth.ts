@@ -4,8 +4,9 @@ import session from "express-session";
 import createMemoryStore from "memorystore";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
-import type { Express, RequestHandler } from "express";
+import type { Express, Request, Response, NextFunction, RequestHandler } from "express";
 import { logPhiAccess } from "./services/audit-log";
+import { storage } from "./storage";
 
 const scryptAsync = promisify(scrypt);
 
@@ -42,8 +43,9 @@ function clearFailedAttempts(username: string): void {
 
 /**
  * Users are defined via the AUTH_USERS environment variable.
- * Format: username:password:role:displayName (comma-separated for multiple users)
- * Example: admin:SecurePass123!:admin:Admin User,viewer:ViewerPass456:viewer:Jane Doe
+ * Format: username:password:role:displayName:orgSlug (comma-separated for multiple users)
+ * The orgSlug field maps to an organization's slug. If omitted, defaults to DEFAULT_ORG_SLUG env var or "default".
+ * Example: admin:SecurePass123!:admin:Admin User:ums,viewer:ViewerPass456:viewer:Jane Doe:ums
  */
 
 interface EnvUser {
@@ -52,6 +54,8 @@ interface EnvUser {
   passwordHash: string;
   name: string;
   role: string;
+  orgSlug: string;
+  orgId?: string; // Resolved at runtime from orgSlug → org record
 }
 
 // In-memory store of hashed user credentials parsed from env vars
@@ -77,6 +81,7 @@ async function loadUsersFromEnv(): Promise<void> {
     return;
   }
 
+  const defaultOrgSlug = process.env.DEFAULT_ORG_SLUG || "default";
   const userEntries = authUsersRaw.split(",").map((s) => s.trim()).filter(Boolean);
 
   for (const entry of userEntries) {
@@ -86,19 +91,53 @@ async function loadUsersFromEnv(): Promise<void> {
       continue;
     }
 
-    const [username, password, role = "viewer", ...nameParts] = parts;
-    const displayName = nameParts.length > 0 ? nameParts.join(":") : username;
+    // Format: username:password:role:displayName:orgSlug
+    const [username, password, role = "viewer", displayName, orgSlug] = parts;
+    const name = displayName || username;
+    const userOrgSlug = orgSlug || defaultOrgSlug;
 
     const passwordHash = await hashPassword(password);
     envUsers.push({
       id: randomBytes(8).toString("hex"),
       username,
       passwordHash,
-      name: displayName,
+      name,
       role,
+      orgSlug: userOrgSlug,
     });
 
-    console.log(`Loaded user from AUTH_USERS: ${username} (${role})`);
+    console.log(`Loaded user from AUTH_USERS: ${username} (${role}, org: ${userOrgSlug})`);
+  }
+}
+
+/**
+ * Resolve orgSlug → orgId for all loaded env users.
+ * Called after storage is initialized so we can look up org records.
+ * If an org doesn't exist yet, it will be auto-created (for backward compat).
+ */
+async function resolveUserOrgIds(): Promise<void> {
+  const resolvedSlugs = new Map<string, string>(); // slug → orgId cache
+
+  for (const user of envUsers) {
+    if (resolvedSlugs.has(user.orgSlug)) {
+      user.orgId = resolvedSlugs.get(user.orgSlug);
+      continue;
+    }
+
+    let org = await storage.getOrganizationBySlug(user.orgSlug);
+    if (!org) {
+      // Auto-create org for backward compatibility (single-tenant migration)
+      console.log(`[AUTH] Auto-creating organization for slug "${user.orgSlug}"`);
+      org = await storage.createOrganization({
+        name: user.orgSlug === "default" ? "Default Organization" : user.orgSlug,
+        slug: user.orgSlug,
+        status: "active",
+      });
+    }
+
+    user.orgId = org.id;
+    resolvedSlugs.set(user.orgSlug, org.id);
+    console.log(`[AUTH] Resolved org slug "${user.orgSlug}" → orgId "${org.id}"`);
   }
 }
 
@@ -110,6 +149,12 @@ declare global {
       username: string;
       name: string;
       role: string;
+      orgId: string;
+      orgSlug: string;
+    }
+    interface Request {
+      /** Organization ID extracted from authenticated user session */
+      orgId?: string;
     }
   }
 }
@@ -120,6 +165,8 @@ export let sessionMiddleware: RequestHandler;
 export async function setupAuth(app: Express) {
   // Load users from environment variables on startup
   await loadUsersFromEnv();
+  // Resolve org slugs to org IDs (auto-creates orgs if needed)
+  await resolveUserOrgIds();
 
   // HIPAA: Session configuration with proper memory store and idle timeout
   const sessionSecret = process.env.SESSION_SECRET || randomBytes(32).toString("hex");
@@ -202,12 +249,15 @@ export async function setupAuth(app: Express) {
           username: user.username,
           role: user.role,
           resourceType: "auth",
+          detail: `org: ${user.orgSlug}`,
         });
         return done(null, {
           id: user.id,
           username: user.username,
           name: user.name,
           role: user.role,
+          orgId: user.orgId!,
+          orgSlug: user.orgSlug,
         });
       } catch (err) {
         return done(err);
@@ -231,6 +281,8 @@ export async function setupAuth(app: Express) {
       username: user.username,
       name: user.name,
       role: user.role,
+      orgId: user.orgId!,
+      orgSlug: user.orgSlug,
     });
   });
 }
@@ -265,3 +317,16 @@ export function requireRole(...allowedRoles: string[]): RequestHandler {
     return res.status(403).json({ message: "Insufficient permissions" });
   };
 }
+
+/**
+ * Middleware that extracts orgId from the authenticated user's session
+ * and sets it on req.orgId for use by route handlers.
+ * Must be used AFTER requireAuth.
+ */
+export const injectOrgContext: RequestHandler = (req: Request, res: Response, next: NextFunction) => {
+  if (!req.user?.orgId) {
+    return res.status(401).json({ message: "No organization context in session" });
+  }
+  req.orgId = req.user.orgId;
+  next();
+};
