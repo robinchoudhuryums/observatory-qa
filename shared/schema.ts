@@ -367,3 +367,13 @@ export type TopPerformer = {
   avgPerformanceScore: number | null;
   totalCalls: number;
 };
+
+/** Authenticated user shape returned by /api/auth/me and stored in session */
+export type AuthUser = {
+  id: string;
+  username: string;
+  name: string;
+  role: string;
+  orgId: string;
+  orgSlug: string;
+};

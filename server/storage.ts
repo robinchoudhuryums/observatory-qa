@@ -67,6 +67,18 @@ export function normalizeAnalysis(analysis: CallAnalysis | undefined): CallAnaly
   };
 }
 
+/** Apply standard call filters (status, sentiment, employee) */
+function applyCallFilters(
+  calls: CallWithDetails[],
+  filters: { status?: string; sentiment?: string; employee?: string }
+): CallWithDetails[] {
+  let result = calls;
+  if (filters.status) result = result.filter((c) => c.status === filters.status);
+  if (filters.sentiment) result = result.filter((c) => c.sentiment?.overallSentiment === filters.sentiment);
+  if (filters.employee) result = result.filter((c) => c.employeeId === filters.employee);
+  return result;
+}
+
 /** Common interface for GCS and S3 object storage clients */
 export interface ObjectStorageClient {
   uploadJson(objectName: string, data: unknown): Promise<void>;
@@ -280,10 +292,7 @@ export class MemStorage implements IStorage {
         return { ...call, employee, transcript, sentiment, analysis } as CallWithDetails;
       })
     );
-    if (filters.status) results = results.filter((c) => c.status === filters.status);
-    if (filters.sentiment) results = results.filter((c) => c.sentiment?.overallSentiment === filters.sentiment);
-    if (filters.employee) results = results.filter((c) => c.employeeId === filters.employee);
-    return results;
+    return applyCallFilters(results, filters);
   }
 
   // --- Transcript operations (org-scoped) ---
@@ -666,10 +675,7 @@ export class CloudStorage implements IStorage {
       (a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime()
     );
 
-    let filtered = results;
-    if (filters.status) filtered = filtered.filter((c) => c.status === filters.status);
-    if (filters.sentiment) filtered = filtered.filter((c) => c.sentiment?.overallSentiment === filters.sentiment);
-    if (filters.employee) filtered = filtered.filter((c) => c.employeeId === filters.employee);
+    const filtered = applyCallFilters(results, filters);
 
     console.log(`Returning ${filtered.length} filtered calls.`);
     return filtered;

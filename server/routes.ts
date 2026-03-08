@@ -15,6 +15,31 @@ import { insertEmployeeSchema, insertAccessRequestSchema, insertPromptTemplateSc
 import { z } from "zod";
 import csv from "csv-parser";
 
+/**
+ * Retry an async operation with exponential backoff.
+ * Useful for transient failures in AI/transcription services.
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  opts: { retries?: number; baseDelay?: number; label?: string } = {}
+): Promise<T> {
+  const { retries = 2, baseDelay = 1000, label = "operation" } = opts;
+  let lastError: Error | undefined;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error as Error;
+      if (attempt < retries) {
+        const delay = baseDelay * Math.pow(2, attempt);
+        console.warn(`[RETRY] ${label} failed (attempt ${attempt + 1}/${retries + 1}), retrying in ${delay}ms: ${lastError.message}`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  throw lastError;
+}
+
 // Ensure uploads directory exists
 const uploadsDir = 'uploads';
 if (!fs.existsSync(uploadsDir)) {
@@ -583,10 +608,13 @@ async function processAudioFile(orgId: string, callId: string, filePath: string,
           console.warn(`[${callId}] Very long transcript (${estimatedTokens} estimated tokens). Analysis quality may be reduced for the longest calls.`);
         }
 
-        aiAnalysis = await aiProvider.analyzeCallTranscript(transcriptText, callId, callCategory, promptTemplate);
+        aiAnalysis = await withRetry(
+          () => aiProvider.analyzeCallTranscript(transcriptText, callId, callCategory, promptTemplate),
+          { retries: 2, baseDelay: 2000, label: `AI analysis for ${callId}` }
+        );
         console.log(`[${callId}] Step 4/6: AI analysis complete.`);
       } catch (aiError) {
-        console.warn(`[${callId}] AI analysis failed (continuing with defaults):`, (aiError as Error).message);
+        console.warn(`[${callId}] AI analysis failed after retries (continuing with defaults):`, (aiError as Error).message);
       }
     } else if (!aiProvider.isAvailable) {
       console.log(`[${callId}] Step 4/6: AI provider not configured, using transcript-based defaults.`);
