@@ -210,7 +210,7 @@ export async function setupAuth(app: Express) {
         // HIPAA: Check account lockout before attempting authentication
         if (isAccountLocked(username)) {
           logPhiAccess({
-            timestamp: new Date().toISOString(),
+
             event: "login_locked",
             username,
             resourceType: "auth",
@@ -223,7 +223,7 @@ export async function setupAuth(app: Express) {
         if (!user) {
           recordFailedAttempt(username);
           logPhiAccess({
-            timestamp: new Date().toISOString(),
+
             event: "login_failed",
             username,
             resourceType: "auth",
@@ -234,7 +234,7 @@ export async function setupAuth(app: Express) {
         if (!isValid) {
           recordFailedAttempt(username);
           logPhiAccess({
-            timestamp: new Date().toISOString(),
+
             event: "login_failed",
             username,
             resourceType: "auth",
@@ -243,7 +243,6 @@ export async function setupAuth(app: Express) {
         }
         clearFailedAttempts(username);
         logPhiAccess({
-          timestamp: new Date().toISOString(),
           event: "login_success",
           orgId: user.orgId,
           userId: user.id,

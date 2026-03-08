@@ -4,7 +4,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import passport from "passport";
-import { storage } from "./storage";
+import { storage, normalizeAnalysis } from "./storage";
 import { assemblyAIService } from "./services/assemblyai";
 import { aiProvider } from "./services/ai-factory";
 import { buildAgentSummaryPrompt } from "./services/ai-provider";
@@ -418,7 +418,7 @@ app.get("/api/calls", requireAuth, injectOrgContext, async (req, res) => {
       // HIPAA: Log PHI access (viewing call details includes transcript & analysis)
       logPhiAccess({
         ...auditContext(req),
-        timestamp: new Date().toISOString(),
+
         event: "view_call_details",
         resourceType: "call",
         resourceId: req.params.id,
@@ -431,17 +431,7 @@ app.get("/api/calls", requireAuth, injectOrgContext, async (req, res) => {
         storage.getCallAnalysis(req.orgId!, call.id),
       ]);
 
-      // Normalize analysis for backward-compatibility with older stored data
-      const analysis = rawAnalysis ? {
-        ...rawAnalysis,
-        topics: Array.isArray(rawAnalysis.topics) ? rawAnalysis.topics : [],
-        actionItems: Array.isArray(rawAnalysis.actionItems) ? rawAnalysis.actionItems : [],
-        flags: Array.isArray(rawAnalysis.flags) ? rawAnalysis.flags : [],
-        feedback: (rawAnalysis.feedback && typeof rawAnalysis.feedback === "object" && !Array.isArray(rawAnalysis.feedback))
-          ? rawAnalysis.feedback
-          : { strengths: [], suggestions: [] },
-        summary: typeof rawAnalysis.summary === "string" ? rawAnalysis.summary : "",
-      } : undefined;
+      const analysis = normalizeAnalysis(rawAnalysis);
 
       res.json({
         ...call,
@@ -726,7 +716,7 @@ async function processAudioFile(orgId: string, callId: string, filePath: string,
       // HIPAA: Log PHI access (audio recording is PHI)
       logPhiAccess({
         ...auditContext(req),
-        timestamp: new Date().toISOString(),
+
         event: req.query.download === "true" ? "download_audio" : "stream_audio",
         resourceType: "audio",
         resourceId: req.params.id,
@@ -785,7 +775,7 @@ async function processAudioFile(orgId: string, callId: string, filePath: string,
       // HIPAA: Log PHI access (transcript is PHI)
       logPhiAccess({
         ...auditContext(req),
-        timestamp: new Date().toISOString(),
+
         event: "view_transcript",
         resourceType: "transcript",
         resourceId: req.params.id,
@@ -839,7 +829,7 @@ async function processAudioFile(orgId: string, callId: string, filePath: string,
       // HIPAA: Log PHI modification
       logPhiAccess({
         ...auditContext(req),
-        timestamp: new Date().toISOString(),
+
         event: "edit_call_analysis",
         resourceType: "analysis",
         resourceId: callId,
@@ -1394,7 +1384,6 @@ app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
     // HIPAA: Log PHI deletion
     logPhiAccess({
       ...auditContext(req),
-      timestamp: new Date().toISOString(),
       event: "delete_call",
       resourceType: "call",
       resourceId: callId,

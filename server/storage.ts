@@ -27,6 +27,26 @@ import { GcsClient } from "./services/gcs";
 import { S3Client } from "./services/s3";
 import { randomUUID } from "crypto";
 
+/**
+ * Normalize a CallAnalysis for backward-compatibility with older stored data.
+ * AI may return objects instead of arrays for topics/flags/actionItems.
+ */
+export function normalizeAnalysis(analysis: CallAnalysis): CallAnalysis;
+export function normalizeAnalysis(analysis: CallAnalysis | undefined): CallAnalysis | undefined;
+export function normalizeAnalysis(analysis: CallAnalysis | undefined): CallAnalysis | undefined {
+  if (!analysis) return undefined;
+  return {
+    ...analysis,
+    topics: Array.isArray(analysis.topics) ? analysis.topics : [],
+    actionItems: Array.isArray(analysis.actionItems) ? analysis.actionItems : [],
+    flags: Array.isArray(analysis.flags) ? analysis.flags : [],
+    feedback: (analysis.feedback && typeof analysis.feedback === "object" && !Array.isArray(analysis.feedback))
+      ? analysis.feedback
+      : { strengths: [], suggestions: [] },
+    summary: typeof analysis.summary === "string" ? analysis.summary : "",
+  };
+}
+
 /** Common interface for GCS and S3 object storage clients */
 export interface ObjectStorageClient {
   uploadJson(objectName: string, data: unknown): Promise<void>;
@@ -614,16 +634,7 @@ export class CloudStorage implements IStorage {
           this.getCallAnalysis(orgId, call.id),
         ]);
 
-        const normalizedAnalysis = analysis ? {
-          ...analysis,
-          topics: Array.isArray(analysis.topics) ? analysis.topics : [],
-          actionItems: Array.isArray(analysis.actionItems) ? analysis.actionItems : [],
-          flags: Array.isArray(analysis.flags) ? analysis.flags : [],
-          feedback: (analysis.feedback && typeof analysis.feedback === "object" && !Array.isArray(analysis.feedback))
-            ? analysis.feedback
-            : { strengths: [], suggestions: [] },
-          summary: typeof analysis.summary === "string" ? analysis.summary : "",
-        } : undefined;
+        const normalizedAnalysis = normalizeAnalysis(analysis);
 
         results.push({
           ...call,
