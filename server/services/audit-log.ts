@@ -22,14 +22,14 @@ export interface AuditEntry {
   detail?: string;
 }
 
-const AUDIT_PREFIX = "[HIPAA_AUDIT]";
+import { logger } from "../logger";
 
 export function logPhiAccess(entry: AuditEntry): void {
-  const line = {
+  logger.info({
     ...entry,
     timestamp: entry.timestamp || new Date().toISOString(),
-  };
-  console.log(`${AUDIT_PREFIX} ${JSON.stringify(line)}`);
+    _audit: "HIPAA_PHI",
+  }, `[HIPAA_AUDIT] ${entry.event}`);
 }
 
 /**
