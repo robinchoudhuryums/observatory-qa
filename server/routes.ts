@@ -8,7 +8,7 @@ import { storage } from "./storage";
 import { assemblyAIService } from "./services/assemblyai";
 import { aiProvider } from "./services/ai-factory";
 import { buildAgentSummaryPrompt } from "./services/ai-provider";
-import { requireAuth, requireRole } from "./auth";
+import { requireAuth, requireRole, injectOrgContext } from "./auth";
 import { broadcastCallUpdate } from "./services/websocket";
 import { logPhiAccess, auditContext } from "./services/audit-log";
 import { insertEmployeeSchema, insertAccessRequestSchema, insertPromptTemplateSchema, insertCoachingSessionSchema } from "@shared/schema";
@@ -59,7 +59,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       req.login(user, (loginErr) => {
         if (loginErr) return next(loginErr);
-        res.json({ id: user.id, username: user.username, name: user.name, role: user.role });
+        res.json({ id: user.id, username: user.username, name: user.name, role: user.role, orgId: user.orgId, orgSlug: user.orgSlug });
       });
     })(req, res, next);
   });
@@ -87,6 +87,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== ACCESS REQUEST ROUTES (unauthenticated) ====================
 
   // Submit an access request (public — anyone can request from login page)
+  // orgSlug is required in the body to scope to the correct organization
   app.post("/api/access-requests", async (req, res) => {
     try {
       const parsed = insertAccessRequestSchema.safeParse(req.body);
@@ -94,7 +95,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.status(400).json({ message: "Invalid request data", errors: parsed.error.flatten() });
         return;
       }
-      const request = await storage.createAccessRequest(parsed.data);
+      // Resolve org from slug in body, or use default
+      const orgSlug = req.body.orgSlug || process.env.DEFAULT_ORG_SLUG || "default";
+      const org = await storage.getOrganizationBySlug(orgSlug);
+      if (!org) {
+        res.status(400).json({ message: "Organization not found" });
+        return;
+      }
+      const request = await storage.createAccessRequest(org.id, parsed.data);
       res.status(201).json({ message: "Access request submitted. An administrator will review your request.", id: request.id });
     } catch (error) {
       res.status(500).json({ message: "Failed to submit access request" });
@@ -104,9 +112,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== ACCESS REQUEST ADMIN ROUTES (admin only) ====================
 
   // List all access requests
-  app.get("/api/access-requests", requireAuth, requireRole("admin"), async (_req, res) => {
+  app.get("/api/access-requests", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
     try {
-      const requests = await storage.getAllAccessRequests();
+      const requests = await storage.getAllAccessRequests(req.orgId!);
       res.json(requests);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch access requests" });
@@ -118,14 +126,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     status: z.enum(["approved", "denied"]),
   }).strict();
 
-  app.patch("/api/access-requests/:id", requireAuth, requireRole("admin"), async (req, res) => {
+  app.patch("/api/access-requests/:id", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
     try {
       const parsed = accessRequestUpdateSchema.safeParse(req.body);
       if (!parsed.success) {
         res.status(400).json({ message: "Status must be 'approved' or 'denied'" });
         return;
       }
-      const updated = await storage.updateAccessRequest(req.params.id, {
+      const updated = await storage.updateAccessRequest(req.orgId!, req.params.id, {
         status: parsed.data.status,
         reviewedBy: req.user?.username,
         reviewedAt: new Date().toISOString(),
@@ -142,23 +150,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ==================== PROMPT TEMPLATE ROUTES (admin only) ====================
 
-  app.get("/api/prompt-templates", requireAuth, requireRole("admin"), async (_req, res) => {
+  app.get("/api/prompt-templates", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
     try {
-      const templates = await storage.getAllPromptTemplates();
+      const templates = await storage.getAllPromptTemplates(req.orgId!);
       res.json(templates);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch prompt templates" });
     }
   });
 
-  app.post("/api/prompt-templates", requireAuth, requireRole("admin"), async (req, res) => {
+  app.post("/api/prompt-templates", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
     try {
       const parsed = insertPromptTemplateSchema.safeParse(req.body);
       if (!parsed.success) {
         res.status(400).json({ message: "Invalid template data", errors: parsed.error.flatten() });
         return;
       }
-      const template = await storage.createPromptTemplate({
+      const template = await storage.createPromptTemplate(req.orgId!, {
         ...parsed.data,
         updatedBy: req.user?.username,
       });
@@ -168,7 +176,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/prompt-templates/:id", requireAuth, requireRole("admin"), async (req, res) => {
+  app.patch("/api/prompt-templates/:id", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
     try {
       // Validate the update: allow only known template fields
       const { updatedBy: _ignore, id: _ignoreId, ...bodyWithoutMeta } = req.body;
@@ -177,7 +185,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.status(400).json({ message: "Invalid template data", errors: templateUpdateParsed.error.flatten() });
         return;
       }
-      const updated = await storage.updatePromptTemplate(req.params.id, {
+      const updated = await storage.updatePromptTemplate(req.orgId!, req.params.id, {
         ...templateUpdateParsed.data,
         updatedBy: req.user?.username,
       });
@@ -191,9 +199,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/prompt-templates/:id", requireAuth, requireRole("admin"), async (req, res) => {
+  app.delete("/api/prompt-templates/:id", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
     try {
-      await storage.deletePromptTemplate(req.params.id);
+      await storage.deletePromptTemplate(req.orgId!, req.params.id);
       res.json({ message: "Template deleted" });
     } catch (error) {
       res.status(500).json({ message: "Failed to delete template" });
@@ -203,9 +211,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== PROTECTED ROUTES ====================
 
   // Dashboard metrics
-  app.get("/api/dashboard/metrics", requireAuth, async (req, res) => {
+  app.get("/api/dashboard/metrics", requireAuth, injectOrgContext, async (req, res) => {
     try {
-      const metrics = await storage.getDashboardMetrics();
+      const metrics = await storage.getDashboardMetrics(req.orgId!);
       res.json(metrics);
     } catch (error) {
       res.status(500).json({ message: "Failed to get dashboard metrics" });
@@ -213,9 +221,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Sentiment distribution
-  app.get("/api/dashboard/sentiment", requireAuth, async (req, res) => {
+  app.get("/api/dashboard/sentiment", requireAuth, injectOrgContext, async (req, res) => {
     try {
-      const distribution = await storage.getSentimentDistribution();
+      const distribution = await storage.getSentimentDistribution(req.orgId!);
       res.json(distribution);
     } catch (error) {
       res.status(500).json({ message: "Failed to get sentiment distribution" });
@@ -223,10 +231,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Top performers
-  app.get("/api/dashboard/performers", requireAuth, async (req, res) => {
+  app.get("/api/dashboard/performers", requireAuth, injectOrgContext, async (req, res) => {
     try {
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 3;
-      const performers = await storage.getTopPerformers(limit);
+      const performers = await storage.getTopPerformers(req.orgId!, limit);
       res.json(performers);
     } catch (error) {
       res.status(500).json({ message: "Failed to get top performers" });
@@ -234,9 +242,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get all employees
-  app.get("/api/employees", requireAuth, async (req, res) => {
+  app.get("/api/employees", requireAuth, injectOrgContext, async (req, res) => {
     try {
-      const employees = await storage.getAllEmployees();
+      const employees = await storage.getAllEmployees(req.orgId!);
       res.json(employees);
     } catch (error) {
       res.status(500).json({ message: "Failed to get employees" });
@@ -244,10 +252,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // HIPAA: Only managers and admins can create employees
-  app.post("/api/employees", requireAuth, requireRole("manager", "admin"), async (req, res) => {
+  app.post("/api/employees", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
     try {
       const validatedData = insertEmployeeSchema.parse(req.body);
-      const employee = await storage.createEmployee(validatedData);
+      const employee = await storage.createEmployee(req.orgId!, validatedData);
       res.status(201).json(employee);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -268,19 +276,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     subTeam: z.string().optional(),
   }).strict();
 
-  app.patch("/api/employees/:id", requireAuth, requireRole("manager", "admin"), async (req, res) => {
+  app.patch("/api/employees/:id", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
     try {
       const parsed = updateEmployeeSchema.safeParse(req.body);
       if (!parsed.success) {
         res.status(400).json({ message: "Invalid update data", errors: parsed.error.flatten() });
         return;
       }
-      const employee = await storage.getEmployee(req.params.id);
+      const employee = await storage.getEmployee(req.orgId!, req.params.id);
       if (!employee) {
         res.status(404).json({ message: "Employee not found" });
         return;
       }
-      const updated = await storage.updateEmployee(req.params.id, parsed.data);
+      const updated = await storage.updateEmployee(req.orgId!, req.params.id, parsed.data);
       res.json(updated);
     } catch (error) {
       res.status(500).json({ message: "Failed to update employee" });
@@ -292,7 +300,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     employeeId: z.string().optional(),
   }).strict();
 
-  app.patch("/api/calls/:id/assign", requireAuth, requireRole("manager", "admin"), async (req, res) => {
+  app.patch("/api/calls/:id/assign", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
     try {
       const parsed = assignCallSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -300,19 +308,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return;
       }
       const { employeeId } = parsed.data;
-      const call = await storage.getCall(req.params.id);
+      const call = await storage.getCall(req.orgId!, req.params.id);
       if (!call) {
         res.status(404).json({ message: "Call not found" });
         return;
       }
       if (employeeId) {
-        const employee = await storage.getEmployee(employeeId);
+        const employee = await storage.getEmployee(req.orgId!, employeeId);
         if (!employee) {
           res.status(404).json({ message: "Employee not found" });
           return;
         }
       }
-      const updated = await storage.updateCall(req.params.id, { employeeId: employeeId || undefined });
+      const updated = await storage.updateCall(req.orgId!, req.params.id, { employeeId: employeeId || undefined });
       res.json(updated);
     } catch (error) {
       res.status(500).json({ message: "Failed to assign employee to call" });
@@ -320,13 +328,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // HIPAA: Only admins can bulk import employees
-  app.post("/api/employees/import-csv", requireAuth, requireRole("admin"), async (req, res) => {
+  app.post("/api/employees/import-csv", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
     try {
       const csvFilePath = path.resolve("employees.csv");
       if (!fs.existsSync(csvFilePath)) {
         res.status(404).json({ message: "employees.csv not found on server" });
         return;
       }
+
+      // Use org email domain from settings (falls back to "company.com")
+      const org = await storage.getOrganization(req.orgId!);
+      const emailDomain = org?.settings?.emailDomain || "company.com";
 
       const results: Array<{ name: string; action: string }> = [];
       const rows: any[] = [];
@@ -348,8 +360,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!name) continue;
 
         const email = extension && extension !== "NA" && extension !== "N/A" && extension !== "a"
-          ? `${extension}@company.com`
-          : `${name.toLowerCase().replace(/\s+/g, ".")}@company.com`;
+          ? `${extension}@${emailDomain}`
+          : `${name.toLowerCase().replace(/\s+/g, ".")}@${emailDomain}`;
 
         const nameParts = name.split(/\s+/);
         const initials = nameParts.length >= 2
@@ -357,11 +369,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           : name.slice(0, 2).toUpperCase();
 
         try {
-          const existing = await storage.getEmployeeByEmail(email);
+          const existing = await storage.getEmployeeByEmail(req.orgId!, email);
           if (existing) {
             results.push({ name, action: "skipped (exists)" });
           } else {
-            await storage.createEmployee({ name, email, role: department, initials, status });
+            await storage.createEmployee(req.orgId!, { name, email, role: department, initials, status });
             results.push({ name, action: "created" });
           }
         } catch (err) {
@@ -379,14 +391,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get all calls with details
-app.get("/api/calls", requireAuth, async (req, res) => {
+app.get("/api/calls", requireAuth, injectOrgContext, async (req, res) => {
   try {
     const { status, sentiment, employee } = req.query;
     // Pass the filters directly to the storage function
-    const calls = await storage.getCallsWithDetails({ 
-      status: status as string, 
-      sentiment: sentiment as string, 
-      employee: employee as string 
+    const calls = await storage.getCallsWithDetails(req.orgId!, {
+      status: status as string,
+      sentiment: sentiment as string,
+      employee: employee as string
     });
     res.json(calls);
   } catch (error) {
@@ -395,9 +407,9 @@ app.get("/api/calls", requireAuth, async (req, res) => {
 });
 
   // Get single call with details
-  app.get("/api/calls/:id", requireAuth, async (req, res) => {
+  app.get("/api/calls/:id", requireAuth, injectOrgContext, async (req, res) => {
     try {
-      const call = await storage.getCall(req.params.id);
+      const call = await storage.getCall(req.orgId!, req.params.id);
       if (!call) {
         res.status(404).json({ message: "Call not found" });
         return;
@@ -412,10 +424,10 @@ app.get("/api/calls", requireAuth, async (req, res) => {
         resourceId: req.params.id,
       });
 
-      const employee = call.employeeId ? await storage.getEmployee(call.employeeId) : undefined;
-      const transcript = await storage.getTranscript(call.id);
-      const sentiment = await storage.getSentimentAnalysis(call.id);
-      const rawAnalysis = await storage.getCallAnalysis(call.id);
+      const employee = call.employeeId ? await storage.getEmployee(req.orgId!, call.employeeId) : undefined;
+      const transcript = await storage.getTranscript(req.orgId!, call.id);
+      const sentiment = await storage.getSentimentAnalysis(req.orgId!, call.id);
+      const rawAnalysis = await storage.getCallAnalysis(req.orgId!, call.id);
 
       // Normalize analysis for backward-compatibility with older stored data
       const analysis = rawAnalysis ? {
@@ -442,7 +454,7 @@ app.get("/api/calls", requireAuth, async (req, res) => {
   });
 
   // Upload call recording
-  app.post("/api/calls/upload", requireAuth, upload.single('audioFile'), async (req, res) => {
+  app.post("/api/calls/upload", requireAuth, injectOrgContext, upload.single('audioFile'), async (req, res) => {
     try {
       if (!req.file) {
         res.status(400).json({ message: "No audio file provided" });
@@ -453,7 +465,7 @@ app.get("/api/calls", requireAuth, async (req, res) => {
 
       // If employeeId provided, verify employee exists
       if (employeeId) {
-        const employee = await storage.getEmployee(employeeId);
+        const employee = await storage.getEmployee(req.orgId!, employeeId);
         if (!employee) {
           await cleanupFile(req.file.path);
           res.status(404).json({ message: "Employee not found" });
@@ -462,7 +474,7 @@ app.get("/api/calls", requireAuth, async (req, res) => {
       }
 
       // Create call record (employeeId is optional — can be assigned later)
-      const call = await storage.createCall({
+      const call = await storage.createCall(req.orgId!, {
         employeeId: employeeId || undefined,
         fileName: req.file.originalname,
         filePath: req.file.path,
@@ -474,11 +486,11 @@ app.get("/api/calls", requireAuth, async (req, res) => {
       const audioBuffer = fs.readFileSync(req.file.path);
       const originalName = req.file.originalname;
       const mimeType = req.file.mimetype || "audio/mpeg";
-      processAudioFile(call.id, req.file.path, audioBuffer, originalName, mimeType, callCategory)
+      processAudioFile(req.orgId!, call.id, req.file.path, audioBuffer, originalName, mimeType, callCategory)
         .catch(async (error) => {
           console.error(`Failed to process call ${call.id}:`, error);
           try {
-            await storage.updateCall(call.id, { status: "failed" });
+            await storage.updateCall(req.orgId!, call.id, { status: "failed" });
           } catch (updateErr) {
             console.error(`Failed to mark call ${call.id} as failed:`, updateErr);
           }
@@ -505,7 +517,7 @@ app.get("/api/calls", requireAuth, async (req, res) => {
   }
 
 // Process audio file with AssemblyAI and archive to cloud storage
-async function processAudioFile(callId: string, filePath: string, audioBuffer: Buffer, originalName: string, mimeType: string, callCategory?: string) {
+async function processAudioFile(orgId: string, callId: string, filePath: string, audioBuffer: Buffer, originalName: string, mimeType: string, callCategory?: string) {
   console.log(`[${callId}] Starting audio processing...`);
   broadcastCallUpdate(callId, "uploading", { step: 1, totalSteps: 6, label: "Uploading audio..." });
   try {
@@ -517,7 +529,7 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
     // Step 1b: Archive audio to cloud storage
     console.log(`[${callId}] Step 1b/7: Archiving audio file to cloud storage...`);
     try {
-      await storage.uploadAudio(callId, originalName, audioBuffer, mimeType);
+      await storage.uploadAudio(orgId, callId, originalName, audioBuffer, mimeType);
       console.log(`[${callId}] Step 1b/7: Audio archived.`);
     } catch (archiveError) {
       console.warn(`[${callId}] Warning: Failed to archive audio (continuing):`, archiveError);
@@ -529,7 +541,7 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
     const transcriptId = await assemblyAIService.transcribeAudio(audioUrl);
     console.log(`[${callId}] Step 2/7: Transcription submitted. Transcript ID: ${transcriptId}`);
 
-    await storage.updateCall(callId, { assemblyAiId: transcriptId });
+    await storage.updateCall(orgId, callId, { assemblyAiId: transcriptId });
 
     // Step 3: Poll for transcription completion
     broadcastCallUpdate(callId, "transcribing", { step: 3, totalSteps: 6, label: "Waiting for transcript..." });
@@ -551,7 +563,7 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
     let promptTemplate = undefined;
     if (callCategory) {
       try {
-        const tmpl = await storage.getPromptTemplateByCategory(callCategory);
+        const tmpl = await storage.getPromptTemplateByCategory(orgId, callCategory);
         if (tmpl) {
           promptTemplate = {
             evaluationCriteria: tmpl.evaluationCriteria,
@@ -650,16 +662,16 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
     // Step 6: Store results
     broadcastCallUpdate(callId, "saving", { step: 6, totalSteps: 6, label: "Saving results..." });
     console.log(`[${callId}] Step 6/6: Saving analysis results...`);
-    await storage.createTranscript(transcript);
-    await storage.createSentimentAnalysis(sentiment);
-    await storage.createCallAnalysis(analysis);
+    await storage.createTranscript(orgId, transcript);
+    await storage.createSentimentAnalysis(orgId, sentiment);
+    await storage.createCallAnalysis(orgId, analysis);
 
     // Auto-assign to employee based on detected agent name (if call is unassigned)
-    const currentCall = await storage.getCall(callId);
+    const currentCall = await storage.getCall(orgId, callId);
     let autoAssigned = false;
     if (!currentCall?.employeeId && aiAnalysis?.detected_agent_name) {
       const detectedName = aiAnalysis.detected_agent_name.toLowerCase().trim();
-      const allEmployees = await storage.getAllEmployees();
+      const allEmployees = await storage.getAllEmployees(orgId);
       const matchedEmployee = allEmployees.find(emp => {
         const empName = emp.name.toLowerCase();
         // Match on first name, last name, or full name
@@ -668,7 +680,7 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
           empName.split(" ").pop() === detectedName;
       });
       if (matchedEmployee) {
-        await storage.updateCall(callId, { employeeId: matchedEmployee.id });
+        await storage.updateCall(orgId, callId, { employeeId: matchedEmployee.id });
         autoAssigned = true;
         console.log(`[${callId}] Auto-assigned to employee: ${matchedEmployee.id}`);
       } else {
@@ -676,7 +688,7 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
       }
     }
 
-    await storage.updateCall(callId, {
+    await storage.updateCall(orgId, callId, {
       status: "completed",
       duration: Math.floor((transcriptResponse.words?.[transcriptResponse.words.length - 1]?.end || 0) / 1000)
     });
@@ -690,16 +702,16 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
   } catch (error) {
     // HIPAA: Only log error message, not full stack which may contain PHI
     console.error(`[${callId}] A critical error occurred during audio processing:`, (error as Error).message);
-    await storage.updateCall(callId, { status: "failed" });
+    await storage.updateCall(orgId, callId, { status: "failed" });
     broadcastCallUpdate(callId, "failed", { label: "Processing failed" });
     await cleanupFile(filePath);
   }
 }
 
   // Stream audio file from cloud storage for playback or download
-  app.get("/api/calls/:id/audio", requireAuth, async (req, res) => {
+  app.get("/api/calls/:id/audio", requireAuth, injectOrgContext, async (req, res) => {
     try {
-      const call = await storage.getCall(req.params.id);
+      const call = await storage.getCall(req.orgId!, req.params.id);
       if (!call) {
         res.status(404).json({ message: "Call not found" });
         return;
@@ -715,14 +727,14 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
       });
 
       // List audio files for this call (stored under audio/{callId}/)
-      const audioFiles = await storage.getAudioFiles(req.params.id);
+      const audioFiles = await storage.getAudioFiles(req.orgId!, req.params.id);
       if (!audioFiles || audioFiles.length === 0) {
         res.status(404).json({ message: "Audio file not found in archive" });
         return;
       }
 
       // Download the first audio file
-      const audioBuffer = await storage.downloadAudio(audioFiles[0]);
+      const audioBuffer = await storage.downloadAudio(req.orgId!, audioFiles[0]);
       if (!audioBuffer) {
         res.status(404).json({ message: "Audio file could not be retrieved" });
         return;
@@ -762,7 +774,7 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
   });
 
   // Get transcript for a call
-  app.get("/api/calls/:id/transcript", requireAuth, async (req, res) => {
+  app.get("/api/calls/:id/transcript", requireAuth, injectOrgContext, async (req, res) => {
     try {
       // HIPAA: Log PHI access (transcript is PHI)
       logPhiAccess({
@@ -773,7 +785,7 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
         resourceId: req.params.id,
       });
 
-      const transcript = await storage.getTranscript(req.params.id);
+      const transcript = await storage.getTranscript(req.orgId!, req.params.id);
       if (!transcript) {
         res.status(404).json({ message: "Transcript not found" });
         return;
@@ -785,9 +797,9 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
   });
 
   // Get sentiment analysis for a call
-  app.get("/api/calls/:id/sentiment", requireAuth, async (req, res) => {
+  app.get("/api/calls/:id/sentiment", requireAuth, injectOrgContext, async (req, res) => {
     try {
-      const sentiment = await storage.getSentimentAnalysis(req.params.id);
+      const sentiment = await storage.getSentimentAnalysis(req.orgId!, req.params.id);
       if (!sentiment) {
         res.status(404).json({ message: "Sentiment analysis not found" });
         return;
@@ -799,9 +811,9 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
   });
 
   // Get analysis for a call
-  app.get("/api/calls/:id/analysis", requireAuth, async (req, res) => {
+  app.get("/api/calls/:id/analysis", requireAuth, injectOrgContext, async (req, res) => {
     try {
-      const analysis = await storage.getCallAnalysis(req.params.id);
+      const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
       if (!analysis) {
         res.status(404).json({ message: "Call analysis not found" });
         return;
@@ -813,7 +825,7 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
   });
 
   // HIPAA: Only managers and admins can manually edit call analysis
-  app.patch("/api/calls/:id/analysis", requireAuth, requireRole("manager", "admin"), async (req, res) => {
+  app.patch("/api/calls/:id/analysis", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
     try {
       const callId = req.params.id;
       const { updates, reason } = req.body;
@@ -849,7 +861,7 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
         return;
       }
 
-      const existing = await storage.getCallAnalysis(callId);
+      const existing = await storage.getCallAnalysis(req.orgId!, callId);
       if (!existing) {
         res.status(404).json({ message: "Call analysis not found" });
         return;
@@ -881,7 +893,7 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
       };
 
       // Re-save the analysis
-      await storage.createCallAnalysis(updatedAnalysis);
+      await storage.createCallAnalysis(req.orgId!, updatedAnalysis);
 
       console.log(`[${callId}] Manual edit by ${editedBy}: ${reason} (fields: ${editRecord.fieldsChanged.join(", ")})`);
       res.json(updatedAnalysis);
@@ -892,15 +904,15 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
   });
 
   // Search calls
-  app.get("/api/search", requireAuth, async (req, res) => {
+  app.get("/api/search", requireAuth, injectOrgContext, async (req, res) => {
     try {
       const query = req.query.q as string;
       if (!query) {
         res.status(400).json({ message: "Search query is required" });
         return;
       }
-      
-      const results = await storage.searchCalls(query);
+
+      const results = await storage.searchCalls(req.orgId!, query);
       res.json(results);
     } catch (error) {
       res.status(500).json({ message: "Failed to search calls" });
@@ -908,10 +920,10 @@ async function processAudioFile(callId: string, filePath: string, audioBuffer: B
   });
 
   // This new route will handle requests for the Performance page
-app.get("/api/performance", requireAuth, async (req, res) => {
+app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
   try {
     // We can reuse the existing function to get top performers
-    const performers = await storage.getTopPerformers(10); // Get top 10
+    const performers = await storage.getTopPerformers(req.orgId!, 10); // Get top 10
     res.json(performers);
   } catch (error) {
     console.error("Failed to get performance data:", error);
@@ -919,11 +931,11 @@ app.get("/api/performance", requireAuth, async (req, res) => {
   }
 });
 
-  app.get("/api/reports/summary", requireAuth, async (req, res) => {
+  app.get("/api/reports/summary", requireAuth, injectOrgContext, async (req, res) => {
   try {
-    const metrics = await storage.getDashboardMetrics();
-    const sentiment = await storage.getSentimentDistribution();
-    const performers = await storage.getTopPerformers(5);
+    const metrics = await storage.getDashboardMetrics(req.orgId!);
+    const sentiment = await storage.getSentimentDistribution(req.orgId!);
+    const performers = await storage.getTopPerformers(req.orgId!, 5);
 
     const reportData = {
       metrics,
@@ -939,12 +951,12 @@ app.get("/api/performance", requireAuth, async (req, res) => {
 });
 
   // Filtered reports: accepts date range, employee, department filters
-  app.get("/api/reports/filtered", requireAuth, async (req, res) => {
+  app.get("/api/reports/filtered", requireAuth, injectOrgContext, async (req, res) => {
     try {
       const { from, to, employeeId, department, callPartyType } = req.query;
 
-      const allCalls = await storage.getCallsWithDetails({ status: "completed" });
-      const employees = await storage.getAllEmployees();
+      const allCalls = await storage.getCallsWithDetails(req.orgId!, { status: "completed" });
+      const employees = await storage.getAllEmployees(req.orgId!);
 
       // Build employee lookup maps
       const employeeMap = new Map(employees.map(e => [e.id, e]));
@@ -1100,18 +1112,18 @@ app.get("/api/performance", requireAuth, async (req, res) => {
   });
 
   // Agent profile: aggregated feedback across all calls for an employee
-  app.get("/api/reports/agent-profile/:employeeId", requireAuth, async (req, res) => {
+  app.get("/api/reports/agent-profile/:employeeId", requireAuth, injectOrgContext, async (req, res) => {
     try {
       const { employeeId } = req.params;
       const { from, to } = req.query;
 
-      const employee = await storage.getEmployee(employeeId);
+      const employee = await storage.getEmployee(req.orgId!, employeeId);
       if (!employee) {
         res.status(404).json({ message: "Employee not found" });
         return;
       }
 
-      const allCalls = await storage.getCallsWithDetails({ status: "completed", employee: employeeId });
+      const allCalls = await storage.getCallsWithDetails(req.orgId!, { status: "completed", employee: employeeId });
 
       // Apply optional date filters
       let filtered = allCalls;
@@ -1254,7 +1266,7 @@ app.get("/api/performance", requireAuth, async (req, res) => {
   });
 
   // Generate AI narrative summary for an agent's performance
-  app.post("/api/reports/agent-summary/:employeeId", requireAuth, async (req, res) => {
+  app.post("/api/reports/agent-summary/:employeeId", requireAuth, injectOrgContext, async (req, res) => {
     try {
       if (!aiProvider.isAvailable || !aiProvider.generateText) {
         res.status(503).json({ message: "AI provider not configured. Set up Bedrock or Gemini credentials." });
@@ -1264,13 +1276,13 @@ app.get("/api/performance", requireAuth, async (req, res) => {
       const { employeeId } = req.params;
       const { from, to } = req.body;
 
-      const employee = await storage.getEmployee(employeeId);
+      const employee = await storage.getEmployee(req.orgId!, employeeId);
       if (!employee) {
         res.status(404).json({ message: "Employee not found" });
         return;
       }
 
-      const allCalls = await storage.getCallsWithDetails({ status: "completed", employee: employeeId });
+      const allCalls = await storage.getCallsWithDetails(req.orgId!, { status: "completed", employee: employeeId });
 
       let filtered = allCalls;
       if (from) {
@@ -1367,7 +1379,7 @@ app.get("/api/performance", requireAuth, async (req, res) => {
   });
 
   // HIPAA: Only managers and admins can delete call records
-  app.delete("/api/calls/:id", requireAuth, requireRole("manager", "admin"), async (req, res) => {
+  app.delete("/api/calls/:id", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
   try {
     const callId = req.params.id;
 
@@ -1380,7 +1392,7 @@ app.get("/api/performance", requireAuth, async (req, res) => {
       resourceId: callId,
     });
 
-    await storage.deleteCall(callId);
+    await storage.deleteCall(req.orgId!, callId);
     
     console.log(`Successfully deleted call ID: ${callId}`);
     // Send a 204 No Content response for a successful deletion
@@ -1394,12 +1406,12 @@ app.get("/api/performance", requireAuth, async (req, res) => {
   // ==================== COACHING ROUTES ====================
 
   // List all coaching sessions (managers and admins)
-  app.get("/api/coaching", requireAuth, requireRole("manager", "admin"), async (_req, res) => {
+  app.get("/api/coaching", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
     try {
-      const sessions = await storage.getAllCoachingSessions();
+      const sessions = await storage.getAllCoachingSessions(req.orgId!);
       // Enrich with employee names
       const enriched = await Promise.all(sessions.map(async s => {
-        const emp = await storage.getEmployee(s.employeeId);
+        const emp = await storage.getEmployee(req.orgId!, s.employeeId);
         return { ...s, employeeName: emp?.name || "Unknown" };
       }));
       res.json(enriched.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()));
@@ -1409,9 +1421,9 @@ app.get("/api/performance", requireAuth, async (req, res) => {
   });
 
   // Get coaching sessions for a specific employee
-  app.get("/api/coaching/employee/:employeeId", requireAuth, async (req, res) => {
+  app.get("/api/coaching/employee/:employeeId", requireAuth, injectOrgContext, async (req, res) => {
     try {
-      const sessions = await storage.getCoachingSessionsByEmployee(req.params.employeeId);
+      const sessions = await storage.getCoachingSessionsByEmployee(req.orgId!, req.params.employeeId);
       res.json(sessions.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()));
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch coaching sessions" });
@@ -1419,7 +1431,7 @@ app.get("/api/performance", requireAuth, async (req, res) => {
   });
 
   // Create a coaching session (managers and admins)
-  app.post("/api/coaching", requireAuth, requireRole("manager", "admin"), async (req, res) => {
+  app.post("/api/coaching", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
     try {
       const parsed = insertCoachingSessionSchema.safeParse({
         ...req.body,
@@ -1429,7 +1441,7 @@ app.get("/api/performance", requireAuth, async (req, res) => {
         res.status(400).json({ message: "Invalid coaching data", errors: parsed.error.flatten() });
         return;
       }
-      const session = await storage.createCoachingSession(parsed.data);
+      const session = await storage.createCoachingSession(req.orgId!, parsed.data);
       res.status(201).json(session);
     } catch (error) {
       res.status(500).json({ message: "Failed to create coaching session" });
@@ -1446,7 +1458,7 @@ app.get("/api/performance", requireAuth, async (req, res) => {
     dueDate: z.string().optional(),
   }).strict();
 
-  app.patch("/api/coaching/:id", requireAuth, requireRole("manager", "admin"), async (req, res) => {
+  app.patch("/api/coaching/:id", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
     try {
       const parsed = updateCoachingSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -1457,7 +1469,7 @@ app.get("/api/performance", requireAuth, async (req, res) => {
       if (updates.status === "completed") {
         updates.completedAt = new Date().toISOString();
       }
-      const updated = await storage.updateCoachingSession(req.params.id, updates);
+      const updated = await storage.updateCoachingSession(req.orgId!, req.params.id, updates);
       if (!updated) {
         res.status(404).json({ message: "Coaching session not found" });
         return;
@@ -1470,9 +1482,9 @@ app.get("/api/performance", requireAuth, async (req, res) => {
 
   // ==================== COMPANY INSIGHTS API ====================
 
-  app.get("/api/insights", requireAuth, async (_req, res) => {
+  app.get("/api/insights", requireAuth, injectOrgContext, async (req, res) => {
     try {
-      const allCalls = await storage.getCallsWithDetails();
+      const allCalls = await storage.getCallsWithDetails(req.orgId!);
       const completed = allCalls.filter(c => c.status === "completed" && c.analysis);
 
       // Aggregate topic frequency across all calls

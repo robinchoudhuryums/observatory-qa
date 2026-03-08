@@ -138,13 +138,22 @@ app.post("/api/auth/login", rateLimit(15 * 60 * 1000, 5));
     setupWebSocket(server);
 
     // HIPAA: Data retention — purge calls older than configured days
-    // Default 90 days, configurable via RETENTION_DAYS env var
-    const retentionDays = parseInt(process.env.RETENTION_DAYS || "90", 10);
+    // Runs across all organizations; uses per-org retentionDays from settings (falls back to env/default 90)
+    const defaultRetentionDays = parseInt(process.env.RETENTION_DAYS || "90", 10);
     const runRetention = async () => {
       try {
-        const purged = await storage.purgeExpiredCalls(retentionDays);
-        if (purged > 0) {
-          log(`[RETENTION] Purged ${purged} call(s) older than ${retentionDays} days`);
+        const orgs = await storage.listOrganizations();
+        let totalPurged = 0;
+        for (const org of orgs) {
+          const orgRetention = org.settings?.retentionDays ?? defaultRetentionDays;
+          const purged = await storage.purgeExpiredCalls(org.id, orgRetention);
+          if (purged > 0) {
+            log(`[RETENTION] Purged ${purged} call(s) from org "${org.slug}" older than ${orgRetention} days`);
+            totalPurged += purged;
+          }
+        }
+        if (totalPurged > 0) {
+          log(`[RETENTION] Total purged across all orgs: ${totalPurged}`);
         }
       } catch (error) {
         console.error("[RETENTION] Error during purge:", error);
