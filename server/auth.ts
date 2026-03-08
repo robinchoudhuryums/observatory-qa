@@ -323,6 +323,15 @@ export function requireRole(...allowedRoles: string[]): RequestHandler {
  * and sets it on req.orgId for use by route handlers.
  * Must be used AFTER requireAuth.
  */
+/**
+ * Look up a loaded env user by their session ID and return their orgId.
+ * Used by WebSocket upgrade handler to resolve org context from session.
+ */
+export function resolveUserOrgId(userId: string): string | undefined {
+  const user = envUsers.find((u) => u.id === userId);
+  return user?.orgId;
+}
+
 export const injectOrgContext: RequestHandler = (req: Request, res: Response, next: NextFunction) => {
   if (!req.user?.orgId) {
     return res.status(401).json({ message: "No organization context in session" });
