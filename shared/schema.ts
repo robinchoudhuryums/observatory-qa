@@ -15,6 +15,9 @@ export const orgSettingsSchema = z.object({
   retentionDays: z.number().default(90),
   branding: orgBrandingSchema.optional(),
   aiProvider: z.enum(["bedrock", "gemini"]).optional(),
+  bedrockModel: z.string().optional(), // Per-org model override (e.g., "us.anthropic.claude-haiku-4-5-20251001")
+  maxCallsPerDay: z.number().optional(), // Per-org usage quota
+  maxStorageMb: z.number().optional(), // Per-org storage limit
 });
 
 export const insertOrganizationSchema = z.object({

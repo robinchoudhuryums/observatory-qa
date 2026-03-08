@@ -6,7 +6,7 @@ import fs from "fs";
 import passport from "passport";
 import { storage, normalizeAnalysis } from "./storage";
 import { assemblyAIService } from "./services/assemblyai";
-import { aiProvider } from "./services/ai-factory";
+import { aiProvider, getOrgAIProvider } from "./services/ai-factory";
 import { buildAgentSummaryPrompt } from "./services/ai-provider";
 import { requireAuth, requireRole, injectOrgContext } from "./auth";
 import { broadcastCallUpdate } from "./services/websocket";
@@ -15,6 +15,8 @@ import { insertEmployeeSchema, insertAccessRequestSchema, insertPromptTemplateSc
 import { z } from "zod";
 import csv from "csv-parser";
 import { notifyFlaggedCall } from "./services/notifications";
+import { trackUsage } from "./services/queue";
+import { logger } from "./services/logger";
 
 /**
  * Retry an async operation with exponential backoff.
@@ -892,6 +894,12 @@ async function processAudioFile(orgId: string, callId: string, filePath: string,
     }
 
     console.log(`[${callId}] Processing finished successfully.`);
+
+    // Track usage for billing/metering (fire-and-forget)
+    trackUsage({ orgId, eventType: "transcription", quantity: 1, metadata: { callId } });
+    if (aiAnalysis) {
+      trackUsage({ orgId, eventType: "ai_analysis", quantity: 1, metadata: { callId, model: aiProvider.name } });
+    }
 
   } catch (error) {
     // HIPAA: Only log error message, not full stack which may contain PHI
@@ -1930,6 +1938,115 @@ app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
       });
     } catch (error) {
       res.status(500).json({ message: "Failed to compute company insights" });
+    }
+  });
+
+  // ============================================================
+  // USER MANAGEMENT (database-backed, admin only)
+  // ============================================================
+
+  // List all users in the current organization
+  app.get("/api/users", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      // For now, users are still env-var-based — this endpoint is a placeholder
+      // that will be fully functional when STORAGE_BACKEND=postgres with DB-backed users
+      const dbUser = await storage.getUser(req.user!.id);
+      if (dbUser) {
+        // DB-backed users available — would list all users for this org
+        // This is a stub that returns the current user; full implementation
+        // requires a listUsersByOrg method on IStorage
+        res.json([{
+          id: req.user!.id,
+          username: req.user!.username,
+          name: req.user!.name,
+          role: req.user!.role,
+          orgId: req.user!.orgId,
+        }]);
+      } else {
+        // Env-var-based users — return the current user info only
+        res.json([{
+          id: req.user!.id,
+          username: req.user!.username,
+          name: req.user!.name,
+          role: req.user!.role,
+          orgId: req.user!.orgId,
+        }]);
+      }
+    } catch (error) {
+      logger.error({ err: error }, "Failed to list users");
+      res.status(500).json({ message: "Failed to list users" });
+    }
+  });
+
+  // Create a new user (admin only)
+  app.post("/api/users", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      const { username, password, name, role } = req.body;
+      if (!username || !password || !name) {
+        return res.status(400).json({ message: "username, password, and name are required" });
+      }
+      if (!["viewer", "manager", "admin"].includes(role || "viewer")) {
+        return res.status(400).json({ message: "Invalid role" });
+      }
+
+      // Check if username already exists
+      const existing = await storage.getUserByUsername(username);
+      if (existing) {
+        return res.status(409).json({ message: "Username already exists" });
+      }
+
+      // Hash password
+      const { scrypt, randomBytes } = await import("crypto");
+      const { promisify } = await import("util");
+      const scryptAsync = promisify(scrypt);
+      const salt = randomBytes(16).toString("hex");
+      const buf = (await scryptAsync(password, salt, 64)) as Buffer;
+      const passwordHash = `${buf.toString("hex")}.${salt}`;
+
+      const user = await storage.createUser({
+        orgId: req.orgId!,
+        username,
+        passwordHash,
+        name,
+        role: role || "viewer",
+      });
+
+      logger.info({ userId: user.id, username, org: req.orgId }, "User created");
+      res.status(201).json({ id: user.id, username: user.username, name: user.name, role: user.role });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to create user");
+      res.status(500).json({ message: "Failed to create user" });
+    }
+  });
+
+  // ============================================================
+  // ORGANIZATION MANAGEMENT (admin only)
+  // ============================================================
+
+  // Get current org details
+  app.get("/api/organization", requireAuth, injectOrgContext, async (req, res) => {
+    try {
+      const org = await storage.getOrganization(req.orgId!);
+      if (!org) return res.status(404).json({ message: "Organization not found" });
+      res.json(org);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch organization" });
+    }
+  });
+
+  // Update org settings (admin only)
+  app.patch("/api/organization/settings", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      const org = await storage.getOrganization(req.orgId!);
+      if (!org) return res.status(404).json({ message: "Organization not found" });
+
+      const updatedSettings = { ...org.settings, ...req.body };
+      const updated = await storage.updateOrganization(req.orgId!, { settings: updatedSettings });
+      logger.info({ org: req.orgId }, "Organization settings updated");
+      res.json(updated);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to update organization settings");
+      res.status(500).json({ message: "Failed to update settings" });
     }
   });
 

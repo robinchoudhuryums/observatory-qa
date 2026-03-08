@@ -7,6 +7,8 @@ import { promisify } from "util";
 import type { Express, Request, Response, NextFunction, RequestHandler } from "express";
 import { logPhiAccess } from "./services/audit-log";
 import { storage } from "./storage";
+import { createRedisSessionStore } from "./services/redis";
+import { logger } from "./services/logger";
 
 const scryptAsync = promisify(scrypt);
 
@@ -181,23 +183,35 @@ export async function setupAuth(app: Express) {
   // HIPAA: Session configuration with proper memory store and idle timeout
   const sessionSecret = process.env.SESSION_SECRET || randomBytes(32).toString("hex");
   if (!process.env.SESSION_SECRET) {
-    console.warn("SESSION_SECRET not set - using random secret (sessions will not persist across restarts)");
+    const msg = "SESSION_SECRET not set - using random secret (sessions will not persist across restarts)";
+    if (process.env.NODE_ENV === "production") {
+      logger.error(msg + " — THIS IS A SECURITY RISK IN PRODUCTION. Set SESSION_SECRET env var.");
+    } else {
+      logger.warn(msg);
+    }
   }
-
-  // Use MemoryStore to prevent memory leaks and support session expiry
-  const MemoryStore = createMemoryStore(session);
 
   // HIPAA: 15-minute idle timeout (addressable requirement, standard in healthcare)
   const SESSION_IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
-  const SESSION_ABSOLUTE_MAX_MS = 8 * 60 * 60 * 1000; // 8 hours absolute max
+
+  // Prefer Redis session store (distributed, survives restarts)
+  // Falls back to MemoryStore if Redis unavailable
+  const redisStore = createRedisSessionStore(session);
+  let sessionStore: session.Store;
+  if (redisStore) {
+    sessionStore = redisStore;
+    logger.info("Using Redis session store (distributed, persistent)");
+  } else {
+    const MemoryStore = createMemoryStore(session);
+    sessionStore = new MemoryStore({ checkPeriod: 60 * 1000 });
+    logger.info("Using in-memory session store (non-persistent)");
+  }
 
   sessionMiddleware = session({
     secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
-    store: new MemoryStore({
-      checkPeriod: 60 * 1000, // Prune expired entries every minute
-    }),
+    store: sessionStore,
     cookie: {
       secure: process.env.NODE_ENV === "production" && !process.env.DISABLE_SECURE_COOKIE,
       httpOnly: true,
