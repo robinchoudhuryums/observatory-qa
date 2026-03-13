@@ -44,7 +44,12 @@ export function setupWebSocket(server: Server) {
 
       // Resolve orgId from the user's session ID
       const orgId = resolveUserOrgId(passport.user);
-      (req as any).__orgId = orgId || "";
+      if (!orgId) {
+        socket.write("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      (req as any).__orgId = orgId;
 
       wss!.handleUpgrade(req, socket, head, (ws) => {
         wss!.emit("connection", ws, req);

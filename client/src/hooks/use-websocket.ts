@@ -11,11 +11,19 @@ interface CallUpdate {
   label?: string;
 }
 
+const MAX_RETRIES = 8;
+const BASE_DELAY_MS = 1000;
+const MAX_DELAY_MS = 30000;
+
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
+  const retryCount = useRef(0);
+  // Use a ref for toast to avoid it as a dependency (new ref each render)
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
 
   const connect = useCallback(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -25,6 +33,10 @@ export function useWebSocket() {
       const ws = new WebSocket(url);
       wsRef.current = ws;
 
+      ws.onopen = () => {
+        retryCount.current = 0; // Reset on successful connection
+      };
+
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data) as CallUpdate;
@@ -33,7 +45,7 @@ export function useWebSocket() {
             window.dispatchEvent(new CustomEvent("ws:call_update", { detail: data }));
 
             if (data.status === "completed") {
-              toast({
+              toastRef.current({
                 title: "Call Processing Complete",
                 description: data.label || "Your call has been analyzed and is ready to view.",
               });
@@ -41,7 +53,7 @@ export function useWebSocket() {
               queryClient.invalidateQueries({ queryKey: ["/api/calls"] });
               queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
             } else if (data.status === "failed") {
-              toast({
+              toastRef.current({
                 title: "Call Processing Failed",
                 description: data.label || "There was an error processing your call.",
                 variant: "destructive",
@@ -56,18 +68,25 @@ export function useWebSocket() {
 
       ws.onclose = () => {
         wsRef.current = null;
-        // Reconnect after 5 seconds
-        reconnectTimer.current = setTimeout(connect, 5000);
+        if (retryCount.current < MAX_RETRIES) {
+          const delay = Math.min(BASE_DELAY_MS * Math.pow(2, retryCount.current), MAX_DELAY_MS);
+          retryCount.current++;
+          reconnectTimer.current = setTimeout(connect, delay);
+        }
       };
 
       ws.onerror = () => {
         ws.close();
       };
     } catch {
-      // WebSocket not available, retry later
-      reconnectTimer.current = setTimeout(connect, 10000);
+      // WebSocket not available, retry with backoff
+      if (retryCount.current < MAX_RETRIES) {
+        const delay = Math.min(BASE_DELAY_MS * Math.pow(2, retryCount.current), MAX_DELAY_MS);
+        retryCount.current++;
+        reconnectTimer.current = setTimeout(connect, delay);
+      }
     }
-  }, [toast, queryClient]);
+  }, [queryClient]);
 
   useEffect(() => {
     connect();

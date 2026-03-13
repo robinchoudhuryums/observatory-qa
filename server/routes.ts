@@ -18,6 +18,17 @@ import { notifyFlaggedCall } from "./services/notifications";
 import { trackUsage } from "./services/queue";
 import { logger } from "./services/logger";
 
+/** Parse a numeric value safely, returning fallback if NaN or non-finite. */
+function safeFloat(val: unknown, fallback = 0): number {
+  const num = parseFloat(String(val ?? fallback));
+  return Number.isFinite(num) ? num : fallback;
+}
+
+function safeInt(val: unknown, fallback = 0): number {
+  const num = parseInt(String(val ?? fallback), 10);
+  return Number.isFinite(num) ? num : fallback;
+}
+
 /**
  * Retry an async operation with exponential backoff.
  * Useful for transient failures in AI/transcription services.
@@ -283,7 +294,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return;
       }
 
-      const reanalysisLimit = Math.min(parseInt(maxCalls) || 10, 50);
+      const reanalysisLimit = Math.min(safeInt(maxCalls, 10), 50);
       const allCalls = await storage.getCallsWithDetails(req.orgId!, { status: "completed" });
 
       // Filter to calls matching the category
@@ -354,7 +365,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         broadcastCallUpdate("bulk", "reanalysis_complete", { succeeded, failed, total: queued }, orgId);
       })().catch(err => console.error("[REANALYZE] Bulk re-analysis failed:", err));
     } catch (error) {
-      console.error("Failed to start re-analysis:", error);
+      console.error("Failed to start re-analysis:", (error as Error).message);
       res.status(500).json({ message: "Failed to start re-analysis" });
     }
   });
@@ -384,7 +395,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Top performers
   app.get("/api/dashboard/performers", requireAuth, injectOrgContext, async (req, res) => {
     try {
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : 3;
+      const limit = Math.min(safeInt(req.query.limit, 3), 100);
       const performers = await storage.getTopPerformers(req.orgId!, limit);
       res.json(performers);
     } catch (error) {
@@ -517,11 +528,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const results: Array<{ name: string; action: string }> = [];
       const rows: any[] = [];
+      const MAX_CSV_ROWS = 10000;
 
       await new Promise<void>((resolve, reject) => {
-        fs.createReadStream(csvFilePath)
+        const stream = fs.createReadStream(csvFilePath)
           .pipe(csv())
-          .on("data", (row: any) => rows.push(row))
+          .on("data", (row: any) => {
+            if (rows.length >= MAX_CSV_ROWS) {
+              stream.destroy();
+              reject(new Error(`CSV exceeds maximum of ${MAX_CSV_ROWS} rows`));
+              return;
+            }
+            rows.push(row);
+          })
           .on("end", resolve)
           .on("error", reject);
       });
@@ -560,7 +579,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const skipped = results.filter(r => r.action.startsWith("skipped")).length;
       res.json({ message: `Import complete: ${created} created, ${skipped} skipped`, details: results });
     } catch (error) {
-      console.error("CSV import failed:", error);
+      console.error("CSV import failed:", (error as Error).message);
       res.status(500).json({ message: "Failed to import employees from CSV" });
     }
   });
@@ -657,17 +676,18 @@ app.get("/api/calls", requireAuth, injectOrgContext, async (req, res) => {
       const orgId = req.orgId!;
       processAudioFile(orgId, call.id, req.file.path, audioBuffer, originalName, mimeType, callCategory)
         .catch(async (error) => {
-          console.error(`Failed to process call ${call.id}:`, error);
+          // HIPAA: Log message only, not full error object (may contain PHI)
+          console.error(`Failed to process call ${call.id}:`, (error as Error).message);
           try {
             await storage.updateCall(orgId, call.id, { status: "failed" });
           } catch (updateErr) {
-            console.error(`Failed to mark call ${call.id} as failed:`, updateErr);
+            console.error(`Failed to mark call ${call.id} as failed:`, (updateErr as Error).message);
           }
         });
 
       res.status(201).json(call);
     } catch (error) {
-      console.error("Error during file upload:", error);
+      console.error("Error during file upload:", (error as Error).message);
       // HIPAA: Ensure file is cleaned up on any error
       if (req.file?.path) await cleanupFile(req.file.path);
       res.status(500).json({ message: "Failed to upload call" });
@@ -681,7 +701,7 @@ app.get("/api/calls", requireAuth, injectOrgContext, async (req, res) => {
         fs.unlinkSync(filePath);
       }
     } catch (error) {
-      console.error('Failed to cleanup file:', error);
+      console.error('Failed to cleanup file:', (error as Error).message);
     }
   }
 
@@ -885,7 +905,7 @@ async function processAudioFile(orgId: string, callId: string, filePath: string,
         callId,
         orgId,
         flags: finalFlags,
-        performanceScore: analysis.performanceScore ? parseFloat(analysis.performanceScore) : undefined,
+        performanceScore: analysis.performanceScore ? safeFloat(analysis.performanceScore) : undefined,
         agentName: analysis.detectedAgentName || undefined,
         fileName: originalName,
         summary: typeof analysis.summary === "string" ? analysis.summary : undefined,
@@ -970,7 +990,7 @@ async function processAudioFile(orgId: string, callId: string, filePath: string,
       res.setHeader('Pragma', 'no-cache');
       res.send(audioBuffer);
     } catch (error) {
-      console.error("Failed to stream audio:", error);
+      console.error("Failed to stream audio:", (error as Error).message);
       res.status(500).json({ message: "Failed to stream audio" });
     }
   });
@@ -1100,7 +1120,7 @@ async function processAudioFile(orgId: string, callId: string, filePath: string,
       console.log(`[${callId}] Manual edit by ${editedBy}: ${reason} (fields: ${editRecord.fieldsChanged.join(", ")})`);
       res.json(updatedAnalysis);
     } catch (error) {
-      console.error("Failed to update call analysis:", error);
+      console.error("Failed to update call analysis:", (error as Error).message);
       res.status(500).json({ message: "Failed to update call analysis" });
     }
   });
@@ -1128,7 +1148,7 @@ app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
     const performers = await storage.getTopPerformers(req.orgId!, 10); // Get top 10
     res.json(performers);
   } catch (error) {
-    console.error("Failed to get performance data:", error);
+    console.error("Failed to get performance data:", (error as Error).message);
     res.status(500).json({ message: "Failed to get performance data" });
   }
 });
@@ -1149,7 +1169,7 @@ app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
 
     res.json(reportData);
   } catch (error) {
-    console.error("Failed to generate report data:", error);
+    console.error("Failed to generate report data:", (error as Error).message);
     res.status(500).json({ message: "Failed to generate report data" });
   }
 });
@@ -1205,10 +1225,10 @@ app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
       const analyses = filtered.map(c => c.analysis).filter(Boolean);
 
       const avgSentiment = sentiments.length > 0
-        ? (sentiments.reduce((sum, s) => sum + parseFloat(s!.overallScore || "0"), 0) / sentiments.length) * 10
+        ? (sentiments.reduce((sum, s) => sum + safeFloat(s!.overallScore), 0) / sentiments.length) * 10
         : 0;
       const avgPerformanceScore = analyses.length > 0
-        ? analyses.reduce((sum, a) => sum + parseFloat(a!.performanceScore || "0"), 0) / analyses.length
+        ? analyses.reduce((sum, a) => sum + safeFloat(a!.performanceScore), 0) / analyses.length
         : 0;
 
       const sentimentDist = { positive: 0, neutral: 0, negative: 0 };
@@ -1224,7 +1244,7 @@ app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
         const stats = employeeStats.get(call.employeeId) || { totalScore: 0, callCount: 0 };
         stats.callCount++;
         if (call.analysis?.performanceScore) {
-          stats.totalScore += parseFloat(call.analysis.performanceScore);
+          stats.totalScore += safeFloat(call.analysis.performanceScore);
         }
         employeeStats.set(call.employeeId, stats);
       }
@@ -1253,7 +1273,7 @@ app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
         const entry = trendMap.get(monthKey) || { calls: 0, totalScore: 0, scored: 0, positive: 0, neutral: 0, negative: 0 };
         entry.calls++;
         if (call.analysis?.performanceScore) {
-          entry.totalScore += parseFloat(call.analysis.performanceScore);
+          entry.totalScore += safeFloat(call.analysis.performanceScore);
           entry.scored++;
         }
         if (call.sentiment?.overallSentiment) {
@@ -1310,7 +1330,7 @@ app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
         autoAssignedCount,
       });
     } catch (error) {
-      console.error("Failed to generate filtered report:", error);
+      console.error("Failed to generate filtered report:", (error as Error).message);
       res.status(500).json({ message: "Failed to generate filtered report" });
     }
   });
@@ -1337,7 +1357,7 @@ app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
         });
 
         const scores = filtered
-          .map(c => c.analysis?.performanceScore ? parseFloat(c.analysis.performanceScore) : null)
+          .map(c => c.analysis?.performanceScore ? safeFloat(c.analysis.performanceScore) : null)
           .filter((s): s is number => s !== null);
 
         const sentiments = { positive: 0, neutral: 0, negative: 0 };
@@ -1373,7 +1393,7 @@ app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
 
       res.json({ current, previous, delta });
     } catch (error) {
-      console.error("Failed to generate comparative report:", error);
+      console.error("Failed to generate comparative report:", (error as Error).message);
       res.status(500).json({ message: "Failed to generate comparative report" });
     }
   });
@@ -1429,7 +1449,7 @@ app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
       for (const call of filtered) {
         if (call.analysis) {
           if (call.analysis.performanceScore) {
-            scores.push(parseFloat(call.analysis.performanceScore));
+            scores.push(safeFloat(call.analysis.performanceScore));
           }
           if (call.analysis.feedback) {
             const fb = typeof call.analysis.feedback === "string"
@@ -1462,7 +1482,7 @@ app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
               id: call.id,
               fileName: call.fileName,
               uploadedAt: call.uploadedAt,
-              score: call.analysis.performanceScore ? parseFloat(call.analysis.performanceScore) : null,
+              score: call.analysis.performanceScore ? safeFloat(call.analysis.performanceScore) : null,
               summary: call.analysis.summary,
               flags: callFlags,
               sentiment: call.sentiment?.overallSentiment,
@@ -1480,7 +1500,7 @@ app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
         const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
         if (call.analysis?.performanceScore) {
           const entry = monthlyScores.get(monthKey) || { total: 0, count: 0 };
-          entry.total += parseFloat(call.analysis.performanceScore);
+          entry.total += safeFloat(call.analysis.performanceScore);
           entry.count++;
           monthlyScores.set(monthKey, entry);
         }
@@ -1527,7 +1547,7 @@ app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
         flaggedCalls: flaggedCalls.sort((a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime()),
       });
     } catch (error) {
-      console.error("Failed to generate agent profile:", error);
+      console.error("Failed to generate agent profile:", (error as Error).message);
       res.status(500).json({ message: "Failed to generate agent profile" });
     }
   });
@@ -1576,7 +1596,7 @@ app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
 
       for (const call of filtered) {
         if (call.analysis?.performanceScore) {
-          scores.push(parseFloat(call.analysis.performanceScore));
+          scores.push(safeFloat(call.analysis.performanceScore));
         }
         if (call.analysis?.feedback) {
           const fb = typeof call.analysis.feedback === "string"
@@ -1618,7 +1638,12 @@ app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
       const avgScore = scores.length > 0
         ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
 
-      const dateRange = `${from || "all time"} to ${to || "present"}`;
+      // Sanitize date inputs to prevent prompt injection
+      const sanitizeDate = (d: string | undefined): string => {
+        if (!d) return "";
+        return d.replace(/[^0-9\-\/T:Z ]/g, "").slice(0, 30);
+      };
+      const dateRange = `${sanitizeDate(from as string) || "all time"} to ${sanitizeDate(to as string) || "present"}`;
 
       const prompt = buildAgentSummaryPrompt({
         name: employee.name,
@@ -1657,7 +1682,7 @@ app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
 
       const allCalls = await storage.getCallsWithDetails(req.orgId!, { status: "completed", employee: employeeId });
       const scores = allCalls
-        .map(c => c.analysis?.performanceScore ? parseFloat(c.analysis.performanceScore) : null)
+        .map(c => c.analysis?.performanceScore ? safeFloat(c.analysis.performanceScore) : null)
         .filter((s): s is number => s !== null);
 
       const sentimentCounts = { positive: 0, neutral: 0, negative: 0 };
@@ -1718,7 +1743,7 @@ app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.send(html);
     } catch (error) {
-      console.error("Failed to export agent report:", error);
+      console.error("Failed to export agent report:", (error as Error).message);
       res.status(500).json({ message: "Failed to export agent report" });
     }
   });
@@ -1742,7 +1767,7 @@ app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
     // Send a 204 No Content response for a successful deletion
     res.status(204).send(); 
   } catch (error) {
-    console.error("Failed to delete call:", error);
+    console.error("Failed to delete call:", (error as Error).message);
     res.status(500).json({ message: "Failed to delete call" });
   }
 });
@@ -1857,7 +1882,7 @@ app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
         }
 
         // Track low-score calls as escalation patterns
-        const score = parseFloat(call.analysis?.performanceScore || "10");
+        const score = safeFloat(call.analysis?.performanceScore, 10);
         if (score <= 4) {
           escalationPatterns.push({
             summary: call.analysis?.summary || "",
@@ -1907,13 +1932,13 @@ app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
       // Low-confidence calls
       const lowConfidenceCalls = completed
         .filter(c => {
-          const conf = parseFloat(c.analysis?.confidenceScore || "1");
+          const conf = safeFloat(c.analysis?.confidenceScore, 1);
           return conf < 0.7;
         })
         .map(c => ({
           callId: c.id,
           date: c.uploadedAt || "",
-          confidence: parseFloat(c.analysis?.confidenceScore || "0"),
+          confidence: safeFloat(c.analysis?.confidenceScore),
           employee: c.employee?.name || "Unassigned",
         }));
 
@@ -1926,7 +1951,7 @@ app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
         lowConfidenceCalls: lowConfidenceCalls.slice(0, 20),
         summary: {
           avgScore: completed.length > 0
-            ? completed.reduce((sum, c) => sum + parseFloat(c.analysis?.performanceScore || "0"), 0) / completed.length
+            ? completed.reduce((sum, c) => sum + safeFloat(c.analysis?.performanceScore), 0) / completed.length
             : 0,
           negativeCallRate: completed.length > 0
             ? completed.filter(c => c.sentiment?.overallSentiment === "negative").length / completed.length
