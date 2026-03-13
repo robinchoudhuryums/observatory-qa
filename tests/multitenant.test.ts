@@ -6,7 +6,7 @@ import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 
 // We test against MemStorage directly
-import { MemStorage } from "../server/storage.js";
+import { MemStorage } from "../server/storage/index.js";
 
 let storage: MemStorage;
 

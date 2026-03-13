@@ -1,0 +1,270 @@
+import type { Express } from "express";
+import { storage } from "../storage";
+import { requireAuth, requireRole, injectOrgContext } from "../auth";
+import { aiProvider } from "../services/ai-factory";
+import { assemblyAIService } from "../services/assemblyai";
+import { broadcastCallUpdate } from "../services/websocket";
+import { insertPromptTemplateSchema } from "@shared/schema";
+import { logger } from "../services/logger";
+import { safeInt, withRetry } from "./helpers";
+
+export function registerAdminRoutes(app: Express): void {
+  // ==================== PROMPT TEMPLATE ROUTES (admin only) ====================
+
+  app.get("/api/prompt-templates", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    try {
+      const templates = await storage.getAllPromptTemplates(req.orgId!);
+      res.json(templates);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch prompt templates" });
+    }
+  });
+
+  app.post("/api/prompt-templates", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    try {
+      const parsed = insertPromptTemplateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ message: "Invalid template data", errors: parsed.error.flatten() });
+        return;
+      }
+      const template = await storage.createPromptTemplate(req.orgId!, {
+        ...parsed.data,
+        updatedBy: req.user?.username,
+      });
+      res.status(201).json(template);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to create prompt template" });
+    }
+  });
+
+  app.patch("/api/prompt-templates/:id", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    try {
+      // Validate the update: allow only known template fields
+      const { updatedBy: _ignore, id: _ignoreId, ...bodyWithoutMeta } = req.body;
+      const templateUpdateParsed = insertPromptTemplateSchema.partial().safeParse(bodyWithoutMeta);
+      if (!templateUpdateParsed.success) {
+        res.status(400).json({ message: "Invalid template data", errors: templateUpdateParsed.error.flatten() });
+        return;
+      }
+      const updated = await storage.updatePromptTemplate(req.orgId!, req.params.id, {
+        ...templateUpdateParsed.data,
+        updatedBy: req.user?.username,
+      });
+      if (!updated) {
+        res.status(404).json({ message: "Template not found" });
+        return;
+      }
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update prompt template" });
+    }
+  });
+
+  app.delete("/api/prompt-templates/:id", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    try {
+      await storage.deletePromptTemplate(req.orgId!, req.params.id);
+      res.json({ message: "Template deleted" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete template" });
+    }
+  });
+
+  // Bulk re-analysis: re-analyze recent calls using updated prompt template
+  app.post("/api/calls/reanalyze", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    try {
+      const { callCategory, limit: maxCalls } = req.body;
+      if (!callCategory || typeof callCategory !== "string") {
+        res.status(400).json({ message: "callCategory is required" });
+        return;
+      }
+
+      if (!aiProvider.isAvailable) {
+        res.status(503).json({ message: "AI provider not configured" });
+        return;
+      }
+
+      const reanalysisLimit = Math.min(safeInt(maxCalls, 10), 50);
+      const allCalls = await storage.getCallsWithDetails(req.orgId!, { status: "completed" });
+
+      // Filter to calls matching the category
+      const targetCalls = allCalls
+        .filter(c => c.callCategory === callCategory && c.transcript?.text)
+        .slice(0, reanalysisLimit);
+
+      if (targetCalls.length === 0) {
+        res.json({ message: "No matching calls found", queued: 0 });
+        return;
+      }
+
+      // Load the prompt template for this category
+      let promptTemplate = undefined;
+      const tmpl = await storage.getPromptTemplateByCategory(req.orgId!, callCategory);
+      if (tmpl) {
+        promptTemplate = {
+          evaluationCriteria: tmpl.evaluationCriteria,
+          requiredPhrases: tmpl.requiredPhrases,
+          scoringWeights: tmpl.scoringWeights,
+          additionalInstructions: tmpl.additionalInstructions,
+        };
+      }
+
+      // Queue re-analysis in background (respond immediately)
+      const orgId = req.orgId!;
+      const queued = targetCalls.length;
+      res.json({ message: `Re-analysis queued for ${queued} calls`, queued });
+
+      // Process in background with bounded concurrency
+      (async () => {
+        let succeeded = 0;
+        let failed = 0;
+        for (const call of targetCalls) {
+          try {
+            const transcriptText = call.transcript!.text!;
+            const aiAnalysis = await withRetry(
+              () => aiProvider.analyzeCallTranscript(transcriptText, call.id, callCategory, promptTemplate),
+              { retries: 1, baseDelay: 2000, label: `reanalyze ${call.id}` }
+            );
+
+            const { analysis } = assemblyAIService.processTranscriptData(
+              { id: "", status: "completed", text: transcriptText, words: call.transcript?.words as any },
+              aiAnalysis,
+              call.id
+            );
+
+            if (aiAnalysis.sub_scores) {
+              analysis.subScores = {
+                compliance: aiAnalysis.sub_scores.compliance ?? 0,
+                customerExperience: aiAnalysis.sub_scores.customer_experience ?? 0,
+                communication: aiAnalysis.sub_scores.communication ?? 0,
+                resolution: aiAnalysis.sub_scores.resolution ?? 0,
+              };
+            }
+            if (aiAnalysis.detected_agent_name) {
+              analysis.detectedAgentName = aiAnalysis.detected_agent_name;
+            }
+
+            await storage.createCallAnalysis(orgId, { ...analysis, callId: call.id });
+            succeeded++;
+          } catch (error) {
+            console.error(`[REANALYZE] Failed for call ${call.id}:`, (error as Error).message);
+            failed++;
+          }
+        }
+        console.log(`[REANALYZE] Complete: ${succeeded} succeeded, ${failed} failed out of ${queued}`);
+        broadcastCallUpdate("bulk", "reanalysis_complete", { succeeded, failed, total: queued }, orgId);
+      })().catch(err => console.error("[REANALYZE] Bulk re-analysis failed:", err));
+    } catch (error) {
+      console.error("Failed to start re-analysis:", (error as Error).message);
+      res.status(500).json({ message: "Failed to start re-analysis" });
+    }
+  });
+
+  // ============================================================
+  // USER MANAGEMENT (database-backed, admin only)
+  // ============================================================
+
+  // List all users in the current organization
+  app.get("/api/users", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      // For now, users are still env-var-based — this endpoint is a placeholder
+      // that will be fully functional when STORAGE_BACKEND=postgres with DB-backed users
+      const dbUser = await storage.getUser(req.user!.id);
+      if (dbUser) {
+        // DB-backed users available — would list all users for this org
+        // This is a stub that returns the current user; full implementation
+        // requires a listUsersByOrg method on IStorage
+        res.json([{
+          id: req.user!.id,
+          username: req.user!.username,
+          name: req.user!.name,
+          role: req.user!.role,
+          orgId: req.user!.orgId,
+        }]);
+      } else {
+        // Env-var-based users — return the current user info only
+        res.json([{
+          id: req.user!.id,
+          username: req.user!.username,
+          name: req.user!.name,
+          role: req.user!.role,
+          orgId: req.user!.orgId,
+        }]);
+      }
+    } catch (error) {
+      logger.error({ err: error }, "Failed to list users");
+      res.status(500).json({ message: "Failed to list users" });
+    }
+  });
+
+  // Create a new user (admin only)
+  app.post("/api/users", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      const { username, password, name, role } = req.body;
+      if (!username || !password || !name) {
+        return res.status(400).json({ message: "username, password, and name are required" });
+      }
+      if (!["viewer", "manager", "admin"].includes(role || "viewer")) {
+        return res.status(400).json({ message: "Invalid role" });
+      }
+
+      // Check if username already exists
+      const existing = await storage.getUserByUsername(username);
+      if (existing) {
+        return res.status(409).json({ message: "Username already exists" });
+      }
+
+      // Hash password
+      const { scrypt, randomBytes } = await import("crypto");
+      const { promisify } = await import("util");
+      const scryptAsync = promisify(scrypt);
+      const salt = randomBytes(16).toString("hex");
+      const buf = (await scryptAsync(password, salt, 64)) as Buffer;
+      const passwordHash = `${buf.toString("hex")}.${salt}`;
+
+      const user = await storage.createUser({
+        orgId: req.orgId!,
+        username,
+        passwordHash,
+        name,
+        role: role || "viewer",
+      });
+
+      logger.info({ userId: user.id, username, org: req.orgId }, "User created");
+      res.status(201).json({ id: user.id, username: user.username, name: user.name, role: user.role });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to create user");
+      res.status(500).json({ message: "Failed to create user" });
+    }
+  });
+
+  // ============================================================
+  // ORGANIZATION MANAGEMENT (admin only)
+  // ============================================================
+
+  // Get current org details
+  app.get("/api/organization", requireAuth, injectOrgContext, async (req, res) => {
+    try {
+      const org = await storage.getOrganization(req.orgId!);
+      if (!org) return res.status(404).json({ message: "Organization not found" });
+      res.json(org);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch organization" });
+    }
+  });
+
+  // Update org settings (admin only)
+  app.patch("/api/organization/settings", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      const org = await storage.getOrganization(req.orgId!);
+      if (!org) return res.status(404).json({ message: "Organization not found" });
+
+      const updatedSettings = { ...org.settings, ...req.body };
+      const updated = await storage.updateOrganization(req.orgId!, { settings: updatedSettings });
+      logger.info({ org: req.orgId }, "Organization settings updated");
+      res.json(updated);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to update organization settings");
+      res.status(500).json({ message: "Failed to update settings" });
+    }
+  });
+}
