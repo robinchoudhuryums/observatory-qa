@@ -119,6 +119,32 @@ export class PostgresStorage implements IStorage {
     return this.mapUser(row);
   }
 
+  async listUsersByOrg(orgId: string): Promise<User[]> {
+    const rows = await this.db.select().from(tables.users)
+      .where(eq(tables.users.orgId, orgId));
+    return rows.map((r) => this.mapUser(r));
+  }
+
+  async updateUser(orgId: string, id: string, updates: Partial<User>): Promise<User | undefined> {
+    const setClause: Record<string, unknown> = {};
+    if (updates.name !== undefined) setClause.name = updates.name;
+    if (updates.role !== undefined) setClause.role = updates.role;
+    if (updates.passwordHash !== undefined) setClause.passwordHash = updates.passwordHash;
+
+    if (Object.keys(setClause).length === 0) return this.getUser(id);
+
+    const [row] = await this.db.update(tables.users)
+      .set(setClause)
+      .where(and(eq(tables.users.id, id), eq(tables.users.orgId, orgId)))
+      .returning();
+    return row ? this.mapUser(row) : undefined;
+  }
+
+  async deleteUser(orgId: string, id: string): Promise<void> {
+    await this.db.delete(tables.users)
+      .where(and(eq(tables.users.id, id), eq(tables.users.orgId, orgId)));
+  }
+
   // --- Employee operations ---
   async getEmployee(orgId: string, id: string): Promise<Employee | undefined> {
     const rows = await this.db.select().from(tables.employees)
@@ -673,6 +699,43 @@ export class PostgresStorage implements IStorage {
     }
 
     return expiredCalls.length;
+  }
+
+  // --- Usage tracking ---
+  async recordUsageEvent(event: { orgId: string; eventType: string; quantity: number; metadata?: Record<string, unknown> }): Promise<void> {
+    const id = randomUUID();
+    await this.db.insert(tables.usageEvents).values({
+      id,
+      orgId: event.orgId,
+      eventType: event.eventType,
+      quantity: event.quantity,
+      metadata: event.metadata || null,
+    });
+  }
+
+  async getUsageSummary(orgId: string, startDate?: Date, endDate?: Date): Promise<import("../storage").UsageSummary[]> {
+    const conditions = [eq(tables.usageEvents.orgId, orgId)];
+    if (startDate) {
+      conditions.push(sql`${tables.usageEvents.createdAt} >= ${startDate}`);
+    }
+    if (endDate) {
+      conditions.push(sql`${tables.usageEvents.createdAt} <= ${endDate}`);
+    }
+
+    const rows = await this.db.select({
+      eventType: tables.usageEvents.eventType,
+      totalQuantity: sql<number>`coalesce(sum(${tables.usageEvents.quantity}), 0)`,
+      eventCount: sql<number>`count(*)::int`,
+    })
+      .from(tables.usageEvents)
+      .where(and(...conditions))
+      .groupBy(tables.usageEvents.eventType);
+
+    return rows.map(r => ({
+      eventType: r.eventType,
+      totalQuantity: Number(r.totalQuantity),
+      eventCount: r.eventCount,
+    }));
   }
 
   // --- Row mappers (DB row → app type) ---

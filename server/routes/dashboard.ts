@@ -4,6 +4,19 @@ import { requireAuth, injectOrgContext } from "../auth";
 import { safeInt } from "./helpers";
 
 export function registerDashboardRoutes(app: Express): void {
+  // Usage analytics (admin only)
+  app.get("/api/dashboard/usage", requireAuth, injectOrgContext, async (req, res) => {
+    try {
+      const { start, end } = req.query;
+      const startDate = start ? new Date(start as string) : undefined;
+      const endDate = end ? new Date(end as string) : undefined;
+      const summary = await storage.getUsageSummary(req.orgId!, startDate, endDate);
+      res.json(summary);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get usage data" });
+    }
+  });
+
   // Dashboard metrics
   app.get("/api/dashboard/metrics", requireAuth, injectOrgContext, async (req, res) => {
     try {

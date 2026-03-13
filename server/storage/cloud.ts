@@ -82,6 +82,15 @@ export class CloudStorage implements IStorage {
   async createUser(_user: InsertUser): Promise<User> {
     throw new Error("Users are managed via AUTH_USERS environment variable");
   }
+  async listUsersByOrg(_orgId: string): Promise<User[]> {
+    return []; // Cloud storage doesn't support DB-backed users
+  }
+  async updateUser(_orgId: string, _id: string, _updates: Partial<User>): Promise<User | undefined> {
+    return undefined;
+  }
+  async deleteUser(_orgId: string, _id: string): Promise<void> {
+    // No-op for cloud storage
+  }
 
   // --- Employee Methods (org-scoped) ---
   async getEmployee(orgId: string, id: string): Promise<Employee | undefined> {
@@ -457,5 +466,13 @@ export class CloudStorage implements IStorage {
     }
 
     return purged;
+  }
+
+  // --- Usage Tracking (not supported in cloud storage) ---
+  async recordUsageEvent(_event: { orgId: string; eventType: string; quantity: number; metadata?: Record<string, unknown> }): Promise<void> {
+    // No-op for cloud storage — usage tracking requires PostgreSQL
+  }
+  async getUsageSummary(_orgId: string, _startDate?: Date, _endDate?: Date): Promise<import("./types").UsageSummary[]> {
+    return [];
   }
 }

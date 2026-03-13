@@ -166,30 +166,16 @@ export function registerAdminRoutes(app: Express): void {
   // List all users in the current organization
   app.get("/api/users", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
     try {
-      // For now, users are still env-var-based — this endpoint is a placeholder
-      // that will be fully functional when STORAGE_BACKEND=postgres with DB-backed users
-      const dbUser = await storage.getUser(req.user!.id);
-      if (dbUser) {
-        // DB-backed users available — would list all users for this org
-        // This is a stub that returns the current user; full implementation
-        // requires a listUsersByOrg method on IStorage
-        res.json([{
-          id: req.user!.id,
-          username: req.user!.username,
-          name: req.user!.name,
-          role: req.user!.role,
-          orgId: req.user!.orgId,
-        }]);
-      } else {
-        // Env-var-based users — return the current user info only
-        res.json([{
-          id: req.user!.id,
-          username: req.user!.username,
-          name: req.user!.name,
-          role: req.user!.role,
-          orgId: req.user!.orgId,
-        }]);
-      }
+      const users = await storage.listUsersByOrg(req.orgId!);
+      // Return users without password hashes
+      res.json(users.map(u => ({
+        id: u.id,
+        username: u.username,
+        name: u.name,
+        role: u.role,
+        orgId: u.orgId,
+        createdAt: u.createdAt,
+      })));
     } catch (error) {
       logger.error({ err: error }, "Failed to list users");
       res.status(500).json({ message: "Failed to list users" });
@@ -234,6 +220,64 @@ export function registerAdminRoutes(app: Express): void {
     } catch (error) {
       logger.error({ err: error }, "Failed to create user");
       res.status(500).json({ message: "Failed to create user" });
+    }
+  });
+
+  // Update user (admin only)
+  app.patch("/api/users/:id", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      const { name, role, password } = req.body;
+
+      if (role && !["viewer", "manager", "admin"].includes(role)) {
+        return res.status(400).json({ message: "Invalid role" });
+      }
+
+      const updates: Record<string, unknown> = {};
+      if (name) updates.name = name;
+      if (role) updates.role = role;
+
+      // Hash new password if provided
+      if (password) {
+        const { scrypt, randomBytes } = await import("crypto");
+        const { promisify } = await import("util");
+        const scryptAsync = promisify(scrypt);
+        const salt = randomBytes(16).toString("hex");
+        const buf = (await scryptAsync(password, salt, 64)) as Buffer;
+        updates.passwordHash = `${buf.toString("hex")}.${salt}`;
+      }
+
+      const updated = await storage.updateUser(req.orgId!, req.params.id, updates as any);
+      if (!updated) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      logger.info({ userId: req.params.id, org: req.orgId }, "User updated");
+      res.json({ id: updated.id, username: updated.username, name: updated.name, role: updated.role });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to update user");
+      res.status(500).json({ message: "Failed to update user" });
+    }
+  });
+
+  // Delete user (admin only)
+  app.delete("/api/users/:id", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      // Prevent self-deletion
+      if (req.params.id === req.user!.id) {
+        return res.status(400).json({ message: "Cannot delete your own account" });
+      }
+
+      const user = await storage.getUser(req.params.id);
+      if (!user || user.orgId !== req.orgId) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      await storage.deleteUser(req.orgId!, req.params.id);
+      logger.info({ userId: req.params.id, org: req.orgId }, "User deleted");
+      res.json({ message: "User deleted" });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to delete user");
+      res.status(500).json({ message: "Failed to delete user" });
     }
   });
 

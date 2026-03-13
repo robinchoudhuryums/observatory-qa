@@ -67,11 +67,34 @@ export class MemStorage implements IStorage {
     return Array.from(this.organizations.values());
   }
 
-  // --- User operations (env-var-based) ---
-  async getUser(_id: string): Promise<User | undefined> { return undefined; }
-  async getUserByUsername(_username: string): Promise<User | undefined> { return undefined; }
-  async createUser(_user: InsertUser): Promise<User> {
-    throw new Error("Users are managed via AUTH_USERS environment variable");
+  private users = new Map<string, User>();
+
+  // --- User operations ---
+  async getUser(id: string): Promise<User | undefined> {
+    return this.users.get(id);
+  }
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    return Array.from(this.users.values()).find(u => u.username === username);
+  }
+  async createUser(user: InsertUser): Promise<User> {
+    const id = randomUUID();
+    const newUser: User = { ...user, id, orgId: user.orgId || "", createdAt: new Date().toISOString() };
+    this.users.set(id, newUser);
+    return newUser;
+  }
+  async listUsersByOrg(orgId: string): Promise<User[]> {
+    return Array.from(this.users.values()).filter(u => u.orgId === orgId);
+  }
+  async updateUser(orgId: string, id: string, updates: Partial<User>): Promise<User | undefined> {
+    const user = this.users.get(id);
+    if (!user || user.orgId !== orgId) return undefined;
+    const updated = { ...user, ...updates, orgId }; // prevent orgId override
+    this.users.set(id, updated);
+    return updated;
+  }
+  async deleteUser(orgId: string, id: string): Promise<void> {
+    const user = this.users.get(id);
+    if (user?.orgId === orgId) this.users.delete(id);
   }
 
   // --- Employee operations (org-scoped) ---
@@ -343,6 +366,33 @@ export class MemStorage implements IStorage {
     const updated = { ...session, ...updates, orgId };
     this.coachingSessions.set(id, updated);
     return updated;
+  }
+
+  private usageEvents: Array<{ orgId: string; eventType: string; quantity: number; metadata?: Record<string, unknown>; createdAt: Date }> = [];
+
+  // --- Usage tracking ---
+  async recordUsageEvent(event: { orgId: string; eventType: string; quantity: number; metadata?: Record<string, unknown> }): Promise<void> {
+    this.usageEvents.push({ ...event, createdAt: new Date() });
+  }
+
+  async getUsageSummary(orgId: string, startDate?: Date, endDate?: Date): Promise<import("./types").UsageSummary[]> {
+    let filtered = this.usageEvents.filter(e => e.orgId === orgId);
+    if (startDate) filtered = filtered.filter(e => e.createdAt >= startDate);
+    if (endDate) filtered = filtered.filter(e => e.createdAt <= endDate);
+
+    const byType = new Map<string, { totalQuantity: number; eventCount: number }>();
+    for (const event of filtered) {
+      const existing = byType.get(event.eventType) || { totalQuantity: 0, eventCount: 0 };
+      existing.totalQuantity += event.quantity;
+      existing.eventCount++;
+      byType.set(event.eventType, existing);
+    }
+
+    return Array.from(byType.entries()).map(([eventType, stats]) => ({
+      eventType,
+      totalQuantity: stats.totalQuantity,
+      eventCount: stats.eventCount,
+    }));
   }
 
   // --- Data retention (org-scoped) ---

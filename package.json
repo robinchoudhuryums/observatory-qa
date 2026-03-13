@@ -13,7 +13,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx server/db/migrate.ts",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "workers": "tsx server/workers/index.ts",
+    "workers:build": "esbuild server/workers/index.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/workers.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

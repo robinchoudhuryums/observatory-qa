@@ -5,7 +5,7 @@ import { CloudStorage } from "./cloud";
 import type { IStorage, ObjectStorageClient } from "./types";
 
 // Re-export types and utilities so consumers can import from "./storage" or "../storage"
-export { type IStorage, type ObjectStorageClient, normalizeAnalysis, applyCallFilters, mapConcurrent } from "./types";
+export { type IStorage, type ObjectStorageClient, type UsageSummary, normalizeAnalysis, applyCallFilters, mapConcurrent } from "./types";
 export { MemStorage } from "./memory";
 export { CloudStorage } from "./cloud";
 

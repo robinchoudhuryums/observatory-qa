@@ -97,10 +97,13 @@ export interface IStorage {
   updateOrganization(orgId: string, updates: Partial<Organization>): Promise<Organization | undefined>;
   listOrganizations(): Promise<Organization[]>;
 
-  // User operations (env-var-based)
+  // User operations
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  listUsersByOrg(orgId: string): Promise<User[]>;
+  updateUser(orgId: string, id: string, updates: Partial<User>): Promise<User | undefined>;
+  deleteUser(orgId: string, id: string): Promise<void>;
 
   // Employee operations (org-scoped)
   getEmployee(orgId: string, id: string): Promise<Employee | undefined>;
@@ -165,4 +168,14 @@ export interface IStorage {
 
   // Data retention (org-scoped)
   purgeExpiredCalls(orgId: string, retentionDays: number): Promise<number>;
+
+  // Usage tracking (org-scoped)
+  recordUsageEvent(event: { orgId: string; eventType: string; quantity: number; metadata?: Record<string, unknown> }): Promise<void>;
+  getUsageSummary(orgId: string, startDate?: Date, endDate?: Date): Promise<UsageSummary[]>;
+}
+
+export interface UsageSummary {
+  eventType: string;
+  totalQuantity: number;
+  eventCount: number;
 }
