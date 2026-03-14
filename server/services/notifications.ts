@@ -1,12 +1,30 @@
 /**
- * Notification service for call processing events.
- * Sends webhook notifications when calls are flagged (low score, misconduct, etc.)
+ * Notification service for call processing events and proactive alerts.
+ *
+ * Supports Slack and Microsoft Teams webhook formats.
+ * Configurable per-channel routing via WEBHOOK_* env vars.
  *
  * Configure via environment variables:
- *   WEBHOOK_URL — URL to POST notifications to (e.g., Slack incoming webhook)
- *   WEBHOOK_EVENTS — comma-separated event types to notify on (default: "low_score,agent_misconduct,exceptional_call")
+ *   WEBHOOK_URL — Default URL to POST notifications (Slack/Teams incoming webhook)
+ *   WEBHOOK_COACHING_URL — Optional separate channel for coaching alerts
+ *   WEBHOOK_DIGEST_URL — Optional separate channel for weekly digests
+ *   WEBHOOK_PLATFORM — "slack" (default) or "teams"
+ *   WEBHOOK_EVENTS — comma-separated event types (default: "low_score,agent_misconduct,exceptional_call")
  */
 import { logger } from "./logger";
+
+// --- Configuration ---
+
+const WEBHOOK_URL = process.env.WEBHOOK_URL;
+const WEBHOOK_COACHING_URL = process.env.WEBHOOK_COACHING_URL || WEBHOOK_URL;
+const WEBHOOK_DIGEST_URL = process.env.WEBHOOK_DIGEST_URL || WEBHOOK_URL;
+const WEBHOOK_PLATFORM = (process.env.WEBHOOK_PLATFORM || "slack") as "slack" | "teams";
+const WEBHOOK_EVENTS = (process.env.WEBHOOK_EVENTS || "low_score,agent_misconduct,exceptional_call")
+  .split(",")
+  .map(s => s.trim())
+  .filter(Boolean);
+
+// --- Types ---
 
 export interface CallNotification {
   event: "call_flagged" | "call_completed";
@@ -20,11 +38,49 @@ export interface CallNotification {
   timestamp: string;
 }
 
-const WEBHOOK_URL = process.env.WEBHOOK_URL;
-const WEBHOOK_EVENTS = (process.env.WEBHOOK_EVENTS || "low_score,agent_misconduct,exceptional_call")
-  .split(",")
-  .map(s => s.trim())
-  .filter(Boolean);
+export interface SlackNotificationPayload {
+  channel?: string;
+  text: string;
+  blocks?: SlackBlock[];
+}
+
+type SlackBlock = {
+  type: string;
+  text?: { type: string; text: string; emoji?: boolean };
+  fields?: Array<{ type: string; text: string }>;
+  elements?: Array<{ type: string; text: string }>;
+};
+
+// --- Core send function ---
+
+async function sendWebhook(url: string, payload: Record<string, unknown>): Promise<boolean> {
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      logger.warn({ statusCode: response.status, responseBody: body }, "Webhook returned non-OK status");
+      return false;
+    }
+    return true;
+  } catch (error) {
+    logger.warn({ err: error }, "Webhook delivery failed");
+    return false;
+  }
+}
+
+function getChannelUrl(channel?: string): string | undefined {
+  if (channel === "coaching") return WEBHOOK_COACHING_URL;
+  if (channel === "digest") return WEBHOOK_DIGEST_URL;
+  return WEBHOOK_URL;
+}
+
+// --- Public API ---
 
 /**
  * Check if any flags match the configured notification events.
@@ -44,18 +100,12 @@ export async function notifyFlaggedCall(notification: CallNotification): Promise
   if (!shouldNotify(notification.flags)) return;
 
   try {
-    const payload = buildPayload(notification);
-    const response = await fetch(WEBHOOK_URL!, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(10000),
-    });
+    const payload = WEBHOOK_PLATFORM === "teams"
+      ? buildTeamsCallPayload(notification)
+      : buildSlackCallPayload(notification);
 
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      logger.warn({ callId: notification.callId, statusCode: response.status, responseBody: body }, "Webhook returned non-OK status");
-    } else {
+    const sent = await sendWebhook(WEBHOOK_URL!, payload);
+    if (sent) {
       logger.info({ callId: notification.callId, flags: notification.flags }, "Webhook sent for flagged call");
     }
   } catch (error) {
@@ -64,22 +114,56 @@ export async function notifyFlaggedCall(notification: CallNotification): Promise
 }
 
 /**
- * Build the webhook payload. Supports Slack-compatible format.
+ * Send a Slack/Teams notification with custom payload.
+ * Used by proactive alerts and coaching engine.
  */
-function buildPayload(notification: CallNotification): Record<string, unknown> {
+export async function sendSlackNotification(payload: SlackNotificationPayload): Promise<boolean> {
+  const url = getChannelUrl(payload.channel);
+  if (!url) {
+    logger.debug("No webhook URL configured for channel, skipping notification");
+    return false;
+  }
+
+  if (WEBHOOK_PLATFORM === "teams") {
+    return sendWebhook(url, convertToTeamsFormat(payload));
+  }
+
+  return sendWebhook(url, payload as unknown as Record<string, unknown>);
+}
+
+/**
+ * Send a weekly digest to the configured digest webhook.
+ */
+export async function sendDigestNotification(digest: {
+  period: { from: string; to: string };
+  totalCalls: number;
+  avgScore: number;
+  flaggedCalls: number;
+  sentiment: { positive: number; neutral: number; negative: number };
+  topPerformers: Array<{ name: string; avgScore: number; callCount: number }>;
+  agentsNeedingAttention: Array<{ name: string; avgScore: number; reason: string }>;
+}): Promise<boolean> {
+  const url = WEBHOOK_DIGEST_URL;
+  if (!url) return false;
+
+  const fromDate = new Date(digest.period.from).toLocaleDateString();
+  const toDate = new Date(digest.period.to).toLocaleDateString();
+
+  if (WEBHOOK_PLATFORM === "teams") {
+    return sendWebhook(url, buildTeamsDigest(digest, fromDate, toDate));
+  }
+
+  return sendWebhook(url, buildSlackDigest(digest, fromDate, toDate));
+}
+
+// --- Slack payload builders ---
+
+function buildSlackCallPayload(notification: CallNotification): Record<string, unknown> {
   const { callId, flags, performanceScore, agentName, fileName, summary } = notification;
-
-  const flagLabels = flags.map(f => {
-    if (f === "low_score") return "Low Score";
-    if (f === "exceptional_call") return "Exceptional Call";
-    if (f.startsWith("agent_misconduct")) return `Misconduct: ${f.split(":")[1] || "unspecified"}`;
-    return f;
-  });
-
+  const flagLabels = formatFlagLabels(flags);
   const emoji = flags.includes("exceptional_call") ? "star" : "warning";
   const scoreText = performanceScore != null ? `${performanceScore.toFixed(1)}/10` : "N/A";
 
-  // Slack-compatible block format
   return {
     text: `Call flagged: ${flagLabels.join(", ")} — Score: ${scoreText}${agentName ? ` — Agent: ${agentName}` : ""}`,
     blocks: [
@@ -102,4 +186,163 @@ function buildPayload(notification: CallNotification): Record<string, unknown> {
       }] : []),
     ],
   };
+}
+
+function buildSlackDigest(
+  digest: {
+    totalCalls: number;
+    avgScore: number;
+    flaggedCalls: number;
+    sentiment: { positive: number; neutral: number; negative: number };
+    topPerformers: Array<{ name: string; avgScore: number; callCount: number }>;
+    agentsNeedingAttention: Array<{ name: string; avgScore: number; reason: string }>;
+  },
+  fromDate: string,
+  toDate: string,
+): Record<string, unknown> {
+  const topList = digest.topPerformers
+    .map((p, i) => `${i + 1}. ${p.name} — ${p.avgScore.toFixed(1)}/10 (${p.callCount} calls)`)
+    .join("\n") || "No data";
+
+  const attentionList = digest.agentsNeedingAttention
+    .map(a => `• ${a.name} — ${a.avgScore.toFixed(1)}/10 (${a.reason})`)
+    .join("\n") || "None";
+
+  return {
+    text: `Weekly QA Digest (${fromDate} – ${toDate}): ${digest.totalCalls} calls, avg score ${digest.avgScore.toFixed(1)}/10`,
+    blocks: [
+      {
+        type: "header",
+        text: { type: "plain_text", text: ":bar_chart: Weekly QA Digest", emoji: true },
+      },
+      {
+        type: "section",
+        text: { type: "mrkdwn", text: `*${fromDate} – ${toDate}*` },
+      },
+      {
+        type: "section",
+        fields: [
+          { type: "mrkdwn", text: `*Total Calls:*\n${digest.totalCalls}` },
+          { type: "mrkdwn", text: `*Avg Score:*\n${digest.avgScore.toFixed(1)}/10` },
+          { type: "mrkdwn", text: `*Flagged:*\n${digest.flaggedCalls}` },
+          { type: "mrkdwn", text: `*Sentiment:*\n:thumbsup: ${digest.sentiment.positive} :neutral_face: ${digest.sentiment.neutral} :thumbsdown: ${digest.sentiment.negative}` },
+        ],
+      },
+      { type: "divider" },
+      {
+        type: "section",
+        text: { type: "mrkdwn", text: `*:trophy: Top Performers:*\n${topList}` },
+      },
+      {
+        type: "section",
+        text: { type: "mrkdwn", text: `*:rotating_light: Needs Attention:*\n${attentionList}` },
+      },
+    ],
+  };
+}
+
+// --- Teams payload builders ---
+
+function buildTeamsCallPayload(notification: CallNotification): Record<string, unknown> {
+  const { callId, flags, performanceScore, agentName, fileName, summary } = notification;
+  const flagLabels = formatFlagLabels(flags);
+  const scoreText = performanceScore != null ? `${performanceScore.toFixed(1)}/10` : "N/A";
+
+  return {
+    "@type": "MessageCard",
+    "@context": "http://schema.org/extensions",
+    themeColor: flags.includes("exceptional_call") ? "00AA00" : "FF0000",
+    summary: `Call Flagged: ${flagLabels.join(", ")}`,
+    sections: [
+      {
+        activityTitle: `Call Flagged: ${flagLabels.join(", ")}`,
+        facts: [
+          { name: "Call ID", value: callId },
+          { name: "Score", value: scoreText },
+          ...(agentName ? [{ name: "Agent", value: agentName }] : []),
+          ...(fileName ? [{ name: "File", value: fileName }] : []),
+        ],
+        text: summary ? summary.slice(0, 500) : undefined,
+      },
+    ],
+  };
+}
+
+function buildTeamsDigest(
+  digest: {
+    totalCalls: number;
+    avgScore: number;
+    flaggedCalls: number;
+    sentiment: { positive: number; neutral: number; negative: number };
+    topPerformers: Array<{ name: string; avgScore: number; callCount: number }>;
+    agentsNeedingAttention: Array<{ name: string; avgScore: number; reason: string }>;
+  },
+  fromDate: string,
+  toDate: string,
+): Record<string, unknown> {
+  const topList = digest.topPerformers
+    .map((p, i) => `${i + 1}. **${p.name}** — ${p.avgScore.toFixed(1)}/10 (${p.callCount} calls)`)
+    .join("<br>") || "No data";
+
+  const attentionList = digest.agentsNeedingAttention
+    .map(a => `- **${a.name}** — ${a.avgScore.toFixed(1)}/10 (${a.reason})`)
+    .join("<br>") || "None";
+
+  return {
+    "@type": "MessageCard",
+    "@context": "http://schema.org/extensions",
+    themeColor: "0076D7",
+    summary: `Weekly QA Digest: ${digest.totalCalls} calls`,
+    sections: [
+      {
+        activityTitle: `Weekly QA Digest (${fromDate} – ${toDate})`,
+        facts: [
+          { name: "Total Calls", value: String(digest.totalCalls) },
+          { name: "Avg Score", value: `${digest.avgScore.toFixed(1)}/10` },
+          { name: "Flagged", value: String(digest.flaggedCalls) },
+          { name: "Sentiment", value: `+${digest.sentiment.positive} / =${digest.sentiment.neutral} / -${digest.sentiment.negative}` },
+        ],
+      },
+      {
+        activityTitle: "Top Performers",
+        text: topList,
+      },
+      {
+        activityTitle: "Needs Attention",
+        text: attentionList,
+      },
+    ],
+  };
+}
+
+/**
+ * Convert a Slack-format payload to Teams MessageCard format.
+ */
+function convertToTeamsFormat(payload: SlackNotificationPayload): Record<string, unknown> {
+  return {
+    "@type": "MessageCard",
+    "@context": "http://schema.org/extensions",
+    themeColor: "0076D7",
+    summary: payload.text,
+    sections: [
+      {
+        activityTitle: payload.text,
+        text: payload.blocks
+          ?.filter(b => b.type === "section" && b.text)
+          .map(b => b.text!.text)
+          .join("\n\n") || "",
+      },
+    ],
+  };
+}
+
+// --- Helpers ---
+
+function formatFlagLabels(flags: string[]): string[] {
+  return flags.map(f => {
+    if (f === "low_score") return "Low Score";
+    if (f === "exceptional_call") return "Exceptional Call";
+    if (f.startsWith("agent_misconduct")) return `Misconduct: ${f.split(":")[1] || "unspecified"}`;
+    return f;
+  });
 }

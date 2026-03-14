@@ -4,6 +4,8 @@ import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { insertCoachingSessionSchema } from "@shared/schema";
 import { z } from "zod";
 import { generateRecommendations, saveRecommendations, generateCoachingPlan, calculateEffectiveness } from "../services/coaching-engine";
+import { getManagerReviewQueue, generateWeeklyDigest } from "../services/proactive-alerts";
+import { sendDigestNotification } from "../services/notifications";
 import { logger } from "../services/logger";
 
 export function registerCoachingRoutes(app: Express): void {
@@ -213,6 +215,44 @@ export function registerCoachingRoutes(app: Express): void {
     } catch (error) {
       logger.error({ err: error }, "Failed to calculate coaching effectiveness");
       res.status(500).json({ message: "Failed to calculate effectiveness" });
+    }
+  });
+
+  // ==================== MANAGER REVIEW QUEUE ====================
+
+  // Get prioritized agent review queue
+  app.get("/api/coaching/review-queue", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
+    try {
+      const queue = await getManagerReviewQueue(req.orgId!);
+      res.json(queue);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to get review queue");
+      res.status(500).json({ message: "Failed to get review queue" });
+    }
+  });
+
+  // ==================== WEEKLY DIGEST ====================
+
+  // Generate and optionally send weekly digest
+  app.get("/api/coaching/digest", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
+    try {
+      const digest = await generateWeeklyDigest(req.orgId!);
+      res.json(digest);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to generate digest");
+      res.status(500).json({ message: "Failed to generate digest" });
+    }
+  });
+
+  // Send the weekly digest to configured webhook
+  app.post("/api/coaching/digest/send", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    try {
+      const digest = await generateWeeklyDigest(req.orgId!);
+      const sent = await sendDigestNotification(digest);
+      res.json({ sent, digest });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to send digest");
+      res.status(500).json({ message: "Failed to send digest" });
     }
   });
 }

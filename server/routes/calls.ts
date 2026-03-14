@@ -10,6 +10,7 @@ import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { broadcastCallUpdate } from "../services/websocket";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { notifyFlaggedCall } from "../services/notifications";
+import { onCallAnalysisComplete } from "../services/proactive-alerts";
 import { trackUsage } from "../services/queue";
 import { upload, safeFloat, withRetry } from "./helpers";
 import { enforceQuota } from "./billing";
@@ -298,6 +299,9 @@ async function processAudioFile(orgId: string, callId: string, filePath: string,
     }
 
     logger.info({ callId }, "Processing finished successfully");
+
+    // Auto-generate coaching recommendations (non-blocking)
+    onCallAnalysisComplete(orgId, callId, assignedEmployeeId || undefined).catch(() => {});
 
     trackUsage({ orgId, eventType: "transcription", quantity: 1, metadata: { callId } });
     if (aiAnalysis) {
