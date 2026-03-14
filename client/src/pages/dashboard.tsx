@@ -150,43 +150,65 @@ export default function Dashboard() {
 
       <div className="p-6 space-y-6">
         {/* Usage Quota Warning Banner */}
-        {quotaWarnings.length > 0 && (
-          <div className="bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-900 p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Zap className="w-5 h-5 text-amber-500" />
-              <h3 className="font-semibold text-amber-700 dark:text-amber-400">
-                Approaching Plan Limits
-              </h3>
-              <Badge variant="outline" className="text-xs ml-auto">
-                {billing?.plan?.name || "Free"} Plan
-              </Badge>
-            </div>
-            <div className="space-y-2">
-              {quotaWarnings.map(w => (
-                <div key={w.label} className="flex items-center gap-3">
-                  <span className="text-sm text-amber-700 dark:text-amber-300 min-w-[120px]">
-                    {w.label}: {w.used}/{w.limit}
-                  </span>
-                  <div className="flex-1 h-2 bg-amber-200 dark:bg-amber-900 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full ${w.pct >= 100 ? "bg-red-500" : "bg-amber-500"}`}
-                      style={{ width: `${Math.min(w.pct, 100)}%` }}
-                    />
+        {quotaWarnings.length > 0 && (() => {
+          const anyExhausted = quotaWarnings.some(w => w.pct >= 100);
+          const bgClass = anyExhausted
+            ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900"
+            : "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-900";
+          const iconColor = anyExhausted ? "text-red-500" : "text-amber-500";
+          const titleColor = anyExhausted ? "text-red-700 dark:text-red-400" : "text-amber-700 dark:text-amber-400";
+          const labelColor = anyExhausted ? "text-red-700 dark:text-red-300" : "text-amber-700 dark:text-amber-300";
+          const footerColor = anyExhausted ? "text-red-600/80 dark:text-red-400/60" : "text-amber-600/80 dark:text-amber-400/60";
+
+          return (
+            <div className={`rounded-lg border p-4 ${bgClass}`}>
+              <div className="flex items-center gap-2 mb-2">
+                {anyExhausted ? <AlertTriangle className={`w-5 h-5 ${iconColor}`} /> : <Zap className={`w-5 h-5 ${iconColor}`} />}
+                <h3 className={`font-semibold ${titleColor}`}>
+                  {anyExhausted ? "Plan Limit Reached" : "Approaching Plan Limits"}
+                </h3>
+                <Badge variant="outline" className="text-xs ml-auto">
+                  {billing?.plan?.name || "Free"} Plan
+                </Badge>
+              </div>
+              <div className="space-y-2">
+                {quotaWarnings.map(w => (
+                  <div key={w.label} className="flex items-center gap-3">
+                    <span className={`text-sm ${labelColor} min-w-[120px]`}>
+                      {w.label}: {w.used}/{w.limit}
+                    </span>
+                    <div className="flex-1 h-2 bg-amber-200 dark:bg-amber-900 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${w.pct >= 100 ? "bg-red-500" : "bg-amber-500"}`}
+                        style={{ width: `${Math.min(w.pct, 100)}%` }}
+                      />
+                    </div>
+                    <span className={`text-xs font-semibold ${w.pct >= 100 ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>
+                      {w.pct}%
+                    </span>
                   </div>
-                  <span className={`text-xs font-semibold ${w.pct >= 100 ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>
-                    {w.pct}%
-                  </span>
-                </div>
-              ))}
+                ))}
+              </div>
+              <div className={`flex items-center justify-between mt-3 ${anyExhausted ? "pt-3 border-t border-red-200 dark:border-red-900" : ""}`}>
+                <p className={`text-xs ${footerColor}`}>
+                  {anyExhausted
+                    ? "You've hit your plan limit. Uploads and analyses are blocked until you upgrade or the next billing cycle."
+                    : "You're approaching your plan limits for this billing period."}
+                </p>
+                <Link href="/admin/settings?tab=billing">
+                  <Button
+                    size="sm"
+                    variant={anyExhausted ? "default" : "outline"}
+                    className={anyExhausted ? "bg-red-600 hover:bg-red-700 text-white" : ""}
+                  >
+                    <Zap className="w-3.5 h-3.5 mr-1.5" />
+                    Upgrade Plan
+                  </Button>
+                </Link>
+              </div>
             </div>
-            <p className="text-xs text-amber-600/80 dark:text-amber-400/60 mt-2">
-              <Link href="/admin/settings?tab=billing" className="underline hover:text-amber-700">
-                Upgrade your plan
-              </Link>
-              {" "}to increase limits.
-            </p>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Flagged Calls Alert Banner */}
         {flaggedCalls.length > 0 && (
