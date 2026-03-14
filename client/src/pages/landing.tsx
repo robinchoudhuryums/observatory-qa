@@ -1,8 +1,9 @@
 import { Button } from "@/components/ui/button";
 import {
-  AudioWaveform, BarChart3, Shield, Users, TrendingUp,
+  BarChart3, Shield, Users, TrendingUp,
   Mic, Brain, FileText, Zap, ArrowRight, ChevronRight,
 } from "lucide-react";
+import { ObservatoryLogo } from "@/components/observatory-logo";
 
 interface LandingPageProps {
   onNavigate: (view: "login" | "register") => void;
@@ -129,10 +130,7 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
         <header className="relative z-10 w-full">
           <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 bg-gradient-to-br from-teal-400 to-blue-500 rounded-lg flex items-center justify-center">
-                <AudioWaveform className="w-5 h-5 text-white" />
-              </div>
-              <span className="font-bold text-xl landing-text">Observatory</span>
+              <ObservatoryLogo variant="full" height={32} className="landing-text" />
             </div>
             <nav className="hidden md:flex items-center gap-8">
               <a href="#features" className="text-sm landing-text-muted hover:text-foreground transition-colors">Features</a>
@@ -350,10 +348,7 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
       <footer className="py-8 landing-footer">
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-7 h-7 bg-gradient-to-br from-teal-400 to-blue-500 rounded-md flex items-center justify-center">
-              <AudioWaveform className="w-3.5 h-3.5 text-white" />
-            </div>
-            <span className="font-semibold text-sm landing-text">Observatory QA</span>
+            <ObservatoryLogo variant="full" height={24} className="landing-text" />
           </div>
           <p className="text-xs landing-text-muted text-center">
             HIPAA-compliant call analysis platform. Your data is encrypted at rest and in transit.

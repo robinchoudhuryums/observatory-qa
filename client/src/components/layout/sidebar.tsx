@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
-import { Mic, BarChart3, Upload, FileText, Heart, Users, UserPlus, Search, LogOut, User, TrendingUp, Sun, Moon, Shield, Building2, SlidersHorizontal, ClipboardCheck, Palette, ScrollText, Menu, X } from "lucide-react";
+import { BarChart3, Upload, FileText, Heart, Users, UserPlus, Search, LogOut, User, TrendingUp, Sun, Moon, Shield, Building2, SlidersHorizontal, ClipboardCheck, Palette, ScrollText, Menu, X } from "lucide-react";
+import { ObservatoryLogo } from "@/components/observatory-logo";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient, getQueryFn } from "@/lib/queryClient";
@@ -171,15 +172,7 @@ export default function Sidebar() {
             {logoUrl ? (
               <img src={logoUrl} alt="Logo" className="w-9 h-9 rounded-xl object-contain" />
             ) : (
-              <div
-                className="w-9 h-9 rounded-xl flex items-center justify-center shadow-lg"
-                style={{
-                  background: "linear-gradient(135deg, hsl(var(--brand-from)), hsl(var(--brand-to)))",
-                  boxShadow: "0 4px 12px rgba(var(--brand-from-rgb), 0.2)",
-                }}
-              >
-                <Mic className="text-white w-4 h-4" />
-              </div>
+              <ObservatoryLogo variant="icon" height={36} className="text-foreground" />
             )}
             <div>
               <h1 className="font-bold text-lg text-foreground tracking-tight">{appName}</h1>
