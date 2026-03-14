@@ -194,6 +194,24 @@ export const coachingSessions = pgTable("coaching_sessions", {
   index("coaching_status_idx").on(t.orgId, t.status),
 ]);
 
+// --- INVITATIONS ---
+export const invitations = pgTable("invitations", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => organizations.id),
+  email: varchar("email", { length: 255 }).notNull(),
+  role: varchar("role", { length: 20 }).notNull().default("viewer"),
+  token: varchar("token", { length: 255 }).notNull(),
+  invitedBy: varchar("invited_by", { length: 255 }).notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  expiresAt: timestamp("expires_at"),
+  acceptedAt: timestamp("accepted_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  uniqueIndex("invitations_token_idx").on(t.token),
+  index("invitations_org_id_idx").on(t.orgId),
+  index("invitations_email_idx").on(t.orgId, t.email),
+]);
+
 // --- USAGE EVENTS (per-org metering for billing) ---
 export const usageEvents = pgTable("usage_events", {
   id: text("id").primaryKey(),

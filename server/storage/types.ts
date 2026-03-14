@@ -23,6 +23,8 @@ import {
   type InsertCoachingSession,
   type Organization,
   type InsertOrganization,
+  type Invitation,
+  type InsertInvitation,
 } from "@shared/schema";
 
 /**
@@ -172,6 +174,13 @@ export interface IStorage {
   // Usage tracking (org-scoped)
   recordUsageEvent(event: { orgId: string; eventType: string; quantity: number; metadata?: Record<string, unknown> }): Promise<void>;
   getUsageSummary(orgId: string, startDate?: Date, endDate?: Date): Promise<UsageSummary[]>;
+
+  // Invitation operations (org-scoped)
+  createInvitation(orgId: string, invitation: InsertInvitation): Promise<Invitation>;
+  getInvitationByToken(token: string): Promise<Invitation | undefined>;
+  listInvitations(orgId: string): Promise<Invitation[]>;
+  updateInvitation(orgId: string, id: string, updates: Partial<Invitation>): Promise<Invitation | undefined>;
+  deleteInvitation(orgId: string, id: string): Promise<void>;
 }
 
 export interface UsageSummary {

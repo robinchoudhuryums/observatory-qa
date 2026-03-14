@@ -23,8 +23,10 @@ import {
   type InsertCoachingSession,
   type Organization,
   type InsertOrganization,
+  type Invitation,
+  type InsertInvitation,
 } from "@shared/schema";
-import { randomUUID } from "crypto";
+import { randomUUID, randomBytes } from "crypto";
 import { type IStorage, applyCallFilters } from "./types";
 
 /**
@@ -393,6 +395,49 @@ export class MemStorage implements IStorage {
       totalQuantity: stats.totalQuantity,
       eventCount: stats.eventCount,
     }));
+  }
+
+  // --- Invitation operations ---
+  private invitations = new Map<string, Invitation>();
+
+  async createInvitation(orgId: string, invitation: InsertInvitation): Promise<Invitation> {
+    const id = randomUUID();
+    const token = invitation.token || randomBytes(32).toString("hex");
+    const expiresAt = invitation.expiresAt || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days default
+    const newInvitation: Invitation = {
+      ...invitation,
+      id,
+      orgId,
+      token,
+      status: "pending",
+      expiresAt,
+      createdAt: new Date().toISOString(),
+    };
+    this.invitations.set(id, newInvitation);
+    return newInvitation;
+  }
+
+  async getInvitationByToken(token: string): Promise<Invitation | undefined> {
+    return Array.from(this.invitations.values()).find(i => i.token === token);
+  }
+
+  async listInvitations(orgId: string): Promise<Invitation[]> {
+    return Array.from(this.invitations.values())
+      .filter(i => i.orgId === orgId)
+      .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  }
+
+  async updateInvitation(orgId: string, id: string, updates: Partial<Invitation>): Promise<Invitation | undefined> {
+    const inv = this.invitations.get(id);
+    if (!inv || inv.orgId !== orgId) return undefined;
+    const updated = { ...inv, ...updates, orgId };
+    this.invitations.set(id, updated);
+    return updated;
+  }
+
+  async deleteInvitation(orgId: string, id: string): Promise<void> {
+    const inv = this.invitations.get(id);
+    if (inv?.orgId === orgId) this.invitations.delete(id);
   }
 
   // --- Data retention (org-scoped) ---

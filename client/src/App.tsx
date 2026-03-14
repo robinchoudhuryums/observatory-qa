@@ -28,6 +28,8 @@ const InsightsPage = lazy(() => import("@/pages/insights"));
 const CoachingPage = lazy(() => import("@/pages/coaching"));
 const SettingsPage = lazy(() => import("@/pages/settings"));
 const AuthPage = lazy(() => import("@/pages/auth"));
+const LandingPage = lazy(() => import("@/pages/landing"));
+const InviteAcceptPage = lazy(() => import("@/pages/invite-accept"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 function PageLoader() {
@@ -160,6 +162,7 @@ function Router() {
 }
 
 function AuthenticatedApp() {
+  const [authView, setAuthView] = useState<"landing" | "login" | "register" | "invite" | null>(null);
   const { data: user, isLoading, error } = useQuery<AuthUser>({
     queryKey: ["/api/auth/me"],
     queryFn: getQueryFn({ on401: "returnNull" }),
@@ -167,6 +170,10 @@ function AuthenticatedApp() {
     staleTime: Infinity,
     refetchOnWindowFocus: true,
   });
+
+  // Check for invite token in URL
+  const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const inviteToken = urlParams?.get("invite");
 
   if (isLoading) {
     return (
@@ -176,10 +183,38 @@ function AuthenticatedApp() {
     );
   }
 
+  // Handle invite accept flow (even if user is already logged in, show invite accept)
+  if (inviteToken && !user) {
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <InviteAcceptPage
+          token={inviteToken}
+          onComplete={() => {
+            // Clear the invite param from URL
+            window.history.replaceState({}, "", "/");
+            queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+          }}
+        />
+      </Suspense>
+    );
+  }
+
   if (!user || error) {
+    // Show landing page by default, or auth page if navigated
+    const currentView = authView || "landing";
+
+    if (currentView === "landing") {
+      return (
+        <Suspense fallback={<PageLoader />}>
+          <LandingPage onNavigate={(v) => setAuthView(v)} />
+        </Suspense>
+      );
+    }
+
     return (
       <Suspense fallback={<PageLoader />}>
         <AuthPage
+          initialView={currentView === "register" ? "register" : "login"}
           onLogin={() => {
             queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
           }}

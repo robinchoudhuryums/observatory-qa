@@ -475,4 +475,19 @@ export class CloudStorage implements IStorage {
   async getUsageSummary(_orgId: string, _startDate?: Date, _endDate?: Date): Promise<import("./types").UsageSummary[]> {
     return [];
   }
+
+  // --- Invitation operations (not supported in cloud storage) ---
+  async createInvitation(_orgId: string, _invitation: any): Promise<any> {
+    throw new Error("Invitations require PostgreSQL or in-memory storage");
+  }
+  async getInvitationByToken(_token: string): Promise<any> {
+    return undefined;
+  }
+  async listInvitations(_orgId: string): Promise<any[]> {
+    return [];
+  }
+  async updateInvitation(_orgId: string, _id: string, _updates: any): Promise<any> {
+    return undefined;
+  }
+  async deleteInvitation(_orgId: string, _id: string): Promise<void> {}
 }

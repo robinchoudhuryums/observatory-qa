@@ -28,6 +28,7 @@ import type {
   PromptTemplate, InsertPromptTemplate,
   CoachingSession, InsertCoachingSession,
   Organization, InsertOrganization,
+  Invitation, InsertInvitation,
 } from "@shared/schema";
 import * as tables from "./schema";
 import { normalizeAnalysis } from "../storage";
@@ -738,6 +739,59 @@ export class PostgresStorage implements IStorage {
     }));
   }
 
+  // --- Invitation operations ---
+  async createInvitation(orgId: string, invitation: InsertInvitation): Promise<Invitation> {
+    const { randomBytes } = await import("crypto");
+    const id = randomUUID();
+    const token = invitation.token || randomBytes(32).toString("hex");
+    const expiresAt = invitation.expiresAt
+      ? new Date(invitation.expiresAt)
+      : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    const [row] = await this.db.insert(tables.invitations).values({
+      id,
+      orgId,
+      email: invitation.email,
+      role: invitation.role || "viewer",
+      token,
+      invitedBy: invitation.invitedBy,
+      status: "pending",
+      expiresAt,
+    }).returning();
+
+    return this.mapInvitation(row);
+  }
+
+  async getInvitationByToken(token: string): Promise<Invitation | undefined> {
+    const rows = await this.db.select().from(tables.invitations)
+      .where(eq(tables.invitations.token, token)).limit(1);
+    return rows[0] ? this.mapInvitation(rows[0]) : undefined;
+  }
+
+  async listInvitations(orgId: string): Promise<Invitation[]> {
+    const rows = await this.db.select().from(tables.invitations)
+      .where(eq(tables.invitations.orgId, orgId))
+      .orderBy(desc(tables.invitations.createdAt));
+    return rows.map(r => this.mapInvitation(r));
+  }
+
+  async updateInvitation(orgId: string, id: string, updates: Partial<Invitation>): Promise<Invitation | undefined> {
+    const setValues: Record<string, unknown> = {};
+    if (updates.status) setValues.status = updates.status;
+    if (updates.acceptedAt) setValues.acceptedAt = new Date(updates.acceptedAt);
+
+    const [row] = await this.db.update(tables.invitations)
+      .set(setValues)
+      .where(and(eq(tables.invitations.id, id), eq(tables.invitations.orgId, orgId)))
+      .returning();
+    return row ? this.mapInvitation(row) : undefined;
+  }
+
+  async deleteInvitation(orgId: string, id: string): Promise<void> {
+    await this.db.delete(tables.invitations)
+      .where(and(eq(tables.invitations.id, id), eq(tables.invitations.orgId, orgId)));
+  }
+
   // --- Row mappers (DB row → app type) ---
 
   private mapOrg(row: any): Organization {
@@ -888,6 +942,21 @@ export class PostgresStorage implements IStorage {
       dueDate: toISOString(row.dueDate),
       createdAt: toISOString(row.createdAt),
       completedAt: toISOString(row.completedAt),
+    };
+  }
+
+  private mapInvitation(row: any): Invitation {
+    return {
+      id: row.id,
+      orgId: row.orgId,
+      email: row.email,
+      role: row.role,
+      token: row.token,
+      invitedBy: row.invitedBy,
+      status: row.status,
+      expiresAt: toISOString(row.expiresAt),
+      acceptedAt: toISOString(row.acceptedAt),
+      createdAt: toISOString(row.createdAt),
     };
   }
 }

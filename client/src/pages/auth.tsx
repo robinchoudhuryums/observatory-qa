@@ -11,12 +11,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 interface AuthPageProps {
   onLogin: () => void;
+  initialView?: AuthView;
 }
 
-type AuthView = "login" | "request-access";
+type AuthView = "login" | "request-access" | "register";
 
-export default function AuthPage({ onLogin }: AuthPageProps) {
-  const [view, setView] = useState<AuthView>("login");
+export default function AuthPage({ onLogin, initialView }: AuthPageProps) {
+  const [view, setView] = useState<AuthView>(initialView || "login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -29,6 +30,13 @@ export default function AuthPage({ onLogin }: AuthPageProps) {
   const [requestReason, setRequestReason] = useState("");
   const [requestedRole, setRequestedRole] = useState("viewer");
   const [requestSubmitted, setRequestSubmitted] = useState(false);
+
+  // Registration form state
+  const [regOrgName, setRegOrgName] = useState("");
+  const [regOrgSlug, setRegOrgSlug] = useState("");
+  const [regName, setRegName] = useState("");
+  const [regUsername, setRegUsername] = useState("");
+  const [regPassword, setRegPassword] = useState("");
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,6 +86,27 @@ export default function AuthPage({ onLogin }: AuthPageProps) {
     }
   };
 
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    try {
+      await apiRequest("POST", "/api/auth/register", {
+        orgName: regOrgName,
+        orgSlug: regOrgSlug,
+        username: regUsername,
+        password: regPassword,
+        name: regName,
+      });
+      toast({ title: "Organization Created", description: "Welcome! Redirecting to dashboard..." });
+      onLogin();
+    } catch (error: any) {
+      const msg = error.message?.includes(":") ? error.message.split(": ").slice(1).join(": ") : error.message;
+      toast({ title: "Registration Failed", description: msg, variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const roleIcons: Record<string, React.ReactNode> = {
     viewer: <Eye className="w-4 h-4 text-blue-500" />,
     manager: <Settings className="w-4 h-4 text-amber-500" />,
@@ -98,9 +127,11 @@ export default function AuthPage({ onLogin }: AuthPageProps) {
             <CardDescription>
               {view === "login"
                 ? "Sign in to access the call analysis dashboard"
-                : requestSubmitted
-                  ? "Your request has been submitted"
-                  : "Request access to the platform"}
+                : view === "register"
+                  ? "Create a new organization and admin account"
+                  : requestSubmitted
+                    ? "Your request has been submitted"
+                    : "Request access to the platform"}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -117,12 +148,12 @@ export default function AuthPage({ onLogin }: AuthPageProps) {
               </button>
               <button
                 className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
-                  view === "request-access" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                  view === "register" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
                 }`}
-                onClick={() => setView("request-access")}
+                onClick={() => setView("register")}
               >
                 <UserPlus className="w-4 h-4 inline mr-1.5 -mt-0.5" />
-                Request Access
+                Register
               </button>
             </div>
 
@@ -165,6 +196,70 @@ export default function AuthPage({ onLogin }: AuthPageProps) {
                   )}
                   Sign In
                 </Button>
+              </form>
+            )}
+
+            {/* REGISTER FORM */}
+            {view === "register" && (
+              <form onSubmit={handleRegister} className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium text-foreground">Organization Name</label>
+                  <Input
+                    value={regOrgName}
+                    onChange={(e) => {
+                      setRegOrgName(e.target.value);
+                      // Auto-generate slug from name
+                      setRegOrgSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""));
+                    }}
+                    placeholder="Acme Healthcare"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-foreground">Organization Slug</label>
+                  <Input
+                    value={regOrgSlug}
+                    onChange={(e) => setRegOrgSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                    placeholder="acme-healthcare"
+                    required
+                    pattern="^[a-z0-9-]+$"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">URL-safe identifier (lowercase, hyphens)</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-foreground">Your Full Name</label>
+                  <Input value={regName} onChange={(e) => setRegName(e.target.value)} placeholder="Jane Doe" required />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-foreground">Username</label>
+                  <Input value={regUsername} onChange={(e) => setRegUsername(e.target.value)} placeholder="jdoe" required autoComplete="username" />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-foreground">Password</label>
+                  <Input
+                    type="password"
+                    value={regPassword}
+                    onChange={(e) => setRegPassword(e.target.value)}
+                    placeholder="At least 8 characters"
+                    required
+                    minLength={8}
+                    autoComplete="new-password"
+                  />
+                </div>
+                <Button type="submit" className="w-full" disabled={isLoading}>
+                  {isLoading ? (
+                    <AudioWaveform className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <UserPlus className="w-4 h-4 mr-2" />
+                  )}
+                  Create Organization
+                </Button>
+                <p className="text-xs text-center text-muted-foreground">
+                  Already have an account?{" "}
+                  <button type="button" className="text-primary hover:underline" onClick={() => setView("login")}>
+                    Sign in
+                  </button>
+                </p>
               </form>
             )}
 

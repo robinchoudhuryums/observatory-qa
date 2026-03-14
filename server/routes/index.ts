@@ -10,10 +10,12 @@ import { registerCallRoutes } from "./calls";
 import { registerReportRoutes } from "./reports";
 import { registerCoachingRoutes } from "./coaching";
 import { registerInsightRoutes } from "./insights";
+import { registerRegistrationRoutes } from "./registration";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   registerHealthRoutes(app);
   registerAuthRoutes(app);
+  registerRegistrationRoutes(app);
   registerAccessRoutes(app);
   registerAdminRoutes(app);
   registerDashboardRoutes(app);

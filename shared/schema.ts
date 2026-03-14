@@ -260,6 +260,28 @@ export const accessRequestSchema = insertAccessRequestSchema.extend({
 export type InsertAccessRequest = z.infer<typeof insertAccessRequestSchema>;
 export type AccessRequest = z.infer<typeof accessRequestSchema>;
 
+// --- INVITATION SCHEMAS ---
+export const insertInvitationSchema = z.object({
+  orgId: z.string().optional(),
+  email: z.string().email(),
+  role: z.enum(["viewer", "manager", "admin"]).default("viewer"),
+  invitedBy: z.string(),
+  token: z.string().optional(), // Auto-generated if not provided
+  expiresAt: z.string().optional(),
+});
+
+export const invitationSchema = insertInvitationSchema.extend({
+  id: z.string(),
+  orgId: z.string(),
+  token: z.string(),
+  status: z.enum(["pending", "accepted", "expired", "revoked"]).default("pending"),
+  createdAt: z.string().optional(),
+  acceptedAt: z.string().optional(),
+});
+
+export type InsertInvitation = z.infer<typeof insertInvitationSchema>;
+export type Invitation = z.infer<typeof invitationSchema>;
+
 // --- PROMPT TEMPLATE SCHEMAS ---
 export const promptTemplateSchema = z.object({
   id: z.string(),

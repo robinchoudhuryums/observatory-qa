@@ -227,7 +227,7 @@ export async function setupAuth(app: Express) {
   app.use(passport.initialize());
   app.use(passport.session());
 
-  // Local strategy: authenticate against env-var-defined users
+  // Local strategy: authenticate against env-var-defined users AND database users
   passport.use(
     new LocalStrategy(async (username, password, done) => {
       try {
@@ -243,45 +243,71 @@ export async function setupAuth(app: Express) {
           return done(null, false, { message: "Account temporarily locked. Try again later." });
         }
 
-        const user = envUsers.find((u) => u.username === username);
-        if (!user) {
-          recordFailedAttempt(username);
+        // 1. Check env-var users first (backward compatibility)
+        const envUser = envUsers.find((u) => u.username === username);
+        if (envUser) {
+          const isValid = await comparePasswords(password, envUser.passwordHash);
+          if (!isValid) {
+            recordFailedAttempt(username);
+            logPhiAccess({ event: "login_failed", username, resourceType: "auth" });
+            return done(null, false, { message: "Invalid username or password" });
+          }
+          clearFailedAttempts(username);
           logPhiAccess({
-
-            event: "login_failed",
-            username,
+            event: "login_success",
+            orgId: envUser.orgId,
+            userId: envUser.id,
+            username: envUser.username,
+            role: envUser.role,
             resourceType: "auth",
+            detail: `org: ${envUser.orgSlug}`,
           });
+          return done(null, {
+            id: envUser.id,
+            username: envUser.username,
+            name: envUser.name,
+            role: envUser.role,
+            orgId: envUser.orgId!,
+            orgSlug: envUser.orgSlug,
+          });
+        }
+
+        // 2. Check database users (created via admin UI or self-registration)
+        const dbUser = await storage.getUserByUsername(username);
+        if (!dbUser) {
+          recordFailedAttempt(username);
+          logPhiAccess({ event: "login_failed", username, resourceType: "auth" });
           return done(null, false, { message: "Invalid username or password" });
         }
-        const isValid = await comparePasswords(password, user.passwordHash);
+
+        const isValid = await comparePasswords(password, dbUser.passwordHash);
         if (!isValid) {
           recordFailedAttempt(username);
-          logPhiAccess({
-
-            event: "login_failed",
-            username,
-            resourceType: "auth",
-          });
+          logPhiAccess({ event: "login_failed", username, resourceType: "auth" });
           return done(null, false, { message: "Invalid username or password" });
         }
+
+        // Resolve org slug for DB user
+        const org = await storage.getOrganization(dbUser.orgId);
+        const orgSlug = org?.slug || "default";
+
         clearFailedAttempts(username);
         logPhiAccess({
           event: "login_success",
-          orgId: user.orgId,
-          userId: user.id,
-          username: user.username,
-          role: user.role,
+          orgId: dbUser.orgId,
+          userId: dbUser.id,
+          username: dbUser.username,
+          role: dbUser.role,
           resourceType: "auth",
-          detail: `org: ${user.orgSlug}`,
+          detail: `org: ${orgSlug} (db user)`,
         });
         return done(null, {
-          id: user.id,
-          username: user.username,
-          name: user.name,
-          role: user.role,
-          orgId: user.orgId!,
-          orgSlug: user.orgSlug,
+          id: dbUser.id,
+          username: dbUser.username,
+          name: dbUser.name,
+          role: dbUser.role,
+          orgId: dbUser.orgId,
+          orgSlug,
         });
       } catch (err) {
         return done(err);
@@ -294,20 +320,39 @@ export async function setupAuth(app: Express) {
     done(null, user.id);
   });
 
-  // Deserialize user from session
+  // Deserialize user from session (check env users first, then DB)
   passport.deserializeUser(async (id: string, done) => {
-    const user = envUsers.find((u) => u.id === id);
-    if (!user) {
-      return done(null, false);
+    // Check env users
+    const envUser = envUsers.find((u) => u.id === id);
+    if (envUser) {
+      return done(null, {
+        id: envUser.id,
+        username: envUser.username,
+        name: envUser.name,
+        role: envUser.role,
+        orgId: envUser.orgId!,
+        orgSlug: envUser.orgSlug,
+      });
     }
-    done(null, {
-      id: user.id,
-      username: user.username,
-      name: user.name,
-      role: user.role,
-      orgId: user.orgId!,
-      orgSlug: user.orgSlug,
-    });
+
+    // Check database users
+    try {
+      const dbUser = await storage.getUser(id);
+      if (!dbUser) {
+        return done(null, false);
+      }
+      const org = await storage.getOrganization(dbUser.orgId);
+      done(null, {
+        id: dbUser.id,
+        username: dbUser.username,
+        name: dbUser.name,
+        role: dbUser.role,
+        orgId: dbUser.orgId,
+        orgSlug: org?.slug || "default",
+      });
+    } catch {
+      done(null, false);
+    }
   });
 }
 
