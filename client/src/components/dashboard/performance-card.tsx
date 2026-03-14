@@ -64,7 +64,7 @@ export default function PerformanceCard() {
     <div className="modern-card rounded-xl p-6" data-testid="performance-card">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-foreground">Top Performers</h3>
-        <button className="text-teal-500 hover:text-teal-600 text-sm font-medium" data-testid="view-all-performers">
+        <button className="text-sm font-medium" style={{ color: "hsl(var(--brand-from))" }} data-testid="view-all-performers">
           View All
         </button>
       </div>

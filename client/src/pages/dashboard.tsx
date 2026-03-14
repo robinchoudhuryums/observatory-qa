@@ -105,7 +105,10 @@ export default function Dashboard() {
               Search calls...
             </Button>
             <Link href="/upload">
-              <Button className="bg-gradient-to-r from-teal-500 to-blue-500 hover:from-teal-600 hover:to-blue-600 text-white border-0 shadow-md shadow-teal-500/15 rounded-lg" data-testid="upload-call-button">
+              <Button
+                className="text-white border-0 shadow-md rounded-lg brand-gradient-btn"
+                data-testid="upload-call-button"
+              >
                 <Plus className="w-4 h-4 mr-2" />
                 Upload Call
               </Button>
@@ -183,7 +186,7 @@ export default function Dashboard() {
         {trendData.length > 0 && trendData.some(d => d.calls > 0) && (
           <div className="modern-card rounded-xl p-6">
             <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
-              <TrendingUp className="w-5 h-5 mr-2 text-teal-500" />
+              <TrendingUp className="w-5 h-5 mr-2" style={{ color: "hsl(var(--brand-from))" }} />
               Sentiment &amp; Volume — Last 30 Days
             </h3>
             <ResponsiveContainer width="100%" height={250}>

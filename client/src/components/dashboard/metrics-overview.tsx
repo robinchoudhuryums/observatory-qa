@@ -44,17 +44,17 @@ export default function MetricsOverview() {
       value: totalCalls,
       change: `${totalCalls} analyzed`,
       icon: Phone,
-      iconBg: "bg-gradient-to-br from-teal-500/20 to-blue-500/10 dark:from-teal-500/20 dark:to-blue-500/10",
-      iconColor: "text-teal-600 dark:text-teal-400",
-      glowClass: "metric-glow-teal",
+      iconStyle: { background: "linear-gradient(135deg, hsla(var(--brand-from), 0.2), hsla(var(--brand-to), 0.1))" },
+      iconColorStyle: { color: "hsl(var(--brand-from))" },
+      glowClass: "metric-glow-brand",
     },
     {
       title: "Avg Sentiment",
       value: `${(metrics?.avgSentiment ?? 0).toFixed(1)}/10`,
       change: "Avg across calls",
       icon: Heart,
-      iconBg: "bg-gradient-to-br from-emerald-500/20 to-green-500/10 dark:from-emerald-500/20 dark:to-green-500/10",
-      iconColor: "text-emerald-600 dark:text-emerald-400",
+      iconStyle: { background: "linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(34, 197, 94, 0.1))" },
+      iconColorStyle: { color: "rgb(16, 185, 129)" },
       glowClass: "metric-glow-green",
     },
     {
@@ -62,17 +62,17 @@ export default function MetricsOverview() {
       value: `${metrics?.avgTranscriptionTime ?? 0}min`,
       change: "Avg per call",
       icon: Clock,
-      iconBg: "bg-gradient-to-br from-blue-500/20 to-indigo-500/10 dark:from-blue-500/20 dark:to-indigo-500/10",
-      iconColor: "text-blue-600 dark:text-blue-400",
-      glowClass: "metric-glow-blue",
+      iconStyle: { background: "linear-gradient(135deg, hsla(var(--brand-to), 0.2), hsla(var(--brand-to), 0.1))" },
+      iconColorStyle: { color: "hsl(var(--brand-to))" },
+      glowClass: "metric-glow-brand-alt",
     },
     {
       title: "Team Score",
       value: `${(metrics?.avgPerformanceScore ?? 0).toFixed(1)}/10`,
       change: "Avg performance",
       icon: Star,
-      iconBg: "bg-gradient-to-br from-purple-500/20 to-pink-500/10 dark:from-purple-500/20 dark:to-pink-500/10",
-      iconColor: "text-purple-600 dark:text-purple-400",
+      iconStyle: { background: "linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(236, 72, 153, 0.1))" },
+      iconColorStyle: { color: "rgb(168, 85, 247)" },
       glowClass: "metric-glow-purple",
     },
   ];
@@ -93,8 +93,8 @@ export default function MetricsOverview() {
                   {metric.change}
                 </p>
               </div>
-              <div className={`w-12 h-12 ${metric.iconBg} rounded-xl flex items-center justify-center`}>
-                <Icon className={`${metric.iconColor} w-5 h-5`} />
+              <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={metric.iconStyle}>
+                <Icon className="w-5 h-5" style={metric.iconColorStyle} />
               </div>
             </div>
           </div>

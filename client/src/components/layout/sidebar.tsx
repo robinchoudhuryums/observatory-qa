@@ -140,7 +140,13 @@ export default function Sidebar() {
             {logoUrl ? (
               <img src={logoUrl} alt="Logo" className="w-9 h-9 rounded-xl object-contain" />
             ) : (
-              <div className="w-9 h-9 bg-gradient-to-br from-teal-400 to-blue-500 rounded-xl flex items-center justify-center shadow-lg shadow-teal-500/20">
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center shadow-lg"
+                style={{
+                  background: "linear-gradient(135deg, hsl(var(--brand-from)), hsl(var(--brand-to)))",
+                  boxShadow: "0 4px 12px rgba(var(--brand-from-rgb), 0.2)",
+                }}
+              >
                 <Mic className="text-white w-4 h-4" />
               </div>
             )}
@@ -238,7 +244,13 @@ export default function Sidebar() {
               {employees.filter(e => e.status === "Active").map(emp => (
                 <SelectItem key={emp.id} value={emp.id}>
                   <span className="flex items-center gap-1.5">
-                    <span className="w-4 h-4 rounded-full bg-gradient-to-br from-teal-400/20 to-blue-500/20 text-teal-600 dark:text-teal-400 text-[8px] font-bold flex items-center justify-center shrink-0">
+                    <span
+                      className="w-4 h-4 rounded-full text-[8px] font-bold flex items-center justify-center shrink-0"
+                      style={{
+                        background: "linear-gradient(135deg, hsla(var(--brand-from), 0.2), hsla(var(--brand-to), 0.2))",
+                        color: "hsl(var(--brand-from))",
+                      }}
+                    >
                       {emp.initials || emp.name?.slice(0, 2).toUpperCase()}
                     </span>
                     {emp.name}
@@ -253,8 +265,11 @@ export default function Sidebar() {
       {/* User footer */}
       <div className="p-4 sidebar-footer">
         <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 bg-gradient-to-br from-teal-400/20 to-blue-500/20 rounded-full flex items-center justify-center">
-            <User className="text-teal-600 dark:text-teal-400 w-4 h-4" />
+          <div
+            className="w-8 h-8 rounded-full flex items-center justify-center"
+            style={{ background: "linear-gradient(135deg, hsla(var(--brand-from), 0.2), hsla(var(--brand-to), 0.2))" }}
+          >
+            <User className="w-4 h-4" style={{ color: "hsl(var(--brand-from))" }} />
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-medium text-sm text-foreground truncate">{user?.name || "User"}</p>
