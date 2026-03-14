@@ -1,7 +1,7 @@
-# Observatory QA — Codebase Review
+# Observatory QA — Comprehensive Codebase Review
 
 **Date**: 2026-03-14
-**Scope**: Full codebase review — security, performance, correctness, architecture
+**Scope**: Full codebase review — security, performance, correctness, architecture, frontend, workers, deployment, testing
 
 ---
 
@@ -13,9 +13,9 @@
 
 Both `getUser(id)` and `getUserByUsername(username)` do **not** take `orgId` as a parameter, unlike every other storage method. This means:
 
-- In `server/auth.ts:340`, `storage.getUser(id)` during deserialization fetches a user by ID without org scoping. A user ID from one org could theoretically collide or be guessed.
-- In `server/routes/admin.ts:270`, `storage.getUser(req.params.id)` is called without orgId — there's a manual `user.orgId !== req.orgId` check afterward, but the data was already fetched cross-tenant.
-- `getUserByUsername()` is inherently global (usernames are globally unique), but this means username enumeration across orgs is possible.
+- In `server/auth.ts:340`, `storage.getUser(id)` during deserialization fetches a user by ID without org scoping
+- In `server/routes/admin.ts:270`, `storage.getUser(req.params.id)` is called without orgId — there's a manual `user.orgId !== req.orgId` check afterward, but the data was already fetched cross-tenant
+- `getUserByUsername()` is inherently global (usernames are globally unique), enabling username enumeration across orgs
 
 **Recommendation**: Add `orgId` parameter to `getUser()` or at minimum ensure all callers verify `user.orgId` matches. Consider making usernames org-scoped (e.g., `username@orgSlug`) for true multi-tenant isolation.
 
@@ -49,7 +49,7 @@ export function resolveUserOrgId(userId: string): string | undefined {
 }
 ```
 
-`resolveUserOrgId()` only searches `envUsers` (loaded from `AUTH_USERS` env var). **Database users** (created via registration, invitation, or admin UI) will always return `undefined`, causing their WebSocket connections to be **rejected with 403**. This means real-time call processing updates are broken for all DB-created users.
+`resolveUserOrgId()` only searches `envUsers` (loaded from `AUTH_USERS` env var). **Database users** (created via registration, invitation, or admin UI) will always return `undefined`, causing their WebSocket connections to be **rejected with 403**. Real-time call processing updates are broken for all DB-created users.
 
 **Recommendation**: Fall back to `storage.getUser(userId)` for DB users when the env user lookup fails.
 
@@ -61,7 +61,7 @@ export function resolveUserOrgId(userId: string): string | undefined {
 
 Only `/api/auth/login` has rate limiting. The `/api/auth/register` endpoint is unprotected, allowing:
 - Automated org/user creation spam
-- Resource exhaustion (each registration creates an org + user + potentially triggers DB writes)
+- Resource exhaustion (each registration creates an org + user + DB writes)
 
 **Recommendation**: Apply rate limiting to `/api/auth/register` (e.g., 3 registrations per IP per hour).
 
@@ -81,233 +81,310 @@ The `PATCH /api/organization/settings` endpoint spreads `req.body` directly into
 
 ---
 
-## High Priority Issues
+### 6. `insertUserSchema` Has Optional `orgId`
 
-### 6. `console.log` / `console.warn` Used Instead of Structured Logger
+**File**: `shared/schema.ts:40`
 
-**Files**: Throughout `server/routes/calls.ts`, `server/auth.ts`, `server/services/websocket.ts`, and others
+```typescript
+export const insertUserSchema = z.object({
+  orgId: z.string().optional(), // ← SHOULD BE REQUIRED
+```
 
-The project has a proper Pino structured logger (`server/services/logger.ts`), but many files still use `console.log`/`console.warn`/`console.error`. This means:
-- Log output is unstructured and not captured by Betterstack
-- No log levels, timestamps, or correlation IDs
-- HIPAA audit trail is incomplete for console-logged events
+Multi-tenant safety violation — `orgId` should never be optional on user creation. A user created without an org breaks tenant isolation.
 
-**Recommendation**: Replace all `console.*` calls with `logger.*` equivalents. Grep shows ~50+ instances.
+**Recommendation**: Make `orgId` required in `insertUserSchema`.
 
 ---
 
-### 7. Password Hashing Logic Duplicated in 3 Places
+### 7. Unvalidated `JSON.parse` — DoS/Crash Risk
+
+**File**: `server/routes/onboarding.ts:326`
+
+```typescript
+appliesTo: appliesTo ? JSON.parse(appliesTo) : undefined,
+```
+
+User-supplied `appliesTo` parameter parsed without try-catch. Malformed JSON crashes the request handler.
+
+**Also in**: `server/routes/reports.ts:338,353,485,499` — stored analysis data parsed without error handling; corrupted DB data crashes the endpoint.
+
+**Recommendation**: Wrap all `JSON.parse` calls in try-catch or use a safe parsing utility.
+
+---
+
+### 8. No CI/CD Pipeline
+
+No `.github/workflows/`, `.gitlab-ci.yml`, or any CI configuration exists. This means:
+- No automated tests on PRs
+- No automated builds or deployments
+- No gated quality checks before merge
+
+**Recommendation**: Add GitHub Actions workflow for test, typecheck, and build on every PR.
+
+---
+
+## High Priority Issues
+
+### 9. `console.log` / `console.warn` Used Instead of Structured Logger
+
+**Files**: `server/routes/calls.ts`, `server/auth.ts`, `server/services/websocket.ts`, `server/services/bedrock.ts`, `server/services/gemini.ts`, `server/services/assemblyai.ts`, `server/services/notifications.ts`, and others (~50+ instances)
+
+The project has Pino structured logging (`server/services/logger.ts`) with Betterstack transport, but many files use `console.*`. This is a **HIPAA compliance gap** — unstructured console logs bypass the audit trail and aren't captured by Betterstack.
+
+**Recommendation**: Replace all `console.*` calls with `logger.*` equivalents.
+
+---
+
+### 10. Password Hashing Logic Duplicated in 3 Places
 
 **Files**: `server/auth.ts:76-79`, `server/routes/registration.ts:11-14`, `server/routes/admin.ts:203-208`
 
-The scrypt password hashing is copy-pasted in three separate files. If the hashing parameters need to change (e.g., increasing scrypt cost), all three must be updated in sync.
+The scrypt password hashing is copy-pasted in three files. If hashing parameters change, all three must update in sync.
 
-**Recommendation**: Export `hashPassword()` from `server/auth.ts` and import it in registration and admin routes.
+**Recommendation**: Export `hashPassword()` from `server/auth.ts` and import elsewhere.
 
 ---
 
-### 8. Bulk Re-analysis Runs Unbounded in Background
+### 11. Bulk Re-analysis Runs Unbounded in Background (Not Using Queue)
 
 **File**: `server/routes/admin.ts:117-155`
 
-The re-analysis endpoint processes calls sequentially in an async IIFE with no backpressure, no cancellation mechanism, and no job queue usage. If an admin queues 50 calls, the server will:
-- Make 50 sequential AI provider calls (each taking 10-30s)
-- Consume the connection for 8-25 minutes
-- Have no visibility into progress (only a final broadcast)
-- No way to cancel mid-flight
+The re-analysis endpoint processes calls sequentially in an async IIFE — no backpressure, no cancellation, no persistence. Jobs are lost on process crash. The BullMQ `bulk-reanalysis` queue already exists but isn't used here.
 
-**Recommendation**: Use BullMQ queue (already defined as `bulk-reanalysis` in `server/services/queue.ts`) instead of inline processing. The queue infrastructure already exists.
+**Recommendation**: Use `enqueueReanalysis()` from `server/services/queue.ts`.
 
 ---
 
-### 9. `getCallsWithDetails` Called Excessively for Reporting
+### 12. `getCallsWithDetails` Called Excessively for Reporting
 
-**File**: `server/routes/reports.ts` (5 calls), `server/routes/insights.ts:12`
+**File**: `server/routes/reports.ts` (5 calls), `server/routes/insights.ts:12`, `server/routes/admin.ts:87`
 
-Reports endpoints load ALL completed calls with full details into memory to compute aggregates. This is an O(n) memory pattern that won't scale.
+Reports load ALL completed calls with full details (transcripts, sentiments, analyses) into memory to compute aggregates. This is O(n) memory and won't scale.
 
-**Recommendation**: Add aggregate query methods to the storage interface (e.g., `getPerformanceMetrics(orgId, dateRange)`) that compute averages/distributions at the database level.
-
----
-
-### 10. No File Size Limit on Audio Upload
-
-**File**: `server/routes/calls.ts:366`, `server/routes/helpers.ts` (multer config)
-
-The multer upload configuration should enforce a maximum file size. Without it, a user could upload a multi-GB file, causing:
-- Memory exhaustion (`fs.readFileSync` at line 384 reads the entire file into a Buffer)
-- Extended processing times
-- Large S3 storage costs
-
-**Recommendation**: Set `limits: { fileSize: 100 * 1024 * 1024 }` (100MB) in multer config, and use streaming instead of `readFileSync`.
+**Recommendation**: Add aggregate query methods (e.g., `getPerformanceMetrics(orgId, dateRange)`) that compute at the database level.
 
 ---
 
-### 11. Missing CSRF Protection
+### 13. No File Size Limit on Audio Upload
 
-**File**: `server/index.ts`
+**File**: `server/routes/calls.ts:366,384`
 
-The app uses cookie-based sessions with `sameSite: "lax"`. While `lax` prevents CSRF on POST from cross-origin `<form>` submissions, it doesn't protect against:
-- Requests from same-site subdomains
-- Certain redirect-based attacks
+No multer `limits.fileSize` configured. `fs.readFileSync` at line 384 reads the entire uploaded file into a Buffer.
 
-For a HIPAA-compliant system, explicit CSRF token protection (e.g., `csurf` or double-submit cookie pattern) would be more robust.
+**Recommendation**: Set `limits: { fileSize: 100 * 1024 * 1024 }` in multer config and consider streaming.
+
+---
+
+### 14. Vertex AI / GCS Token Refresh Race Condition
+
+**Files**: `server/services/gemini.ts:115-135`, `server/services/gcs.ts:66-87`
+
+Both `getAccessToken()` methods check if the token is expired and refresh it, but multiple concurrent requests can bypass the check simultaneously, causing redundant JWT token requests to Google's OAuth endpoint.
+
+**Recommendation**: Use a mutex/promise lock pattern — store the pending refresh promise and return it to concurrent callers.
+
+---
+
+### 15. Missing Timeout on Vertex AI and GCS API Calls
+
+**Files**: `server/services/gemini.ts:225-232`, `server/services/gcs.ts` (multiple)
+
+The Vertex AI analysis call and all GCS file operations use raw `fetch()` without `AbortSignal.timeout()`. If the service is slow/unresponsive, requests hang indefinitely.
+
+**Recommendation**: Wrap with `AbortSignal.timeout(30000)` like the AI Studio path does.
+
+---
+
+### 16. Missing Frontend Route Guards
+
+**File**: `client/src/App.tsx:157-172`
+
+All routes are accessible to any authenticated user regardless of role. Admin/manager-only pages (`/admin`, `/prompt-templates`, `/coaching`) rely solely on sidebar link filtering, which is UI-only.
+
+**Recommendation**: Add a `ProtectedRoute` wrapper that checks `user.role` before rendering.
+
+---
+
+### 17. WebSocket Server Missing Error Handlers and Shutdown
+
+**File**: `server/services/websocket.ts`
+
+- No `wss.on("error")` handler — server errors go unlogged
+- `broadcastCallUpdate()` calls `client.send()` without try-catch — broken pipe errors are swallowed
+- No `closeWebSocket()` export — WebSocket server can't be shut down gracefully
+- No `ws.on("close")` handler for explicit `clientOrgMap` cleanup
+
+**Recommendation**: Add error handlers, wrap `send()` in try-catch, export shutdown function.
+
+---
+
+### 18. Indexing Worker Missing Error Handler
+
+**File**: `server/workers/indexing.worker.ts:30-48`
+
+The indexing worker is the only worker without a `.on("failed")` error handler. Failed RAG indexing jobs fail silently — users don't know their documents weren't processed.
+
+**Recommendation**: Add `worker.on("failed", ...)` like the other workers.
 
 ---
 
 ## Medium Priority Issues
 
-### 12. In-Memory Rate Limiter Never Cleans Up on `req.path` Variations
+### 19. Missing CSRF Protection
 
-**File**: `server/index.ts:17`
+**File**: `server/index.ts`
 
-The rate limit key is `${req.ip}:${req.path}`. Since `req.path` can include query strings or trailing slashes differently, the same logical endpoint could create multiple rate limit entries. Also, `req.ip` may be `undefined` behind proxies without `trust proxy`.
-
----
-
-### 13. No Pagination on List Endpoints
-
-**Files**: `server/routes/calls.ts:316-328`, `server/routes/admin.ts:167-183`, others
-
-`GET /api/calls`, `GET /api/users`, `GET /api/employees`, etc. return all records with no pagination. As data grows, response sizes will become unmanageable.
-
-**Recommendation**: Add `limit`/`offset` or cursor-based pagination to all list endpoints.
+Cookie-based sessions with `sameSite: "lax"` — doesn't protect against same-site subdomain attacks or certain redirects. For HIPAA, explicit CSRF token protection is recommended.
 
 ---
 
-### 14. `mapConcurrent` Has a Race Condition
+### 20. Error Handler Exposes Internal Error Messages
 
-**File**: `server/storage/types.ts:40-53`
+**File**: `server/index.ts:165-173`
 
-```typescript
-while (index < items.length) {
-  const i = index++;
-}
-```
+For 500 errors, `err.message` is sent to the client. Could leak database connection strings, file paths, or internal details.
 
-While JavaScript is single-threaded and `index++` won't race in practice, the pattern is fragile. If the `fn` callback uses `await`, control can yield and multiple workers could read the same `index` before it's incremented — though in practice, `index++` is atomic in the event loop.
-
-**Status**: Not a real bug in Node.js, but the pattern is misleading. Consider using a proper async pool library.
+**Recommendation**: Return generic "Internal Server Error" for status >= 500.
 
 ---
 
-### 15. `setInterval` Timers Not Stored for Cleanup
+### 21. No Pagination on List Endpoints
 
-**File**: `server/index.ts:58-63`, `server/auth.ts:21-28`
+**Files**: `server/routes/calls.ts:316`, `server/routes/admin.ts:167`, others
 
-Multiple `setInterval` calls (rate limit cleanup, lockout cleanup, retention scheduling) are not stored in variables for cleanup during graceful shutdown. This can cause the process to hang on shutdown.
-
-**Recommendation**: Store interval handles and clear them in the shutdown handler.
+All list endpoints return unbounded results.
 
 ---
 
-### 16. SigV4 Signing Code Duplicated
+### 22. SigV4 Signing Code Duplicated in 3 Files
 
 **Files**: `server/services/s3.ts`, `server/services/bedrock.ts`, `server/services/embeddings.ts`
-
-AWS SigV4 signing logic is implemented independently in three files. Any signing bug or credential handling change must be fixed in all three.
 
 **Recommendation**: Extract a shared `signAwsRequest()` utility.
 
 ---
 
-### 17. No Input Sanitization on Search Endpoints
+### 23. `setInterval` Timers Not Stored for Cleanup
 
-**File**: `server/routes/calls.ts:318`, `server/routes/reports.ts` (various)
+**Files**: `server/index.ts:58-63`, `server/auth.ts:21-28`, `server/index.ts:233`
 
-Query parameters like `status`, `sentiment`, `employee` are passed directly to storage without validation. While the storage layer does string comparison (not SQL injection), unexpected values could cause confusing results.
-
-**Recommendation**: Validate query parameters against allowed values using Zod.
+Multiple `setInterval` calls aren't stored for cleanup during graceful shutdown, causing process hang.
 
 ---
 
-### 18. Error Handler Exposes Error Messages
+### 24. CloudStorage N+1 Query Pattern
 
-**File**: `server/index.ts:165-173`
+**File**: `server/storage/cloud.ts:189-204`
 
-```typescript
-const message = err.message || "Internal Server Error";
-res.status(status).json({ message });
+`getCallsWithDetails()` fetches all calls, then for EACH call makes 4 concurrent S3 requests (employee, transcript, sentiment, analysis). With 100 calls = 400 S3 API calls.
+
+---
+
+### 25. RAG Worker Database Pool Never Closed
+
+**File**: `server/services/rag-worker.ts:15-25`
+
+The in-process RAG worker creates a PostgreSQL pool that's never closed on shutdown, leaking connections.
+
+---
+
+### 26. Stripe Webhook Metadata Not Validated
+
+**File**: `server/routes/billing.ts:334,364,394`
+
+`orgId` from Stripe webhook metadata is trusted without validation. If the Stripe account is compromised, arbitrary org billing state could be manipulated.
+
+---
+
+### 27. In-Memory Rate Limiter Key Issues
+
+**File**: `server/index.ts:17`
+
+Rate limit key `${req.ip}:${req.path}` — `req.ip` may be `undefined` behind proxies. Path variations (trailing slash, query strings) create separate entries.
+
+---
+
+### 28. Build Script Missing Optimizations
+
+**File**: `package.json:8`
+
+```json
+"build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist"
 ```
 
-For 500 errors, the raw error message is sent to the client. This could leak internal details (database connection strings, file paths, etc.) in production.
-
-**Recommendation**: For status >= 500, always return a generic message to the client and log the real error server-side.
+Missing `--minify`, `--sourcemap`, and doesn't run `tsc` type check first. Production bundles are unoptimized and undebuggable.
 
 ---
 
 ## Lower Priority / Improvements
 
-### 19. TypeScript Strictness
+### 29. ~70% Test Coverage Gap
 
-- `tsconfig.json` should enable `strict: true` if not already
-- Several `as any` casts throughout the codebase (e.g., `server/routes/admin.ts:249`, `server/routes/billing.ts:381`)
-- `req.orgId!` non-null assertions are used extensively — consider making the type non-optional after `injectOrgContext`
-
-### 20. Missing Test Coverage
-
-The following modules have **no test coverage**:
-- `server/services/bedrock.ts` — SigV4 signing, API calls
-- `server/services/s3.ts` — SigV4 signing, S3 operations
-- `server/services/gemini.ts` — Gemini API integration
-- `server/services/websocket.ts` — WebSocket connection handling
-- `server/services/stripe.ts` — Stripe integration
-- `server/services/rag.ts` — RAG retrieval
-- `server/services/chunker.ts` — Document chunking
-- `server/services/embeddings.ts` — Embedding generation
-- `server/storage/pg-storage.ts` — PostgreSQL storage (integration tests)
-- `server/routes/billing.ts` — Billing/checkout flows
-- `server/routes/onboarding.ts` — Onboarding flow
+12 test files exist but the following have **zero tests**:
+- All external services (AssemblyAI, Bedrock, Gemini, S3, GCS, Stripe)
+- Entire RAG system (rag.ts, chunker.ts, embeddings.ts)
+- Infrastructure services (Redis, BullMQ, WebSocket, audit logging)
+- 12 of 17 route files (including core `calls.ts`)
 - All frontend components/pages
+- Storage implementations (pg-storage.ts, cloud.ts)
 
-### 21. Package Naming
+### 30. Package Naming
 
-**File**: `package.json:2`
+`package.json:2` — Package named `"rest-express"`, should be `"observatory-qa"`.
 
-Package name is `"rest-express"` — a generic placeholder from project scaffolding. Should be `"observatory-qa"` or `"@observatoryqa/platform"`.
+### 31. Tailwind Version Mismatch
 
-### 22. Replit Dev Dependencies in Production Build
+`package.json:99,117` — `@tailwindcss/vite: ^4.1.3` (v4 plugin) alongside `tailwindcss: ^3.4.17` (v3). Incompatible.
 
-**File**: `package.json:96-98`
+### 32. Unused Dependencies
 
-```json
-"@replit/vite-plugin-cartographer": "^0.3.1",
-"@replit/vite-plugin-dev-banner": "^0.1.1",
-"@replit/vite-plugin-runtime-error-modal": "^0.0.3",
-```
+- `next-themes` (`package.json:70`) — Next.js package, not used in this Vite project
+- Replit-specific plugins (`package.json:96-98`) — remove if not deploying on Replit
 
-These Replit-specific plugins are in devDependencies (fine for builds) but may cause confusion in non-Replit environments. Consider removing if no longer deploying on Replit.
+### 33. Dashboard/Admin Error States Not Displayed
 
-### 23. `tailwindcss` Version Mismatch
+**Files**: `client/src/pages/dashboard.tsx:19-28`, `client/src/pages/admin.tsx:20`
 
-**File**: `package.json:99,117`
+Query errors are fetched but never rendered — users see blank screens on API failure.
 
-`@tailwindcss/vite: ^4.1.3` (Tailwind v4 plugin) is listed alongside `tailwindcss: ^3.4.17` (v3). These are incompatible versions — the v4 Vite plugin expects Tailwind v4 CSS syntax.
+### 34. Deployment Scripts Incomplete
 
-### 24. Unused `next-themes` Dependency
+**File**: `deploy/ec2/user-data.sh:45-48`
 
-**File**: `package.json:70`
+Git clone step is commented out. No database migration step in `deploy.sh`. No rollback mechanism. `.env` stored in plaintext on EBS (HIPAA encryption-at-rest gap).
 
-`next-themes` is a Next.js-specific package. This project uses Vite + Wouter, not Next.js. Dark mode is implemented with custom CSS. This dependency appears unused.
+### 35. 16 npm Dependency Vulnerabilities
+
+4 high-severity (body-parser, express, express-session, multer), 7 moderate (esbuild, vite, rollup), 5 low.
+
+### 36. Provider Cache Race Condition
+
+**File**: `server/services/ai-factory.ts:49-71`
+
+Multiple concurrent requests can create duplicate provider instances for the same org before caching.
 
 ---
 
 ## Architecture Observations
 
 ### Strengths
-- **Solid multi-tenant isolation** at the storage layer — `orgId` is required on nearly all storage methods
-- **Graceful degradation** — every external dependency has a fallback (Redis, S3, AI providers)
-- **HIPAA-aware design** — audit logging, session timeouts, security headers, encryption considerations
-- **Clean separation** — routes, services, storage, and shared schemas are well-organized
-- **Per-org AI provider configuration** is a strong multi-tenant feature
-- **RAG system** is well-architected with hybrid search (semantic + BM25)
+- **Solid multi-tenant isolation** at the storage layer — `orgId` required on nearly all methods
+- **Graceful degradation** — every external dependency has a fallback
+- **HIPAA-aware design** — audit logging, session timeouts, security headers, account lockout
+- **Clean code organization** — routes, services, storage, and shared schemas well-separated
+- **Per-org AI provider configuration** via `ai-factory.ts`
+- **RAG system** well-architected with hybrid search (semantic + BM25)
+- **Worker concurrency control** — bounded concurrency prevents resource exhaustion
+- **Strong systemd hardening** in deployment service file
+- **API key security** — SHA-256 hashed, never stored plaintext
 
 ### Areas for Growth
-- **No database migrations versioning** — schema changes rely on `drizzle-kit push` which can be destructive. Production should use versioned migrations
-- **No health check for AI providers** — the `/api/health` endpoint should verify AI provider connectivity
-- **No request ID / correlation ID** — makes debugging distributed issues difficult
-- **No graceful handling of concurrent uploads** for the same file — the duplicate check is not atomic
-- **Worker processes share no health monitoring** — no way to know if a worker is stuck or dead
+- **No database migrations versioning** — `drizzle-kit push` is destructive. Use versioned migrations
+- **No health check for AI providers** — `/api/health` should verify AI connectivity
+- **No request ID / correlation ID** — makes distributed debugging difficult
+- **No graceful concurrent upload handling** — duplicate check is not atomic
+- **Worker health monitoring** — no way to know if a worker is stuck/dead
+- **No secrets management** — `.env` plaintext instead of AWS Secrets Manager / KMS
 
 ---
 
@@ -315,14 +392,20 @@ These Replit-specific plugins are in devDependencies (fine for builds) but may c
 
 | Severity | Count | Key Areas |
 |----------|-------|-----------|
-| Critical | 5 | Cross-tenant data access, WebSocket auth for DB users, memory-heavy duplicate check |
-| High | 6 | Console logging, code duplication, no pagination, file size limits |
-| Medium | 7 | Rate limiting gaps, CSRF, error message leaks, input validation |
-| Low | 6 | Package config, test coverage, TypeScript strictness |
+| Critical | 8 | Cross-tenant access, WebSocket auth, memory-heavy queries, no CI/CD, crash-prone JSON.parse |
+| High | 10 | Console logging, code duplication, missing timeouts, no route guards, token race conditions |
+| Medium | 10 | CSRF, error leaks, no pagination, SigV4 duplication, pool leaks, webhook validation |
+| Low | 8 | Package config, test coverage, dependency vulns, deployment scripts |
 
-The highest-impact fixes are:
-1. Fix WebSocket org resolution for DB users (#3)
-2. Add `getCallByFileHash()` to avoid loading all calls on upload (#2)
-3. Validate org settings updates (#5)
-4. Rate-limit registration (#4)
-5. Replace `console.*` with structured logger (#6)
+### Top 10 Highest-Impact Fixes
+
+1. **Fix WebSocket org resolution for DB users** (#3) — real-time updates completely broken for registered users
+2. **Add `getCallByFileHash()`** (#2) — prevents OOM on upload for orgs with many calls
+3. **Add CI/CD pipeline** (#8) — no automated quality gates currently
+4. **Make `orgId` required in `insertUserSchema`** (#6) — tenant isolation gap
+5. **Validate org settings updates** (#5) — arbitrary JSON injection
+6. **Rate-limit registration** (#4) — abuse vector
+7. **Replace `console.*` with structured logger** (#9) — HIPAA compliance gap
+8. **Wrap `JSON.parse` calls in try-catch** (#7) — crash risk
+9. **Add frontend route guards** (#16) — role bypass via URL
+10. **Add timeouts to Vertex AI/GCS calls** (#15) — hang risk
