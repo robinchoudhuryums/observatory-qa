@@ -16,7 +16,29 @@ import {
   jsonb,
   index,
   uniqueIndex,
+  customType,
 } from "drizzle-orm/pg-core";
+
+/**
+ * Custom pgvector type for storing embeddings.
+ * Requires the pgvector extension: CREATE EXTENSION IF NOT EXISTS vector;
+ */
+const vector = (name: string, dimensions: number) =>
+  customType<{ data: number[]; driverData: string }>({
+    dataType() {
+      return `vector(${dimensions})`;
+    },
+    toDriver(value: number[]): string {
+      return `[${value.join(",")}]`;
+    },
+    fromDriver(value: string): number[] {
+      // pgvector returns "[1,2,3]" format
+      return value
+        .slice(1, -1)
+        .split(",")
+        .map(Number);
+    },
+  })(name);
 
 // --- ORGANIZATIONS ---
 export const organizations = pgTable("organizations", {
@@ -270,6 +292,24 @@ export const referenceDocuments = pgTable("reference_documents", {
 }, (t) => [
   index("ref_docs_org_id_idx").on(t.orgId),
   index("ref_docs_category_idx").on(t.orgId, t.category),
+]);
+
+// --- DOCUMENT CHUNKS (pgvector-powered RAG) ---
+export const documentChunks = pgTable("document_chunks", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => organizations.id),
+  documentId: text("document_id").notNull().references(() => referenceDocuments.id, { onDelete: "cascade" }),
+  chunkIndex: integer("chunk_index").notNull(),
+  text: text("text").notNull(),
+  sectionHeader: varchar("section_header", { length: 500 }),
+  tokenCount: integer("token_count").notNull(),
+  charStart: integer("char_start").notNull(),
+  charEnd: integer("char_end").notNull(),
+  embedding: vector("embedding", 1024), // Amazon Titan Embed V2 — 1024 dimensions
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("doc_chunks_org_id_idx").on(t.orgId),
+  index("doc_chunks_document_id_idx").on(t.documentId),
 ]);
 
 // --- USAGE EVENTS (per-org metering for billing) ---

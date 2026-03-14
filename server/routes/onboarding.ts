@@ -11,7 +11,10 @@ import { randomUUID } from "crypto";
 import { storage, objectStorage } from "../storage";
 import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { logger } from "../services/logger";
-import { REFERENCE_DOC_CATEGORIES } from "@shared/schema";
+import { REFERENCE_DOC_CATEGORIES, PLAN_DEFINITIONS, type PlanTier } from "@shared/schema";
+import { enqueueDocumentIndexing } from "../services/queue";
+import { removeDocumentChunks, searchRelevantChunks, formatRetrievedContext, hasIndexedChunks } from "../services/rag";
+import { isEmbeddingAvailable } from "../services/embeddings";
 
 // Configure multer for logo + document uploads
 const onboardingUploadsDir = "uploads/onboarding";
@@ -327,6 +330,17 @@ export function registerOnboardingRoutes(app: Express): void {
 
         logger.info({ orgId, docId: doc.id, name: doc.name, category: doc.category }, "Reference document uploaded");
 
+        // Enqueue RAG indexing (chunking + embedding) if text was extracted
+        if (extractedText && extractedText.length > 0) {
+          enqueueDocumentIndexing({
+            orgId,
+            documentId: doc.id,
+            extractedText,
+          }).catch((err) => {
+            logger.warn({ err, docId: doc.id }, "Failed to enqueue RAG indexing (non-blocking)");
+          });
+        }
+
         res.status(201).json(doc);
       } catch (error) {
         logger.error({ err: error }, "Document upload failed");
@@ -391,10 +405,137 @@ export function registerOnboardingRoutes(app: Express): void {
         } catch { /* non-blocking */ }
       }
 
+      // Remove RAG chunks if database is available
+      if (process.env.DATABASE_URL) {
+        try {
+          const { getDatabase } = await import("../db/index");
+          const db = getDatabase();
+          if (db) {
+            await removeDocumentChunks(db as any, req.params.id);
+          }
+        } catch { /* non-blocking */ }
+      }
+
       await storage.deleteReferenceDocument(req.orgId!, req.params.id);
       res.json({ message: "Document deleted" });
     } catch (error) {
       res.status(500).json({ message: "Failed to delete document" });
+    }
+  });
+
+  // --- RAG: Get indexing status for org's documents ---
+  app.get("/api/reference-documents/rag/status", requireAuth, injectOrgContext, async (req, res) => {
+    try {
+      const orgId = req.orgId!;
+
+      // Check plan tier
+      const sub = await storage.getSubscription(orgId);
+      const tier = (sub?.planTier as PlanTier) || "free";
+      const plan = PLAN_DEFINITIONS[tier];
+      const ragEnabled = plan?.limits?.ragEnabled === true;
+
+      const result: Record<string, unknown> = {
+        ragEnabled,
+        embeddingServiceAvailable: isEmbeddingAvailable(),
+        databaseAvailable: !!process.env.DATABASE_URL,
+      };
+
+      if (ragEnabled && process.env.DATABASE_URL) {
+        try {
+          const { getDatabase } = await import("../db/index");
+          const db = getDatabase();
+          if (db) {
+            const hasChunks = await hasIndexedChunks(db as any, orgId);
+            result.hasIndexedChunks = hasChunks;
+
+            // Get chunk counts per document
+            const { sql } = await import("drizzle-orm");
+            const counts = await (db as any).execute(sql`
+              SELECT document_id, COUNT(*) as chunk_count
+              FROM document_chunks
+              WHERE org_id = ${orgId}
+              GROUP BY document_id
+            `);
+            result.documentChunkCounts = (counts.rows as any[]).reduce((acc: Record<string, number>, row: any) => {
+              acc[row.document_id] = parseInt(row.chunk_count);
+              return acc;
+            }, {});
+          }
+        } catch { /* non-blocking */ }
+      }
+
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get RAG status" });
+    }
+  });
+
+  // --- RAG: Re-index a specific document ---
+  app.post("/api/reference-documents/:id/reindex", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      const orgId = req.orgId!;
+      const doc = await storage.getReferenceDocument(orgId, req.params.id);
+      if (!doc) return res.status(404).json({ message: "Document not found" });
+
+      if (!doc.extractedText || doc.extractedText.length === 0) {
+        return res.status(400).json({ message: "Document has no extracted text to index" });
+      }
+
+      await enqueueDocumentIndexing({
+        orgId,
+        documentId: doc.id,
+        extractedText: doc.extractedText,
+      });
+
+      res.json({ message: "Document re-indexing started", documentId: doc.id });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to start re-indexing" });
+    }
+  });
+
+  // --- RAG: Search knowledge base (preview/test) ---
+  app.post("/api/reference-documents/rag/search", requireAuth, injectOrgContext, async (req, res) => {
+    try {
+      const orgId = req.orgId!;
+      const { query, topK } = req.body;
+
+      if (!query || typeof query !== "string") {
+        return res.status(400).json({ message: "Query text is required" });
+      }
+
+      if (!process.env.DATABASE_URL) {
+        return res.status(503).json({ message: "Database not configured for RAG search" });
+      }
+
+      const { getDatabase } = await import("../db/index");
+      const db = getDatabase();
+      if (!db) {
+        return res.status(503).json({ message: "Database not available" });
+      }
+
+      // Get all active document IDs for this org
+      const docs = await storage.listReferenceDocuments(orgId);
+      const activeDocIds = docs.filter(d => d.isActive).map(d => d.id);
+
+      if (activeDocIds.length === 0) {
+        return res.json({ chunks: [], formattedContext: "" });
+      }
+
+      const chunks = await searchRelevantChunks(
+        db as any,
+        orgId,
+        query,
+        activeDocIds,
+        { topK: topK || 6 },
+      );
+
+      res.json({
+        chunks,
+        formattedContext: formatRetrievedContext(chunks),
+      });
+    } catch (error) {
+      logger.error({ err: error }, "RAG search failed");
+      res.status(500).json({ message: "RAG search failed" });
     }
   });
 

@@ -89,6 +89,7 @@ describe("planLimitsSchema", () => {
       apiCallsPerMonth: 1000,
       maxUsers: 5,
       customPromptTemplates: false,
+      ragEnabled: false,
       ssoEnabled: false,
       prioritySupport: false,
     });
@@ -103,6 +104,7 @@ describe("planLimitsSchema", () => {
       apiCallsPerMonth: -1,
       maxUsers: -1,
       customPromptTemplates: true,
+      ragEnabled: true,
       ssoEnabled: true,
       prioritySupport: true,
     });

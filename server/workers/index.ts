@@ -18,6 +18,7 @@ import { logger } from "../services/logger";
 import { createRetentionWorker } from "./retention.worker";
 import { createUsageWorker } from "./usage.worker";
 import { createReanalysisWorker } from "./reanalysis.worker";
+import { createIndexingWorker } from "./indexing.worker";
 import type { Worker } from "bullmq";
 
 async function main() {
@@ -96,6 +97,11 @@ async function main() {
   );
   workers.push(reanalysisWorker);
   logger.info("Bulk reanalysis worker started");
+
+  // 4. Document RAG indexing worker
+  const indexingWorker = createIndexingWorker(connection);
+  workers.push(indexingWorker);
+  logger.info("Document indexing worker started");
 
   logger.info({ count: workers.length }, "All workers started. Waiting for jobs...");
 

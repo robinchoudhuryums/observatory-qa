@@ -13,6 +13,8 @@ import { notifyFlaggedCall } from "../services/notifications";
 import { trackUsage } from "../services/queue";
 import { upload, safeFloat, withRetry } from "./helpers";
 import { enforceQuota } from "./billing";
+import { searchRelevantChunks, formatRetrievedContext } from "../services/rag";
+import { PLAN_DEFINITIONS, type PlanTier } from "@shared/schema";
 
 // Delete uploaded file after processing
 async function cleanupFile(filePath: string) {
@@ -91,18 +93,70 @@ async function processAudioFile(orgId: string, callId: string, filePath: string,
       }
     }
 
-    // Load reference documents for AI context (non-blocking)
+    // Load reference documents for AI context — RAG-enhanced or fallback to full-text
     try {
       const refDocs = await storage.getReferenceDocumentsForCategory(orgId, callCategory || "");
       const docsWithText = refDocs.filter(d => d.extractedText && d.extractedText.length > 0);
+
       if (docsWithText.length > 0) {
         if (!promptTemplate) promptTemplate = {};
-        promptTemplate.referenceDocuments = docsWithText.map(d => ({
-          name: d.name,
-          category: d.category,
-          text: d.extractedText!,
-        }));
-        console.log(`[${callId}] Injecting ${docsWithText.length} reference document(s) into AI analysis`);
+
+        // Check if org has RAG enabled (Pro+ tier) and pgvector chunks available
+        let useRag = false;
+        try {
+          const sub = await storage.getSubscription(orgId);
+          const tier = (sub?.planTier as PlanTier) || "free";
+          const plan = PLAN_DEFINITIONS[tier];
+          useRag = plan?.limits?.ragEnabled === true;
+        } catch { /* default to non-RAG */ }
+
+        if (useRag && process.env.DATABASE_URL && transcriptResponse.text) {
+          // RAG: retrieve semantically relevant chunks instead of full text
+          try {
+            const { getDatabase } = await import("../db/index");
+            const db = getDatabase();
+            if (db) {
+              const docIds = docsWithText.map(d => d.id);
+              // Use transcript summary topics as query for retrieval
+              const queryText = transcriptResponse.text.slice(0, 2000);
+              const chunks = await searchRelevantChunks(db as any, orgId, queryText, docIds, { topK: 6 });
+
+              if (chunks.length > 0) {
+                const ragContext = formatRetrievedContext(chunks);
+                promptTemplate.referenceDocuments = [{
+                  name: "Retrieved Knowledge Base Context",
+                  category: "rag_retrieval",
+                  text: ragContext,
+                }];
+                console.log(`[${callId}] RAG: injecting ${chunks.length} relevant chunks from ${new Set(chunks.map(c => c.documentId)).size} document(s)`);
+              } else {
+                // Fallback to full-text if no chunks indexed yet
+                promptTemplate.referenceDocuments = docsWithText.map(d => ({
+                  name: d.name,
+                  category: d.category,
+                  text: d.extractedText!,
+                }));
+                console.log(`[${callId}] No RAG chunks found — falling back to full-text injection (${docsWithText.length} docs)`);
+              }
+            }
+          } catch (ragError) {
+            // Fallback to full-text on RAG failure
+            console.warn(`[${callId}] RAG retrieval failed, falling back to full-text:`, (ragError as Error).message);
+            promptTemplate.referenceDocuments = docsWithText.map(d => ({
+              name: d.name,
+              category: d.category,
+              text: d.extractedText!,
+            }));
+          }
+        } else {
+          // Non-RAG: inject full extracted text (free tier or no DB)
+          promptTemplate.referenceDocuments = docsWithText.map(d => ({
+            name: d.name,
+            category: d.category,
+            text: d.extractedText!,
+          }));
+          console.log(`[${callId}] Injecting ${docsWithText.length} reference document(s) into AI analysis (full-text)`);
+        }
       }
     } catch (refDocError) {
       console.warn(`[${callId}] Failed to load reference documents (continuing without):`, (refDocError as Error).message);
