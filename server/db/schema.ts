@@ -16,7 +16,29 @@ import {
   jsonb,
   index,
   uniqueIndex,
+  customType,
 } from "drizzle-orm/pg-core";
+
+/**
+ * Custom pgvector type for storing embeddings.
+ * Requires the pgvector extension: CREATE EXTENSION IF NOT EXISTS vector;
+ */
+const vector = (name: string, dimensions: number) =>
+  customType<{ data: number[]; driverData: string }>({
+    dataType() {
+      return `vector(${dimensions})`;
+    },
+    toDriver(value: number[]): string {
+      return `[${value.join(",")}]`;
+    },
+    fromDriver(value: string): number[] {
+      // pgvector returns "[1,2,3]" format
+      return value
+        .slice(1, -1)
+        .split(",")
+        .map(Number);
+    },
+  })(name);
 
 // --- ORGANIZATIONS ---
 export const organizations = pgTable("organizations", {
@@ -192,6 +214,102 @@ export const coachingSessions = pgTable("coaching_sessions", {
   index("coaching_org_id_idx").on(t.orgId),
   index("coaching_employee_id_idx").on(t.employeeId),
   index("coaching_status_idx").on(t.orgId, t.status),
+]);
+
+// --- API KEYS ---
+export const apiKeys = pgTable("api_keys", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => organizations.id),
+  name: varchar("name", { length: 255 }).notNull(),
+  keyHash: varchar("key_hash", { length: 128 }).notNull(), // SHA-256 hex
+  keyPrefix: varchar("key_prefix", { length: 16 }).notNull(), // e.g., "obs_k_ab12cd34"
+  permissions: jsonb("permissions").$type<string[]>().notNull(),
+  createdBy: varchar("created_by", { length: 255 }).notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("active"),
+  expiresAt: timestamp("expires_at"),
+  lastUsedAt: timestamp("last_used_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  uniqueIndex("api_keys_hash_idx").on(t.keyHash),
+  index("api_keys_org_id_idx").on(t.orgId),
+]);
+
+// --- INVITATIONS ---
+export const invitations = pgTable("invitations", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => organizations.id),
+  email: varchar("email", { length: 255 }).notNull(),
+  role: varchar("role", { length: 20 }).notNull().default("viewer"),
+  token: varchar("token", { length: 255 }).notNull(),
+  invitedBy: varchar("invited_by", { length: 255 }).notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  expiresAt: timestamp("expires_at"),
+  acceptedAt: timestamp("accepted_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  uniqueIndex("invitations_token_idx").on(t.token),
+  index("invitations_org_id_idx").on(t.orgId),
+  index("invitations_email_idx").on(t.orgId, t.email),
+]);
+
+// --- SUBSCRIPTIONS ---
+export const subscriptions = pgTable("subscriptions", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => organizations.id),
+  planTier: varchar("plan_tier", { length: 20 }).notNull().default("free"),
+  status: varchar("status", { length: 20 }).notNull().default("active"),
+  stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
+  stripeSubscriptionId: varchar("stripe_subscription_id", { length: 255 }),
+  stripePriceId: varchar("stripe_price_id", { length: 255 }),
+  billingInterval: varchar("billing_interval", { length: 10 }).notNull().default("monthly"),
+  currentPeriodStart: timestamp("current_period_start"),
+  currentPeriodEnd: timestamp("current_period_end"),
+  cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  uniqueIndex("subscriptions_org_id_idx").on(t.orgId),
+  index("subscriptions_stripe_customer_idx").on(t.stripeCustomerId),
+  index("subscriptions_stripe_sub_idx").on(t.stripeSubscriptionId),
+]);
+
+// --- REFERENCE DOCUMENTS ---
+export const referenceDocuments = pgTable("reference_documents", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => organizations.id),
+  name: varchar("name", { length: 255 }).notNull(),
+  category: varchar("category", { length: 50 }).notNull(),
+  description: text("description"),
+  fileName: varchar("file_name", { length: 255 }).notNull(),
+  fileSize: integer("file_size").notNull(),
+  mimeType: varchar("mime_type", { length: 100 }).notNull(),
+  storagePath: text("storage_path").notNull(),
+  extractedText: text("extracted_text"),
+  appliesTo: jsonb("applies_to"), // string[]
+  isActive: boolean("is_active").notNull().default(true),
+  uploadedBy: varchar("uploaded_by", { length: 255 }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("ref_docs_org_id_idx").on(t.orgId),
+  index("ref_docs_category_idx").on(t.orgId, t.category),
+]);
+
+// --- DOCUMENT CHUNKS (pgvector-powered RAG) ---
+export const documentChunks = pgTable("document_chunks", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => organizations.id),
+  documentId: text("document_id").notNull().references(() => referenceDocuments.id, { onDelete: "cascade" }),
+  chunkIndex: integer("chunk_index").notNull(),
+  text: text("text").notNull(),
+  sectionHeader: varchar("section_header", { length: 500 }),
+  tokenCount: integer("token_count").notNull(),
+  charStart: integer("char_start").notNull(),
+  charEnd: integer("char_end").notNull(),
+  embedding: vector("embedding", 1024), // Amazon Titan Embed V2 — 1024 dimensions
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("doc_chunks_org_id_idx").on(t.orgId),
+  index("doc_chunks_document_id_idx").on(t.documentId),
 ]);
 
 // --- USAGE EVENTS (per-org metering for billing) ---

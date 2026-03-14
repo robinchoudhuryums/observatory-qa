@@ -19,6 +19,19 @@ interface ServiceAccountKey {
 
 type AuthMode = "api_key" | "vertex_ai" | "none";
 
+const AI_TIMEOUT_MS = 60_000;
+
+/** fetch with an abort timeout */
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = AI_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 const DEFAULT_MODEL_API_KEY = "gemini-2.5-flash";
 const DEFAULT_MODEL_VERTEX = "gemini-2.0-flash";
 
@@ -105,11 +118,11 @@ export class GeminiProvider implements AIAnalysisProvider {
     }
 
     const jwt = this.createJwt();
-    const response = await fetch("https://oauth2.googleapis.com/token", {
+    const response = await fetchWithTimeout("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwt}`,
-    });
+    }, 15_000);
 
     if (!response.ok) {
       throw new Error(`Failed to get access token: ${await response.text()}`);
@@ -137,7 +150,7 @@ export class GeminiProvider implements AIAnalysisProvider {
 
     if (this.authMode === "api_key") {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
-      response = await fetch(url, {
+      response = await fetchWithTimeout(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
@@ -147,7 +160,7 @@ export class GeminiProvider implements AIAnalysisProvider {
       const projectId = this.credentials!.project_id;
       const location = "us-central1";
       const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${this.model}:generateContent`;
-      response = await fetch(url, {
+      response = await fetchWithTimeout(url, {
         method: "POST",
         headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
@@ -156,7 +169,8 @@ export class GeminiProvider implements AIAnalysisProvider {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Gemini API error (${response.status}): ${errorText}`);
+      // HIPAA: Truncate error to avoid leaking PHI in logs
+      throw new Error(`Gemini API error (${response.status}): ${errorText.substring(0, 200)}`);
     }
 
     const result = await response.json();
@@ -197,7 +211,7 @@ export class GeminiProvider implements AIAnalysisProvider {
     if (this.authMode === "api_key") {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
       console.log(`[${callId}] Calling Gemini (${model}, AI Studio) for analysis...`);
-      response = await fetch(url, {
+      response = await fetchWithTimeout(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
@@ -220,7 +234,8 @@ export class GeminiProvider implements AIAnalysisProvider {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Gemini API error (${response.status}): ${errorText}`);
+      // HIPAA: Truncate error to avoid leaking PHI in logs
+      throw new Error(`Gemini API error (${response.status}): ${errorText.substring(0, 200)}`);
     }
 
     const result = await response.json();

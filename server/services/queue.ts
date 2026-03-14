@@ -44,11 +44,18 @@ export interface UsageMeteringJob {
   metadata?: Record<string, unknown>;
 }
 
+export interface DocumentIndexingJob {
+  orgId: string;
+  documentId: string;
+  extractedText: string;
+}
+
 // Queue instances
 let audioQueue: Queue<AudioProcessingJob> | null = null;
 let reanalysisQueue: Queue<BulkReanalysisJob> | null = null;
 let retentionQueue: Queue<DataRetentionJob> | null = null;
 let usageQueue: Queue<UsageMeteringJob> | null = null;
+let indexingQueue: Queue<DocumentIndexingJob> | null = null;
 
 // Connection config
 let connection: ConnectionOptions | null = null;
@@ -118,6 +125,15 @@ export function initQueues(): boolean {
       },
     });
 
+    indexingQueue = new Queue<DocumentIndexingJob>("document-indexing", {
+      ...defaultOpts,
+      defaultJobOptions: {
+        ...defaultOpts.defaultJobOptions,
+        attempts: 2,
+        backoff: { type: "exponential", delay: 5000 },
+      },
+    });
+
     logger.info("BullMQ queues initialized");
     return true;
   } catch (error) {
@@ -142,6 +158,36 @@ export function getRetentionQueue(): Queue<DataRetentionJob> | null {
 
 export function getUsageQueue(): Queue<UsageMeteringJob> | null {
   return usageQueue;
+}
+
+export function getIndexingQueue(): Queue<DocumentIndexingJob> | null {
+  return indexingQueue;
+}
+
+/**
+ * Enqueue a document for RAG indexing (chunking + embedding).
+ * Falls back to synchronous in-process indexing when queues unavailable.
+ */
+export async function enqueueDocumentIndexing(job: DocumentIndexingJob): Promise<void> {
+  if (indexingQueue) {
+    try {
+      await indexingQueue.add("index-document", job, {
+        jobId: `index-${job.documentId}`, // Deduplicate
+      });
+      logger.info({ documentId: job.documentId }, "Document indexing job enqueued");
+    } catch (error) {
+      logger.error({ err: error, documentId: job.documentId }, "Failed to enqueue indexing job");
+    }
+  } else {
+    // Fallback: index in-process (import dynamically to avoid circular deps)
+    logger.info({ documentId: job.documentId }, "Indexing document in-process (no queue)");
+    try {
+      const { indexDocumentInProcess } = await import("./rag-worker");
+      await indexDocumentInProcess(job.orgId, job.documentId, job.extractedText);
+    } catch (error) {
+      logger.error({ err: error, documentId: job.documentId }, "In-process indexing failed");
+    }
+  }
 }
 
 /**
@@ -184,11 +230,12 @@ export function getQueueConnection(): ConnectionOptions | null {
  * Close all queues on shutdown.
  */
 export async function closeQueues(): Promise<void> {
-  const queues = [audioQueue, reanalysisQueue, retentionQueue, usageQueue];
+  const queues = [audioQueue, reanalysisQueue, retentionQueue, usageQueue, indexingQueue];
   await Promise.all(queues.filter(Boolean).map((q) => q!.close()));
   audioQueue = null;
   reanalysisQueue = null;
   retentionQueue = null;
   usageQueue = null;
+  indexingQueue = null;
   logger.info("BullMQ queues closed");
 }

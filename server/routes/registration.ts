@@ -1,0 +1,263 @@
+import type { Express } from "express";
+import passport from "passport";
+import { storage } from "../storage";
+import { requireAuth, requireRole, injectOrgContext } from "../auth";
+import { logger } from "../services/logger";
+import { scrypt, randomBytes } from "crypto";
+import { promisify } from "util";
+
+const scryptAsync = promisify(scrypt);
+
+async function hashPassword(password: string): Promise<string> {
+  const salt = randomBytes(16).toString("hex");
+  const buf = (await scryptAsync(password, salt, 64)) as Buffer;
+  return `${buf.toString("hex")}.${salt}`;
+}
+
+export function registerRegistrationRoutes(app: Express): void {
+  // ==================== SELF-SERVICE REGISTRATION ====================
+
+  /**
+   * Register a new organization + admin user.
+   * Public endpoint — no auth required.
+   */
+  app.post("/api/auth/register", async (req, res, next) => {
+    try {
+      const { orgName, orgSlug, username, password, name } = req.body;
+
+      // Validate required fields
+      if (!orgName || !orgSlug || !username || !password || !name) {
+        return res.status(400).json({
+          message: "orgName, orgSlug, username, password, and name are required",
+        });
+      }
+
+      // Validate slug format
+      if (!/^[a-z0-9-]+$/.test(orgSlug)) {
+        return res.status(400).json({
+          message: "Organization slug must be lowercase alphanumeric with hyphens only",
+        });
+      }
+
+      // Validate password strength
+      if (password.length < 8) {
+        return res.status(400).json({ message: "Password must be at least 8 characters" });
+      }
+
+      // Check slug uniqueness
+      const existingOrg = await storage.getOrganizationBySlug(orgSlug);
+      if (existingOrg) {
+        return res.status(409).json({ message: "Organization slug already taken" });
+      }
+
+      // Check username uniqueness
+      const existingUser = await storage.getUserByUsername(username);
+      if (existingUser) {
+        return res.status(409).json({ message: "Username already taken" });
+      }
+
+      // Create the organization
+      const org = await storage.createOrganization({
+        name: orgName,
+        slug: orgSlug,
+        status: "trial",
+        settings: {
+          retentionDays: 90,
+          branding: { appName: orgName },
+        },
+      });
+
+      // Create the admin user
+      const passwordHash = await hashPassword(password);
+      const user = await storage.createUser({
+        orgId: org.id,
+        username,
+        passwordHash,
+        name,
+        role: "admin",
+      });
+
+      logger.info({ orgId: org.id, userId: user.id, username }, "New organization registered");
+
+      // Auto-login the new user
+      const sessionUser = {
+        id: user.id,
+        username: user.username,
+        name: user.name,
+        role: user.role,
+        orgId: org.id,
+        orgSlug: org.slug,
+      };
+
+      req.login(sessionUser, (loginErr) => {
+        if (loginErr) return next(loginErr);
+        res.status(201).json({
+          organization: { id: org.id, name: org.name, slug: org.slug },
+          user: { id: user.id, username: user.username, name: user.name, role: user.role },
+        });
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Registration failed");
+      res.status(500).json({ message: "Registration failed" });
+    }
+  });
+
+  // ==================== INVITATION ROUTES ====================
+
+  // List invitations for current org (admin/manager only)
+  app.get("/api/invitations", requireAuth, requireRole("manager"), injectOrgContext, async (req, res) => {
+    try {
+      const invitations = await storage.listInvitations(req.orgId!);
+      res.json(invitations);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to list invitations" });
+    }
+  });
+
+  // Create invitation (admin/manager only)
+  app.post("/api/invitations", requireAuth, requireRole("manager"), injectOrgContext, async (req, res) => {
+    try {
+      const { email, role } = req.body;
+      if (!email) {
+        return res.status(400).json({ message: "Email is required" });
+      }
+      if (role && !["viewer", "manager", "admin"].includes(role)) {
+        return res.status(400).json({ message: "Invalid role" });
+      }
+
+      // Check if user with this email already exists in the org
+      const orgUsers = await storage.listUsersByOrg(req.orgId!);
+      if (orgUsers.some(u => u.username === email)) {
+        return res.status(409).json({ message: "A user with this email already exists" });
+      }
+
+      // Check for existing pending invitation
+      const existingInvites = await storage.listInvitations(req.orgId!);
+      const pending = existingInvites.find(i => i.email === email && i.status === "pending");
+      if (pending) {
+        return res.status(409).json({ message: "An invitation for this email is already pending" });
+      }
+
+      const invitation = await storage.createInvitation(req.orgId!, {
+        email,
+        role: role || "viewer",
+        invitedBy: req.user!.username,
+      });
+
+      logger.info({ orgId: req.orgId, email, role: role || "viewer" }, "Invitation created");
+      res.status(201).json(invitation);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to create invitation");
+      res.status(500).json({ message: "Failed to create invitation" });
+    }
+  });
+
+  // Accept invitation (public — requires valid token)
+  app.post("/api/invitations/accept", async (req, res, next) => {
+    try {
+      const { token, username, password, name } = req.body;
+      if (!token || !username || !password || !name) {
+        return res.status(400).json({ message: "token, username, password, and name are required" });
+      }
+
+      if (password.length < 8) {
+        return res.status(400).json({ message: "Password must be at least 8 characters" });
+      }
+
+      // Find the invitation
+      const invitation = await storage.getInvitationByToken(token);
+      if (!invitation) {
+        return res.status(404).json({ message: "Invalid or expired invitation" });
+      }
+
+      if (invitation.status !== "pending") {
+        return res.status(400).json({ message: `Invitation has already been ${invitation.status}` });
+      }
+
+      // Check expiry
+      if (invitation.expiresAt && new Date(invitation.expiresAt) < new Date()) {
+        await storage.updateInvitation(invitation.orgId, invitation.id, { status: "expired" });
+        return res.status(400).json({ message: "Invitation has expired" });
+      }
+
+      // Check username uniqueness
+      const existingUser = await storage.getUserByUsername(username);
+      if (existingUser) {
+        return res.status(409).json({ message: "Username already taken" });
+      }
+
+      // Create the user
+      const passwordHash = await hashPassword(password);
+      const user = await storage.createUser({
+        orgId: invitation.orgId,
+        username,
+        passwordHash,
+        name,
+        role: invitation.role,
+      });
+
+      // Mark invitation as accepted
+      await storage.updateInvitation(invitation.orgId, invitation.id, {
+        status: "accepted",
+        acceptedAt: new Date().toISOString(),
+      });
+
+      // Resolve org for session
+      const org = await storage.getOrganization(invitation.orgId);
+
+      logger.info({ orgId: invitation.orgId, userId: user.id, username, email: invitation.email }, "Invitation accepted");
+
+      // Auto-login
+      const sessionUser = {
+        id: user.id,
+        username: user.username,
+        name: user.name,
+        role: user.role,
+        orgId: invitation.orgId,
+        orgSlug: org?.slug || "default",
+      };
+
+      req.login(sessionUser, (loginErr) => {
+        if (loginErr) return next(loginErr);
+        res.status(201).json({
+          user: { id: user.id, username: user.username, name: user.name, role: user.role },
+        });
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to accept invitation");
+      res.status(500).json({ message: "Failed to accept invitation" });
+    }
+  });
+
+  // Revoke invitation (admin/manager only)
+  app.delete("/api/invitations/:id", requireAuth, requireRole("manager"), injectOrgContext, async (req, res) => {
+    try {
+      await storage.deleteInvitation(req.orgId!, req.params.id);
+      res.json({ message: "Invitation revoked" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to revoke invitation" });
+    }
+  });
+
+  // Get invitation details by token (public — for the accept page)
+  app.get("/api/invitations/token/:token", async (req, res) => {
+    try {
+      const invitation = await storage.getInvitationByToken(req.params.token);
+      if (!invitation) {
+        return res.status(404).json({ message: "Invalid or expired invitation" });
+      }
+
+      // Don't expose sensitive fields, just what the accept form needs
+      const org = await storage.getOrganization(invitation.orgId);
+      res.json({
+        email: invitation.email,
+        role: invitation.role,
+        orgName: org?.name || "Unknown",
+        status: invitation.status,
+        expiresAt: invitation.expiresAt,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch invitation details" });
+    }
+  });
+}

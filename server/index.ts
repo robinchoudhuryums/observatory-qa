@@ -1,5 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes } from "./routes";
+import { registerRoutes } from "./routes/index";
 import { setupVite, serveStatic, log } from "./vite";
 import { setupAuth } from "./auth";
 import { storage, initPostgresStorage } from "./storage";
@@ -81,6 +81,8 @@ app.use((req, res, next) => {
   next();
 });
 
+// Stripe webhook needs raw body for signature verification
+app.use("/api/billing/webhook", express.raw({ type: "application/json" }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 

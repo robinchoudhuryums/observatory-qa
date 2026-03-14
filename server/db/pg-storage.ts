@@ -28,6 +28,10 @@ import type {
   PromptTemplate, InsertPromptTemplate,
   CoachingSession, InsertCoachingSession,
   Organization, InsertOrganization,
+  Invitation, InsertInvitation,
+  ApiKey, InsertApiKey,
+  Subscription, InsertSubscription,
+  ReferenceDocument, InsertReferenceDocument,
 } from "@shared/schema";
 import * as tables from "./schema";
 import { normalizeAnalysis } from "../storage";
@@ -117,6 +121,32 @@ export class PostgresStorage implements IStorage {
       role: user.role || "viewer",
     }).returning();
     return this.mapUser(row);
+  }
+
+  async listUsersByOrg(orgId: string): Promise<User[]> {
+    const rows = await this.db.select().from(tables.users)
+      .where(eq(tables.users.orgId, orgId));
+    return rows.map((r) => this.mapUser(r));
+  }
+
+  async updateUser(orgId: string, id: string, updates: Partial<User>): Promise<User | undefined> {
+    const setClause: Record<string, unknown> = {};
+    if (updates.name !== undefined) setClause.name = updates.name;
+    if (updates.role !== undefined) setClause.role = updates.role;
+    if (updates.passwordHash !== undefined) setClause.passwordHash = updates.passwordHash;
+
+    if (Object.keys(setClause).length === 0) return this.getUser(id);
+
+    const [row] = await this.db.update(tables.users)
+      .set(setClause)
+      .where(and(eq(tables.users.id, id), eq(tables.users.orgId, orgId)))
+      .returning();
+    return row ? this.mapUser(row) : undefined;
+  }
+
+  async deleteUser(orgId: string, id: string): Promise<void> {
+    await this.db.delete(tables.users)
+      .where(and(eq(tables.users.id, id), eq(tables.users.orgId, orgId)));
   }
 
   // --- Employee operations ---
@@ -675,6 +705,145 @@ export class PostgresStorage implements IStorage {
     return expiredCalls.length;
   }
 
+  // --- Usage tracking ---
+  async recordUsageEvent(event: { orgId: string; eventType: string; quantity: number; metadata?: Record<string, unknown> }): Promise<void> {
+    const id = randomUUID();
+    await this.db.insert(tables.usageEvents).values({
+      id,
+      orgId: event.orgId,
+      eventType: event.eventType,
+      quantity: event.quantity,
+      metadata: event.metadata || null,
+    });
+  }
+
+  async getUsageSummary(orgId: string, startDate?: Date, endDate?: Date): Promise<import("../storage").UsageSummary[]> {
+    const conditions = [eq(tables.usageEvents.orgId, orgId)];
+    if (startDate) {
+      conditions.push(sql`${tables.usageEvents.createdAt} >= ${startDate}`);
+    }
+    if (endDate) {
+      conditions.push(sql`${tables.usageEvents.createdAt} <= ${endDate}`);
+    }
+
+    const rows = await this.db.select({
+      eventType: tables.usageEvents.eventType,
+      totalQuantity: sql<number>`coalesce(sum(${tables.usageEvents.quantity}), 0)`,
+      eventCount: sql<number>`count(*)::int`,
+    })
+      .from(tables.usageEvents)
+      .where(and(...conditions))
+      .groupBy(tables.usageEvents.eventType);
+
+    return rows.map(r => ({
+      eventType: r.eventType,
+      totalQuantity: Number(r.totalQuantity),
+      eventCount: r.eventCount,
+    }));
+  }
+
+  // --- API Key operations ---
+  async createApiKey(orgId: string, apiKey: InsertApiKey): Promise<ApiKey> {
+    const id = randomUUID();
+    const [row] = await this.db.insert(tables.apiKeys).values({
+      id,
+      orgId,
+      name: apiKey.name,
+      keyHash: apiKey.keyHash,
+      keyPrefix: apiKey.keyPrefix,
+      permissions: apiKey.permissions || ["read"],
+      createdBy: apiKey.createdBy,
+      status: "active",
+      expiresAt: apiKey.expiresAt ? new Date(apiKey.expiresAt) : undefined,
+    }).returning();
+    return this.mapApiKey(row);
+  }
+
+  async getApiKeyByHash(keyHash: string): Promise<ApiKey | undefined> {
+    const rows = await this.db.select().from(tables.apiKeys)
+      .where(and(eq(tables.apiKeys.keyHash, keyHash), eq(tables.apiKeys.status, "active")))
+      .limit(1);
+    return rows[0] ? this.mapApiKey(rows[0]) : undefined;
+  }
+
+  async listApiKeys(orgId: string): Promise<ApiKey[]> {
+    const rows = await this.db.select().from(tables.apiKeys)
+      .where(eq(tables.apiKeys.orgId, orgId))
+      .orderBy(desc(tables.apiKeys.createdAt));
+    return rows.map(r => this.mapApiKey(r));
+  }
+
+  async updateApiKey(orgId: string, id: string, updates: Partial<ApiKey>): Promise<ApiKey | undefined> {
+    const setValues: Record<string, unknown> = {};
+    if (updates.status) setValues.status = updates.status;
+    if (updates.lastUsedAt) setValues.lastUsedAt = new Date(updates.lastUsedAt);
+    if (updates.name) setValues.name = updates.name;
+
+    const [row] = await this.db.update(tables.apiKeys)
+      .set(setValues)
+      .where(and(eq(tables.apiKeys.id, id), eq(tables.apiKeys.orgId, orgId)))
+      .returning();
+    return row ? this.mapApiKey(row) : undefined;
+  }
+
+  async deleteApiKey(orgId: string, id: string): Promise<void> {
+    await this.db.delete(tables.apiKeys)
+      .where(and(eq(tables.apiKeys.id, id), eq(tables.apiKeys.orgId, orgId)));
+  }
+
+  // --- Invitation operations ---
+  async createInvitation(orgId: string, invitation: InsertInvitation): Promise<Invitation> {
+    const { randomBytes } = await import("crypto");
+    const id = randomUUID();
+    const token = invitation.token || randomBytes(32).toString("hex");
+    const expiresAt = invitation.expiresAt
+      ? new Date(invitation.expiresAt)
+      : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    const [row] = await this.db.insert(tables.invitations).values({
+      id,
+      orgId,
+      email: invitation.email,
+      role: invitation.role || "viewer",
+      token,
+      invitedBy: invitation.invitedBy,
+      status: "pending",
+      expiresAt,
+    }).returning();
+
+    return this.mapInvitation(row);
+  }
+
+  async getInvitationByToken(token: string): Promise<Invitation | undefined> {
+    const rows = await this.db.select().from(tables.invitations)
+      .where(eq(tables.invitations.token, token)).limit(1);
+    return rows[0] ? this.mapInvitation(rows[0]) : undefined;
+  }
+
+  async listInvitations(orgId: string): Promise<Invitation[]> {
+    const rows = await this.db.select().from(tables.invitations)
+      .where(eq(tables.invitations.orgId, orgId))
+      .orderBy(desc(tables.invitations.createdAt));
+    return rows.map(r => this.mapInvitation(r));
+  }
+
+  async updateInvitation(orgId: string, id: string, updates: Partial<Invitation>): Promise<Invitation | undefined> {
+    const setValues: Record<string, unknown> = {};
+    if (updates.status) setValues.status = updates.status;
+    if (updates.acceptedAt) setValues.acceptedAt = new Date(updates.acceptedAt);
+
+    const [row] = await this.db.update(tables.invitations)
+      .set(setValues)
+      .where(and(eq(tables.invitations.id, id), eq(tables.invitations.orgId, orgId)))
+      .returning();
+    return row ? this.mapInvitation(row) : undefined;
+  }
+
+  async deleteInvitation(orgId: string, id: string): Promise<void> {
+    await this.db.delete(tables.invitations)
+      .where(and(eq(tables.invitations.id, id), eq(tables.invitations.orgId, orgId)));
+  }
+
   // --- Row mappers (DB row → app type) ---
 
   private mapOrg(row: any): Organization {
@@ -825,6 +994,220 @@ export class PostgresStorage implements IStorage {
       dueDate: toISOString(row.dueDate),
       createdAt: toISOString(row.createdAt),
       completedAt: toISOString(row.completedAt),
+    };
+  }
+
+  private mapApiKey(row: any): ApiKey {
+    return {
+      id: row.id,
+      orgId: row.orgId,
+      name: row.name,
+      keyHash: row.keyHash,
+      keyPrefix: row.keyPrefix,
+      permissions: row.permissions as string[],
+      createdBy: row.createdBy,
+      status: row.status,
+      expiresAt: toISOString(row.expiresAt),
+      lastUsedAt: toISOString(row.lastUsedAt),
+      createdAt: toISOString(row.createdAt),
+    };
+  }
+
+  // --- Subscription operations ---
+  async getSubscription(orgId: string): Promise<Subscription | undefined> {
+    const rows = await this.db.select().from(tables.subscriptions)
+      .where(eq(tables.subscriptions.orgId, orgId))
+      .limit(1);
+    return rows[0] ? this.mapSubscription(rows[0]) : undefined;
+  }
+
+  async getSubscriptionByStripeCustomerId(stripeCustomerId: string): Promise<Subscription | undefined> {
+    const rows = await this.db.select().from(tables.subscriptions)
+      .where(eq(tables.subscriptions.stripeCustomerId, stripeCustomerId))
+      .limit(1);
+    return rows[0] ? this.mapSubscription(rows[0]) : undefined;
+  }
+
+  async getSubscriptionByStripeSubId(stripeSubscriptionId: string): Promise<Subscription | undefined> {
+    const rows = await this.db.select().from(tables.subscriptions)
+      .where(eq(tables.subscriptions.stripeSubscriptionId, stripeSubscriptionId))
+      .limit(1);
+    return rows[0] ? this.mapSubscription(rows[0]) : undefined;
+  }
+
+  async upsertSubscription(orgId: string, sub: InsertSubscription): Promise<Subscription> {
+    const existing = await this.getSubscription(orgId);
+    const id = existing?.id || randomUUID();
+    const now = new Date();
+
+    if (existing) {
+      const [row] = await this.db.update(tables.subscriptions).set({
+        planTier: sub.planTier,
+        status: sub.status,
+        stripeCustomerId: sub.stripeCustomerId,
+        stripeSubscriptionId: sub.stripeSubscriptionId,
+        stripePriceId: sub.stripePriceId,
+        billingInterval: sub.billingInterval,
+        currentPeriodStart: sub.currentPeriodStart ? new Date(sub.currentPeriodStart) : undefined,
+        currentPeriodEnd: sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd) : undefined,
+        cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+        updatedAt: now,
+      }).where(eq(tables.subscriptions.orgId, orgId)).returning();
+      return this.mapSubscription(row);
+    }
+
+    const [row] = await this.db.insert(tables.subscriptions).values({
+      id,
+      orgId,
+      planTier: sub.planTier,
+      status: sub.status,
+      stripeCustomerId: sub.stripeCustomerId || null,
+      stripeSubscriptionId: sub.stripeSubscriptionId || null,
+      stripePriceId: sub.stripePriceId || null,
+      billingInterval: sub.billingInterval || "monthly",
+      currentPeriodStart: sub.currentPeriodStart ? new Date(sub.currentPeriodStart) : null,
+      currentPeriodEnd: sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd) : null,
+      cancelAtPeriodEnd: sub.cancelAtPeriodEnd || false,
+    }).returning();
+    return this.mapSubscription(row);
+  }
+
+  async updateSubscription(orgId: string, updates: Partial<Subscription>): Promise<Subscription | undefined> {
+    const setValues: Record<string, unknown> = { updatedAt: new Date() };
+    if (updates.planTier) setValues.planTier = updates.planTier;
+    if (updates.status) setValues.status = updates.status;
+    if (updates.stripeCustomerId) setValues.stripeCustomerId = updates.stripeCustomerId;
+    if (updates.stripeSubscriptionId) setValues.stripeSubscriptionId = updates.stripeSubscriptionId;
+    if (updates.stripePriceId) setValues.stripePriceId = updates.stripePriceId;
+    if (updates.billingInterval) setValues.billingInterval = updates.billingInterval;
+    if (updates.currentPeriodStart) setValues.currentPeriodStart = new Date(updates.currentPeriodStart);
+    if (updates.currentPeriodEnd) setValues.currentPeriodEnd = new Date(updates.currentPeriodEnd);
+    if (updates.cancelAtPeriodEnd !== undefined) setValues.cancelAtPeriodEnd = updates.cancelAtPeriodEnd;
+
+    const [row] = await this.db.update(tables.subscriptions).set(setValues)
+      .where(eq(tables.subscriptions.orgId, orgId)).returning();
+    return row ? this.mapSubscription(row) : undefined;
+  }
+
+  private mapSubscription(row: any): Subscription {
+    return {
+      id: row.id,
+      orgId: row.orgId,
+      planTier: row.planTier,
+      status: row.status,
+      stripeCustomerId: row.stripeCustomerId || undefined,
+      stripeSubscriptionId: row.stripeSubscriptionId || undefined,
+      stripePriceId: row.stripePriceId || undefined,
+      billingInterval: row.billingInterval,
+      currentPeriodStart: toISOString(row.currentPeriodStart),
+      currentPeriodEnd: toISOString(row.currentPeriodEnd),
+      cancelAtPeriodEnd: row.cancelAtPeriodEnd || false,
+      createdAt: toISOString(row.createdAt),
+      updatedAt: toISOString(row.updatedAt),
+    };
+  }
+
+  // --- Reference document operations ---
+  async createReferenceDocument(orgId: string, doc: InsertReferenceDocument): Promise<ReferenceDocument> {
+    const id = randomUUID();
+    const [row] = await this.db.insert(tables.referenceDocuments).values({
+      id,
+      orgId,
+      name: doc.name,
+      category: doc.category,
+      description: doc.description || null,
+      fileName: doc.fileName,
+      fileSize: doc.fileSize,
+      mimeType: doc.mimeType,
+      storagePath: doc.storagePath,
+      extractedText: doc.extractedText || null,
+      appliesTo: doc.appliesTo || null,
+      isActive: doc.isActive ?? true,
+      uploadedBy: doc.uploadedBy || null,
+    }).returning();
+    return this.mapReferenceDocument(row);
+  }
+
+  async getReferenceDocument(orgId: string, id: string): Promise<ReferenceDocument | undefined> {
+    const rows = await this.db.select().from(tables.referenceDocuments)
+      .where(and(eq(tables.referenceDocuments.orgId, orgId), eq(tables.referenceDocuments.id, id)))
+      .limit(1);
+    return rows[0] ? this.mapReferenceDocument(rows[0]) : undefined;
+  }
+
+  async listReferenceDocuments(orgId: string): Promise<ReferenceDocument[]> {
+    const rows = await this.db.select().from(tables.referenceDocuments)
+      .where(eq(tables.referenceDocuments.orgId, orgId))
+      .orderBy(desc(tables.referenceDocuments.createdAt));
+    return rows.map(r => this.mapReferenceDocument(r));
+  }
+
+  async getReferenceDocumentsForCategory(orgId: string, callCategory: string): Promise<ReferenceDocument[]> {
+    const rows = await this.db.select().from(tables.referenceDocuments)
+      .where(and(
+        eq(tables.referenceDocuments.orgId, orgId),
+        eq(tables.referenceDocuments.isActive, true),
+      ));
+    // Filter in-memory since appliesTo is JSONB — either empty (applies to all) or includes the category
+    return rows
+      .filter(r => {
+        const applies = r.appliesTo as string[] | null;
+        return !applies || applies.length === 0 || applies.includes(callCategory);
+      })
+      .map(r => this.mapReferenceDocument(r));
+  }
+
+  async updateReferenceDocument(orgId: string, id: string, updates: Partial<ReferenceDocument>): Promise<ReferenceDocument | undefined> {
+    const setValues: Record<string, unknown> = {};
+    if (updates.name) setValues.name = updates.name;
+    if (updates.category) setValues.category = updates.category;
+    if (updates.description !== undefined) setValues.description = updates.description;
+    if (updates.extractedText !== undefined) setValues.extractedText = updates.extractedText;
+    if (updates.appliesTo !== undefined) setValues.appliesTo = updates.appliesTo;
+    if (updates.isActive !== undefined) setValues.isActive = updates.isActive;
+
+    const [row] = await this.db.update(tables.referenceDocuments).set(setValues)
+      .where(and(eq(tables.referenceDocuments.orgId, orgId), eq(tables.referenceDocuments.id, id)))
+      .returning();
+    return row ? this.mapReferenceDocument(row) : undefined;
+  }
+
+  async deleteReferenceDocument(orgId: string, id: string): Promise<void> {
+    await this.db.delete(tables.referenceDocuments)
+      .where(and(eq(tables.referenceDocuments.orgId, orgId), eq(tables.referenceDocuments.id, id)));
+  }
+
+  private mapReferenceDocument(row: any): ReferenceDocument {
+    return {
+      id: row.id,
+      orgId: row.orgId,
+      name: row.name,
+      category: row.category,
+      description: row.description || undefined,
+      fileName: row.fileName,
+      fileSize: row.fileSize,
+      mimeType: row.mimeType,
+      storagePath: row.storagePath,
+      extractedText: row.extractedText || undefined,
+      appliesTo: (row.appliesTo as string[]) || undefined,
+      isActive: row.isActive,
+      uploadedBy: row.uploadedBy || undefined,
+      createdAt: toISOString(row.createdAt),
+    };
+  }
+
+  private mapInvitation(row: any): Invitation {
+    return {
+      id: row.id,
+      orgId: row.orgId,
+      email: row.email,
+      role: row.role,
+      token: row.token,
+      invitedBy: row.invitedBy,
+      status: row.status,
+      expiresAt: toISOString(row.expiresAt),
+      acceptedAt: toISOString(row.acceptedAt),
+      createdAt: toISOString(row.createdAt),
     };
   }
 }

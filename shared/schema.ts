@@ -4,6 +4,9 @@ import { z } from "zod";
 export const orgBrandingSchema = z.object({
   appName: z.string().default("Observatory"),
   logoUrl: z.string().optional(),
+  primaryColor: z.string().optional(), // Hex color (e.g., "#10b981") to override default theme
+  secondaryColor: z.string().optional(), // Hex color for accent/secondary elements
+  onboardingCompleted: z.boolean().optional(),
 });
 
 export const orgSettingsSchema = z.object({
@@ -99,6 +102,7 @@ export const insertCallSchema = z.object({
   employeeId: z.string().optional(),
   fileName: z.string().optional(),
   filePath: z.string().optional(),
+  fileHash: z.string().optional(),
   status: z.string().default("pending"),
   duration: z.number().optional(),
   assemblyAiId: z.string().optional(),
@@ -257,6 +261,178 @@ export const accessRequestSchema = insertAccessRequestSchema.extend({
 
 export type InsertAccessRequest = z.infer<typeof insertAccessRequestSchema>;
 export type AccessRequest = z.infer<typeof accessRequestSchema>;
+
+// --- INVITATION SCHEMAS ---
+export const insertInvitationSchema = z.object({
+  orgId: z.string().optional(),
+  email: z.string().email(),
+  role: z.enum(["viewer", "manager", "admin"]).default("viewer"),
+  invitedBy: z.string(),
+  token: z.string().optional(), // Auto-generated if not provided
+  expiresAt: z.string().optional(),
+});
+
+export const invitationSchema = insertInvitationSchema.extend({
+  id: z.string(),
+  orgId: z.string(),
+  token: z.string(),
+  status: z.enum(["pending", "accepted", "expired", "revoked"]).default("pending"),
+  createdAt: z.string().optional(),
+  acceptedAt: z.string().optional(),
+});
+
+export type InsertInvitation = z.infer<typeof insertInvitationSchema>;
+export type Invitation = z.infer<typeof invitationSchema>;
+
+// --- API KEY SCHEMAS ---
+export const insertApiKeySchema = z.object({
+  orgId: z.string().optional(),
+  name: z.string().min(1),
+  keyHash: z.string(), // SHA-256 hash of the key (never store plaintext)
+  keyPrefix: z.string(), // First 8 chars for display (e.g., "obs_k_ab")
+  permissions: z.array(z.string()).default(["read"]), // "read", "write", "admin"
+  createdBy: z.string(),
+  expiresAt: z.string().optional(),
+});
+
+export const apiKeySchema = insertApiKeySchema.extend({
+  id: z.string(),
+  orgId: z.string(),
+  lastUsedAt: z.string().optional(),
+  status: z.enum(["active", "revoked"]).default("active"),
+  createdAt: z.string().optional(),
+});
+
+export type InsertApiKey = z.infer<typeof insertApiKeySchema>;
+export type ApiKey = z.infer<typeof apiKeySchema>;
+
+// --- BILLING & SUBSCRIPTION SCHEMAS ---
+export const PLAN_TIERS = ["free", "pro", "enterprise"] as const;
+export type PlanTier = (typeof PLAN_TIERS)[number];
+
+export const planLimitsSchema = z.object({
+  callsPerMonth: z.number(), // -1 = unlimited
+  storageMb: z.number(),
+  aiAnalysesPerMonth: z.number(),
+  apiCallsPerMonth: z.number(),
+  maxUsers: z.number(),
+  customPromptTemplates: z.boolean(),
+  ragEnabled: z.boolean(),
+  ssoEnabled: z.boolean(),
+  prioritySupport: z.boolean(),
+});
+export type PlanLimits = z.infer<typeof planLimitsSchema>;
+
+/** Static plan definitions — no DB needed for these */
+export const PLAN_DEFINITIONS: Record<PlanTier, { name: string; description: string; monthlyPriceUsd: number; yearlyPriceUsd: number; limits: PlanLimits }> = {
+  free: {
+    name: "Free",
+    description: "For small teams getting started",
+    monthlyPriceUsd: 0,
+    yearlyPriceUsd: 0,
+    limits: {
+      callsPerMonth: 50,
+      storageMb: 500,
+      aiAnalysesPerMonth: 50,
+      apiCallsPerMonth: 1000,
+      maxUsers: 3,
+      customPromptTemplates: false,
+      ragEnabled: false,
+      ssoEnabled: false,
+      prioritySupport: false,
+    },
+  },
+  pro: {
+    name: "Pro",
+    description: "For growing teams with advanced needs",
+    monthlyPriceUsd: 99,
+    yearlyPriceUsd: 948, // $79/mo billed yearly
+    limits: {
+      callsPerMonth: 1000,
+      storageMb: 10000,
+      aiAnalysesPerMonth: 1000,
+      apiCallsPerMonth: 50000,
+      maxUsers: 25,
+      customPromptTemplates: true,
+      ragEnabled: true,
+      ssoEnabled: false,
+      prioritySupport: false,
+    },
+  },
+  enterprise: {
+    name: "Enterprise",
+    description: "For large organizations with custom requirements",
+    monthlyPriceUsd: 499,
+    yearlyPriceUsd: 4788, // $399/mo billed yearly
+    limits: {
+      callsPerMonth: -1, // unlimited
+      storageMb: 100000,
+      aiAnalysesPerMonth: -1,
+      apiCallsPerMonth: -1,
+      maxUsers: -1,
+      customPromptTemplates: true,
+      ragEnabled: true,
+      ssoEnabled: true,
+      prioritySupport: true,
+    },
+  },
+};
+
+export const subscriptionSchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  planTier: z.enum(PLAN_TIERS),
+  status: z.enum(["active", "past_due", "canceled", "trialing", "incomplete"]),
+  stripeCustomerId: z.string().optional(),
+  stripeSubscriptionId: z.string().optional(),
+  stripePriceId: z.string().optional(),
+  billingInterval: z.enum(["monthly", "yearly"]).default("monthly"),
+  currentPeriodStart: z.string().optional(),
+  currentPeriodEnd: z.string().optional(),
+  cancelAtPeriodEnd: z.boolean().default(false),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+});
+export type Subscription = z.infer<typeof subscriptionSchema>;
+
+export const insertSubscriptionSchema = subscriptionSchema.omit({ id: true, createdAt: true, updatedAt: true }).partial({ cancelAtPeriodEnd: true });
+export type InsertSubscription = z.infer<typeof insertSubscriptionSchema>;
+
+// --- REFERENCE DOCUMENT SCHEMAS ---
+export const REFERENCE_DOC_CATEGORIES = [
+  "employee_handbook",
+  "process_manual",
+  "product_manual",
+  "compliance_guide",
+  "training_material",
+  "script_template",
+  "faq",
+  "other",
+] as const;
+export type ReferenceDocCategory = (typeof REFERENCE_DOC_CATEGORIES)[number];
+
+export const referenceDocumentSchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  name: z.string().min(1),
+  category: z.enum(REFERENCE_DOC_CATEGORIES),
+  description: z.string().optional(),
+  fileName: z.string(),
+  fileSize: z.number(), // bytes
+  mimeType: z.string(),
+  storagePath: z.string(), // S3/cloud path
+  /** Extracted text content (for injection into AI prompts) */
+  extractedText: z.string().optional(),
+  /** Which call categories should include this doc in analysis */
+  appliesTo: z.array(z.string()).optional(), // e.g., ["inbound", "outbound"] or empty for all
+  isActive: z.boolean().default(true),
+  uploadedBy: z.string().optional(),
+  createdAt: z.string().optional(),
+});
+export type ReferenceDocument = z.infer<typeof referenceDocumentSchema>;
+
+export const insertReferenceDocumentSchema = referenceDocumentSchema.omit({ id: true, createdAt: true });
+export type InsertReferenceDocument = z.infer<typeof insertReferenceDocumentSchema>;
 
 // --- PROMPT TEMPLATE SCHEMAS ---
 export const promptTemplateSchema = z.object({

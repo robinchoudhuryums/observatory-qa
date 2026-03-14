@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import Sidebar from "@/components/layout/sidebar";
 import { ErrorBoundary } from "@/components/lib/error-boundary";
+import { BrandingProvider } from "@/components/branding-provider";
 import { AudioWaveform } from "lucide-react";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { AnimatePresence, motion } from "framer-motion";
@@ -25,7 +26,11 @@ const AdminPage = lazy(() => import("@/pages/admin"));
 const PromptTemplatesPage = lazy(() => import("@/pages/prompt-templates"));
 const InsightsPage = lazy(() => import("@/pages/insights"));
 const CoachingPage = lazy(() => import("@/pages/coaching"));
+const SettingsPage = lazy(() => import("@/pages/settings"));
+const OnboardingWizard = lazy(() => import("@/pages/onboarding"));
 const AuthPage = lazy(() => import("@/pages/auth"));
+const LandingPage = lazy(() => import("@/pages/landing"));
+const InviteAcceptPage = lazy(() => import("@/pages/invite-accept"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 function PageLoader() {
@@ -86,6 +91,21 @@ function Router() {
   // WebSocket listener for real-time notifications
   useWebSocket();
 
+  // Redirect to onboarding wizard if not yet completed (admin only, one-time)
+  const { data: orgData } = useQuery<{ settings?: { branding?: { onboardingCompleted?: boolean } } }>({
+    queryKey: ["/api/organization"],
+    staleTime: 5 * 60 * 1000,
+  });
+  useEffect(() => {
+    if (
+      orgData &&
+      !orgData.settings?.branding?.onboardingCompleted &&
+      location !== "/onboarding"
+    ) {
+      navigate("/onboarding");
+    }
+  }, [orgData, location, navigate]);
+
   // Global keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -127,6 +147,7 @@ function Router() {
 
   return (
     <div className="flex h-screen">
+      <BrandingProvider />
       <ShortcutsDialog open={showShortcuts} onOpenChange={setShowShortcuts} />
       <Sidebar />
       <main className="flex-1 overflow-auto">
@@ -146,6 +167,8 @@ function Router() {
               <Route path="/coaching">{() => <ErrorBoundary><AnimatedPage><CoachingPage /></AnimatedPage></ErrorBoundary>}</Route>
               <Route path="/admin">{() => <ErrorBoundary><AnimatedPage><AdminPage /></AnimatedPage></ErrorBoundary>}</Route>
               <Route path="/admin/templates">{() => <ErrorBoundary><AnimatedPage><PromptTemplatesPage /></AnimatedPage></ErrorBoundary>}</Route>
+              <Route path="/admin/settings">{() => <ErrorBoundary><AnimatedPage><SettingsPage /></AnimatedPage></ErrorBoundary>}</Route>
+              <Route path="/onboarding">{() => <ErrorBoundary><OnboardingWizard /></ErrorBoundary>}</Route>
               <Route>{() => <AnimatedPage><NotFound /></AnimatedPage>}</Route>
             </Switch>
           </AnimatePresence>
@@ -156,6 +179,7 @@ function Router() {
 }
 
 function AuthenticatedApp() {
+  const [authView, setAuthView] = useState<"landing" | "login" | "register" | "invite" | null>(null);
   const { data: user, isLoading, error } = useQuery<AuthUser>({
     queryKey: ["/api/auth/me"],
     queryFn: getQueryFn({ on401: "returnNull" }),
@@ -163,6 +187,10 @@ function AuthenticatedApp() {
     staleTime: Infinity,
     refetchOnWindowFocus: true,
   });
+
+  // Check for invite token in URL
+  const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const inviteToken = urlParams?.get("invite");
 
   if (isLoading) {
     return (
@@ -172,10 +200,38 @@ function AuthenticatedApp() {
     );
   }
 
+  // Handle invite accept flow (even if user is already logged in, show invite accept)
+  if (inviteToken && !user) {
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <InviteAcceptPage
+          token={inviteToken}
+          onComplete={() => {
+            // Clear the invite param from URL
+            window.history.replaceState({}, "", "/");
+            queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+          }}
+        />
+      </Suspense>
+    );
+  }
+
   if (!user || error) {
+    // Show landing page by default, or auth page if navigated
+    const currentView = authView || "landing";
+
+    if (currentView === "landing") {
+      return (
+        <Suspense fallback={<PageLoader />}>
+          <LandingPage onNavigate={(v) => setAuthView(v)} />
+        </Suspense>
+      );
+    }
+
     return (
       <Suspense fallback={<PageLoader />}>
         <AuthPage
+          initialView={currentView === "register" ? "register" : "login"}
           onLogin={() => {
             queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
           }}
