@@ -13,6 +13,7 @@
  */
 import { logger } from "./logger";
 import { storage } from "../storage";
+import { sendEmail, buildFlaggedCallEmail } from "./email";
 
 // --- Configuration ---
 
@@ -123,25 +124,73 @@ function shouldNotify(flags: string[]): boolean {
  * Non-blocking — failures are logged but never throw.
  */
 export async function notifyFlaggedCall(notification: CallNotification): Promise<void> {
+  // Send webhook notification
   try {
     const config = await resolveOrgWebhookConfig(notification.orgId);
-    if (!config.url || notification.flags.length === 0) return;
-    const matched = notification.flags.some(flag =>
-      config.events.some(event => flag === event || flag.startsWith(`${event}:`))
-    );
-    if (!matched) return;
+    if (config.url && notification.flags.length > 0) {
+      const matched = notification.flags.some(flag =>
+        config.events.some(event => flag === event || flag.startsWith(`${event}:`))
+      );
+      if (matched) {
+        const payload = config.platform === "teams"
+          ? buildTeamsCallPayload(notification)
+          : buildSlackCallPayload(notification);
 
-    const payload = config.platform === "teams"
-      ? buildTeamsCallPayload(notification)
-      : buildSlackCallPayload(notification);
-
-    const sent = await sendWebhook(config.url, payload);
-    if (sent) {
-      logger.info({ callId: notification.callId, flags: notification.flags }, "Webhook sent for flagged call");
+        const sent = await sendWebhook(config.url, payload);
+        if (sent) {
+          logger.info({ callId: notification.callId, flags: notification.flags }, "Webhook sent for flagged call");
+        }
+      }
     }
   } catch (error) {
     logger.warn({ callId: notification.callId, err: error }, "Webhook failed for call");
   }
+
+  // Send email notification to org admins/managers
+  try {
+    await sendFlaggedCallEmails(notification);
+  } catch (error) {
+    logger.warn({ callId: notification.callId, err: error }, "Email notification failed for call");
+  }
+}
+
+/**
+ * Email org admins and managers when a call is flagged.
+ * Non-blocking — failures logged but never throw to caller.
+ */
+async function sendFlaggedCallEmails(notification: CallNotification): Promise<void> {
+  const { orgId, callId, flags, performanceScore, agentName, fileName, summary } = notification;
+
+  // Get org info and admin/manager users
+  const [org, users] = await Promise.all([
+    storage.getOrganization(orgId),
+    storage.listUsersByOrg(orgId),
+  ]);
+  if (!org) return;
+
+  const orgName = org.name || org.slug || "Observatory QA";
+  // Determine the base URL from org settings or default
+  const dashboardUrl = process.env.APP_URL || "https://app.observatory-qa.com";
+
+  const emailRecipients = users.filter(u =>
+    (u.role === "admin" || u.role === "manager") && u.username?.includes("@")
+  );
+  if (emailRecipients.length === 0) return;
+
+  const emailTemplate = buildFlaggedCallEmail(
+    callId, flags, performanceScore, agentName, fileName, summary, orgName, dashboardUrl,
+  );
+
+  await Promise.allSettled(
+    emailRecipients.map(user =>
+      sendEmail({ ...emailTemplate, to: user.username })
+    )
+  );
+
+  logger.info(
+    { callId, recipientCount: emailRecipients.length },
+    "Flagged call email notifications sent",
+  );
 }
 
 /**

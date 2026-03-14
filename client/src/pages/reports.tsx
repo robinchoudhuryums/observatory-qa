@@ -299,15 +299,34 @@ export default function ReportsPage() {
 
   return (
     <div className="min-h-screen" data-testid="reports-page">
-      <header className="bg-card border-b border-border px-6 py-4 flex items-center justify-between">
+      <header className="bg-card border-b border-border px-6 py-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold text-foreground">Performance Reports</h2>
           <p className="text-muted-foreground">Filter by time period, employee, or department.</p>
         </div>
-        <Button onClick={handleDownloadReport} disabled={!report}>
-          <Download className="w-4 h-4 mr-2" />
-          Download Report
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const params = new URLSearchParams();
+              if (dateRange.from) params.set("from", dateRange.from);
+              if (dateRange.to) params.set("to", dateRange.to);
+              if (selectedEmployee) params.set("employeeId", selectedEmployee);
+              const link = document.createElement("a");
+              link.href = `/api/export/calls?${params}`;
+              link.download = "";
+              link.click();
+            }}
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Export CSV
+          </Button>
+          <Button onClick={handleDownloadReport} disabled={!report}>
+            <Download className="w-4 h-4 mr-2" />
+            Download Report
+          </Button>
+        </div>
       </header>
 
       {/* Filters Bar */}

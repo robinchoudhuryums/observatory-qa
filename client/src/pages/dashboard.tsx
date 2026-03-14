@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Search, Plus, AlertTriangle, Award, TrendingUp } from "lucide-react";
+import { Search, Plus, AlertTriangle, Award, TrendingUp, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Link, useLocation } from "wouter";
@@ -10,7 +10,9 @@ import SentimentAnalysis from "@/components/dashboard/sentiment-analysis";
 import PerformanceCard from "@/components/dashboard/performance-card";
 import FileUpload from "@/components/upload/file-upload";
 import CallsTable from "@/components/tables/calls-table";
-import type { CallWithDetails } from "@shared/schema";
+import type { CallWithDetails, PlanTier } from "@shared/schema";
+import { PLAN_DEFINITIONS } from "@shared/schema";
+import { getQueryFn } from "@/lib/queryClient";
 
 export default function Dashboard() {
   const [, navigate] = useLocation();
@@ -19,6 +21,35 @@ export default function Dashboard() {
   const { data: calls, error: callsError } = useQuery<CallWithDetails[]>({
     queryKey: ["/api/calls", { status: "", sentiment: "", employee: "" }],
   });
+
+  // Fetch billing/subscription for quota alerts
+  const { data: billing } = useQuery<{
+    subscription: { planTier: string; status: string };
+    plan: { name: string; limits: { callsPerMonth: number; aiAnalysesPerMonth: number; storageMb: number } };
+    usage: { callsThisMonth: number; aiAnalysesThisMonth: number; storageMbUsed: number };
+  }>({
+    queryKey: ["/api/billing/subscription"],
+    staleTime: 60000,
+  });
+
+  // Compute quota warnings (80%+ usage)
+  const quotaWarnings = useMemo(() => {
+    if (!billing?.plan || !billing?.usage) return [];
+    const warnings: Array<{ label: string; used: number; limit: number; pct: number }> = [];
+    const { limits } = billing.plan;
+    const { callsThisMonth, aiAnalysesThisMonth, storageMbUsed } = billing.usage;
+
+    const check = (label: string, used: number, limit: number) => {
+      if (limit <= 0 || limit === -1) return; // unlimited
+      const pct = Math.round((used / limit) * 100);
+      if (pct >= 80) warnings.push({ label, used, limit, pct });
+    };
+
+    check("Calls", callsThisMonth, limits.callsPerMonth);
+    check("AI Analyses", aiAnalysesThisMonth, limits.aiAnalysesPerMonth);
+    check("Storage (MB)", storageMbUsed, limits.storageMb);
+    return warnings;
+  }, [billing]);
 
   const flaggedCalls = (calls || []).filter(c => {
     const flags = c.analysis?.flags;
@@ -89,15 +120,15 @@ export default function Dashboard() {
       )}
       {/* Header */}
       <header className="dashboard-header px-6 py-5">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div>
             <h2 className="text-2xl font-bold text-foreground tracking-tight">Call Analysis Dashboard</h2>
             <p className="text-sm text-muted-foreground mt-0.5">Monitor performance and sentiment across all customer interactions</p>
           </div>
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-3 w-full sm:w-auto">
             <Button
               variant="outline"
-              className="w-64 justify-start text-muted-foreground rounded-lg"
+              className="flex-1 sm:flex-none sm:w-64 justify-start text-muted-foreground rounded-lg"
               onClick={() => navigate("/search")}
               data-testid="search-input"
             >
@@ -106,7 +137,7 @@ export default function Dashboard() {
             </Button>
             <Link href="/upload">
               <Button
-                className="text-white border-0 shadow-md rounded-lg brand-gradient-btn"
+                className="text-white border-0 shadow-md rounded-lg brand-gradient-btn whitespace-nowrap"
                 data-testid="upload-call-button"
               >
                 <Plus className="w-4 h-4 mr-2" />
@@ -118,6 +149,45 @@ export default function Dashboard() {
       </header>
 
       <div className="p-6 space-y-6">
+        {/* Usage Quota Warning Banner */}
+        {quotaWarnings.length > 0 && (
+          <div className="bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-900 p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Zap className="w-5 h-5 text-amber-500" />
+              <h3 className="font-semibold text-amber-700 dark:text-amber-400">
+                Approaching Plan Limits
+              </h3>
+              <Badge variant="outline" className="text-xs ml-auto">
+                {billing?.plan?.name || "Free"} Plan
+              </Badge>
+            </div>
+            <div className="space-y-2">
+              {quotaWarnings.map(w => (
+                <div key={w.label} className="flex items-center gap-3">
+                  <span className="text-sm text-amber-700 dark:text-amber-300 min-w-[120px]">
+                    {w.label}: {w.used}/{w.limit}
+                  </span>
+                  <div className="flex-1 h-2 bg-amber-200 dark:bg-amber-900 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${w.pct >= 100 ? "bg-red-500" : "bg-amber-500"}`}
+                      style={{ width: `${Math.min(w.pct, 100)}%` }}
+                    />
+                  </div>
+                  <span className={`text-xs font-semibold ${w.pct >= 100 ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>
+                    {w.pct}%
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-amber-600/80 dark:text-amber-400/60 mt-2">
+              <Link href="/admin/settings?tab=billing" className="underline hover:text-amber-700">
+                Upgrade your plan
+              </Link>
+              {" "}to increase limits.
+            </p>
+          </div>
+        )}
+
         {/* Flagged Calls Alert Banner */}
         {flaggedCalls.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

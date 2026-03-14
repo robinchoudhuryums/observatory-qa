@@ -235,10 +235,51 @@ app.post("/api/auth/register", distributedRateLimit(60 * 60 * 1000, 3) as any);
       }
     };
 
+    // Trial auto-downgrade: check for expired trial subscriptions daily
+    const runTrialDowngrade = async () => {
+      try {
+        const currentStorage = (await import("./storage")).storage;
+        const orgs = await currentStorage.listOrganizations();
+        const now = new Date();
+        let downgraded = 0;
+
+        for (const org of orgs) {
+          const sub = await currentStorage.getSubscription(org.id);
+          if (!sub) continue;
+
+          // Downgrade expired trials
+          if (sub.status === "trialing" && sub.currentPeriodEnd) {
+            const trialEnd = new Date(sub.currentPeriodEnd);
+            if (now > trialEnd) {
+              await currentStorage.upsertSubscription(org.id, {
+                orgId: org.id,
+                planTier: "free",
+                status: "active",
+                billingInterval: "monthly",
+                cancelAtPeriodEnd: false,
+              });
+              logger.info({ orgId: org.id, orgSlug: org.slug, previousTier: sub.planTier }, "Trial expired — downgraded to free");
+              downgraded++;
+            }
+          }
+        }
+
+        if (downgraded > 0) {
+          logger.info({ downgraded }, "Trial auto-downgrade complete");
+        }
+      } catch (error) {
+        logger.error({ err: error }, "Error during trial auto-downgrade");
+      }
+    };
+
     // Run once on startup (after 30s delay to let auth settle)
-    const retentionStartupTimer = setTimeout(runRetention, 30_000);
+    const retentionStartupTimer = setTimeout(() => {
+      runRetention();
+      runTrialDowngrade();
+    }, 30_000);
     // Then run daily (every 24 hours)
     const retentionDailyTimer = setInterval(runRetention, 24 * 60 * 60 * 1000);
+    const trialDowngradeTimer = setInterval(runTrialDowngrade, 24 * 60 * 60 * 1000);
 
     // Graceful shutdown
     const shutdown = async () => {
@@ -246,6 +287,7 @@ app.post("/api/auth/register", distributedRateLimit(60 * 60 * 1000, 3) as any);
       clearInterval(rateLimitCleanupTimer);
       clearTimeout(retentionStartupTimer);
       clearInterval(retentionDailyTimer);
+      clearInterval(trialDowngradeTimer);
       const { closeWebSocket } = await import("./services/websocket");
       await Promise.all([
         closeQueues(),

@@ -320,13 +320,24 @@ export function registerCallRoutes(app: Express): void {
 
   app.get("/api/calls", requireAuth, injectOrgContext, async (req, res) => {
     try {
-      const { status, sentiment, employee } = req.query;
+      const { status, sentiment, employee, limit, offset } = req.query;
       const calls = await storage.getCallsWithDetails(req.orgId!, {
         status: status as string,
         sentiment: sentiment as string,
         employee: employee as string
       });
-      res.json(calls);
+
+      // Support server-side pagination via limit/offset
+      const parsedLimit = limit ? parseInt(limit as string, 10) : undefined;
+      const parsedOffset = offset ? parseInt(offset as string, 10) : 0;
+
+      if (parsedLimit && parsedLimit > 0) {
+        const paged = calls.slice(parsedOffset, parsedOffset + parsedLimit);
+        res.json({ data: paged, total: calls.length });
+      } else {
+        // Backwards compatible — return raw array when no limit specified
+        res.json(calls);
+      }
     } catch (error) {
       res.status(500).json({ message: "Failed to get calls" });
     }

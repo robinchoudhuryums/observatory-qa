@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
-import { Mic, BarChart3, Upload, FileText, Heart, Users, UserPlus, Search, LogOut, User, TrendingUp, Sun, Moon, Shield, Building2, SlidersHorizontal, ClipboardCheck, Palette, ScrollText } from "lucide-react";
+import { Mic, BarChart3, Upload, FileText, Heart, Users, UserPlus, Search, LogOut, User, TrendingUp, Sun, Moon, Shield, Building2, SlidersHorizontal, ClipboardCheck, Palette, ScrollText, Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient, getQueryFn } from "@/lib/queryClient";
@@ -26,6 +26,12 @@ const navigation: NavItem[] = [
 export default function Sidebar() {
   const [location, navigate] = useLocation();
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains("dark"));
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Close mobile sidebar on route change
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location]);
 
   const toggleDarkMode = () => {
     const next = !isDark;
@@ -132,7 +138,32 @@ export default function Sidebar() {
   };
 
   return (
-    <aside className="w-64 sidebar-container flex flex-col" data-testid="sidebar">
+    <>
+      {/* Mobile hamburger button */}
+      <button
+        onClick={() => setMobileOpen(true)}
+        className="fixed top-4 left-4 z-50 p-2 rounded-lg bg-card border border-border shadow-md md:hidden"
+        aria-label="Open menu"
+      >
+        <Menu className="w-5 h-5" />
+      </button>
+
+      {/* Mobile overlay */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+    <aside
+      className={cn(
+        "w-64 sidebar-container flex flex-col",
+        "fixed inset-y-0 left-0 z-50 transition-transform duration-200 md:relative md:translate-x-0",
+        mobileOpen ? "translate-x-0" : "-translate-x-full"
+      )}
+      data-testid="sidebar"
+    >
       {/* Brand header */}
       <div className="p-5 sidebar-header">
         <div className="flex items-center justify-between">
@@ -155,13 +186,22 @@ export default function Sidebar() {
               <p className="text-[11px] text-muted-foreground font-medium">QA Dashboard</p>
             </div>
           </div>
-          <button
-            onClick={toggleDarkMode}
-            className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all duration-200"
-            title={isDark ? "Switch to light mode" : "Switch to dark mode"}
-          >
-            {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={toggleDarkMode}
+              className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all duration-200"
+              title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
+            <button
+              onClick={() => setMobileOpen(false)}
+              className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all duration-200 md:hidden"
+              aria-label="Close menu"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -286,5 +326,6 @@ export default function Sidebar() {
         </div>
       </div>
     </aside>
+    </>
   );
 }

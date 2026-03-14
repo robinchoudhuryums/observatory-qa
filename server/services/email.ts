@@ -155,6 +155,67 @@ export function buildInvitationEmail(
   return { to: "", subject, text, html };
 }
 
+export function buildFlaggedCallEmail(
+  callId: string,
+  flags: string[],
+  performanceScore: number | undefined,
+  agentName: string | undefined,
+  fileName: string | undefined,
+  summary: string | undefined,
+  orgName: string,
+  dashboardUrl: string,
+): EmailOptions {
+  const flagLabels = flags.map(f => {
+    if (f === "low_score") return "Low Score";
+    if (f === "exceptional_call") return "Exceptional Call";
+    if (f.startsWith("agent_misconduct")) return `Misconduct: ${f.split(":")[1] || "unspecified"}`;
+    return f;
+  });
+  const isGood = flags.includes("exceptional_call") && !flags.some(f => f === "low_score" || f.startsWith("agent_misconduct"));
+  const scoreText = performanceScore != null ? `${performanceScore.toFixed(1)}/10` : "N/A";
+  const emoji = isGood ? "Star" : "Alert";
+
+  const subject = `[${orgName}] Call Flagged: ${flagLabels.join(", ")} — Score: ${scoreText}`;
+  const callUrl = `${dashboardUrl}/transcripts/${callId}`;
+
+  const text = [
+    `${emoji === "Star" ? "Exceptional" : "Flagged"} Call — ${orgName}`,
+    "",
+    `Flags: ${flagLabels.join(", ")}`,
+    `Score: ${scoreText}`,
+    ...(agentName ? [`Agent: ${agentName}`] : []),
+    ...(fileName ? [`File: ${fileName}`] : []),
+    ...(summary ? ["", `Summary: ${summary.slice(0, 500)}`] : []),
+    "",
+    `View call: ${callUrl}`,
+    "",
+    `— ${orgName} QA Platform`,
+  ].join("\n");
+
+  const flagColor = isGood ? "#10b981" : "#ef4444";
+  const html = `
+    <div style="font-family: -apple-system, sans-serif; max-width: 520px; margin: 0 auto;">
+      <div style="border-left: 4px solid ${flagColor}; padding-left: 16px; margin-bottom: 16px;">
+        <h2 style="color: #1a1a1a; margin: 0 0 4px;">Call Flagged: ${escapeHtml(flagLabels.join(", "))}</h2>
+        <p style="color: #666; font-size: 14px; margin: 0;">${escapeHtml(orgName)}</p>
+      </div>
+      <table style="font-size: 14px; border-collapse: collapse;">
+        <tr><td style="padding: 4px 12px 4px 0; color: #666; font-weight: 600;">Score</td><td>${escapeHtml(scoreText)}</td></tr>
+        ${agentName ? `<tr><td style="padding: 4px 12px 4px 0; color: #666; font-weight: 600;">Agent</td><td>${escapeHtml(agentName)}</td></tr>` : ""}
+        ${fileName ? `<tr><td style="padding: 4px 12px 4px 0; color: #666; font-weight: 600;">File</td><td>${escapeHtml(fileName)}</td></tr>` : ""}
+      </table>
+      ${summary ? `<p style="font-size: 14px; color: #333; margin-top: 12px;">${escapeHtml(summary.slice(0, 500))}</p>` : ""}
+      <p style="margin: 20px 0;">
+        <a href="${escapeHtml(callUrl)}" style="background: ${flagColor}; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; display: inline-block;">
+          View Call Details
+        </a>
+      </p>
+    </div>
+  `;
+
+  return { to: "", subject, text, html };
+}
+
 function escapeHtml(str: string): string {
   return str
     .replace(/&/g, "&amp;")

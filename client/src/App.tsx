@@ -172,7 +172,7 @@ function Router() {
       <BrandingProvider />
       <ShortcutsDialog open={showShortcuts} onOpenChange={setShowShortcuts} />
       <Sidebar />
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 overflow-auto pt-14 md:pt-0">
         <Suspense fallback={<PageLoader />}>
           <AnimatePresence mode="wait">
             <Switch key={location}>
