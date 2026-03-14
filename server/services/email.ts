@@ -216,6 +216,77 @@ export function buildFlaggedCallEmail(
   return { to: "", subject, text, html };
 }
 
+export function buildQuotaAlertEmail(
+  orgName: string,
+  warnings: Array<{ label: string; used: number; limit: number; pct: number }>,
+  isExhausted: boolean,
+  dashboardUrl: string,
+): EmailOptions {
+  const severity = isExhausted ? "Limit Reached" : "Approaching Limit";
+  const subject = `[${orgName}] Plan ${severity}: ${warnings.map(w => `${w.label} ${w.pct}%`).join(", ")}`;
+  const settingsUrl = `${dashboardUrl}/admin/settings?tab=billing`;
+
+  const text = [
+    `${orgName} — Plan ${severity}`,
+    "",
+    ...warnings.map(w => `${w.label}: ${w.used}/${w.limit} (${w.pct}%)`),
+    "",
+    isExhausted
+      ? "Your organization has hit its plan limit. New uploads and analyses are blocked until the next billing cycle or you upgrade."
+      : "Your organization is approaching its plan limits for this billing period.",
+    "",
+    `Upgrade or manage your plan: ${settingsUrl}`,
+    "",
+    `— ${orgName} QA Platform`,
+  ].join("\n");
+
+  const barColor = isExhausted ? "#ef4444" : "#f59e0b";
+  const warningRows = warnings.map(w => `
+    <tr>
+      <td style="padding: 8px 12px; font-weight: 600; color: #333;">${escapeHtml(w.label)}</td>
+      <td style="padding: 8px 12px;">${w.used} / ${w.limit}</td>
+      <td style="padding: 8px 12px;">
+        <div style="width: 100px; height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden;">
+          <div style="width: ${Math.min(w.pct, 100)}%; height: 100%; background: ${barColor}; border-radius: 4px;"></div>
+        </div>
+      </td>
+      <td style="padding: 8px 12px; font-weight: 600; color: ${w.pct >= 100 ? '#ef4444' : '#f59e0b'};">${w.pct}%</td>
+    </tr>
+  `).join("");
+
+  const html = `
+    <div style="font-family: -apple-system, sans-serif; max-width: 520px; margin: 0 auto;">
+      <div style="border-left: 4px solid ${barColor}; padding-left: 16px; margin-bottom: 16px;">
+        <h2 style="color: #1a1a1a; margin: 0 0 4px;">Plan ${escapeHtml(severity)}</h2>
+        <p style="color: #666; font-size: 14px; margin: 0;">${escapeHtml(orgName)}</p>
+      </div>
+      <table style="font-size: 14px; border-collapse: collapse; width: 100%;">
+        <thead>
+          <tr style="border-bottom: 1px solid #e5e7eb;">
+            <th style="padding: 8px 12px; text-align: left; color: #666;">Resource</th>
+            <th style="padding: 8px 12px; text-align: left; color: #666;">Usage</th>
+            <th style="padding: 8px 12px; text-align: left; color: #666;"></th>
+            <th style="padding: 8px 12px; text-align: left; color: #666;"></th>
+          </tr>
+        </thead>
+        <tbody>${warningRows}</tbody>
+      </table>
+      <p style="font-size: 14px; color: #333; margin-top: 16px;">
+        ${isExhausted
+          ? "New uploads and analyses are <strong>blocked</strong> until the next billing cycle or you upgrade."
+          : "Consider upgrading before you hit your limit."}
+      </p>
+      <p style="margin: 20px 0;">
+        <a href="${escapeHtml(settingsUrl)}" style="background: ${barColor}; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; display: inline-block;">
+          ${isExhausted ? "Upgrade Now" : "Manage Plan"}
+        </a>
+      </p>
+    </div>
+  `;
+
+  return { to: "", subject, text, html };
+}
+
 function escapeHtml(str: string): string {
   return str
     .replace(/&/g, "&amp;")

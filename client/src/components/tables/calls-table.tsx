@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Eye, Play, Download, Star, Trash2, UserCheck, AlertTriangle, Award, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, CheckSquare, Square, FileAudio, ShieldQuestion, FileDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { HelpTip } from "@/components/ui/help-tip";
 import { Badge } from "@/components/ui/badge";
 import { getSentimentBadge as getSentimentBadgeHelper, getStatusBadge as getStatusBadgeHelper } from "@/lib/badge-helpers";
 import { Link } from "wouter";
@@ -247,7 +248,10 @@ export default function CallsTable() {
     <div className="bg-card rounded-lg border border-border p-6" data-testid="calls-table">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-3">
-          <h3 className="text-lg font-semibold text-foreground">Recent Calls</h3>
+          <h3 className="text-lg font-semibold text-foreground flex items-center gap-1">
+            Recent Calls
+            <HelpTip text="All uploaded call recordings sorted by date. Use filters to narrow by employee, sentiment, or status. Click a row to view the full transcript and AI analysis." />
+          </h3>
           <span className="text-xs text-muted-foreground">
             {sortedCalls.length} total
           </span>

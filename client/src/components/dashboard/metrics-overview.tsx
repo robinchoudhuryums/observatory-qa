@@ -1,8 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { Phone, Heart, Clock, Star, AlertTriangle } from "lucide-react";
+import { Phone, Heart, Clock, Star, AlertTriangle, Upload } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { useCountUp } from "@/hooks/use-count-up";
+import { HelpTip } from "@/components/ui/help-tip";
 import type { DashboardMetrics } from "@shared/schema";
 
 const cardVariants = {
@@ -58,9 +61,30 @@ export default function MetricsOverview() {
   const avgTranscription = metrics?.avgTranscriptionTime ?? 0;
   const avgPerformance = metrics?.avgPerformanceScore ?? 0;
 
+  if (totalCalls === 0) {
+    return (
+      <div className="modern-card rounded-xl p-8 text-center">
+        <div className="mx-auto w-16 h-16 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full flex items-center justify-center mb-4">
+          <Phone className="w-7 h-7 text-primary/60" />
+        </div>
+        <h3 className="text-lg font-semibold text-foreground mb-1">No calls analyzed yet</h3>
+        <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">
+          Upload your first call recording to see performance metrics, sentiment analysis, and AI-powered coaching insights.
+        </p>
+        <Link href="/upload">
+          <Button>
+            <Upload className="w-4 h-4 mr-2" />
+            Upload Your First Call
+          </Button>
+        </Link>
+      </div>
+    );
+  }
+
   const metricCards = [
     {
       title: "Total Calls",
+      help: "Total number of call recordings that have been uploaded and analyzed.",
       renderValue: () => <CountUpValue value={totalCalls} decimals={0} />,
       change: `${totalCalls} analyzed`,
       icon: Phone,
@@ -70,6 +94,7 @@ export default function MetricsOverview() {
     },
     {
       title: "Avg Sentiment",
+      help: "Average customer sentiment score (0-10) across all analyzed calls. Higher is more positive.",
       renderValue: () => <><CountUpValue value={avgSentiment} />/10</>,
       change: "Avg across calls",
       icon: Heart,
@@ -79,6 +104,7 @@ export default function MetricsOverview() {
     },
     {
       title: "Transcription Time",
+      help: "Average time to transcribe and analyze each call recording.",
       renderValue: () => <><CountUpValue value={avgTranscription} decimals={0} />min</>,
       change: "Avg per call",
       icon: Clock,
@@ -88,6 +114,7 @@ export default function MetricsOverview() {
     },
     {
       title: "Team Score",
+      help: "Average AI-generated performance score (0-10) across all agents. Based on compliance, communication, and resolution.",
       renderValue: () => <><CountUpValue value={avgPerformance} />/10</>,
       change: "Avg performance",
       icon: Star,
@@ -112,7 +139,10 @@ export default function MetricsOverview() {
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-muted-foreground text-sm font-medium">{metric.title}</p>
+                <p className="text-muted-foreground text-sm font-medium flex items-center gap-1">
+                  {metric.title}
+                  <HelpTip text={metric.help} />
+                </p>
                 <p className="text-3xl font-bold text-foreground mt-1" data-testid={`metric-${metric.title.toLowerCase().replace(/\s+/g, '-')}`}>
                   {metric.renderValue()}
                 </p>

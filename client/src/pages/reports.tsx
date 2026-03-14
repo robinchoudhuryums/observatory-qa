@@ -468,7 +468,19 @@ export default function ReportsPage() {
       </div>
 
       <main className="p-6 space-y-6">
+        {/* Empty state when no calls match filters */}
+        {report && report.metrics.totalCalls === 0 && (
+          <div className="bg-card rounded-lg border border-border p-12 text-center">
+            <BarChart2 className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
+            <h3 className="text-lg font-semibold text-foreground mb-1">No data for this period</h3>
+            <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">
+              No calls match the selected filters. Try adjusting the time period{reportType === "employee" ? ", employee selection," : ""} or report type.
+            </p>
+          </div>
+        )}
+
         {/* Metrics Cards */}
+        {report && report.metrics.totalCalls > 0 && (<>
         <div className="bg-card rounded-lg border border-border p-6">
           <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
             <BarChart2 className="w-5 h-5 mr-2" />
@@ -796,6 +808,7 @@ export default function ReportsPage() {
             </div>
           </div>
         )}
+        </>)}
       </main>
     </div>
   );
