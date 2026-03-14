@@ -74,6 +74,11 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen" data-testid="admin-page">
+      {requestsError && (
+        <div className="mx-6 mt-4 p-4 bg-destructive/10 border border-destructive/20 rounded-md text-destructive text-sm">
+          Failed to load admin data. Please try refreshing the page.
+        </div>
+      )}
       <header className="bg-card border-b border-border px-6 py-4">
         <div className="flex items-center justify-between">
           <div>

@@ -55,7 +55,7 @@ function distributedRateLimit(windowMs: number, maxRequests: number) {
 }
 
 // Clean up expired in-memory rate limit entries every 5 minutes
-setInterval(() => {
+const rateLimitCleanupTimer = setInterval(() => {
   const now = Date.now();
   rateLimitMap.forEach((entry, key) => {
     if (now > entry.resetTime) rateLimitMap.delete(key);
@@ -134,6 +134,8 @@ app.use((req, res, next) => {
 
 // HIPAA: Rate limiting on login endpoint (5 attempts per 15 minutes per IP)
 app.post("/api/auth/login", distributedRateLimit(15 * 60 * 1000, 5) as any);
+// Rate limit registration: 3 per hour per IP
+app.post("/api/auth/register", distributedRateLimit(60 * 60 * 1000, 3) as any);
 
 (async () => {
   // --- Infrastructure initialization ---
@@ -166,9 +168,11 @@ app.post("/api/auth/login", distributedRateLimit(15 * 60 * 1000, 5) as any);
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
-    res.status(status).json({ message });
     if (status >= 500) {
-      logger.error({ status }, message);
+      logger.error({ status, err: message }, "Internal server error");
+      res.status(status).json({ message: "Internal Server Error" });
+    } else {
+      res.status(status).json({ message });
     }
   });
 
@@ -228,25 +232,35 @@ app.post("/api/auth/login", distributedRateLimit(15 * 60 * 1000, 5) as any);
     };
 
     // Run once on startup (after 30s delay to let auth settle)
-    setTimeout(runRetention, 30_000);
+    const retentionStartupTimer = setTimeout(runRetention, 30_000);
     // Then run daily (every 24 hours)
-    setInterval(runRetention, 24 * 60 * 60 * 1000);
-  });
+    const retentionDailyTimer = setInterval(runRetention, 24 * 60 * 60 * 1000);
 
-  // Graceful shutdown
-  const shutdown = async () => {
-    logger.info("Shutting down...");
-    await Promise.all([
-      closeQueues(),
-      closeRedis(),
-    ]);
-    // Close DB if PostgreSQL was initialized
-    if (pgInitialized) {
-      const { closeDatabase } = await import("./db/index");
-      await closeDatabase();
-    }
-    process.exit(0);
-  };
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
+    // Graceful shutdown
+    const shutdown = async () => {
+      logger.info("Shutting down...");
+      clearInterval(rateLimitCleanupTimer);
+      clearTimeout(retentionStartupTimer);
+      clearInterval(retentionDailyTimer);
+      const { closeWebSocket } = await import("./services/websocket");
+      await Promise.all([
+        closeQueues(),
+        closeRedis(),
+        closeWebSocket(),
+      ]);
+      // Close DB if PostgreSQL was initialized
+      if (pgInitialized) {
+        const { closeDatabase } = await import("./db/index");
+        await closeDatabase();
+      }
+      // Close RAG worker pool if active
+      try {
+        const { closeRagWorkerPool } = await import("./services/rag-worker");
+        await closeRagWorkerPool();
+      } catch { /* not initialized */ }
+      process.exit(0);
+    };
+    process.on("SIGTERM", shutdown);
+    process.on("SIGINT", shutdown);
+  });
 })();

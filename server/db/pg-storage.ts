@@ -256,6 +256,17 @@ export class PostgresStorage implements IStorage {
     }
   }
 
+  async getCallByFileHash(orgId: string, fileHash: string): Promise<Call | undefined> {
+    const rows = await this.db.select().from(tables.calls)
+      .where(and(
+        eq(tables.calls.orgId, orgId),
+        eq(tables.calls.fileHash, fileHash),
+        sql`${tables.calls.status} != 'failed'`
+      ))
+      .limit(1);
+    return rows[0] ? this.mapCall(rows[0]) : undefined;
+  }
+
   async getAllCalls(orgId: string): Promise<Call[]> {
     const rows = await this.db.select().from(tables.calls)
       .where(eq(tables.calls.orgId, orgId))

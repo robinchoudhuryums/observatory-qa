@@ -125,6 +125,7 @@ export interface IStorage {
   createCall(orgId: string, call: InsertCall): Promise<Call>;
   updateCall(orgId: string, id: string, updates: Partial<Call>): Promise<Call | undefined>;
   deleteCall(orgId: string, id: string): Promise<void>;
+  getCallByFileHash(orgId: string, fileHash: string): Promise<Call | undefined>;
   getAllCalls(orgId: string): Promise<Call[]>;
   getCallsWithDetails(orgId: string, filters?: { status?: string; sentiment?: string; employee?: string }): Promise<CallWithDetails[]>;
 

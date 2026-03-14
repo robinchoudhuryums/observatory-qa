@@ -313,6 +313,15 @@ export function registerOnboardingRoutes(app: Express): void {
 
         const { name, category, description, appliesTo } = req.body;
 
+        let parsedAppliesTo: string[] | undefined;
+        if (appliesTo) {
+          try {
+            parsedAppliesTo = JSON.parse(appliesTo);
+          } catch {
+            return res.status(400).json({ message: "Invalid appliesTo format" });
+          }
+        }
+
         const doc = await storage.createReferenceDocument(orgId, {
           orgId,
           name: name || req.file.originalname,
@@ -323,7 +332,7 @@ export function registerOnboardingRoutes(app: Express): void {
           mimeType: req.file.mimetype,
           storagePath,
           extractedText: extractedText || undefined,
-          appliesTo: appliesTo ? JSON.parse(appliesTo) : undefined,
+          appliesTo: parsedAppliesTo,
           isActive: true,
           uploadedBy: req.user?.username,
         });

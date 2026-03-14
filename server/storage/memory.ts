@@ -159,6 +159,9 @@ export class MemStorage implements IStorage {
       if (key.startsWith(`${orgId}/audio/${id}/`)) this.audioFiles.delete(key);
     }
   }
+  async getCallByFileHash(orgId: string, fileHash: string): Promise<Call | undefined> {
+    return Array.from(this.calls.values()).find(c => c.orgId === orgId && c.fileHash === fileHash && c.status !== "failed");
+  }
   async getAllCalls(orgId: string): Promise<Call[]> {
     return Array.from(this.calls.values())
       .filter(c => c.orgId === orgId)

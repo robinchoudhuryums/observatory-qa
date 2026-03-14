@@ -37,7 +37,7 @@ export const organizationSchema = insertOrganizationSchema.extend({
 
 // --- USER SCHEMAS ---
 export const insertUserSchema = z.object({
-  orgId: z.string().optional(),
+  orgId: z.string(),
   username: z.string(),
   passwordHash: z.string(),
   name: z.string(),

@@ -96,12 +96,14 @@ export const calls = pgTable("calls", {
   assemblyAiId: varchar("assembly_ai_id", { length: 255 }),
   callCategory: varchar("call_category", { length: 50 }),
   tags: jsonb("tags").$type<string[]>(),
+  fileHash: varchar("file_hash", { length: 64 }),
   uploadedAt: timestamp("uploaded_at").defaultNow(),
 }, (t) => [
   index("calls_org_id_idx").on(t.orgId),
   index("calls_org_status_idx").on(t.orgId, t.status),
   index("calls_employee_id_idx").on(t.employeeId),
   index("calls_uploaded_at_idx").on(t.uploadedAt),
+  index("calls_org_file_hash_idx").on(t.orgId, t.fileHash),
 ]);
 
 // --- TRANSCRIPTS ---

@@ -10,6 +10,7 @@ import type { AIAnalysisProvider } from "./ai-provider";
 import { GeminiProvider } from "./gemini";
 import { BedrockProvider } from "./bedrock";
 import type { OrgSettings } from "@shared/schema";
+import { logger } from "./logger";
 
 function createProvider(modelOverride?: string): AIAnalysisProvider {
   const explicit = process.env.AI_PROVIDER?.toLowerCase();
@@ -17,7 +18,7 @@ function createProvider(modelOverride?: string): AIAnalysisProvider {
   if (explicit === "bedrock") {
     const provider = new BedrockProvider(modelOverride);
     if (provider.isAvailable) return provider;
-    console.warn("AI_PROVIDER=bedrock but AWS credentials missing. Falling back to Gemini.");
+    logger.warn("AI_PROVIDER=bedrock but AWS credentials missing, falling back to Gemini");
   }
 
   if (explicit === "gemini" || !explicit) {
@@ -32,7 +33,7 @@ function createProvider(modelOverride?: string): AIAnalysisProvider {
   }
 
   // No provider available — return a Gemini stub (isAvailable = false)
-  console.warn("No AI analysis provider configured. Analysis will use transcript-based defaults.");
+  logger.warn("No AI analysis provider configured, analysis will use transcript-based defaults");
   return new GeminiProvider();
 }
 

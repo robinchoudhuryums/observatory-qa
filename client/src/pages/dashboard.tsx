@@ -16,7 +16,7 @@ export default function Dashboard() {
   const [, navigate] = useLocation();
 
   // Fetch recent calls to extract flagged ones for the dashboard alert panel
-  const { data: calls } = useQuery<CallWithDetails[]>({
+  const { data: calls, error: callsError } = useQuery<CallWithDetails[]>({
     queryKey: ["/api/calls", { status: "", sentiment: "", employee: "" }],
   });
 
@@ -82,6 +82,11 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen" data-testid="dashboard-page">
+      {callsError && (
+        <div className="mx-6 mt-4 p-4 bg-destructive/10 border border-destructive/20 rounded-md text-destructive text-sm">
+          Failed to load dashboard data. Please try refreshing the page.
+        </div>
+      )}
       {/* Header */}
       <header className="bg-card border-b border-border px-6 py-4">
         <div className="flex items-center justify-between">

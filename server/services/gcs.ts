@@ -21,6 +21,7 @@ export class GcsClient {
   private bucketName: string;
   private accessToken: string | null = null;
   private tokenExpiry: number = 0;
+  private tokenRefreshPromise: Promise<string> | null = null;
 
   constructor(bucketName: string) {
     this.bucketName = bucketName;
@@ -68,12 +69,23 @@ export class GcsClient {
     if (this.accessToken && Date.now() < this.tokenExpiry - 300_000) {
       return this.accessToken;
     }
+    // Prevent concurrent token refreshes
+    if (this.tokenRefreshPromise) return this.tokenRefreshPromise;
+    this.tokenRefreshPromise = this.refreshToken();
+    try {
+      return await this.tokenRefreshPromise;
+    } finally {
+      this.tokenRefreshPromise = null;
+    }
+  }
 
+  private async refreshToken(): Promise<string> {
     const jwt = this.createJwt();
     const response = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwt}`,
+      signal: AbortSignal.timeout(30000),
     });
 
     if (!response.ok) {
@@ -105,6 +117,7 @@ export class GcsClient {
           "Content-Type": "application/json",
         },
         body,
+        signal: AbortSignal.timeout(30000),
       }
     );
 
@@ -127,6 +140,7 @@ export class GcsClient {
           "Content-Type": contentType,
         },
         body: buffer,
+        signal: AbortSignal.timeout(30000),
       }
     );
 
@@ -144,6 +158,7 @@ export class GcsClient {
       `https://storage.googleapis.com/storage/v1/b/${this.bucketName}/o/${encoded}?alt=media`,
       {
         headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(30000),
       }
     );
 
@@ -164,6 +179,7 @@ export class GcsClient {
       `https://storage.googleapis.com/storage/v1/b/${this.bucketName}/o/${encoded}?alt=media`,
       {
         headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(30000),
       }
     );
 
@@ -189,6 +205,7 @@ export class GcsClient {
         `https://storage.googleapis.com/storage/v1/b/${this.bucketName}/o?${params}`,
         {
           headers: { Authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(30000),
         }
       );
 
@@ -222,6 +239,7 @@ export class GcsClient {
         `https://storage.googleapis.com/storage/v1/b/${this.bucketName}/o?${params}`,
         {
           headers: { Authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(30000),
         }
       );
 
@@ -276,6 +294,7 @@ export class GcsClient {
       {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(30000),
       }
     );
 

@@ -1,10 +1,10 @@
 import type { Express } from "express";
 import { storage } from "../storage";
-import { requireAuth, requireRole, injectOrgContext } from "../auth";
+import { requireAuth, requireRole, injectOrgContext, hashPassword } from "../auth";
 import { aiProvider } from "../services/ai-factory";
 import { assemblyAIService } from "../services/assemblyai";
 import { broadcastCallUpdate } from "../services/websocket";
-import { insertPromptTemplateSchema } from "@shared/schema";
+import { insertPromptTemplateSchema, orgSettingsSchema, type OrgSettings } from "@shared/schema";
 import { logger } from "../services/logger";
 import { safeInt, withRetry } from "./helpers";
 
@@ -146,15 +146,15 @@ export function registerAdminRoutes(app: Express): void {
             await storage.createCallAnalysis(orgId, { ...analysis, callId: call.id });
             succeeded++;
           } catch (error) {
-            console.error(`[REANALYZE] Failed for call ${call.id}:`, (error as Error).message);
+            logger.error({ err: error, callId: call.id }, "Reanalysis failed for call");
             failed++;
           }
         }
-        console.log(`[REANALYZE] Complete: ${succeeded} succeeded, ${failed} failed out of ${queued}`);
+        logger.info({ succeeded, failed, total: queued }, "Reanalysis complete");
         broadcastCallUpdate("bulk", "reanalysis_complete", { succeeded, failed, total: queued }, orgId);
-      })().catch(err => console.error("[REANALYZE] Bulk re-analysis failed:", err));
+      })().catch(err => logger.error({ err }, "Bulk re-analysis failed"));
     } catch (error) {
-      console.error("Failed to start re-analysis:", (error as Error).message);
+      logger.error({ err: error }, "Failed to start re-analysis");
       res.status(500).json({ message: "Failed to start re-analysis" });
     }
   });
@@ -199,13 +199,7 @@ export function registerAdminRoutes(app: Express): void {
         return res.status(409).json({ message: "Username already exists" });
       }
 
-      // Hash password
-      const { scrypt, randomBytes } = await import("crypto");
-      const { promisify } = await import("util");
-      const scryptAsync = promisify(scrypt);
-      const salt = randomBytes(16).toString("hex");
-      const buf = (await scryptAsync(password, salt, 64)) as Buffer;
-      const passwordHash = `${buf.toString("hex")}.${salt}`;
+      const passwordHash = await hashPassword(password);
 
       const user = await storage.createUser({
         orgId: req.orgId!,
@@ -238,12 +232,7 @@ export function registerAdminRoutes(app: Express): void {
 
       // Hash new password if provided
       if (password) {
-        const { scrypt, randomBytes } = await import("crypto");
-        const { promisify } = await import("util");
-        const scryptAsync = promisify(scrypt);
-        const salt = randomBytes(16).toString("hex");
-        const buf = (await scryptAsync(password, salt, 64)) as Buffer;
-        updates.passwordHash = `${buf.toString("hex")}.${salt}`;
+        updates.passwordHash = await hashPassword(password);
       }
 
       const updated = await storage.updateUser(req.orgId!, req.params.id, updates as any);
@@ -302,7 +291,11 @@ export function registerAdminRoutes(app: Express): void {
       const org = await storage.getOrganization(req.orgId!);
       if (!org) return res.status(404).json({ message: "Organization not found" });
 
-      const updatedSettings = { ...org.settings, ...req.body };
+      const parsed = orgSettingsSchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid settings", errors: parsed.error.flatten() });
+      }
+      const updatedSettings = { ...(org.settings || {}), ...parsed.data } as OrgSettings;
       const updated = await storage.updateOrganization(req.orgId!, { settings: updatedSettings });
       logger.info({ org: req.orgId }, "Organization settings updated");
       res.json(updated);

@@ -10,6 +10,7 @@ import { createSign } from "crypto";
 import fs from "fs";
 import type { AIAnalysisProvider, CallAnalysis } from "./ai-provider";
 import { buildAnalysisPrompt, parseJsonResponse } from "./ai-provider";
+import { logger } from "./logger";
 
 interface ServiceAccountKey {
   client_email: string;
@@ -42,6 +43,7 @@ export class GeminiProvider implements AIAnalysisProvider {
   private credentials: ServiceAccountKey | null = null;
   private accessToken: string | null = null;
   private tokenExpiry: number = 0;
+  private tokenRefreshPromise: Promise<string> | null = null;
   private model: string;
 
   constructor() {
@@ -49,13 +51,13 @@ export class GeminiProvider implements AIAnalysisProvider {
     // HIPAA: Block AI Studio in production — it has no BAA coverage
     if (process.env.GEMINI_API_KEY) {
       if (process.env.NODE_ENV === "production") {
-        console.warn("HIPAA: GEMINI_API_KEY (AI Studio) is NOT BAA-eligible. Blocked in production. Use Vertex AI with service account credentials instead.");
+        logger.warn("HIPAA: GEMINI_API_KEY (AI Studio) is NOT BAA-eligible. Blocked in production. Use Vertex AI with service account credentials instead.");
       } else {
         this.apiKey = process.env.GEMINI_API_KEY;
         this.authMode = "api_key";
         this.model = process.env.GEMINI_MODEL || DEFAULT_MODEL_API_KEY;
-        console.log(`Gemini provider initialized (mode: API key via AI Studio, model: ${this.model})`);
-        console.warn("WARNING: AI Studio mode is not HIPAA-compliant. Use Vertex AI in production.");
+        logger.info({ mode: "API key via AI Studio", model: this.model }, "Gemini provider initialized");
+        logger.warn("AI Studio mode is not HIPAA-compliant. Use Vertex AI in production.");
         return;
       }
     }
@@ -65,9 +67,9 @@ export class GeminiProvider implements AIAnalysisProvider {
     try {
       this.credentials = this.loadServiceAccountCredentials();
       this.authMode = "vertex_ai";
-      console.log(`Gemini provider initialized (mode: Vertex AI, project: ${this.credentials.project_id}, model: ${this.model})`);
+      logger.info({ mode: "Vertex AI", projectId: this.credentials.project_id, model: this.model }, "Gemini provider initialized");
     } catch {
-      console.warn("Gemini provider: No credentials found.");
+      logger.warn("Gemini provider: No credentials found.");
     }
   }
 
@@ -116,7 +118,17 @@ export class GeminiProvider implements AIAnalysisProvider {
     if (this.accessToken && Date.now() < this.tokenExpiry - 300_000) {
       return this.accessToken;
     }
+    // Prevent concurrent token refreshes
+    if (this.tokenRefreshPromise) return this.tokenRefreshPromise;
+    this.tokenRefreshPromise = this.refreshToken();
+    try {
+      return await this.tokenRefreshPromise;
+    } finally {
+      this.tokenRefreshPromise = null;
+    }
+  }
 
+  private async refreshToken(): Promise<string> {
     const jwt = this.createJwt();
     const response = await fetchWithTimeout("https://oauth2.googleapis.com/token", {
       method: "POST",
@@ -210,7 +222,7 @@ export class GeminiProvider implements AIAnalysisProvider {
 
     if (this.authMode === "api_key") {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
-      console.log(`[${callId}] Calling Gemini (${model}, AI Studio) for analysis...`);
+      logger.info({ callId, model, mode: "AI Studio" }, "Calling Gemini for analysis");
       response = await fetchWithTimeout(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -221,7 +233,7 @@ export class GeminiProvider implements AIAnalysisProvider {
       const projectId = this.credentials!.project_id;
       const location = "us-central1";
       const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${model}:generateContent`;
-      console.log(`[${callId}] Calling Gemini (${model}, Vertex AI) for analysis...`);
+      logger.info({ callId, model, mode: "Vertex AI" }, "Calling Gemini for analysis");
       response = await fetch(url, {
         method: "POST",
         headers: {
@@ -229,6 +241,7 @@ export class GeminiProvider implements AIAnalysisProvider {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(120000), // 2 minute timeout
       });
     }
 
@@ -254,7 +267,7 @@ export class GeminiProvider implements AIAnalysisProvider {
     }
 
     const analysis = parseJsonResponse(responseText, callId);
-    console.log(`[${callId}] Gemini analysis complete (score: ${analysis.performance_score}/10, sentiment: ${analysis.sentiment})`);
+    logger.info({ callId, performanceScore: analysis.performance_score, sentiment: analysis.sentiment }, "Gemini analysis complete");
     return analysis;
   }
 }

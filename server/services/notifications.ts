@@ -6,6 +6,7 @@
  *   WEBHOOK_URL — URL to POST notifications to (e.g., Slack incoming webhook)
  *   WEBHOOK_EVENTS — comma-separated event types to notify on (default: "low_score,agent_misconduct,exceptional_call")
  */
+import { logger } from "./logger";
 
 export interface CallNotification {
   event: "call_flagged" | "call_completed";
@@ -52,12 +53,13 @@ export async function notifyFlaggedCall(notification: CallNotification): Promise
     });
 
     if (!response.ok) {
-      console.warn(`[NOTIFY] Webhook returned ${response.status}: ${await response.text().catch(() => "")}`);
+      const body = await response.text().catch(() => "");
+      logger.warn({ callId: notification.callId, statusCode: response.status, responseBody: body }, "Webhook returned non-OK status");
     } else {
-      console.log(`[NOTIFY] Webhook sent for call ${notification.callId} (flags: ${notification.flags.join(", ")})`);
+      logger.info({ callId: notification.callId, flags: notification.flags }, "Webhook sent for flagged call");
     }
   } catch (error) {
-    console.warn(`[NOTIFY] Webhook failed for call ${notification.callId}:`, (error as Error).message);
+    logger.warn({ callId: notification.callId, err: error }, "Webhook failed for call");
   }
 }
 

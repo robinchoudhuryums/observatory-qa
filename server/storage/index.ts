@@ -3,6 +3,7 @@ import { S3Client } from "../services/s3";
 import { MemStorage } from "./memory";
 import { CloudStorage } from "./cloud";
 import type { IStorage, ObjectStorageClient } from "./types";
+import { logger } from "../services/logger";
 
 // Re-export types and utilities so consumers can import from "./storage" or "../storage"
 export { type IStorage, type ObjectStorageClient, type UsageSummary, normalizeAnalysis, applyCallFilters, mapConcurrent } from "./types";
@@ -32,7 +33,7 @@ function createStorage(): IStorage {
     }
     // PostgresStorage is initialized asynchronously in initPostgresStorage()
     // For now, return MemStorage as placeholder (will be replaced on startup)
-    console.log("[STORAGE] PostgreSQL backend selected — will initialize after DB connection");
+    logger.info("PostgreSQL backend selected — will initialize after DB connection");
     return new MemStorage();
   }
 
@@ -42,7 +43,7 @@ function createStorage(): IStorage {
     if (!bucket) {
       throw new Error("S3_BUCKET environment variable is required when using S3 storage backend");
     }
-    console.log(`[STORAGE] Using S3 (bucket: ${bucket})`);
+    logger.info({ bucket }, "Using S3 storage backend");
     return new CloudStorage(new S3Client(bucket));
   }
 
@@ -52,18 +53,16 @@ function createStorage(): IStorage {
     if (!bucket) {
       throw new Error("GCS_BUCKET environment variable is required when using GCS storage backend");
     }
-    console.log(`[STORAGE] Using GCS (bucket: ${bucket})`);
+    logger.info({ bucket }, "Using GCS storage backend");
     return new CloudStorage(new GcsClient(bucket));
   }
 
   // PRODUCTION SAFETY: Warn loudly if no persistent backend is configured
   if (process.env.NODE_ENV === "production") {
-    console.error("[STORAGE] WARNING: No persistent storage backend configured in production!");
-    console.error("[STORAGE] Set STORAGE_BACKEND=postgres with DATABASE_URL, or configure S3/GCS.");
-    console.error("[STORAGE] Data WILL BE LOST on restart with in-memory storage.");
+    logger.error("No persistent storage backend configured in production. Set STORAGE_BACKEND=postgres with DATABASE_URL, or configure S3/GCS. Data WILL BE LOST on restart with in-memory storage.");
   }
 
-  console.log("[STORAGE] No cloud credentials — using in-memory storage (data will not persist across restarts)");
+  logger.info("No cloud credentials — using in-memory storage (data will not persist across restarts)");
   return new MemStorage();
 }
 
@@ -103,7 +102,7 @@ export async function initPostgresStorage(): Promise<boolean> {
 
     const db = await initDatabase();
     if (!db) {
-      console.error("[STORAGE] Failed to connect to PostgreSQL — falling back to in-memory");
+      logger.error("Failed to connect to PostgreSQL — falling back to in-memory");
       return false;
     }
 
@@ -111,14 +110,14 @@ export async function initPostgresStorage(): Promise<boolean> {
     let blobClient: ObjectStorageClient | null = null;
     if (process.env.S3_BUCKET) {
       blobClient = new S3Client(process.env.S3_BUCKET);
-      console.log(`[STORAGE] Audio blob storage: S3 (bucket: ${process.env.S3_BUCKET})`);
+      logger.info({ bucket: process.env.S3_BUCKET }, "Audio blob storage: S3");
     }
 
     storage = new PostgresStorage(db, blobClient);
-    console.log("[STORAGE] PostgreSQL storage backend initialized");
+    logger.info("PostgreSQL storage backend initialized");
     return true;
   } catch (error) {
-    console.error("[STORAGE] PostgreSQL initialization failed:", error);
+    logger.error({ err: error }, "PostgreSQL initialization failed");
     return false;
   }
 }
