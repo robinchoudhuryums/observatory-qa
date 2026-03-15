@@ -10,7 +10,8 @@ export function registerAuthRoutes(app: Express): void {
     passport.authenticate("local", (err: any, user: Express.User | false, info: any) => {
       if (err) return next(err);
       if (!user) {
-        return res.status(401).json({ message: info?.message || "Invalid credentials" });
+        const errorCode = info?.message?.includes("locked") ? "OBS-AUTH-002" : "OBS-AUTH-001";
+        return res.status(401).json({ message: info?.message || "Invalid credentials", errorCode });
       }
       req.login(user, (loginErr) => {
         if (loginErr) return next(loginErr);
