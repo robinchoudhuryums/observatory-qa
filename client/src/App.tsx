@@ -258,6 +258,7 @@ function AuthenticatedApp() {
           onLogin={() => {
             queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
           }}
+          onBack={() => setAuthView(null)}
         />
       </Suspense>
     );

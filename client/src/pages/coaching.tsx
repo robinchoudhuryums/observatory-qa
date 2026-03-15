@@ -227,9 +227,11 @@ export default function CoachingPage() {
                   )}
 
                   {session.callId && (
-                    <Link href={`/transcripts/${session.callId}`} className="text-xs text-primary hover:underline inline-flex items-center gap-1">
-                      <Eye className="w-3 h-3" /> View Referenced Call
-                    </Link>
+                    <div className="flex flex-wrap gap-2">
+                      <Link href={`/transcripts/${session.callId}`} className="text-xs text-primary hover:underline inline-flex items-center gap-1 px-2 py-1 rounded bg-primary/5 border border-primary/20">
+                        <Eye className="w-3 h-3" /> View Referenced Call
+                      </Link>
+                    </div>
                   )}
 
                   {totalTasks > 0 && (
@@ -294,13 +296,15 @@ function CoachingForm({ employees, onClose, prefillEmployeeId, prefillCallId, pr
   const [category, setCategory] = useState(prefillCategory || "general");
   const [notes, setNotes] = useState("");
   const [dueDate, setDueDate] = useState("");
-  const [callId, setCallId] = useState(prefillCallId || "");
+  const [callIds, setCallIds] = useState<string[]>(prefillCallId ? [prefillCallId] : [""]);
   const [tasks, setTasks] = useState<string[]>([""]);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   // Warn before navigating away with unsaved form data
   useBeforeUnload(title.trim().length > 0 || notes.trim().length > 0);
+
+  const validCallIds = callIds.filter(id => id.trim());
 
   const createMutation = useMutation({
     mutationFn: async (data: Record<string, any>) => {
@@ -326,7 +330,7 @@ function CoachingForm({ employees, onClose, prefillEmployeeId, prefillCallId, pr
       category,
       notes: notes.trim() || undefined,
       dueDate: dueDate || undefined,
-      callId: callId.trim() || undefined,
+      callId: validCallIds[0] || undefined,
       actionPlan: actionPlan.length > 0 ? actionPlan : undefined,
     });
   };
@@ -368,8 +372,31 @@ function CoachingForm({ employees, onClose, prefillEmployeeId, prefillCallId, pr
         <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
       </div>
       <div>
-        <Label className="text-xs">Referenced Call ID (optional)</Label>
-        <Input value={callId} onChange={e => setCallId(e.target.value)} placeholder="Paste call ID from a flagged call" />
+        <Label className="text-xs">Referenced Call IDs (optional)</Label>
+        <div className="space-y-1.5">
+          {callIds.map((cid, i) => (
+            <div key={i} className="flex gap-2">
+              <Input
+                value={cid}
+                onChange={e => {
+                  const newIds = [...callIds];
+                  newIds[i] = e.target.value;
+                  setCallIds(newIds);
+                }}
+                placeholder="Paste call ID from a flagged call"
+                className="flex-1"
+              />
+              {callIds.length > 1 && (
+                <Button size="sm" variant="ghost" onClick={() => setCallIds(callIds.filter((_, j) => j !== i))}>
+                  <X className="w-3 h-3" />
+                </Button>
+              )}
+            </div>
+          ))}
+          <Button size="sm" variant="outline" onClick={() => setCallIds([...callIds, ""])}>
+            <Plus className="w-3 h-3 mr-1" /> Add Call Reference
+          </Button>
+        </div>
       </div>
       <div className="md:col-span-2">
         <Label className="text-xs">Notes</Label>

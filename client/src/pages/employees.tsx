@@ -523,11 +523,17 @@ export default function EmployeesPage() {
           <div className="text-center py-12">
             <Users className="mx-auto h-12 w-12 text-muted-foreground" />
             <h3 className="mt-4 text-lg font-medium text-foreground">No employees yet</h3>
-            <p className="text-muted-foreground mt-1 mb-4">Import from the CSV or add employees manually.</p>
-            <Button variant="outline" onClick={() => importMutation.mutate()} disabled={importMutation.isPending}>
-              <Upload className="w-4 h-4 mr-2" />
-              {importMutation.isPending ? "Importing..." : "Import from CSV"}
-            </Button>
+            <p className="text-muted-foreground mt-1 mb-4">Import from CSV or add employees manually.</p>
+            <div className="flex items-center justify-center gap-3">
+              <Button variant="outline" onClick={() => importMutation.mutate()} disabled={importMutation.isPending}>
+                <Upload className="w-4 h-4 mr-2" />
+                {importMutation.isPending ? "Importing..." : "Import from CSV"}
+              </Button>
+              <Button onClick={() => setAddOpen(true)}>
+                <UserPlus className="w-4 h-4 mr-2" />
+                Add Manually
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="space-y-3">

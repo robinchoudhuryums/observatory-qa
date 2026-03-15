@@ -29,10 +29,17 @@ export default function MetricsOverview() {
 
   if (error) {
     return (
-      <div className="bg-card rounded-lg border border-destructive/30 p-6 text-center">
-        <AlertTriangle className="w-6 h-6 text-destructive mx-auto mb-2" />
-        <p className="text-sm font-medium text-destructive">Failed to load metrics</p>
-        <p className="text-xs text-muted-foreground">{error.message}</p>
+      <div className="modern-card rounded-xl p-8 text-center">
+        <div className="mx-auto w-16 h-16 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full flex items-center justify-center mb-4">
+          <Phone className="w-7 h-7 text-primary/60" />
+        </div>
+        <h3 className="text-lg font-semibold text-foreground mb-1">No calls analyzed yet</h3>
+        <p className="text-sm text-muted-foreground max-w-md mx-auto">Upload your first call recording to see performance metrics here.</p>
+        <Link href="/upload">
+          <Button variant="outline" className="mt-4">
+            <Upload className="w-4 h-4 mr-2" /> Upload a Call
+          </Button>
+        </Link>
       </div>
     );
   }

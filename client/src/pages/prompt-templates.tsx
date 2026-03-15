@@ -428,11 +428,22 @@ function TemplateForm({
               })}
             </div>
             {/* Quick presets */}
-            <div className="flex gap-2 mt-2">
-              <span className="text-xs text-muted-foreground">Presets:</span>
-              <button type="button" className="text-xs text-primary hover:underline" onClick={() => setWeights({ compliance: 25, customerExperience: 25, communication: 25, resolution: 25 })}>Equal</button>
-              <button type="button" className="text-xs text-primary hover:underline" onClick={() => setWeights({ compliance: 40, customerExperience: 25, communication: 20, resolution: 15 })}>Compliance-heavy</button>
-              <button type="button" className="text-xs text-primary hover:underline" onClick={() => setWeights({ compliance: 15, customerExperience: 40, communication: 25, resolution: 20 })}>CX-focused</button>
+            <div className="mt-3">
+              <span className="text-xs text-muted-foreground block mb-2">Quick presets:</span>
+              <div className="grid grid-cols-3 gap-2">
+                <button type="button" className="text-xs text-left px-3 py-2 rounded-lg border border-border bg-muted/30 hover:bg-primary/10 hover:border-primary/30 transition-colors" onClick={() => setWeights({ compliance: 25, customerExperience: 25, communication: 25, resolution: 25 })}>
+                  <span className="font-medium text-foreground block">Equal</span>
+                  <span className="text-muted-foreground">25 / 25 / 25 / 25</span>
+                </button>
+                <button type="button" className="text-xs text-left px-3 py-2 rounded-lg border border-border bg-muted/30 hover:bg-primary/10 hover:border-primary/30 transition-colors" onClick={() => setWeights({ compliance: 40, customerExperience: 25, communication: 20, resolution: 15 })}>
+                  <span className="font-medium text-foreground block">Compliance-heavy</span>
+                  <span className="text-muted-foreground">40 / 25 / 20 / 15</span>
+                </button>
+                <button type="button" className="text-xs text-left px-3 py-2 rounded-lg border border-border bg-muted/30 hover:bg-primary/10 hover:border-primary/30 transition-colors" onClick={() => setWeights({ compliance: 15, customerExperience: 40, communication: 25, resolution: 20 })}>
+                  <span className="font-medium text-foreground block">CX-focused</span>
+                  <span className="text-muted-foreground">15 / 40 / 25 / 20</span>
+                </button>
+              </div>
             </div>
           </div>
 
