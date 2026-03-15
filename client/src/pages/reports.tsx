@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRef } from "react";
-import { Download, BarChart2, Smile, Star, User, Users, TrendingUp, Calendar, ArrowRight, AudioWaveform, ChevronUp, ChevronDown, Sparkles, Phone, AlertTriangle, Award, Play, Pause, Eye, SlidersHorizontal, Shield, MessageCircle, Headphones, CheckCircle2 } from "lucide-react";
+import { Download, BarChart2, BarChart3, Smile, Star, User, Users, TrendingUp, Calendar, ArrowRight, AudioWaveform, ChevronUp, ChevronDown, Sparkles, Phone, AlertTriangle, Award, Play, Pause, Eye, SlidersHorizontal, Shield, MessageCircle, Headphones, CheckCircle2, Upload } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -12,6 +12,7 @@ import type { Employee } from "@shared/schema";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useAppName } from "@/hooks/use-organization";
 import { HelpTip } from "@/components/ui/help-tip";
+import OwlLoading from "@/components/owl-loading";
 
 // ---- Types ----
 
@@ -282,18 +283,20 @@ export default function ReportsPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <AudioWaveform className="w-8 h-8 animate-spin text-primary" />
-        <p className="ml-2 text-muted-foreground">Analyzing performance...</p>
+        <OwlLoading text="Analyzing performance..." size={48} />
       </div>
     );
   }
 
   if (reportError) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 text-destructive">
-        <AlertTriangle className="w-8 h-8 mb-2" />
-        <p className="font-semibold">Failed to load report</p>
-        <p className="text-sm text-muted-foreground">{reportError.message}</p>
+      <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
+        <BarChart3 className="w-12 h-12 mb-3 text-muted-foreground/50" />
+        <p className="font-semibold text-foreground">No report data yet</p>
+        <p className="text-sm mt-1">Upload and analyze some calls first, then come back to view reports.</p>
+        <Button variant="outline" className="mt-4" onClick={() => window.location.href = "/upload"}>
+          <Upload className="w-4 h-4 mr-2" /> Upload Calls
+        </Button>
       </div>
     );
   }

@@ -16,10 +16,10 @@ function WaveBackground() {
     const yBase = 150 + i * 22;
     const amplitude = 60 + Math.sin(i * 0.7) * 30;
     const phase = i * 25;
-    const opacity = 0.08 + (i / 18) * 0.18;
+    const opacity = 0.15 + (i / 18) * 0.35;
     // Gradient from teal to rose across wave set
     const hue = 170 + (i / 18) * 160; // 170 (teal) → 330 (rose)
-    const saturation = 70 + Math.sin(i * 0.5) * 20;
+    const saturation = 80 + Math.sin(i * 0.5) * 15;
 
     const d = `M-100,${yBase} C200,${yBase - amplitude + phase * 0.1} 400,${yBase + amplitude - phase * 0.05} 600,${yBase} C800,${yBase - amplitude * 0.7} 1000,${yBase + amplitude * 0.5} 1200,${yBase} C1400,${yBase - amplitude * 0.3} 1600,${yBase + amplitude * 0.8} 2000,${yBase}`;
 
@@ -28,8 +28,8 @@ function WaveBackground() {
         key={i}
         d={d}
         fill="none"
-        stroke={`hsl(${hue}, ${saturation}%, 60%)`}
-        strokeWidth="1"
+        stroke={`hsl(${hue}, ${saturation}%, 50%)`}
+        strokeWidth="1.5"
         opacity={opacity}
         className="wave-line"
         style={{

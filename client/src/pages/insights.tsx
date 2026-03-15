@@ -23,8 +23,9 @@ interface InsightsData {
 }
 
 export default function InsightsPage() {
-  const { data: insights, isLoading } = useQuery<InsightsData>({
+  const { data: insights, isLoading, error } = useQuery<InsightsData>({
     queryKey: ["/api/insights"],
+    retry: 1,
   });
 
   if (isLoading) {
@@ -43,7 +44,7 @@ export default function InsightsPage() {
     );
   }
 
-  if (!insights || insights.totalAnalyzed === 0) {
+  if (error || !insights || insights.totalAnalyzed === 0) {
     return (
       <div className="min-h-screen">
         <header className="bg-card border-b border-border px-6 py-4">

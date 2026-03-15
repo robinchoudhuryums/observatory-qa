@@ -19,15 +19,9 @@ export default function PerformanceCard() {
 
   if (error) {
     return (
-      <div className="modern-card rounded-xl border-destructive/30 p-6 text-center">
-        <AlertTriangle className="w-6 h-6 text-destructive mx-auto mb-2" />
-        <p className="text-sm font-medium text-destructive">Failed to load performers</p>
-        <button
-          onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/dashboard/performers"] })}
-          className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-        >
-          <RefreshCw className="w-3 h-3" /> Retry
-        </button>
+      <div className="modern-card rounded-xl p-6 text-center">
+        <p className="text-sm text-muted-foreground">No performer data yet</p>
+        <p className="text-xs text-muted-foreground/70 mt-1">Top performers will appear after calls are analyzed.</p>
       </div>
     );
   }

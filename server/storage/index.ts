@@ -89,6 +89,14 @@ export async function initPostgresStorage(): Promise<boolean> {
       return false;
     }
 
+    // Auto-sync schema: creates missing tables/columns on startup
+    try {
+      const { syncSchema } = await import("../db/sync-schema");
+      await syncSchema(db);
+    } catch (syncError) {
+      logger.error({ err: syncError }, "Schema sync failed — continuing with existing schema");
+    }
+
     // Optional: create blob client for audio files stored in S3
     let blobClient: ObjectStorageClient | null = null;
     if (process.env.S3_BUCKET) {

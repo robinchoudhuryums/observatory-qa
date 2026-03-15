@@ -116,8 +116,9 @@ export default function Dashboard() {
     <div className="min-h-screen" data-testid="dashboard-page">
       <OnboardingTour />
       {callsError && (
-        <div className="mx-6 mt-4 p-4 bg-destructive/10 border border-destructive/20 rounded-md text-destructive text-sm">
-          Failed to load dashboard data. Please try refreshing the page.
+        <div className="mx-6 mt-4 p-4 bg-muted/50 border border-border rounded-md text-muted-foreground text-sm flex items-center gap-2">
+          <Zap className="w-4 h-4 flex-shrink-0" />
+          No call data available yet. Upload your first call recording to get started!
         </div>
       )}
       {/* Header */}
