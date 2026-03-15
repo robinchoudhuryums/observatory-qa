@@ -130,7 +130,7 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
         <header className="relative z-10 w-full">
           <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <ObservatoryLogo variant="full" height={32} className="landing-text" />
+              <ObservatoryLogo variant="full" height={32} hoverable className="landing-text" />
             </div>
             <nav className="hidden md:flex items-center gap-8">
               <a href="#features" className="text-sm landing-text-muted hover:text-foreground transition-colors">Features</a>

@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ChevronRight, ChevronLeft, Upload, BarChart3, Search, Users, FileText, Sparkles } from "lucide-react";
+import { X, ChevronRight, ChevronLeft, Upload, BarChart3, Search, Users, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ObservatoryLogo } from "@/components/observatory-logo";
 
 interface TourStep {
   title: string;
@@ -15,7 +16,7 @@ const TOUR_STEPS: TourStep[] = [
   {
     title: "Welcome to your QA Dashboard",
     description: "This is your command center for call quality analysis. Let's take a quick tour of the key features.",
-    icon: <Sparkles className="w-6 h-6" />,
+    icon: <ObservatoryLogo variant="icon" height={24} color="white" />,
     position: "center",
   },
   {
