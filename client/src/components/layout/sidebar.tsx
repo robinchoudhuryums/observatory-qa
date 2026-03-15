@@ -172,7 +172,7 @@ export default function Sidebar() {
             {logoUrl ? (
               <img src={logoUrl} alt="Logo" className="w-9 h-9 rounded-xl object-contain" />
             ) : (
-              <ObservatoryLogo variant="icon" height={36} hoverable className="text-foreground" />
+              <ObservatoryLogo variant="icon" height={42} hoverable className="text-foreground" />
             )}
             <div>
               <h1 className="font-bold text-lg text-foreground tracking-tight">{appName}</h1>

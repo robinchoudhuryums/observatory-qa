@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { LogIn, UserPlus, Shield, Eye, Settings, Loader2 } from "lucide-react";
+import { LogIn, UserPlus, Shield, Eye, Settings, Loader2, ArrowLeft } from "lucide-react";
 import { ObservatoryLogo } from "@/components/observatory-logo";
 import { apiRequest } from "@/lib/queryClient";
 import { USER_ROLES } from "@shared/schema";
@@ -13,12 +13,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 interface AuthPageProps {
   onLogin: () => void;
+  onBack?: () => void;
   initialView?: AuthView;
 }
 
 type AuthView = "login" | "request-access" | "register";
 
-export default function AuthPage({ onLogin, initialView }: AuthPageProps) {
+export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps) {
   const [view, setView] = useState<AuthView>(initialView || "login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -118,6 +119,15 @@ export default function AuthPage({ onLogin, initialView }: AuthPageProps) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-6">
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to home
+          </button>
+        )}
         <Card>
           <CardHeader className="text-center">
             <div className="flex justify-center mb-4">
@@ -413,11 +423,30 @@ function GoogleLoginButton() {
 function SsoLoginSection() {
   const [orgSlug, setOrgSlug] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSsoLogin = () => {
-    if (!orgSlug.trim()) return;
+  const handleSsoLogin = async () => {
+    const slug = orgSlug.trim();
+    if (!slug) return;
+    setError(null);
     setIsLoading(true);
-    window.location.href = `/api/auth/sso/${orgSlug.trim()}`;
+
+    try {
+      // Validate org exists and has SSO before redirecting
+      const res = await fetch(`/api/auth/sso/check/${slug}`, { credentials: "include" });
+      const data = await res.json();
+
+      if (!res.ok || !data.available) {
+        setError(data.message || "SSO is not configured for this organization.");
+        setIsLoading(false);
+        return;
+      }
+
+      window.location.href = `/api/auth/sso/${slug}`;
+    } catch {
+      setError("Could not verify organization. Please check the slug and try again.");
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -435,9 +464,15 @@ function SsoLoginSection() {
           type="text"
           placeholder="Organization slug (e.g. acme-healthcare)"
           value={orgSlug}
-          onChange={(e) => setOrgSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+          onChange={(e) => { setOrgSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "")); setError(null); }}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSsoLogin(); } }}
         />
+        {error && (
+          <p className="text-sm text-destructive flex items-center gap-1.5">
+            <Shield className="w-3.5 h-3.5 flex-shrink-0" />
+            {error}
+          </p>
+        )}
         <Button
           type="button"
           variant="outline"
@@ -445,8 +480,12 @@ function SsoLoginSection() {
           onClick={handleSsoLogin}
           disabled={!orgSlug.trim() || isLoading}
         >
-          <Shield className="w-4 h-4 mr-2" />
-          {isLoading ? "Redirecting..." : "Sign in with SSO"}
+          {isLoading ? (
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+          ) : (
+            <Shield className="w-4 h-4 mr-2" />
+          )}
+          {isLoading ? "Verifying..." : "Sign in with SSO"}
         </Button>
       </div>
     </>

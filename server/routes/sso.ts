@@ -251,6 +251,36 @@ export function isSamlConfigured(): boolean {
 }
 
 export function registerSsoRoutes(app: Express): void {
+  // Pre-flight check: validate org exists and has SSO configured (no redirect)
+  app.get("/api/auth/sso/check/:orgSlug", async (req: Request, res: Response) => {
+    const { orgSlug } = req.params;
+
+    if (!samlConfigured) {
+      return res.status(503).json({
+        available: false,
+        message: "SSO is not enabled on this platform. Contact your administrator.",
+      });
+    }
+
+    const org = await storage.getOrganizationBySlug(orgSlug);
+    if (!org) {
+      return res.status(404).json({
+        available: false,
+        message: `Organization "${orgSlug}" was not found. Please check the slug and try again.`,
+      });
+    }
+
+    const settings = org.settings as OrgSettings | undefined;
+    if (!settings?.ssoProvider || !settings.ssoSignOnUrl || !settings.ssoCertificate) {
+      return res.status(404).json({
+        available: false,
+        message: `SSO is not configured for "${org.name}". Contact your organization's admin to set up SSO.`,
+      });
+    }
+
+    return res.json({ available: true, orgName: org.name });
+  });
+
   // Initiate SAML login for a specific organization
   app.get("/api/auth/sso/:orgSlug", async (req: Request, res: Response, next: NextFunction) => {
     if (!samlConfigured) {

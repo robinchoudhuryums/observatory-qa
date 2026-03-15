@@ -9,7 +9,7 @@ interface LandingPageProps {
   onNavigate: (view: "login" | "register") => void;
 }
 
-/** Animated flowing wave lines — SVG-based, CSS-animated */
+/** Animated flowing wave lines — SVG-based, CSS-animated with color transitions and glow */
 function WaveBackground() {
   // Generate wave paths with varying amplitudes and phases
   const waves = Array.from({ length: 18 }, (_, i) => {
@@ -17,7 +17,7 @@ function WaveBackground() {
     const amplitude = 60 + Math.sin(i * 0.7) * 30;
     const phase = i * 25;
     const opacity = 0.15 + (i / 18) * 0.35;
-    // Gradient from teal to rose across wave set
+    // Base hue — will shift via CSS animation
     const hue = 170 + (i / 18) * 160; // 170 (teal) → 330 (rose)
     const saturation = 80 + Math.sin(i * 0.5) * 15;
 
@@ -35,6 +35,12 @@ function WaveBackground() {
         style={{
           animationDelay: `${i * 0.3}s`,
           animationDuration: `${8 + i * 0.5}s`,
+          // Stagger the color shift so waves transition at different times
+          ["--hue-shift-delay" as string]: `${i * -0.8}s`,
+          ["--base-hue" as string]: `${hue}`,
+          ["--base-sat" as string]: `${saturation}%`,
+          // Stagger glow pulse per line for a sweep effect
+          ["--glow-delay" as string]: `${i * 0.25}s`,
         }}
       />
     );
@@ -47,6 +53,15 @@ function WaveBackground() {
         preserveAspectRatio="xMidYMid slice"
         className="absolute inset-0 w-full h-full"
       >
+        <defs>
+          <filter id="wave-glow">
+            <feGaussianBlur stdDeviation="3" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
         {waves}
       </svg>
     </div>
@@ -130,7 +145,7 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
         <header className="relative z-10 w-full">
           <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <ObservatoryLogo variant="full" height={32} hoverable className="landing-text" />
+              <ObservatoryLogo variant="full" height={38} hoverable className="landing-text" />
             </div>
             <nav className="hidden md:flex items-center gap-8">
               <a href="#features" className="text-sm landing-text-muted hover:text-foreground transition-colors">Features</a>
