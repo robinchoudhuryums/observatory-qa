@@ -17,8 +17,9 @@ Observatory QA is a multi-tenant, HIPAA-compliant SaaS platform for call quality
 - **Sessions & Rate Limiting**: Redis (connect-redis, ioredis) — falls back to in-memory when unavailable
 - **Billing**: Stripe (subscriptions, checkout, customer portal, webhooks)
 - **Logging**: Pino + Betterstack (@logtail/pino) for structured log aggregation
-- **Auth**: Passport.js (local strategy + Google OAuth 2.0), session-based, role-based (viewer/manager/admin)
+- **Auth**: Passport.js (local strategy + Google OAuth 2.0 + SAML SSO), session-based, role-based (viewer/manager/admin), MFA (TOTP)
 - **Hosting**: EC2 with Caddy (production HIPAA), Render.com (staging/non-PHI)
+- **Font**: Poppins (primary), Inter (fallback) — chosen to match Observatory logo typeface
 
 ## Local Development Setup
 
@@ -97,6 +98,8 @@ client/src/components/       # UI components
   layout/                    #   Layout (sidebar)
   lib/                       #   Utilities (confirm-dialog, error-boundary)
   branding-provider.tsx      #   Per-org branding context
+  owl-loading.tsx            #   Custom owl-themed loading animation (liquid fill CSS)
+  onboarding-tour.tsx        #   Interactive product tour (6 steps, localStorage-persistent)
 
 server/
   index.ts                   # App entry: Express setup, middleware, startup sequence
@@ -106,11 +109,14 @@ server/
   types.d.ts                 # Express type augmentations
   logger.ts                  # (Legacy) Logger — prefer server/services/logger.ts
 
-server/routes/               # Modular API route files
+server/routes/               # Modular API route files (20 route files)
   index.ts                   #   Route registration orchestrator
   auth.ts                    #   Login/logout/me
   registration.ts            #   Self-service org + user registration
   oauth.ts                   #   Google OAuth 2.0 flow
+  sso.ts                     #   SAML 2.0 SSO (per-org IDP, Enterprise plan)
+  mfa.ts                     #   MFA setup/verify/disable (TOTP)
+  password-reset.ts          #   Forgot-password + reset-password flow
   onboarding.ts              #   Logo upload, reference doc upload, RAG search, branding
   calls.ts                   #   Call CRUD, upload, audio streaming, transcript/sentiment/analysis
   employees.ts               #   Employee CRUD, CSV import
@@ -122,6 +128,7 @@ server/routes/               # Modular API route files
   api-keys.ts                #   API key CRUD + middleware
   billing.ts                 #   Stripe checkout, portal, webhooks, quota enforcement
   insights.ts                #   Aggregate insights & trends
+  export.ts                  #   CSV export for calls, employees, performance data
   health.ts                  #   Health check endpoint
   helpers.ts                 #   Shared route utilities
 
@@ -142,6 +149,10 @@ server/services/             # Business logic & integrations
   rag.ts                     #   RAG orchestrator (chunk → embed → pgvector search → BM25 rerank)
   rag-worker.ts              #   In-process RAG indexing fallback
   chunker.ts                 #   Document chunking (sliding window, natural breaks, section detection)
+  phi-encryption.ts          #   AES-256-GCM field-level encryption for PHI data
+  email.ts                   #   Transactional email (SMTP, AWS SES, console fallback)
+  error-codes.ts             #   Standardized error codes (OBS-{DOMAIN}-{NUMBER})
+  coaching-engine.ts         #   Auto-recommendations and AI coaching plan generation
 
 server/storage/              # Storage abstraction layer
   types.ts                   #   IStorage interface (all methods org-scoped)
@@ -150,10 +161,11 @@ server/storage/              # Storage abstraction layer
   memory.ts                  #   MemStorage (in-memory, dev only)
 
 server/db/                   # PostgreSQL (Drizzle ORM)
-  schema.ts                  #   Table definitions (15 tables + pgvector document_chunks)
+  schema.ts                  #   Table definitions (18+ tables + pgvector document_chunks)
   index.ts                   #   Database connection initialization
   migrate.ts                 #   Migration runner
   pg-storage.ts              #   PostgresStorage implementing IStorage
+  sync-schema.ts             #   Idempotent schema sync on startup (CREATE IF NOT EXISTS)
 
 server/workers/              # BullMQ worker processes (run separately)
   index.ts                   #   Worker entry point — starts all workers
@@ -278,6 +290,35 @@ Uses AWS Bedrock (Claude) for AI analysis. Per-org `bedrockModel` can be configu
 | GET | `/api/auth/google/callback` | Google OAuth callback |
 | POST | `/api/invitations/accept` | Accept team invitation |
 
+### SSO (Enterprise, per-org SAML 2.0)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/auth/sso/check/:orgSlug` | Pre-flight: check if SSO is available for org |
+| GET | `/api/auth/sso/:orgSlug` | Initiate SAML login redirect |
+| POST | `/api/auth/sso/callback` | SAML Assertion Consumer Service (ACS) |
+| GET | `/api/auth/sso/metadata/:orgSlug` | SP metadata for IDP configuration |
+
+### MFA (authenticated)
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/auth/mfa/setup` | Generate TOTP secret + QR code |
+| POST | `/api/auth/mfa/enable` | Verify code and enable MFA |
+| POST | `/api/auth/mfa/verify` | Verify MFA code during login |
+| POST | `/api/auth/mfa/disable` | Disable MFA for current user |
+
+### Password Reset (public)
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/auth/forgot-password` | Request password reset email |
+| POST | `/api/auth/reset-password` | Reset password with token |
+
+### Data Export (authenticated)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/export/calls` | Export calls as CSV |
+| GET | `/api/export/employees` | Export employees as CSV |
+| GET | `/api/export/performance` | Export performance data as CSV |
+
 ### Calls (authenticated, org-scoped)
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
@@ -386,6 +427,10 @@ Two user sources, checked in order:
 
 Plus optional **Google OAuth 2.0** (requires `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`).
 
+Plus **SAML 2.0 SSO** (Enterprise plan) — per-org IDP configuration stored in org settings (`ssoProvider`, `ssoSignOnUrl`, `ssoCertificate`). Uses `@node-saml/passport-saml` with MultiSamlStrategy. Pre-flight validation endpoint prevents redirect errors for invalid org slugs.
+
+Plus **MFA** (TOTP) — opt-in per user, can be required per org (`mfaRequired` in org settings). Uses TOTP with backup codes.
+
 Plus **API key auth** — header `X-API-Key: obs_k_...` for programmatic access. Keys are hashed (SHA-256), never stored in plaintext.
 
 On startup, env-var orgSlugs are resolved to orgIds. If an org doesn't exist for a slug, it's auto-created (backward compatibility).
@@ -437,6 +482,16 @@ LOG_LEVEL                       # Pino level: debug, info, warn, error (default:
 WEBHOOK_URL                     # Slack/Teams webhook for flagged call notifications
 WEBHOOK_EVENTS                  # Event types to notify (default: low_score,agent_misconduct,exceptional_call)
 
+# ─── Email (SMTP) ────────────────────────────────────────────────────
+SMTP_HOST                       # Email server hostname
+SMTP_PORT                       # Email server port (default: 587)
+SMTP_USER                       # Email authentication username
+SMTP_PASS                       # Email authentication password
+SMTP_FROM                       # Sender email address
+
+# ─── PHI Encryption ─────────────────────────────────────────────────
+PHI_ENCRYPTION_KEY              # 64-char hex for AES-256-GCM field-level encryption
+
 # ─── Optional ────────────────────────────────────────────────────────
 PORT                            # Server port (default: 5000)
 RETENTION_DAYS                  # Default retention policy (default: 90, overridden per-org)
@@ -445,28 +500,34 @@ DISABLE_SECURE_COOKIE           # Set to skip secure cookie flag (for non-TLS de
 
 ## Database Schema (PostgreSQL)
 
-16 tables defined in `server/db/schema.ts`:
+18+ tables defined in `server/db/schema.ts`, auto-synced on startup by `server/db/sync-schema.ts`:
 
 | Table | Key Indexes | Notes |
 |-------|-------------|-------|
-| `organizations` | unique on `slug` | Org settings stored as JSONB |
-| `users` | unique on `username`, index on `org_id` | Passwords hashed with scrypt |
+| `organizations` | unique on `slug` | Org settings stored as JSONB (includes SSO config, MFA policy) |
+| `users` | unique on `username`, index on `org_id` | Passwords hashed with scrypt. MFA fields: `mfa_enabled`, `mfa_secret`, `mfa_backup_codes` |
 | `employees` | unique on `(org_id, email)` | Per-org employee roster |
-| `calls` | index on `(org_id, status)`, `uploaded_at` | Links to employee |
+| `calls` | index on `(org_id, status)`, `uploaded_at` | Links to employee. `file_hash` for dedup, `call_category`, `tags` (JSONB) |
 | `transcripts` | unique on `call_id` | Cascade delete with call |
 | `sentiment_analyses` | unique on `call_id` | Cascade delete with call |
-| `call_analyses` | unique on `call_id`, index on `(org_id, performance_score)` | Cascade delete |
+| `call_analyses` | unique on `call_id`, index on `(org_id, performance_score)` | Cascade delete. `confidence_factors` (JSONB incl. `aiAnalysisCompleted`), `sub_scores`, `detected_agent_name`, `manual_edits` |
 | `access_requests` | index on `(org_id, status)` | |
 | `prompt_templates` | index on `(org_id, call_category)` | Per-org evaluation criteria |
 | `coaching_sessions` | index on `(org_id, status)`, `employee_id` | |
+| `coaching_recommendations` | index on `org_id` | Auto-generated coaching recommendations |
 | `api_keys` | unique on `key_hash` | SHA-256 hashed, never plaintext |
 | `invitations` | unique on `token` | Expirable team invitations |
 | `subscriptions` | unique on `org_id` | Stripe integration |
 | `reference_documents` | index on `(org_id, category)` | RAG source documents |
 | `document_chunks` | index on `org_id`, `document_id` | pgvector(1024) embeddings |
 | `usage_events` | index on `(org_id, event_type)`, `created_at` | Billing metering |
+| `password_reset_tokens` | unique on `token` | Expirable reset tokens |
+| `audit_logs` | index on `(org_id, event_type)`, `created_at` | Tamper-evident with `integrity_hash`, `prev_hash`, `sequence_num` |
 
 Requires pgvector extension: `CREATE EXTENSION IF NOT EXISTS vector;`
+
+### Auto Schema Sync (server/db/sync-schema.ts)
+On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add missing columns using `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`. This eliminates the need for `drizzle-kit push` (a devDependency) in production and prevents cascading 500 errors from missing tables/columns after deploys.
 
 ## HIPAA Compliance
 
@@ -484,12 +545,16 @@ Requires pgvector extension: `CREATE EXTENSION IF NOT EXISTS vector;`
 | **Encryption at rest** | Infrastructure | EBS encryption (EC2), S3 SSE, PostgreSQL disk encryption |
 | **Encryption in transit** | Infrastructure | Caddy auto-TLS (EC2), Render managed TLS |
 | **Tenant isolation** | `server/storage/` | All storage methods require orgId — cross-org access structurally impossible |
+| **MFA** | `server/routes/mfa.ts` | TOTP-based MFA, per-org mandatory option (`mfaRequired` in org settings) |
+| **PHI encryption** | `server/services/phi-encryption.ts` | AES-256-GCM application-level encryption for sensitive fields |
+| **Tamper-evident audit** | `server/db/sync-schema.ts` | `audit_logs` table with integrity hashes and sequence numbers |
 
 ## Key Design Decisions
 - **No AWS SDK**: S3, Bedrock, and Titan Embed all use raw REST APIs with manual SigV4 signing — reduces bundle size but means signing logic must be maintained manually in `s3.ts`, `bedrock.ts`, and `embeddings.ts`
 - **Hybrid storage**: PostgreSQL for structured data + S3 for audio blobs. The IStorage interface abstracts this — CloudStorage (S3 JSON files) still works as an alternative backend
 - **RAG as a plan feature**: RAG is gated by plan tier (`ragEnabled` in plan limits). Free tier doesn't include it
-- **Graceful degradation**: Every infrastructure dependency (Redis, PostgreSQL, S3, Bedrock, Stripe) has a fallback or graceful failure mode. The app runs with just `ASSEMBLYAI_API_KEY` and `SESSION_SECRET` (in-memory storage, no AI analysis, no billing)
+- **Graceful degradation**: Every infrastructure dependency (Redis, PostgreSQL, S3, Bedrock, Stripe) has a fallback or graceful failure mode. The app runs with just `ASSEMBLYAI_API_KEY` and `SESSION_SECRET` (in-memory storage, no AI analysis, no billing). When Bedrock fails, calls complete with default scores and the UI shows clear feedback
+- **Auto schema sync**: `server/db/sync-schema.ts` runs idempotent DDL on startup, eliminating the need for migration tooling in production
 - **Custom prompt templates**: Per-org, per-call-category evaluation criteria with required phrases and scoring weights
 - **Dark mode**: Toggle in settings; Recharts dark mode fixes use `!important` in `index.css` (`.dark .recharts-*`)
 - **Hooks ordering**: All React hooks in `transcript-viewer.tsx` MUST be called before early returns (isLoading/!call guards)
@@ -509,6 +574,10 @@ Internet → Caddy (:443, auto TLS) → Node.js (:5000) → PostgreSQL + S3 + Be
 - Build: `npm run build`, Start: `npm run start`
 - Env vars in Render dashboard
 - No `render.yaml` — configured via dashboard
+- URL: `https://observatory-qa-product.onrender.com`
+- Uses Neon PostgreSQL (external), Render Redis
+- **Required env vars**: `ASSEMBLYAI_API_KEY`, `SESSION_SECRET`, `DATABASE_URL`, `STORAGE_BACKEND=postgres`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `S3_BUCKET` (for audio storage), `REDIS_URL`
+- **Port**: Render expects port 10000 — set `PORT=10000`
 
 ### Build Output
 - Frontend: `dist/client/` (Vite)
@@ -519,7 +588,7 @@ Server serves both API and static frontend from the same process.
 
 ## Startup Sequence (server/index.ts)
 1. Initialize Redis (sessions, rate limiting, pub/sub)
-2. Initialize PostgreSQL storage (if configured)
+2. Initialize PostgreSQL storage (if configured) — runs `syncSchema(db)` to auto-create/update tables
 3. Initialize BullMQ job queues
 4. Set up auth (load env users, resolve org IDs, create orgs if needed)
 5. Register all API routes
@@ -531,6 +600,9 @@ Server serves both API and static frontend from the same process.
 
 ## Common Gotchas
 - AI responses may contain objects where strings are expected — always use `toDisplayString()` on frontend and `normalizeStringArray()` in `server/storage/types.ts` when rendering/storing AI data
+- **AI analysis failure is graceful**: When Bedrock is unavailable (bad credentials, region, permissions), calls still complete with default scores (5.0, neutral sentiment). The `confidenceFactors.aiAnalysisCompleted` flag tracks this. The UI shows an amber banner and hides fake scores when this happens
+- **`AI_PROVIDER` env var is NOT used** — the code always uses Bedrock exclusively. Don't be confused by legacy comments referencing multiple providers
+- **AWS Bedrock 403 errors**: Usually means invalid credentials, missing `bedrock:InvokeModel` IAM permission, or model not enabled in the target region. Remove `AWS_SESSION_TOKEN` unless using temporary STS credentials
 - The same IAM user is shared across multiple projects — IAM policy covers S3, Bedrock, and Textract
 - Recharts uses inline styles that override CSS; dark mode fixes use `!important`
 - TanStack Query key format: `["/api/calls", callId]` — used for caching
@@ -540,9 +612,13 @@ Server serves both API and static frontend from the same process.
 - pgvector extension must be installed manually: `CREATE EXTENSION IF NOT EXISTS vector;`
 - Workers must run as a separate process in production (`npm run workers`). Without Redis, job processing falls back to in-process execution
 - When adding new storage methods: update `IStorage` interface in `types.ts`, then implement in `memory.ts`, `cloud.ts`, and `pg-storage.ts`
+- **Schema sync on startup**: `sync-schema.ts` auto-creates tables/columns, so `drizzle-kit push` is not needed in production. Schema changes should be added to both `schema.ts` (for Drizzle) and `sync-schema.ts` (for runtime sync)
+- **SSO pre-flight validation**: Always use `/api/auth/sso/check/:orgSlug` before redirecting to `/api/auth/sso/:orgSlug` — prevents users seeing raw JSON error pages for invalid org slugs
+- **Font**: App uses Poppins (loaded via Google Fonts in `index.css`), chosen to match the Observatory logo typeface. Defined in `--font-sans` CSS variable
+- **Landing page wave animation**: Uses SVG SMIL `<animate>` elements on `<linearGradient>` stops for a traveling spark effect. CSS only handles `wave-drift` for gentle positional movement
 
 ## Future Plans / Roadmap
 - **Knowledge Base plan tier**: Offer the RAG knowledge base as a standalone $49/mo plan tier (alongside existing Free/Pro/Enterprise). Same codebase — conditionally show/hide call analysis UI based on plan. Architecture already supports this: RAG services (`chunker.ts`, `embeddings.ts`, `rag.ts`) are fully decoupled from call analysis
 - **Super-admin role**: Platform-level admin (not org-scoped) for managing all organizations — `SUPER_ADMIN_USERS` env var
-- **SSO**: Enterprise plan feature, currently schema-defined but not implemented
+- **SSO**: Enterprise plan feature, implemented via SAML 2.0 (`server/routes/sso.ts`) with per-org IDP config
 - **PostgreSQL migration**: Move remaining S3-only deployments to PostgreSQL for better query performance and transactional integrity

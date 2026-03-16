@@ -18,8 +18,12 @@ AI-powered call quality analysis for healthcare and compliance-driven organizati
 - **Custom evaluation templates** — per-call-category scoring criteria, required phrases, weighted scoring
 - **Coaching system** — create coaching sessions from call analysis, track action plans
 - **Role-based access** — viewer / manager / admin with hierarchical permissions
+- **SSO** — SAML 2.0 single sign-on (Enterprise plan, per-org IDP configuration)
+- **MFA** — TOTP-based multi-factor authentication, optional per-org enforcement
 - **Billing** — Stripe integration with Free / Pro ($99/mo) / Enterprise ($499/mo) tiers
-- **HIPAA compliant** — session timeouts, audit logging, encryption, rate limiting, data retention
+- **HIPAA compliant** — session timeouts, audit logging, MFA, PHI field encryption, rate limiting, data retention
+- **Data export** — CSV export for calls, employees, and performance data
+- **Password reset** — Self-service forgot-password flow via email
 - **Real-time updates** — WebSocket notifications for call processing status
 - **Dark mode** — full dark theme support
 
@@ -34,7 +38,7 @@ AI-powered call quality analysis for healthcare and compliance-driven organizati
 | Transcription | AssemblyAI |
 | RAG | pgvector, Amazon Titan Embed V2, BM25 hybrid search |
 | Jobs | BullMQ (Redis-backed) |
-| Auth | Passport.js (local + Google OAuth), session-based |
+| Auth | Passport.js (local + Google OAuth + SAML SSO), MFA (TOTP), session-based |
 | Billing | Stripe |
 | Logging | Pino + Betterstack |
 
@@ -85,7 +89,8 @@ REDIS_URL=redis://localhost:6379
 # Install pgvector extension (needed for RAG)
 psql -d observatory -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
-# Push schema to database
+# Schema auto-syncs on startup (sync-schema.ts creates tables/columns automatically)
+# Or manually push schema:
 npm run db:push
 ```
 
@@ -111,10 +116,10 @@ client/src/
 server/
   index.ts            # App entry point
   auth.ts             # Authentication + org context middleware
-  routes/             # 16 modular route files
-  services/           # AI provider (Bedrock), S3, Redis, RAG, Stripe, logging
+  routes/             # 20 modular route files (auth, SSO, MFA, calls, billing, export, etc.)
+  services/           # AI provider (Bedrock), S3, Redis, RAG, Stripe, email, PHI encryption
   storage/            # Storage abstraction (PostgreSQL, S3, memory)
-  db/                 # Drizzle ORM schema + PostgreSQL storage
+  db/                 # Drizzle ORM schema + PostgreSQL storage + auto schema sync
   workers/            # BullMQ worker processes
 
 shared/
@@ -157,6 +162,12 @@ The platform uses AWS Bedrock (Claude) for AI analysis. HIPAA-eligible with BAA.
 
 Configure with `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_REGION`. Per-org model override available via org settings (`bedrockModel`).
 
+**If AI analysis fails** (403 errors, bad credentials), calls still complete with default scores (5.0, neutral sentiment). The UI clearly indicates when AI analysis was unavailable. Common fixes:
+- Verify IAM user has `bedrock:InvokeModel` permission
+- Ensure Bedrock model access is enabled in your AWS region
+- Remove `AWS_SESSION_TOKEN` unless using temporary STS credentials
+- Note: `AI_PROVIDER` env var is not used — the code always uses Bedrock
+
 ## Plan Tiers
 
 | Feature | Free | Pro ($99/mo) | Enterprise ($499/mo) |
@@ -186,8 +197,9 @@ See [`deploy/ec2/README.md`](deploy/ec2/README.md) for a lean EC2 setup (~$13/mo
 Observatory QA implements healthcare-grade security controls:
 
 - **Encryption**: TLS in transit (Caddy/Render), encrypted at rest (EBS, S3 SSE, PostgreSQL)
-- **Access control**: Role-based permissions, 15-min session idle timeout, account lockout after 5 failed attempts
-- **Audit logging**: Structured JSON logs for all PHI access — user, org, action, timestamp
+- **Access control**: Role-based permissions, 15-min session idle timeout, account lockout after 5 failed attempts, MFA (TOTP)
+- **Audit logging**: Tamper-evident structured JSON logs with integrity hashes for all PHI access
+- **PHI encryption**: AES-256-GCM application-level field encryption for sensitive data
 - **Data retention**: Auto-purge calls per org policy (configurable, default 90 days)
 - **Tenant isolation**: All data access requires org context — cross-org access is structurally impossible
 - **Security headers**: CSP, HSTS, X-Frame-Options, X-Content-Type-Options, X-XSS-Protection
@@ -198,7 +210,7 @@ Observatory QA implements healthcare-grade security controls:
 npm run test
 ```
 
-12 test files covering schemas, routes, multi-tenancy, RBAC, billing, API keys, and more. Uses Node.js built-in test runner via tsx.
+12+ test files covering schemas, routes, multi-tenancy, RBAC, billing, API keys, and more. Uses Node.js built-in test runner via tsx.
 
 ## Environment Variables
 
