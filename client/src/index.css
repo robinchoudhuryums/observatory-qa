@@ -36,7 +36,7 @@
   --sidebar-accent-foreground: hsl(203.8863, 88.2845%, 53.1373%);
   --sidebar-border: hsl(205.0000, 25.0000%, 90.5882%);
   --sidebar-ring: hsl(202.8169, 89.1213%, 53.1373%);
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-sans: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: Menlo, monospace;
   /* Brand gradient defaults (overridden by BrandingProvider per-org) */
@@ -378,19 +378,10 @@
     wave-glow-sweep 5s ease-in-out infinite var(--glow-delay, 0s);
 }
 
-/* Landing page font — matches Observatory logo's geometric sans-serif style */
-.landing-page {
-  --font-landing: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-}
-
+/* Landing page headings — tighter tracking for large display text */
 .landing-page h1,
-.landing-page h2,
-.landing-page h3,
-.landing-page h4,
-.landing-page nav,
-.landing-page .landing-heading {
-  font-family: var(--font-landing);
-  letter-spacing: -0.02em;
+.landing-page h2 {
+  letter-spacing: -0.025em;
 }
 
 /* Landing hero: dark by default, light override */
