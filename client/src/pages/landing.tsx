@@ -9,40 +9,50 @@ interface LandingPageProps {
   onNavigate: (view: "login" | "register") => void;
 }
 
-/** Animated flowing wave lines — SVG-based, CSS-animated with color transitions and glow */
+/** Animated flowing wave lines — SVG-based with color shift, glow sweep, and blur layers */
 function WaveBackground() {
-  // Generate wave paths with varying amplitudes and phases
   const waves = Array.from({ length: 18 }, (_, i) => {
     const yBase = 150 + i * 22;
     const amplitude = 60 + Math.sin(i * 0.7) * 30;
     const phase = i * 25;
     const opacity = 0.15 + (i / 18) * 0.35;
-    // Base hue — will shift via CSS animation
-    const hue = 170 + (i / 18) * 160; // 170 (teal) → 330 (rose)
+    const hue = 170 + (i / 18) * 160; // teal → rose
     const saturation = 80 + Math.sin(i * 0.5) * 15;
 
     const d = `M-100,${yBase} C200,${yBase - amplitude + phase * 0.1} 400,${yBase + amplitude - phase * 0.05} 600,${yBase} C800,${yBase - amplitude * 0.7} 1000,${yBase + amplitude * 0.5} 1200,${yBase} C1400,${yBase - amplitude * 0.3} 1600,${yBase + amplitude * 0.8} 2000,${yBase}`;
 
+    const animStyle = {
+      animationDelay: `${i * 0.3}s`,
+      animationDuration: `${8 + i * 0.5}s`,
+      ["--hue-shift-delay" as string]: `${i * -0.8}s`,
+      ["--glow-delay" as string]: `${i * 0.25}s`,
+      ["--wave-base-opacity" as string]: `${opacity}`,
+    };
+
     return (
-      <path
-        key={i}
-        d={d}
-        fill="none"
-        stroke={`hsl(${hue}, ${saturation}%, 50%)`}
-        strokeWidth="1.5"
-        opacity={opacity}
-        className="wave-line"
-        style={{
-          animationDelay: `${i * 0.3}s`,
-          animationDuration: `${8 + i * 0.5}s`,
-          // Stagger the color shift so waves transition at different times
-          ["--hue-shift-delay" as string]: `${i * -0.8}s`,
-          ["--base-hue" as string]: `${hue}`,
-          ["--base-sat" as string]: `${saturation}%`,
-          // Stagger glow pulse per line for a sweep effect
-          ["--glow-delay" as string]: `${i * 0.25}s`,
-        }}
-      />
+      <g key={i}>
+        {/* Glow layer — blurred, wider stroke behind the main line */}
+        <path
+          d={d}
+          fill="none"
+          stroke={`hsl(${hue}, ${saturation}%, 60%)`}
+          strokeWidth="6"
+          opacity={opacity * 0.5}
+          className="wave-line-glow"
+          style={animStyle}
+          filter="url(#wave-blur)"
+        />
+        {/* Sharp foreground line */}
+        <path
+          d={d}
+          fill="none"
+          stroke={`hsl(${hue}, ${saturation}%, 50%)`}
+          strokeWidth="1.5"
+          opacity={opacity}
+          className="wave-line"
+          style={animStyle}
+        />
+      </g>
     );
   });
 
@@ -54,12 +64,8 @@ function WaveBackground() {
         className="absolute inset-0 w-full h-full"
       >
         <defs>
-          <filter id="wave-glow">
-            <feGaussianBlur stdDeviation="3" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
+          <filter id="wave-blur">
+            <feGaussianBlur stdDeviation="4" />
           </filter>
         </defs>
         {waves}
