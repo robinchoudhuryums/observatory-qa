@@ -334,7 +334,7 @@
 
 /* ── Landing Page ──────────────────────────────────────────── */
 
-/* Wave line animation — drift + color shift + glow pulse */
+/* Wave line animation — drift + brightness pulse + glow sweep */
 @keyframes wave-drift {
   0%, 100% { transform: translateX(0) translateY(0); }
   25% { transform: translateX(-15px) translateY(-8px); }
@@ -342,26 +342,40 @@
   75% { transform: translateX(-20px) translateY(-3px); }
 }
 
-@keyframes wave-color-shift {
-  0%   { stroke: hsl(calc(var(--base-hue)),        var(--base-sat), 50%); filter: none; }
-  25%  { stroke: hsl(calc(var(--base-hue) + 30),    var(--base-sat), 55%); filter: drop-shadow(0 0 4px currentColor); }
-  50%  { stroke: hsl(calc(var(--base-hue) + 60),    var(--base-sat), 50%); filter: none; }
-  75%  { stroke: hsl(calc(var(--base-hue) + 30),    var(--base-sat), 55%); filter: drop-shadow(0 0 6px currentColor); }
-  100% { stroke: hsl(calc(var(--base-hue)),         var(--base-sat), 50%); filter: none; }
+/* Glow sweep: opacity + stroke-width pulse that sweeps across lines via staggered delays */
+@keyframes wave-glow-sweep {
+  0%, 100% {
+    stroke-opacity: var(--wave-base-opacity, 0.25);
+    stroke-width: 1.5;
+  }
+  40%, 60% {
+    stroke-opacity: calc(var(--wave-base-opacity, 0.25) + 0.4);
+    stroke-width: 3;
+  }
 }
 
-@keyframes wave-glow-pulse {
-  0%, 100% { filter: none; opacity: var(--wave-base-opacity, 0.25); }
-  50% { filter: drop-shadow(0 0 8px currentColor); opacity: calc(var(--wave-base-opacity, 0.25) + 0.15); }
+/* Hue rotation via SVG filter — much more visible than CSS hsl calc */
+@keyframes wave-hue-rotate {
+  0%   { filter: hue-rotate(0deg) brightness(1); }
+  25%  { filter: hue-rotate(25deg) brightness(1.3); }
+  50%  { filter: hue-rotate(50deg) brightness(1); }
+  75%  { filter: hue-rotate(25deg) brightness(1.3); }
+  100% { filter: hue-rotate(0deg) brightness(1); }
 }
 
 .wave-line {
-  --base-hue: 200;
-  --base-sat: 80%;
   animation:
     wave-drift 10s ease-in-out infinite,
-    wave-color-shift 12s ease-in-out infinite var(--hue-shift-delay, 0s),
-    wave-glow-pulse 4s ease-in-out infinite var(--glow-delay, 0s);
+    wave-hue-rotate 15s ease-in-out infinite var(--hue-shift-delay, 0s),
+    wave-glow-sweep 5s ease-in-out infinite var(--glow-delay, 0s);
+}
+
+/* Glow layer: blurred duplicate paths rendered behind the sharp ones */
+.wave-line-glow {
+  animation:
+    wave-drift 10s ease-in-out infinite,
+    wave-hue-rotate 15s ease-in-out infinite var(--hue-shift-delay, 0s),
+    wave-glow-sweep 5s ease-in-out infinite var(--glow-delay, 0s);
 }
 
 /* Landing page font — matches Observatory logo's geometric sans-serif style */
