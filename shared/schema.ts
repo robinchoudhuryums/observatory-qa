@@ -477,6 +477,73 @@ export const insertPromptTemplateSchema = promptTemplateSchema.omit({ id: true }
 export type PromptTemplate = z.infer<typeof promptTemplateSchema>;
 export type InsertPromptTemplate = z.infer<typeof insertPromptTemplateSchema>;
 
+// --- BEDROCK MODEL PRESETS (for A/B testing and admin model selection) ---
+export const BEDROCK_MODEL_PRESETS = [
+  { value: "us.anthropic.claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Current)", cost: "$$" },
+  { value: "us.anthropic.claude-sonnet-4-20250514", label: "Claude Sonnet 4", cost: "$$" },
+  { value: "us.anthropic.claude-haiku-4-5-20251001", label: "Claude Haiku 4.5", cost: "$" },
+  { value: "anthropic.claude-3-haiku-20240307", label: "Claude 3 Haiku (Cheapest)", cost: "$" },
+  { value: "anthropic.claude-3-5-sonnet-20241022", label: "Claude 3.5 Sonnet v2", cost: "$$" },
+] as const;
+
+// --- A/B MODEL TEST SCHEMAS ---
+export const insertABTestSchema = z.object({
+  orgId: z.string(),
+  fileName: z.string(),
+  callCategory: z.string().optional(),
+  baselineModel: z.string(),
+  testModel: z.string(),
+  status: z.string().default("processing"),
+  transcriptText: z.string().optional(),
+  baselineAnalysis: z.record(z.unknown()).optional(),
+  testAnalysis: z.record(z.unknown()).optional(),
+  baselineLatencyMs: z.number().optional(),
+  testLatencyMs: z.number().optional(),
+  notes: z.string().optional(),
+  createdBy: z.string(),
+});
+
+export const abTestSchema = insertABTestSchema.extend({
+  id: z.string(),
+  createdAt: z.string().optional(),
+});
+
+export type InsertABTest = z.infer<typeof insertABTestSchema>;
+export type ABTest = z.infer<typeof abTestSchema>;
+
+// --- SPEND TRACKING / USAGE RECORD SCHEMAS ---
+export const usageRecordSchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  callId: z.string(),
+  type: z.enum(["call", "ab-test"]),
+  timestamp: z.string(),
+  user: z.string(),
+  services: z.object({
+    assemblyai: z.object({
+      durationSeconds: z.number().default(0),
+      estimatedCost: z.number().default(0),
+    }).optional(),
+    bedrock: z.object({
+      model: z.string(),
+      estimatedInputTokens: z.number().default(0),
+      estimatedOutputTokens: z.number().default(0),
+      estimatedCost: z.number().default(0),
+      latencyMs: z.number().optional(),
+    }).optional(),
+    bedrockSecondary: z.object({
+      model: z.string(),
+      estimatedInputTokens: z.number().default(0),
+      estimatedOutputTokens: z.number().default(0),
+      estimatedCost: z.number().default(0),
+      latencyMs: z.number().optional(),
+    }).optional(),
+  }),
+  totalEstimatedCost: z.number(),
+});
+
+export type UsageRecord = z.infer<typeof usageRecordSchema>;
+
 // --- ROLE DEFINITIONS ---
 export const USER_ROLES = [
   {

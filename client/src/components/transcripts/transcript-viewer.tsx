@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Link } from "wouter";
 import { useBeforeUnload } from "@/hooks/use-before-unload";
+import { toDisplayString } from "@/lib/display-utils";
 import type { CallWithDetails } from "@shared/schema";
 import { AudioWaveform } from "lucide-react";
 
@@ -96,23 +97,6 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
     }
     editMutation.mutate({ updates, reason: editReason.trim() });
   };
-
-  // Safely coerce a value to a display string (handles objects from Bedrock AI)
-  const toDisplayString = useCallback((val: unknown): string => {
-    if (val == null) return "";
-    if (typeof val === "string") return val;
-    if (typeof val === "number" || typeof val === "boolean") return String(val);
-    if (typeof val === "object") {
-      const obj = val as Record<string, unknown>;
-      if (typeof obj.text === "string") return obj.text;
-      if (typeof obj.name === "string") return obj.name;
-      if (typeof obj.task === "string") return obj.task;
-      if (typeof obj.label === "string") return obj.label;
-      if (typeof obj.description === "string") return obj.description;
-      return JSON.stringify(val);
-    }
-    return String(val);
-  }, []);
 
   // Build keyword set from detected topics for highlighting
   // MUST be called before any early returns to respect Rules of Hooks

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
-import { BarChart3, Upload, FileText, Heart, Users, UserPlus, Search, LogOut, User, TrendingUp, Sun, Moon, Shield, Building2, SlidersHorizontal, ClipboardCheck, Palette, ScrollText, Menu, X } from "lucide-react";
+import { BarChart3, Upload, FileText, Heart, Users, UserPlus, Search, LogOut, User, TrendingUp, Sun, Moon, Shield, Building2, SlidersHorizontal, ClipboardCheck, Palette, ScrollText, Menu, X, FlaskConical, DollarSign } from "lucide-react";
 import { ObservatoryLogo } from "@/components/observatory-logo";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
@@ -260,6 +260,8 @@ export default function Sidebar() {
             />
             <AdminLink href="/admin/templates" icon={SlidersHorizontal} label="Prompt Templates" testId="nav-link-templates" />
             <AdminLink href="/admin/settings" icon={Palette} label="Settings" testId="nav-link-settings" />
+            <AdminLink href="/admin/ab-testing" icon={FlaskConical} label="A/B Testing" testId="nav-link-ab-testing" />
+            <AdminLink href="/admin/spend-tracking" icon={DollarSign} label="Spend Tracking" testId="nav-link-spend-tracking" />
             <AdminLink href="/admin/audit-logs" icon={ScrollText} label="Audit Logs" testId="nav-link-audit-logs" />
           </>
         )}

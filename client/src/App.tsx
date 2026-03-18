@@ -53,6 +53,8 @@ const OnboardingWizard = lazy(() => import("@/pages/onboarding"));
 const AuthPage = lazy(() => import("@/pages/auth"));
 const LandingPage = lazy(() => import("@/pages/landing"));
 const InviteAcceptPage = lazy(() => import("@/pages/invite-accept"));
+const ABTestingPage = lazy(() => import("@/pages/ab-testing"));
+const SpendTrackingPage = lazy(() => import("@/pages/spend-tracking"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 function PageLoader() {
@@ -191,6 +193,8 @@ function Router() {
               <Route path="/admin/templates">{() => <ErrorBoundary><AnimatedPage><ProtectedRoute minRole="admin"><PromptTemplatesPage /></ProtectedRoute></AnimatedPage></ErrorBoundary>}</Route>
               <Route path="/admin/settings">{() => <ErrorBoundary><AnimatedPage><ProtectedRoute minRole="admin"><SettingsPage /></ProtectedRoute></AnimatedPage></ErrorBoundary>}</Route>
               <Route path="/admin/audit-logs">{() => <ErrorBoundary><AnimatedPage><ProtectedRoute minRole="admin"><AuditLogsPage /></ProtectedRoute></AnimatedPage></ErrorBoundary>}</Route>
+              <Route path="/admin/ab-testing">{() => <ErrorBoundary><AnimatedPage><ProtectedRoute minRole="admin"><ABTestingPage /></ProtectedRoute></AnimatedPage></ErrorBoundary>}</Route>
+              <Route path="/admin/spend-tracking">{() => <ErrorBoundary><AnimatedPage><ProtectedRoute minRole="admin"><SpendTrackingPage /></ProtectedRoute></AnimatedPage></ErrorBoundary>}</Route>
               <Route path="/onboarding">{() => <ErrorBoundary><OnboardingWizard /></ErrorBoundary>}</Route>
               <Route>{() => <AnimatedPage><NotFound /></AnimatedPage>}</Route>
             </Switch>

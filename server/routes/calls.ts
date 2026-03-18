@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import type { PromptTemplateConfig } from "../services/ai-provider";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import path from "path";
 import fs from "fs";
 import { storage, normalizeAnalysis } from "../storage";
@@ -16,7 +16,8 @@ import { upload, safeFloat, withRetry } from "./helpers";
 import { enforceQuota } from "./billing";
 import { logger } from "../services/logger";
 import { searchRelevantChunks, formatRetrievedContext } from "../services/rag";
-import { PLAN_DEFINITIONS, type PlanTier } from "@shared/schema";
+import { PLAN_DEFINITIONS, type PlanTier, type UsageRecord } from "@shared/schema";
+import { estimateBedrockCost, estimateAssemblyAICost } from "./ab-testing";
 
 // --- Reference document cache (per-org, avoids repeated DB queries) ---
 const REF_DOC_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -337,6 +338,40 @@ async function processAudioFile(orgId: string, callId: string, filePath: string,
     trackUsage({ orgId, eventType: "transcription", quantity: 1, metadata: { callId } });
     if (aiAnalysis) {
       trackUsage({ orgId, eventType: "ai_analysis", quantity: 1, metadata: { callId, model: aiProvider.name } });
+    }
+
+    // Record detailed spend/cost estimate
+    try {
+      const audioDuration = Math.floor((transcriptResponse.words?.[transcriptResponse.words.length - 1]?.end || 0) / 1000);
+      const assemblyaiCost = estimateAssemblyAICost(audioDuration);
+      const estimatedInputTokens = Math.ceil((transcriptResponse.text || "").length / 4) + 500;
+      const estimatedOutputTokens = 800;
+      const bedrockModel = process.env.BEDROCK_MODEL || "us.anthropic.claude-sonnet-4-6";
+      const bedrockCost = aiAnalysis ? estimateBedrockCost(bedrockModel, estimatedInputTokens, estimatedOutputTokens) : 0;
+
+      const spendRecord: UsageRecord = {
+        id: randomUUID(),
+        orgId,
+        callId,
+        type: "call",
+        timestamp: new Date().toISOString(),
+        user: "system",
+        services: {
+          assemblyai: { durationSeconds: audioDuration, estimatedCost: Math.round(assemblyaiCost * 10000) / 10000 },
+          ...(aiAnalysis ? {
+            bedrock: {
+              model: bedrockModel,
+              estimatedInputTokens,
+              estimatedOutputTokens,
+              estimatedCost: Math.round(bedrockCost * 10000) / 10000,
+            },
+          } : {}),
+        },
+        totalEstimatedCost: Math.round((assemblyaiCost + bedrockCost) * 10000) / 10000,
+      };
+      await storage.createUsageRecord(orgId, spendRecord);
+    } catch (spendErr) {
+      logger.warn({ callId, err: spendErr }, "Failed to record spend (non-blocking)");
     }
 
   } catch (error) {
