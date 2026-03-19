@@ -9,7 +9,22 @@ export const orgBrandingSchema = z.object({
   onboardingCompleted: z.boolean().optional(),
 });
 
+export const INDUSTRY_TYPES = [
+  { value: "contact_center", label: "Contact Center / Call Center" },
+  { value: "healthcare", label: "Healthcare (General)" },
+  { value: "dental", label: "Dental Practice" },
+  { value: "behavioral_health", label: "Behavioral Health" },
+  { value: "insurance", label: "Insurance" },
+  { value: "financial", label: "Financial Services" },
+  { value: "legal", label: "Legal" },
+  { value: "veterinary", label: "Veterinary" },
+  { value: "other", label: "Other" },
+] as const;
+
+export type IndustryType = typeof INDUSTRY_TYPES[number]["value"];
+
 export const orgSettingsSchema = z.object({
+  industryType: z.string().optional(),
   emailDomain: z.string().optional(),
   departments: z.array(z.string()).optional(),
   subTeams: z.record(z.string(), z.array(z.string())).optional(),
@@ -32,6 +47,24 @@ export const orgSettingsSchema = z.object({
   ssoEnforced: z.boolean().optional(), // When true, only SSO login allowed
   // MFA enforcement (HIPAA recommended safeguard)
   mfaRequired: z.boolean().optional(), // When true, all users in this org must enable MFA
+  // EHR integration configuration
+  ehrConfig: z.object({
+    system: z.enum(["open_dental", "eaglesoft", "dentrix"]),
+    baseUrl: z.string(),
+    apiKey: z.string().optional(),
+    options: z.record(z.string()).optional(),
+    enabled: z.boolean().default(false),
+  }).optional(),
+  // Provider-specific clinical note style preferences (self-learning feature)
+  providerStylePreferences: z.record(z.string(), z.object({
+    noteFormat: z.string().optional(),
+    sectionOrder: z.array(z.string()).optional(),
+    abbreviationLevel: z.enum(["minimal", "moderate", "heavy"]).optional(),
+    includeNegativePertinents: z.boolean().optional(),
+    defaultSpecialty: z.string().optional(),
+    customSections: z.array(z.string()).optional(),
+    templateOverrides: z.record(z.string()).optional(),
+  })).optional(),
 });
 
 export const insertOrganizationSchema = z.object({

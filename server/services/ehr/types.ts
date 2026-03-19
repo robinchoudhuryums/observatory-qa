@@ -87,6 +87,8 @@ export interface EhrConnectionConfig {
   apiKey?: string;
   /** Additional system-specific configuration */
   options?: Record<string, string>;
+  /** Whether this integration is active */
+  enabled?: boolean;
 }
 
 export interface EhrSyncResult {

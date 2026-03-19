@@ -3,7 +3,7 @@ import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { storage } from "../storage";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
-import { decryptField } from "../services/phi-encryption";
+import { decryptField, encryptField } from "../services/phi-encryption";
 import { PLAN_DEFINITIONS, type PlanTier } from "@shared/schema";
 
 /**
@@ -133,12 +133,138 @@ export function registerClinicalRoutes(app: Express): void {
     }
   });
 
+  // Edit clinical note fields (provider correction before attestation)
+  app.patch("/api/clinical/notes/:callId", requireAuth, injectOrgContext, requireClinicalPlan(), requireRole("manager", "admin"), async (req, res) => {
+    try {
+      const analysis = await storage.getCallAnalysis(req.orgId!, req.params.callId) as any;
+      if (!analysis?.clinicalNote) {
+        res.status(404).json({ message: "No clinical note found for this encounter" });
+        return;
+      }
+
+      // Don't allow editing attested notes without re-attestation
+      if (analysis.clinicalNote.providerAttested) {
+        analysis.clinicalNote.providerAttested = false;
+        analysis.clinicalNote.attestedBy = undefined;
+        analysis.clinicalNote.attestedAt = undefined;
+      }
+
+      const allowedFields = [
+        "chiefComplaint", "subjective", "objective", "assessment", "plan",
+        "hpiNarrative", "reviewOfSystems", "differentialDiagnoses",
+        "icd10Codes", "cptCodes", "cdtCodes", "prescriptions", "followUp",
+        "toothNumbers", "quadrants", "periodontalFindings", "treatmentPhases",
+        "format", "specialty",
+      ];
+
+      const edits: Record<string, unknown> = {};
+      for (const field of allowedFields) {
+        if (req.body[field] !== undefined) {
+          edits[field] = req.body[field];
+        }
+      }
+
+      // Encrypt PHI fields before storage
+      const phiFields = ["subjective", "objective", "assessment", "hpiNarrative", "chiefComplaint"];
+      for (const field of phiFields) {
+        if (typeof edits[field] === "string") {
+          analysis.clinicalNote[field] = encryptField(edits[field] as string);
+          delete edits[field]; // Already handled
+        }
+      }
+
+      // Apply non-PHI edits directly
+      Object.assign(analysis.clinicalNote, edits);
+
+      // Track edit history
+      if (!analysis.clinicalNote.editHistory) {
+        analysis.clinicalNote.editHistory = [];
+      }
+      analysis.clinicalNote.editHistory.push({
+        editedBy: (req as any).user?.name || (req as any).user?.username,
+        editedAt: new Date().toISOString(),
+        fieldsChanged: Object.keys(req.body).filter(k => allowedFields.includes(k)),
+      });
+
+      await storage.createCallAnalysis(req.orgId!, analysis);
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "edit_clinical_note",
+        resourceType: "clinical_note",
+        resourceId: req.params.callId,
+        detail: `Edited fields: ${Object.keys(edits).join(", ")}`,
+      });
+
+      logger.info({ callId: req.params.callId, fields: Object.keys(edits) }, "Clinical note edited");
+      res.json({ success: true, message: "Clinical note updated. Re-attestation required." });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to edit clinical note");
+      res.status(500).json({ message: "Failed to edit clinical note" });
+    }
+  });
+
+  // Get/update provider style preferences for clinical note generation
+  app.get("/api/clinical/provider-preferences", requireAuth, injectOrgContext, requireClinicalPlan(), async (req, res) => {
+    try {
+      const org = await storage.getOrganization(req.orgId!);
+      const userId = (req as any).user?.id || "unknown";
+      const prefs = (org?.settings as any)?.providerStylePreferences?.[userId] || {};
+      res.json(prefs);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to get provider preferences");
+      res.status(500).json({ message: "Failed to get provider preferences" });
+    }
+  });
+
+  app.patch("/api/clinical/provider-preferences", requireAuth, injectOrgContext, requireClinicalPlan(), async (req, res) => {
+    try {
+      const org = await storage.getOrganization(req.orgId!);
+      if (!org) {
+        res.status(404).json({ message: "Organization not found" });
+        return;
+      }
+
+      const userId = (req as any).user?.id || "unknown";
+      const allowedPrefFields = [
+        "noteFormat", "sectionOrder", "abbreviationLevel",
+        "includeNegativePertinents", "defaultSpecialty",
+        "customSections", "templateOverrides",
+      ];
+
+      const updates: Record<string, unknown> = {};
+      for (const field of allowedPrefFields) {
+        if (req.body[field] !== undefined) {
+          updates[field] = req.body[field];
+        }
+      }
+
+      const settings = org.settings || {};
+      const allPrefs = (settings as any).providerStylePreferences || {};
+      allPrefs[userId] = { ...allPrefs[userId], ...updates };
+
+      await storage.updateOrganization(req.orgId!, {
+        settings: { ...settings, providerStylePreferences: allPrefs } as any,
+      });
+
+      logger.info({ orgId: req.orgId, userId, fields: Object.keys(updates) }, "Provider style preferences updated");
+      res.json({ success: true, preferences: allPrefs[userId] });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to update provider preferences");
+      res.status(500).json({ message: "Failed to update provider preferences" });
+    }
+  });
+
   // Get clinical dashboard metrics
   app.get("/api/clinical/metrics", requireAuth, injectOrgContext, requireClinicalPlan(), async (req, res) => {
     try {
       const calls = await storage.getCallsWithDetails(req.orgId!, {});
+      const clinicalCategories = [
+        "clinical_encounter", "telemedicine",
+        "dental_encounter", "dental_consultation",
+      ];
       const clinicalCalls = calls.filter((c: any) =>
-        c.callCategory === "clinical_encounter" || c.callCategory === "telemedicine"
+        clinicalCategories.includes(c.callCategory)
       );
 
       const completed = clinicalCalls.filter((c: any) => c.status === "completed");
