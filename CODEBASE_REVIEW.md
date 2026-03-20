@@ -399,3 +399,268 @@ Multiple concurrent requests can create duplicate provider instances for the sam
 - **#16 Indexing worker missing error handler** — **RESOLVED**: `worker.on("failed")` handler added
 - **#18 Error handler exposes internal messages** — **RESOLVED**: Returns generic "Internal Server Error" for status >= 500
 - **#28 Package naming** — **RESOLVED**: Changed from `"rest-express"` to `"observatory-qa"`
+
+---
+
+# Review Pass #2 — 2026-03-20
+
+## Executive Summary
+
+Follow-up review after initial fixes were applied. Focus areas: **query performance at scale**, **frontend optimization**, **schema correctness**, **test gaps**, and **architecture evolution**. The P0 query issues from the initial review (#2, #12) were partially addressed, but deeper patterns remain.
+
+---
+
+## P0 — Critical Performance (Will Break at Scale)
+
+### 35. SearchCalls Still Loads All Calls Then Filters In-Memory
+
+**File**: `server/db/pg-storage.ts` — `searchCalls()` method
+
+Even after `getCallByFileHash()` was added (#2), the search endpoint still:
+1. Queries `transcripts` for ILIKE matches
+2. Calls `getCallsWithDetails(orgId)` loading **every call** for the org
+3. Filters the full result set in memory
+
+For an org with 10K calls where search matches 5 results, this loads all 10K calls with transcripts, sentiments, and analyses.
+
+**Fix**: Replace with a JOIN query:
+```sql
+SELECT c.* FROM calls c
+JOIN transcripts t ON c.id = t.call_id
+WHERE t.text ILIKE $1 AND c.org_id = $2
+LIMIT $3 OFFSET $4
+```
+
+### 36. getCallsWithDetails Fetches All Related Data Without Filtering
+
+**File**: `server/db/pg-storage.ts` — `getCallsWithDetails()` method
+
+Loads ALL employees, transcripts, sentiments, and analyses for the entire org in separate queries, then joins in memory. Even with `getCallSummaries()` added for reports (#12), the original method is still called from search, dashboard, and call detail endpoints.
+
+**Fix**: Accept optional `callIds?: number[]` parameter and filter in SQL:
+```sql
+WHERE org_id = $1 AND call_id = ANY($2::int[])
+```
+
+### 37. getTopPerformers Aggregates All Calls In-Memory
+
+**File**: `server/db/pg-storage.ts` — `getTopPerformers()` method
+
+Loads all calls, manually computes per-employee averages, then sorts. Should use SQL aggregation:
+```sql
+SELECT employee_id, AVG(performance_score::numeric) as avg_score
+FROM call_analyses WHERE org_id = $1
+GROUP BY employee_id
+ORDER BY avg_score DESC
+LIMIT $2
+```
+
+---
+
+## P1 — High Priority
+
+### 38. Score Fields Typed as Strings Instead of Numbers in Zod Schemas
+
+**File**: `shared/schema.ts`
+
+| Field | Current Type | Should Be |
+|-------|-------------|-----------|
+| `overallScore` (Sentiment) | `z.string().optional()` | `z.number().optional()` |
+| `performanceScore` (Analysis) | `z.string().optional()` | `z.number().optional()` |
+| `confidenceScore` (Analysis) | `z.string().optional()` | `z.number().optional()` |
+
+Server code does `transcriptConfidence * 0.4` (numeric ops) but schema allows strings. Frontend string comparison: `"9" > "80"` evaluates to `true`.
+
+**Fix**: Use `z.coerce.number().optional()` during migration, then enforce `z.number()`.
+
+### 39. orgId Still Optional on 8+ Insert Schemas
+
+**File**: `shared/schema.ts`
+
+Despite #6 fixing `insertUserSchema`, these still have `orgId: z.string().optional()`:
+- `insertEmployeeSchema`, `insertCallSchema`, `insertTranscriptSchema`
+- `insertSentimentAnalysisSchema`, `insertCallAnalysisSchema`
+- `insertAccessRequestSchema`, `insertInvitationSchema`, `insertCoachingSessionSchema`
+
+In multi-tenant SaaS, orgId must never be optional at the storage layer.
+
+### 40. Reference Document Cache Key Mismatch
+
+**File**: `server/routes/calls.ts` — refDocCache
+
+Cache stores documents keyed by `orgId` but lookups use `${orgId}:${callCategory}`, causing cache misses even when documents are already cached for a different category.
+
+### 41. No Timeouts on External API Calls
+
+**Files**: `server/services/bedrock.ts`, `server/services/assemblyai.ts`
+
+AI analysis and transcription calls have no timeout. A hung Bedrock or AssemblyAI request blocks the pipeline indefinitely.
+
+**Fix**: Add `AbortController` with timeout (120s for AI, 300s for transcription polling).
+
+### 42. Frontend: WebSocket Event Listener Memory Leak
+
+**File**: `client/src/components/upload/file-upload.tsx` lines ~40-62
+
+Uses `window.addEventListener("ws:call_update", handler)` without cleanup on unmount. Repeated mount/unmount cycles accumulate dangling listeners.
+
+### 43. Frontend: TanStack Query Key Fragmentation
+
+Same API endpoint (`/api/calls`) cached under different keys depending on filter object shapes (empty strings vs undefined). Causes duplicate network requests and stale cache.
+
+**Fix**: Centralized query key factory with normalized filter shapes.
+
+---
+
+## P2 — Medium Priority
+
+### 44. In-Memory Rate Limit Maps Grow Unbounded
+
+**File**: `server/index.ts`
+
+Rate limiting maps use periodic cleanup but grow unbounded under sustained load. Use LRU cache or ensure Redis-backed rate limiting is primary.
+
+### 45. AUTH_USERS Parsing Breaks on Colons in Passwords
+
+**File**: `server/auth.ts`
+
+Splits on `:` without limit — passwords containing colons silently corrupt parsing.
+
+### 46. Missing React.memo on List Item Components
+
+**Files**: `client/src/components/search/call-card.tsx`, employee/metric cards
+
+List items re-render on every parent state change. For 50+ items, creates visible jank.
+
+### 47. Dashboard Computed Arrays Not Memoized
+
+**File**: `client/src/pages/dashboard.tsx`
+
+`flaggedCalls`, `badCalls`, `goodCalls` recomputed every render. Wrap in `useMemo`.
+
+### 48. No Debouncing on Table Filters
+
+**File**: `client/src/components/tables/calls-table.tsx`
+
+Filter changes trigger immediate refetches. Add 300ms debounce.
+
+### 49. Accessibility Gaps
+
+- Icon-only sort buttons lack `aria-label` (calls-table.tsx)
+- Sidebar uses `<div>` instead of `<nav>` element
+- Custom branding colors not validated against WCAG AA contrast
+- Logo images lack meaningful `alt` text
+- No `prefers-reduced-motion` check for Framer Motion animations
+
+### 50. Stripe Price IDs Missing from .env.example
+
+`STRIPE_PRICE_*` variables referenced in billing routes but not documented in `.env.example`.
+
+---
+
+## P3 — Tech Debt
+
+### 51. Expired API Keys Never Purged
+Checked at request time but never cleaned from database. Add periodic cleanup job.
+
+### 52. Inconsistent Pagination
+`/api/calls` supports limit/offset, `/api/reports/filtered` doesn't, `/api/dashboard/performers` supports limit only.
+
+### 53. No Centralized Error Codes
+API returns freeform messages. Add structured error codes for client-side handling:
+```json
+{ "error": { "code": "CALL_NOT_FOUND", "message": "..." } }
+```
+
+### 54. No E2E Tests
+Package references Playwright but no test files exist. Critical flows (upload → transcription → analysis → dashboard) need coverage.
+
+### 55. SigV4 Signing Still Duplicated
+`server/services/s3.ts`, `bedrock.ts`, `embeddings.ts` each have their own SigV4 implementation.
+
+---
+
+## Test Coverage Status
+
+| Area | Coverage | Priority |
+|------|----------|----------|
+| Schema validation | Good | — |
+| Multi-tenant isolation | Good | — |
+| RBAC | Good | — |
+| Audio pipeline | Basic (error paths missing) | High |
+| Rate limiting | None | Medium |
+| Graceful degradation | None | Medium |
+| Search (large datasets) | None | High |
+| API key lifecycle | None | Low |
+| RAG system | None | Medium |
+| Frontend components | None | Low |
+| E2E flows | None | Medium |
+
+---
+
+## Architecture Evolution Roadmap
+
+### Phase 1: Scale to 100 Orgs (Current Architecture, Query Fixes)
+
+**Database query optimization** — Fix P0 items #35-37. This alone extends supported org size 10x.
+
+**Connection pooling** — Add PgBouncer between app and PostgreSQL. Drizzle's default pool settings may exhaust connections under concurrent uploads across many orgs.
+
+**Streaming responses** — Dashboard endpoints returning all calls should use cursor-based pagination.
+
+**CDN for static assets** — Move `dist/client/` behind CloudFront. Currently served by the same Node process.
+
+### Phase 2: Scale to 1,000 Orgs (Infrastructure Changes)
+
+**Reliable background jobs** — Replace remaining fire-and-forget patterns with BullMQ jobs (S3 archival, email, coaching alerts). Gives retry, backoff, and dead-letter queues.
+
+**Read replicas** — Dashboard/reporting queries should hit a read replica to avoid contending with upload/analysis writes.
+
+**Redis caching layer** — Cache:
+- Dashboard metrics (TTL: 60s)
+- Employee lists (TTL: 5min)
+- Prompt templates (TTL: 10min, invalidate on update)
+
+**API versioning** — Add `/api/v1/` prefix before the API surface grows further.
+
+### Phase 3: Scale to 10,000+ Orgs (Architecture Rework)
+
+**Horizontal scaling** — Split the single process into:
+- Stateless API servers behind a load balancer
+- Dedicated WebSocket server (Redis pub/sub for cross-instance messaging — partially built)
+- Worker processes (already separated)
+- Static files via CDN
+
+**PostgreSQL Row-Level Security** — RLS policies as defense-in-depth for multi-tenant isolation, supplementing application-level orgId filtering.
+
+**Observability** — Beyond Pino + Betterstack:
+- OpenTelemetry distributed tracing
+- Prometheus custom metrics (calls/min, analysis latency, queue depth)
+- SLA-based alerting
+
+**Secrets management** — Move from `.env` plaintext to AWS Secrets Manager / Parameter Store.
+
+### Feature Opportunities
+
+| Feature | Effort | Revenue Impact | Architecture Ready? |
+|---------|--------|---------------|-------------------|
+| **Knowledge Base standalone plan** ($49/mo) | 1-2 weeks | New revenue stream | Yes — RAG fully decoupled |
+| **Super-admin dashboard** | 2-3 weeks | Operational efficiency | Partially — needs cross-org queries |
+| **SSO (Enterprise)** | 3-4 weeks | Enterprise upsell | Schema ready, implementation needed |
+| **Real-time coaching** | 2-3 weeks | Differentiator | WebSocket infra exists |
+| **Trend detection & anomaly alerts** | 3-4 weeks | Retention driver | Needs new analytics queries |
+| **API marketplace / integrations** | 4-6 weeks | Platform play | API key system exists |
+| **White-label / custom domains** | 2-3 weeks | Enterprise upsell | Branding system exists |
+
+---
+
+## Summary — Review Pass #2
+
+| Priority | New Items | Key Theme |
+|----------|-----------|-----------|
+| P0 | 3 | Query performance at scale |
+| P1 | 6 | Schema correctness, frontend reliability |
+| P2 | 7 | UX polish, accessibility, config |
+| P3 | 5 | Tech debt, consistency |
+
+**Bottom line**: The codebase improved significantly after the first review. The remaining critical work is **database query optimization** (#35-37) — these are straightforward Drizzle ORM changes that will prevent the platform from hitting a wall as orgs grow past a few hundred calls. The frontend is well-built but needs memoization and query key discipline for smooth UX at scale.
