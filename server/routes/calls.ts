@@ -20,6 +20,7 @@ import { PLAN_DEFINITIONS, CALL_CATEGORIES, type PlanTier, type UsageRecord } fr
 import { estimateBedrockCost, estimateAssemblyAICost } from "./ab-testing";
 import { encryptField, decryptField } from "../services/phi-encryption";
 import { calibrateAnalysis } from "../services/scoring-calibration";
+import { validateClinicalNote, sanitizeStylePreferences } from "../services/clinical-validation";
 
 // --- Reference document cache (per-org, avoids repeated DB queries) ---
 const REF_DOC_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -137,11 +138,13 @@ async function processAudioFile(orgId: string, callId: string, filePath: string,
         const providerPrefs = userId && (org?.settings as any)?.providerStylePreferences?.[userId];
         if (providerPrefs) {
           if (!promptTemplate) promptTemplate = {};
-          promptTemplate.providerStylePreferences = providerPrefs;
-          if (providerPrefs.defaultSpecialty) {
-            promptTemplate.clinicalSpecialty = providerPrefs.defaultSpecialty;
+          // Sanitize preferences to prevent prompt injection
+          const sanitizedPrefs = sanitizeStylePreferences(providerPrefs);
+          promptTemplate.providerStylePreferences = sanitizedPrefs as any;
+          if (sanitizedPrefs.defaultSpecialty) {
+            promptTemplate.clinicalSpecialty = sanitizedPrefs.defaultSpecialty as string;
           }
-          logger.info({ callId, userId }, "Injecting provider style preferences into clinical prompt");
+          logger.info({ callId, userId }, "Injecting sanitized provider style preferences into clinical prompt");
         }
       } catch (prefErr) {
         logger.warn({ callId, err: prefErr }, "Failed to load provider preferences (continuing without)");
@@ -238,6 +241,22 @@ async function processAudioFile(orgId: string, callId: string, filePath: string,
       }
     } else if (!aiProvider.isAvailable) {
       logger.info({ callId, step: "4/6" }, "AI provider not configured, using transcript-based defaults");
+    }
+
+    // Warn on clinical calls where AI analysis failed (no clinical note generated)
+    if (callCategory && clinicalCategories.includes(callCategory) && !aiAnalysis?.clinical_note) {
+      const reason = !aiProvider.isAvailable
+        ? "AI provider not configured"
+        : aiAnalysis === null
+          ? "AI analysis failed"
+          : "AI response did not include clinical note";
+      logger.warn({ callId, callCategory, reason }, "Clinical encounter processed without clinical note generation");
+      // Flag the call so the UI can show a clear warning
+      broadcastCallUpdate(callId, "analyzing", {
+        step: 4, totalSteps: 6,
+        label: "Warning: Clinical note could not be generated",
+        warning: `Clinical note was not generated: ${reason}. The call will complete with standard analysis only.`,
+      }, orgId);
     }
 
     // Step 5: Process combined results
@@ -354,6 +373,29 @@ async function processAudioFile(orgId: string, callId: string, filePath: string,
         periodontalFindings: cn_raw.periodontal_findings,
         treatmentPhases: cn_raw.treatment_phases,
       };
+
+      // Validate clinical note completeness (before encryption)
+      const validation = validateClinicalNote(analysis.clinicalNote as any);
+      if (!validation.valid) {
+        logger.warn({
+          callId,
+          format: validation.format,
+          missingSections: validation.missingSections,
+          emptySections: validation.emptySections,
+        }, "Clinical note has missing or empty required sections");
+        // Merge server-detected missing sections with AI-reported ones
+        const aiMissing = analysis.clinicalNote.missingSections || [];
+        analysis.clinicalNote.missingSections = Array.from(new Set([...aiMissing, ...validation.missingSections, ...validation.emptySections]));
+      }
+      // Use server-computed completeness if AI didn't provide one or provided 0
+      if (!analysis.clinicalNote.documentationCompleteness || analysis.clinicalNote.documentationCompleteness === 0) {
+        analysis.clinicalNote.documentationCompleteness = validation.computedCompleteness;
+      }
+      // Store validation warnings for downstream consumers
+      if (validation.warnings.length > 0) {
+        (analysis.clinicalNote as any).validationWarnings = validation.warnings;
+        logger.info({ callId, warnings: validation.warnings }, "Clinical note validation warnings");
+      }
 
       // Encrypt PHI fields in clinical notes
       const cn = analysis.clinicalNote;
