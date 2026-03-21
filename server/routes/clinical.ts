@@ -303,80 +303,85 @@ export function registerClinicalRoutes(app: Express): void {
   // Get clinical dashboard metrics (enhanced)
   app.get("/api/clinical/metrics", requireAuth, injectOrgContext, requireClinicalPlan(), async (req, res) => {
     try {
-      const calls = await storage.getCallsWithDetails(req.orgId!, {});
+      const orgId = req.orgId!;
       const clinicalCategories = [
         "clinical_encounter", "telemedicine",
         "dental_encounter", "dental_consultation",
       ];
-      const clinicalCalls = calls.filter((c: any) =>
-        clinicalCategories.includes(c.callCategory)
-      );
 
-      const completed = clinicalCalls.filter((c: any) => c.status === "completed");
-      const withNotes = completed.filter((c: any) => c.analysis?.clinicalNote);
-      const attested = withNotes.filter((c: any) => c.analysis?.clinicalNote?.providerAttested);
+      // Query only clinical calls with their analyses (not all calls + all related data)
+      const clinicalRows = await storage.getClinicalCallMetrics?.(orgId, clinicalCategories);
+
+      // Fallback for non-postgres storage backends
+      if (!clinicalRows) {
+        res.json({
+          totalEncounters: 0, completedEncounters: 0, notesGenerated: 0,
+          notesAttested: 0, pendingAttestation: 0, avgDocumentationCompleteness: 0,
+          avgClinicalAccuracy: 0, attestationRate: 0, avgAttestationTimeMinutes: null,
+          formatDistribution: {}, specialtyDistribution: {},
+          attestationTrend: [], completenessDistribution: [],
+        });
+        return;
+      }
+
+      const { totalEncounters, completed, notesWithData } = clinicalRows;
+
+      const withNotes = notesWithData.filter(n => n.clinicalNote);
+      const attested = withNotes.filter(n => n.clinicalNote?.providerAttested);
 
       const avgCompleteness = withNotes.length > 0
-        ? withNotes.reduce((sum: number, c: any) => sum + (c.analysis?.clinicalNote?.documentationCompleteness || 0), 0) / withNotes.length
+        ? withNotes.reduce((sum: number, n) => sum + (n.clinicalNote?.documentationCompleteness || 0), 0) / withNotes.length
         : 0;
 
       const avgAccuracy = withNotes.length > 0
-        ? withNotes.reduce((sum: number, c: any) => sum + (c.analysis?.clinicalNote?.clinicalAccuracy || 0), 0) / withNotes.length
+        ? withNotes.reduce((sum: number, n) => sum + (n.clinicalNote?.clinicalAccuracy || 0), 0) / withNotes.length
         : 0;
 
-      // Enhanced: format distribution
       const formatDist: Record<string, number> = {};
-      for (const c of withNotes) {
-        const fmt = (c as any).analysis?.clinicalNote?.format || "soap";
+      for (const n of withNotes) {
+        const fmt = n.clinicalNote?.format || "soap";
         formatDist[fmt] = (formatDist[fmt] || 0) + 1;
       }
 
-      // Enhanced: specialty distribution
       const specialtyDist: Record<string, number> = {};
-      for (const c of withNotes) {
-        const sp = (c as any).analysis?.clinicalNote?.specialty || "unspecified";
+      for (const n of withNotes) {
+        const sp = n.clinicalNote?.specialty || "unspecified";
         specialtyDist[sp] = (specialtyDist[sp] || 0) + 1;
       }
 
-      // Enhanced: attestation trend (last 7 days)
+      // Attestation trend (last 7 days)
       const now = new Date();
       const attestationTrend: Array<{ date: string; attested: number; total: number }> = [];
       for (let d = 6; d >= 0; d--) {
         const day = new Date(now);
         day.setDate(day.getDate() - d);
         const dayStr = day.toISOString().split("T")[0];
-        const dayNotes = withNotes.filter((c: any) => {
-          const uploaded = c.uploadedAt ? new Date(c.uploadedAt).toISOString().split("T")[0] : "";
+        const dayNotes = withNotes.filter(n => {
+          const uploaded = n.uploadedAt ? new Date(n.uploadedAt).toISOString().split("T")[0] : "";
           return uploaded === dayStr;
         });
-        const dayAttested = dayNotes.filter((c: any) => c.analysis?.clinicalNote?.providerAttested);
+        const dayAttested = dayNotes.filter(n => n.clinicalNote?.providerAttested);
         attestationTrend.push({ date: dayStr, attested: dayAttested.length, total: dayNotes.length });
       }
 
-      // Enhanced: completeness distribution (buckets 0-2, 2-4, 4-6, 6-8, 8-10)
       const completenessDist = [0, 0, 0, 0, 0];
-      for (const c of withNotes) {
-        const score = (c as any).analysis?.clinicalNote?.documentationCompleteness || 0;
+      for (const n of withNotes) {
+        const score = n.clinicalNote?.documentationCompleteness || 0;
         const bucket = Math.min(4, Math.floor(score / 2));
         completenessDist[bucket]++;
       }
 
-      // Enhanced: avg time to attestation
       let totalAttestTime = 0;
       let attestTimeCount = 0;
-      for (const c of attested) {
-        const cn = (c as any).analysis?.clinicalNote;
-        if (cn?.attestedAt && (c as any).uploadedAt) {
-          const diff = new Date(cn.attestedAt).getTime() - new Date((c as any).uploadedAt).getTime();
-          if (diff > 0) {
-            totalAttestTime += diff;
-            attestTimeCount++;
-          }
+      for (const n of attested) {
+        const cn = n.clinicalNote;
+        if (cn?.attestedAt && n.uploadedAt) {
+          const diff = new Date(cn.attestedAt).getTime() - new Date(n.uploadedAt).getTime();
+          if (diff > 0) { totalAttestTime += diff; attestTimeCount++; }
         }
       }
       const avgAttestationTimeMinutes = attestTimeCount > 0
-        ? Math.round(totalAttestTime / attestTimeCount / 60000)
-        : null;
+        ? Math.round(totalAttestTime / attestTimeCount / 60000) : null;
 
       logPhiAccess({
         ...auditContext(req),
@@ -386,8 +391,8 @@ export function registerClinicalRoutes(app: Express): void {
       });
 
       res.json({
-        totalEncounters: clinicalCalls.length,
-        completedEncounters: completed.length,
+        totalEncounters,
+        completedEncounters: completed,
         notesGenerated: withNotes.length,
         notesAttested: attested.length,
         pendingAttestation: withNotes.length - attested.length,
@@ -399,8 +404,7 @@ export function registerClinicalRoutes(app: Express): void {
         specialtyDistribution: specialtyDist,
         attestationTrend,
         completenessDistribution: completenessDist.map((count, i) => ({
-          range: `${i * 2}-${i * 2 + 2}`,
-          count,
+          range: `${i * 2}-${i * 2 + 2}`, count,
         })),
       });
     } catch (error) {
@@ -415,24 +419,24 @@ export function registerClinicalRoutes(app: Express): void {
   app.post("/api/clinical/style-learning/analyze", requireAuth, injectOrgContext, requireClinicalPlan(), async (req, res) => {
     try {
       const userId = req.user?.id || "unknown";
-      const calls = await storage.getCallsWithDetails(req.orgId!, {});
       const clinicalCategories = [
         "clinical_encounter", "telemedicine",
         "dental_encounter", "dental_consultation",
       ];
 
+      // Query only attested clinical notes (not all calls)
+      const noteRows = await storage.getAttestedClinicalNotes?.(req.orgId!, clinicalCategories);
+
       // Gather attested notes for this provider
       const attestedNotes: StyleClinicalNote[] = [];
-      for (const call of calls) {
-        const cn = (call as any).analysis?.clinicalNote;
+      const userName = req.user?.name || req.user?.username;
+
+      for (const row of noteRows || []) {
+        const cn = row.clinicalNote as any;
         if (!cn?.providerAttested) continue;
-        if (!clinicalCategories.includes((call as any).callCategory)) continue;
 
         // Only include notes attested by this user (if tracked)
-        if (cn.attestedBy) {
-          const userName = req.user?.name || req.user?.username;
-          if (cn.attestedBy !== userName) continue;
-        }
+        if (cn.attestedBy && cn.attestedBy !== userName) continue;
 
         const sections: Record<string, string> = {};
         if (cn.subjective) sections.subjective = decryptField(cn.subjective);
@@ -446,7 +450,7 @@ export function registerClinicalRoutes(app: Express): void {
         if (cn.response) sections.response = cn.response;
 
         attestedNotes.push({
-          attestedAt: cn.attestedAt || (call as any).uploadedAt || new Date().toISOString(),
+          attestedAt: cn.attestedAt || row.uploadedAt || new Date().toISOString(),
           specialty: cn.specialty,
           sections,
         });
