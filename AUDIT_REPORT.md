@@ -200,6 +200,30 @@ Clinical note PHI fields are decrypted in individual route handlers rather than 
 #### H9. Missing Audit Trail for Org Settings Changes
 Settings updates (EHR config, retention policy, branding, SSO config) are not logged to the audit system. For HIPAA, configuration changes to the system should be auditable.
 
+#### H10. SQL Injection in `addColumnIfNotExists()` (sync-schema.ts)
+**File**: `server/db/sync-schema.ts:469-475`
+
+Table and column names are interpolated directly into SQL via `sql.raw()` without identifier quoting:
+```typescript
+ALTER TABLE ${table} ADD COLUMN ${column} ${definition};
+```
+
+While these values currently come from hardcoded strings within the codebase (not user input), this is a dangerous pattern. If a future developer passes dynamic values, it becomes exploitable. Identifiers should be quoted: `"${table}"`.
+
+#### H11. pgvector Fallback Creates Broken Table
+**File**: `server/db/sync-schema.ts`
+
+If the pgvector extension isn't available, `document_chunks` table is created without the `embedding vector(1024)` column. RAG queries will fail at runtime with "column does not exist" errors — but the sync logs only a warning, not an error. Users discover this in production when RAG returns zero results.
+
+**Fix**: Either make pgvector required (fail loudly on startup) or disable RAG features entirely when pgvector is unavailable.
+
+#### H12. Workers Use `require()` in ESM Codebase
+**File**: `server/workers/index.ts`
+
+Workers use `require()` for dynamic imports in an ESM codebase. This can cause module loading errors or circular dependency issues.
+
+**Fix**: Convert to `await import()`.
+
 ### MEDIUM — Improve When Possible
 
 #### M1. No E2E Tests
@@ -223,6 +247,33 @@ Free tier users can run A/B tests, consuming Bedrock credits.
 - `index.js` is 474 KB gzipped to 154 KB — large for initial load
 - Recharts (`generateCategoricalChart`) is 373 KB gzipped to 102 KB
 - Consider tree-shaking Recharts or using a lighter chart library for simple cases
+
+#### M6. Frontend: Mutation Buttons Not Disabled While Pending
+**File**: `client/src/components/tables/calls-table.tsx`
+
+Delete and assign mutation buttons don't disable during pending state, allowing double-clicks to fire duplicate requests.
+
+#### M7. Frontend: `localStorage` Access Without Try-Catch
+**File**: `client/src/components/layout/sidebar.tsx`
+
+`localStorage.getItem("theme")` / `setItem()` throws `QuotaExceededError` in private browsing or when storage is disabled. Should wrap in try-catch.
+
+#### M8. Schema Types Too Loose
+**File**: `shared/schema.ts`
+
+Call `status` and `overallSentiment` use `z.string()` instead of `z.enum()`. This allows invalid states like `status: "banana"` to pass validation. Should be:
+- `status: z.enum(["pending", "processing", "completed", "failed"])`
+- `overallSentiment: z.enum(["positive", "neutral", "negative"])`
+
+#### M9. CSP Allows `unsafe-inline` for Scripts
+**File**: `server/index.ts`
+
+`script-src 'self' 'unsafe-inline'` significantly weakens XSS protection. The `unsafe-inline` directive defeats the purpose of CSP. Should use nonces for inline scripts instead.
+
+#### M10. EC2 Deployment Scripts Have Placeholder Values
+**File**: `deploy/ec2/user-data.sh`
+
+Git clone is commented out, `.env` contains `CHANGE_ME` values, and Caddyfile has `YOUR_DOMAIN` placeholder. Deployment will fail silently without manual intervention.
 
 ---
 
@@ -310,7 +361,15 @@ The **dental-first vertical** is strategically sound:
 
 ---
 
-## Summary
+## Issue Count Summary
+
+| Severity | Count | Key Areas |
+|----------|-------|-----------|
+| **Critical** | 6 | orgId schemas, multer DoS, session fixation, password reset scope, consent enforcement, clinical plan bypass |
+| **High** | 12 | Query performance (4), type safety, tailwind conflict, API timeouts, WAF ReDoS, SQL injection in sync-schema, pgvector fallback, worker ESM, PHI decryption scatter |
+| **Medium** | 10 | No E2E tests, cache bounds, accessibility, A/B plan gate, bundle size, mutation buttons, localStorage, loose schema types, CSP unsafe-inline, deployment scripts |
+
+## Final Ratings
 
 | Area | Rating | Trajectory |
 |------|--------|------------|
@@ -322,8 +381,9 @@ The **dental-first vertical** is strategically sound:
 | **Frontend UX** | 7/10 | Well-built, needs accessibility + perf work |
 | **Testing** | 6/10 | Good unit coverage, zero E2E |
 | **Scalability** | 5/10 | Will hit walls at ~500 calls/org — known, fixable |
-| **Security** | 7/10 | WAF, encryption, audit logs, rate limiting. Gaps: CSRF, multer, secrets mgmt |
+| **Security** | 7/10 | WAF, encryption, audit logs, rate limiting. Gaps: CSRF, multer, session fixation, CSP |
 | **Code Quality** | 7.5/10 | Clean architecture, good separation of concerns, consistent patterns |
 | **Documentation** | 8/10 | CLAUDE.md is exceptionally thorough |
+| **Infrastructure/DevOps** | 5.5/10 | CI exists, but deployment scripts incomplete, no monitoring, single instance |
 
-**Bottom line**: This is a genuinely viable startup base with strong healthcare-specific features. The architecture is sound, the multi-tenant isolation is real (not cosmetic), and the HIPAA compliance is well above typical for an early-stage product. The main risks are: (1) query performance patterns that won't scale past a few hundred calls per org, (2) specific HIPAA gaps (optional orgId on schemas, missing CSRF, secrets management), and (3) zero E2E test coverage for critical clinical workflows. All of these are fixable without architectural changes — the foundation is solid.
+**Bottom line**: This is a genuinely viable startup base with strong healthcare-specific features. The architecture is sound, the multi-tenant isolation is real (not cosmetic), and the HIPAA compliance is well above typical for an early-stage product. The main risks are: (1) query performance patterns that won't scale past a few hundred calls per org, (2) specific security gaps (session fixation, optional orgId on schemas, CSP `unsafe-inline`, multer DoS), (3) zero E2E test coverage for critical clinical workflows, and (4) deployment infrastructure is not production-ready (placeholder values, no monitoring, single point of failure). All of these are fixable without architectural changes — the foundation is solid.
