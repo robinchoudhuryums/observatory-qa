@@ -35,7 +35,9 @@ export async function onCallAnalysisComplete(
         const highSeverity = recs.filter(r => r.severity === "high");
         if (highSeverity.length > 0) {
           const employee = await storage.getEmployee(orgId, employeeId);
-          sendCoachingAlert(orgId, employee, highSeverity).catch(() => {});
+          sendCoachingAlert(orgId, employee, highSeverity).catch((err) => {
+            logger.warn({ err, orgId, employeeId }, "Failed to send coaching alert (non-blocking)");
+          });
         }
       }
     }

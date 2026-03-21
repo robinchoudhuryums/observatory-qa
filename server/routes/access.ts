@@ -3,6 +3,7 @@ import { storage } from "../storage";
 import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { insertAccessRequestSchema } from "@shared/schema";
 import { z } from "zod";
+import { logger } from "../services/logger";
 
 export function registerAccessRoutes(app: Express): void {
   // ==================== ACCESS REQUEST ROUTES (unauthenticated) ====================
@@ -26,6 +27,7 @@ export function registerAccessRoutes(app: Express): void {
       const request = await storage.createAccessRequest(org.id, parsed.data);
       res.status(201).json({ message: "Access request submitted. An administrator will review your request.", id: request.id });
     } catch (error) {
+      logger.error({ err: error }, "Failed to submit access request");
       res.status(500).json({ message: "Failed to submit access request" });
     }
   });
@@ -38,6 +40,7 @@ export function registerAccessRoutes(app: Express): void {
       const requests = await storage.getAllAccessRequests(req.orgId!);
       res.json(requests);
     } catch (error) {
+      logger.error({ err: error }, "Failed to fetch access requests");
       res.status(500).json({ message: "Failed to fetch access requests" });
     }
   });
@@ -65,6 +68,7 @@ export function registerAccessRoutes(app: Express): void {
       }
       res.json(updated);
     } catch (error) {
+      logger.error({ err: error }, "Failed to update access request");
       res.status(500).json({ message: "Failed to update access request" });
     }
   });

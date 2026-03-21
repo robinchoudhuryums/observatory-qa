@@ -525,12 +525,21 @@ app.use("/api/ehr", distributedRateLimit(60 * 1000, 30, true) as any);
       try {
         const { closeRagWorkerPool } = await import("./services/rag-worker");
         await closeRagWorkerPool();
-      } catch { /* not initialized */ }
+      } catch (err) { logger.debug({ err }, "RAG worker pool not initialized, skipping cleanup"); }
       // Flush any pending OpenTelemetry spans/metrics
       await shutdownTelemetry();
       process.exit(0);
     };
     process.on("SIGTERM", shutdown);
     process.on("SIGINT", shutdown);
+  });
+
+  // Global safety nets — catch promises and exceptions that slip through
+  process.on("unhandledRejection", (reason: unknown) => {
+    logger.error({ err: reason }, "Unhandled promise rejection");
+  });
+  process.on("uncaughtException", (error: Error) => {
+    logger.error({ err: error }, "Uncaught exception — shutting down");
+    process.exit(1);
   });
 })();

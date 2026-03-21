@@ -73,7 +73,9 @@ export const apiKeyAuth: RequestHandler = async (req, res, next) => {
     // Update last used (fire and forget)
     storage.updateApiKey(apiKey.orgId, apiKey.id, {
       lastUsedAt: new Date().toISOString(),
-    }).catch(() => {});
+    }).catch((err) => {
+      logger.warn({ err, apiKeyId: apiKey.id }, "Failed to update API key last-used timestamp (non-blocking)");
+    });
 
     next();
   } catch (error) {

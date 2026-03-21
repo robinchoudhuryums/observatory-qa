@@ -195,8 +195,11 @@ export default function ClinicalNotesPage() {
     if (!printContent) return;
     const printWindow = window.open("", "_blank");
     if (!printWindow) return;
-    printWindow.document.write(`
-      <html><head><title>Clinical Note — ${call?.employee?.name || "Patient"}</title>
+    // Sanitize title to prevent injection via employee name
+    const safeTitle = (call?.employee?.name || "Patient").replace(/[<>&"']/g, "");
+    const doc = printWindow.document;
+    doc.open();
+    doc.write(`<html><head><title>Clinical Note — ${safeTitle}</title>
       <style>
         body { font-family: system-ui, -apple-system, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; font-size: 14px; }
         h1 { font-size: 20px; border-bottom: 2px solid #333; padding-bottom: 8px; }
@@ -208,12 +211,13 @@ export default function ClinicalNotesPage() {
         ul { padding-left: 20px; }
         p { line-height: 1.6; }
         @media print { .no-print { display: none; } }
-      </style></head><body>
-      ${printContent.innerHTML}
-      <script>window.print(); window.close();</script>
-      </body></html>
-    `);
-    printWindow.document.close();
+      </style></head><body></body></html>`);
+    // Use DOM API to safely insert content instead of string interpolation
+    doc.body.innerHTML = printContent.innerHTML;
+    const printScript = doc.createElement("script");
+    printScript.textContent = "window.print(); window.close();";
+    doc.body.appendChild(printScript);
+    doc.close();
   };
 
   if (isLoading) {

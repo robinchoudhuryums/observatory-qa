@@ -39,7 +39,7 @@ export { estimateBedrockCost, estimateAssemblyAICost };
 async function cleanupFile(filePath: string) {
   try {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-  } catch { /* non-blocking */ }
+  } catch (err) { logger.debug({ err }, "Failed to clean up temporary file"); }
 }
 
 export function registerABTestRoutes(app: Express): void {
@@ -109,7 +109,7 @@ export function registerABTestRoutes(app: Express): void {
         logger.error({ testId: abTest.id, err: error }, "A/B test processing failed");
         try {
           await storage.updateABTest(orgId, abTest.id, { status: "failed" });
-        } catch { /* ignore */ }
+        } catch (err) { logger.warn({ err, testId: abTest.id }, "Failed to update A/B test status to failed"); }
       });
 
       res.status(201).json(abTest);

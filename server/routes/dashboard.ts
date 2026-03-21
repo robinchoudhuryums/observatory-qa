@@ -3,6 +3,7 @@ import { storage } from "../storage";
 import { requireAuth, injectOrgContext } from "../auth";
 import { safeInt } from "./helpers";
 import { getRedis } from "../services/redis";
+import { logger } from "../services/logger";
 
 const DASHBOARD_CACHE_TTL = 60; // 60 seconds
 
@@ -37,6 +38,7 @@ export function registerDashboardRoutes(app: Express): void {
       const summary = await storage.getUsageSummary(req.orgId!, startDate, endDate);
       res.json(summary);
     } catch (error) {
+      logger.error({ err: error }, "Failed to get usage data");
       res.status(500).json({ message: "Failed to get usage data" });
     }
   });
@@ -51,6 +53,7 @@ export function registerDashboardRoutes(app: Express): void {
       );
       res.json(metrics);
     } catch (error) {
+      logger.error({ err: error }, "Failed to get dashboard metrics");
       res.status(500).json({ message: "Failed to get dashboard metrics" });
     }
   });
@@ -65,6 +68,7 @@ export function registerDashboardRoutes(app: Express): void {
       );
       res.json(distribution);
     } catch (error) {
+      logger.error({ err: error }, "Failed to get sentiment distribution");
       res.status(500).json({ message: "Failed to get sentiment distribution" });
     }
   });
@@ -80,6 +84,7 @@ export function registerDashboardRoutes(app: Express): void {
       );
       res.json(performers);
     } catch (error) {
+      logger.error({ err: error }, "Failed to get top performers");
       res.status(500).json({ message: "Failed to get top performers" });
     }
   });

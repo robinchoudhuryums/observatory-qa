@@ -12,7 +12,7 @@ import { logPhiAccess, auditContext } from "../services/audit-log";
 import { notifyFlaggedCall } from "../services/notifications";
 import { onCallAnalysisComplete } from "../services/proactive-alerts";
 import { trackUsage } from "../services/queue";
-import { upload, safeFloat, withRetry } from "./helpers";
+import { upload, safeFloat, withRetry, validateUUIDParam } from "./helpers";
 import { enforceQuota, requireActiveSubscription } from "./billing";
 import { logger } from "../services/logger";
 import { searchRelevantChunks, formatRetrievedContext } from "../services/rag";
@@ -21,6 +21,7 @@ import { estimateBedrockCost, estimateAssemblyAICost } from "./ab-testing";
 import { encryptField, decryptField, decryptClinicalNotePhi } from "../services/phi-encryption";
 import { calibrateAnalysis } from "../services/scoring-calibration";
 import { validateClinicalNote, sanitizeStylePreferences } from "../services/clinical-validation";
+import { errorResponse, ERROR_CODES } from "../services/error-codes";
 
 // --- Reference document cache (per-org, avoids repeated DB queries) ---
 const REF_DOC_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -213,7 +214,7 @@ async function processAudioFile(orgId: string, callId: string, filePath: string,
           const tier = (sub?.planTier as PlanTier) || "free";
           const plan = PLAN_DEFINITIONS[tier];
           useRag = plan?.limits?.ragEnabled === true;
-        } catch { /* default to non-RAG */ }
+        } catch (err) { logger.debug({ err, orgId }, "Failed to check RAG eligibility, defaulting to non-RAG"); }
 
         if (useRag && process.env.DATABASE_URL && transcriptResponse.text) {
           // RAG: retrieve semantically relevant chunks instead of full text
@@ -544,13 +545,17 @@ async function processAudioFile(orgId: string, callId: string, filePath: string,
         fileName: originalName,
         summary: typeof analysis.summary === "string" ? analysis.summary : undefined,
         timestamp: new Date().toISOString(),
-      }).catch(() => {});
+      }).catch((err) => {
+        logger.warn({ callId, err }, "Failed to send flagged call notification (non-blocking)");
+      });
     }
 
     logger.info({ callId }, "Processing finished successfully");
 
     // Auto-generate coaching recommendations (non-blocking)
-    onCallAnalysisComplete(orgId, callId, assignedEmployeeId || undefined).catch(() => {});
+    onCallAnalysisComplete(orgId, callId, assignedEmployeeId || undefined).catch((err) => {
+      logger.warn({ callId, err }, "Failed to generate coaching recommendations (non-blocking)");
+    });
 
     trackUsage({ orgId, eventType: "transcription", quantity: 1, metadata: { callId } });
     if (aiAnalysis) {
@@ -625,6 +630,7 @@ export function registerCallRoutes(app: Express): void {
         res.json(calls);
       }
     } catch (error) {
+      logger.error({ err: error }, "Failed to get calls");
       res.status(500).json({ message: "Failed to get calls" });
     }
   });
@@ -662,6 +668,7 @@ export function registerCallRoutes(app: Express): void {
         analysis
       });
     } catch (error) {
+      logger.error({ err: error }, "Failed to get call details");
       res.status(500).json({ message: "Failed to get call" });
     }
   });
@@ -784,7 +791,7 @@ export function registerCallRoutes(app: Express): void {
       res.send(audioBuffer);
     } catch (error) {
       logger.error({ err: error }, "Failed to stream audio");
-      res.status(500).json({ message: "Failed to stream audio" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to stream audio"));
     }
   });
 
@@ -799,12 +806,12 @@ export function registerCallRoutes(app: Express): void {
 
       const transcript = await storage.getTranscript(req.orgId!, req.params.id);
       if (!transcript) {
-        res.status(404).json({ message: "Transcript not found" });
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Transcript not found"));
         return;
       }
       res.json(transcript);
     } catch (error) {
-      res.status(500).json({ message: "Failed to get transcript" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get transcript"));
     }
   });
 
@@ -812,7 +819,7 @@ export function registerCallRoutes(app: Express): void {
     try {
       const sentiment = await storage.getSentimentAnalysis(req.orgId!, req.params.id);
       if (!sentiment) {
-        res.status(404).json({ message: "Sentiment analysis not found" });
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Sentiment analysis not found"));
         return;
       }
       logPhiAccess({
@@ -823,7 +830,7 @@ export function registerCallRoutes(app: Express): void {
       });
       res.json(sentiment);
     } catch (error) {
-      res.status(500).json({ message: "Failed to get sentiment analysis" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get sentiment analysis"));
     }
   });
 
@@ -831,7 +838,7 @@ export function registerCallRoutes(app: Express): void {
     try {
       const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
       if (!analysis) {
-        res.status(404).json({ message: "Call analysis not found" });
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
         return;
       }
       decryptClinicalNote(analysis as Record<string, unknown>);
@@ -843,7 +850,7 @@ export function registerCallRoutes(app: Express): void {
       });
       res.json(analysis);
     } catch (error) {
-      res.status(500).json({ message: "Failed to get call analysis" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get call analysis"));
     }
   });
 
@@ -882,7 +889,7 @@ export function registerCallRoutes(app: Express): void {
 
       const existing = await storage.getCallAnalysis(req.orgId!, callId);
       if (!existing) {
-        res.status(404).json({ message: "Call analysis not found" });
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
         return;
       }
 
@@ -914,7 +921,7 @@ export function registerCallRoutes(app: Express): void {
       res.json(updatedAnalysis);
     } catch (error) {
       logger.error({ err: error }, "Failed to update call analysis");
-      res.status(500).json({ message: "Failed to update call analysis" });
+      res.status(500).json(errorResponse(ERROR_CODES.CALL_ANALYSIS_FAILED, "Failed to update call analysis"));
     }
   });
 
@@ -928,20 +935,20 @@ export function registerCallRoutes(app: Express): void {
 
       const call = await storage.getCall(req.orgId!, req.params.id);
       if (!call) {
-        res.status(404).json({ message: "Call not found" });
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call not found"));
         return;
       }
 
       const employee = await storage.getEmployee(req.orgId!, employeeId);
       if (!employee) {
-        res.status(404).json({ message: "Employee not found" });
+        res.status(404).json(errorResponse(ERROR_CODES.EMP_NOT_FOUND, "Employee not found"));
         return;
       }
 
       const updated = await storage.updateCall(req.orgId!, req.params.id, { employeeId });
       res.json(updated);
     } catch (error) {
-      res.status(500).json({ message: "Failed to assign call" });
+      res.status(500).json(errorResponse(ERROR_CODES.CALL_ASSIGN_FAILED, "Failed to assign call"));
     }
   });
 
@@ -954,13 +961,13 @@ export function registerCallRoutes(app: Express): void {
       }
       const call = await storage.getCall(req.orgId!, req.params.id);
       if (!call) {
-        res.status(404).json({ message: "Call not found" });
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call not found"));
         return;
       }
       const updated = await storage.updateCall(req.orgId!, req.params.id, { tags });
       res.json(updated);
     } catch (error) {
-      res.status(500).json({ message: "Failed to update tags" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update tags"));
     }
   });
 
@@ -981,7 +988,7 @@ export function registerCallRoutes(app: Express): void {
       res.status(204).send();
     } catch (error) {
       logger.error({ err: error }, "Failed to delete call");
-      res.status(500).json({ message: "Failed to delete call" });
+      res.status(500).json(errorResponse(ERROR_CODES.CALL_DELETE_FAILED, "Failed to delete call"));
     }
   });
 }

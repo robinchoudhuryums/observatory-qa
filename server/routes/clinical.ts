@@ -39,7 +39,8 @@ function requireClinicalPlan() {
         return;
       }
       next();
-    } catch {
+    } catch (err) {
+      logger.warn({ err }, "Clinical plan check failed, failing open");
       next();
     }
   };

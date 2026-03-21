@@ -46,7 +46,8 @@ async function resolveOrgWebhookConfig(orgId?: string): Promise<{
       platform: s?.webhookPlatform || WEBHOOK_PLATFORM,
       events: (s?.webhookEvents && s.webhookEvents.length > 0) ? s.webhookEvents : WEBHOOK_EVENTS,
     };
-  } catch {
+  } catch (err) {
+    logger.warn({ err, orgId }, "Failed to resolve org webhook config, using defaults");
     return { url: WEBHOOK_URL, platform: WEBHOOK_PLATFORM, events: WEBHOOK_EVENTS };
   }
 }

@@ -132,7 +132,8 @@ export function requirePlanFeature(feature: keyof import("@shared/schema").PlanL
         });
       }
       next();
-    } catch {
+    } catch (err) {
+      logger.warn({ err }, "Plan feature check failed, failing open");
       next(); // Fail open
     }
   };
@@ -175,7 +176,8 @@ export function requireActiveSubscription() {
       }
 
       next();
-    } catch {
+    } catch (err) {
+      logger.warn({ err }, "Active subscription check failed, failing open");
       next(); // Fail open
     }
   };

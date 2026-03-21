@@ -74,6 +74,16 @@ export function registerReportRoutes(app: Express): void {
     try {
       const { from, to, employeeId, department, callPartyType } = req.query;
 
+      // Validate date parameters
+      if (from && isNaN(new Date(from as string).getTime())) {
+        res.status(400).json({ message: "Invalid 'from' date format" });
+        return;
+      }
+      if (to && isNaN(new Date(to as string).getTime())) {
+        res.status(400).json({ message: "Invalid 'to' date format" });
+        return;
+      }
+
       const allCalls = await storage.getCallSummaries(req.orgId!, { status: "completed" });
       const employees = await storage.getAllEmployees(req.orgId!);
 
