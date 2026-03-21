@@ -166,6 +166,7 @@ export interface IStorage {
   // Transcript operations (org-scoped)
   getTranscript(orgId: string, callId: string): Promise<Transcript | undefined>;
   createTranscript(orgId: string, transcript: InsertTranscript): Promise<Transcript>;
+  updateTranscript(orgId: string, callId: string, updates: { text: string }): Promise<Transcript | undefined>;
 
   // Sentiment analysis operations (org-scoped)
   getSentimentAnalysis(orgId: string, callId: string): Promise<SentimentAnalysis | undefined>;

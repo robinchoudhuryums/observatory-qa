@@ -223,6 +223,13 @@ export class MemStorage implements IStorage {
     this.transcripts.set(transcript.callId, newTranscript);
     return newTranscript;
   }
+  async updateTranscript(orgId: string, callId: string, updates: { text: string }): Promise<Transcript | undefined> {
+    const t = this.transcripts.get(callId);
+    if (!t || t.orgId !== orgId) return undefined;
+    const updated = { ...t, text: updates.text };
+    this.transcripts.set(callId, updated);
+    return updated;
+  }
 
   // --- Sentiment operations (org-scoped) ---
   async getSentimentAnalysis(orgId: string, callId: string): Promise<SentimentAnalysis | undefined> {

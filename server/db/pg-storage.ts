@@ -410,6 +410,14 @@ export class PostgresStorage implements IStorage {
     return this.mapTranscript(row);
   }
 
+  async updateTranscript(orgId: string, callId: string, updates: { text: string }): Promise<Transcript | undefined> {
+    const rows = await this.db.update(tables.transcripts)
+      .set({ text: updates.text })
+      .where(and(eq(tables.transcripts.callId, callId), eq(tables.transcripts.orgId, orgId)))
+      .returning();
+    return rows[0] ? this.mapTranscript(rows[0]) : undefined;
+  }
+
   // --- Sentiment operations ---
   async getSentimentAnalysis(orgId: string, callId: string): Promise<SentimentAnalysis | undefined> {
     const rows = await this.db.select().from(tables.sentimentAnalyses)

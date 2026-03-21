@@ -279,6 +279,14 @@ export class CloudStorage implements IStorage {
     return newTranscript;
   }
 
+  async updateTranscript(orgId: string, callId: string, updates: { text: string }): Promise<Transcript | undefined> {
+    const existing = await this.getTranscript(orgId, callId);
+    if (!existing) return undefined;
+    const updated = { ...existing, text: updates.text };
+    await this.client.uploadJson(`${this.orgPrefix(orgId)}/transcripts/${callId}.json`, updated);
+    return updated;
+  }
+
   // --- Sentiment Analysis Methods (org-scoped) ---
   async getSentimentAnalysis(orgId: string, callId: string): Promise<SentimentAnalysis | undefined> {
     return this.client.downloadJson<SentimentAnalysis>(`${this.orgPrefix(orgId)}/sentiments/${callId}.json`);
