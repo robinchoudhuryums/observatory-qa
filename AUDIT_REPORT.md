@@ -134,6 +134,27 @@ If `req.orgId` is missing (which shouldn't happen but could via middleware misco
 
 **Fix**: Return 403 on missing orgId, matching the pattern in `enforceQuota()`.
 
+#### C4. Session Fixation in Registration Flow
+**File**: `server/routes/registration.ts:137-143`
+
+After registration, `req.login()` is called immediately without `req.session.regenerate()`. An attacker could craft a registration link with a pre-set session ID, and after the victim registers, the attacker's session ID becomes authenticated.
+
+**Fix**: Call `req.session.regenerate()` before `req.login()`, matching the pattern already used in `server/routes/mfa.ts`.
+
+#### C5. Password Reset Not Org-Scoped
+**File**: `server/routes/password-reset.ts:100`
+
+`getUserByUsername()` is called without org context. If the same email exists in multiple orgs, the reset could target the wrong account. More critically, an attacker can determine valid usernames across all orgs.
+
+**Fix**: Require org context (org slug in the reset URL) or use email + org-scoped lookup.
+
+#### C6. Patient Consent Not Enforced Before EHR Push
+**File**: `server/routes/ehr.ts` (push-note endpoint), `server/routes/clinical.ts`
+
+`patientConsentObtained` is stored on clinical notes but never checked before pushing notes to EHR or exporting. In healthcare, sharing clinical documentation without recorded consent is a compliance violation.
+
+**Fix**: Check `clinicalNote.patientConsentObtained === true` before allowing EHR push or export.
+
 ### HIGH — Should Fix Soon
 
 #### H1. Search Still Loads All Calls (Prior Review #35 — Unresolved)
@@ -161,6 +182,23 @@ TypeScript type safety is bypassed. `server/types.d.ts` should be augmenting the
 
 #### H6. No AbortController Timeouts on External API Calls (Prior Review #41 — Partially Addressed)
 Bedrock has a 120s timeout now, but AssemblyAI polling has no timeout. A stuck transcription job blocks the pipeline indefinitely.
+
+#### H7. WAF Regex ReDoS Risk
+**File**: `server/middleware/waf.ts:23-48`
+
+SQL injection detection patterns use `.*` which can cause exponential backtracking on crafted long payloads. An attacker could send a multi-MB request body that causes the WAF itself to DoS the server.
+
+**Fix**: Add `req.body` length check before regex matching (e.g., skip WAF on bodies > 100KB), or use simpler patterns.
+
+#### H8. PHI Decryption Scattered Across Route Handlers
+**File**: `server/routes/clinical.ts:69-73`, `server/routes/ehr.ts`
+
+Clinical note PHI fields are decrypted in individual route handlers rather than at the storage layer. This means every new route that reads clinical notes must remember to call `decryptField()` — a guaranteed future bug.
+
+**Fix**: Move decryption into `pg-storage.ts` at the `getCallAnalysis()` level, or create a `getClinicalNote()` method that always returns decrypted data.
+
+#### H9. Missing Audit Trail for Org Settings Changes
+Settings updates (EHR config, retention policy, branding, SSO config) are not logged to the audit system. For HIPAA, configuration changes to the system should be auditable.
 
 ### MEDIUM — Improve When Possible
 
