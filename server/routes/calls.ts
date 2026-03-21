@@ -65,7 +65,7 @@ async function cleanupFile(filePath: string) {
 }
 
 // Process audio file with AssemblyAI and archive to cloud storage
-async function processAudioFile(orgId: string, callId: string, filePath: string, audioBuffer: Buffer, originalName: string, mimeType: string, callCategory?: string, userId?: string) {
+async function processAudioFile(orgId: string, callId: string, filePath: string, audioBuffer: Buffer, originalName: string, mimeType: string, callCategory?: string, userId?: string, clinicalSpecialty?: string, noteFormat?: string) {
   logger.info({ callId }, "Starting audio processing");
   broadcastCallUpdate(callId, "uploading", { step: 1, totalSteps: 6, label: "Uploading audio..." }, orgId);
   try {
@@ -130,8 +130,19 @@ async function processAudioFile(orgId: string, callId: string, filePath: string,
       }
     }
 
-    // Inject provider style preferences for clinical encounters
+    // Inject clinical metadata (specialty, format) for clinical encounters
     const clinicalCategories = ["clinical_encounter", "telemedicine", "dental_encounter", "dental_consultation"];
+    if (callCategory && clinicalCategories.includes(callCategory)) {
+      if (!promptTemplate) promptTemplate = {};
+      // Apply user-specified specialty and format from upload form
+      if (clinicalSpecialty) {
+        promptTemplate.clinicalSpecialty = clinicalSpecialty;
+      }
+      if (noteFormat) {
+        if (!promptTemplate.providerStylePreferences) promptTemplate.providerStylePreferences = {};
+        promptTemplate.providerStylePreferences.noteFormat = noteFormat;
+      }
+    }
     if (callCategory && clinicalCategories.includes(callCategory)) {
       try {
         const org = await storage.getOrganization(orgId);
@@ -604,7 +615,7 @@ export function registerCallRoutes(app: Express): void {
         return;
       }
 
-      const { employeeId, callCategory } = req.body;
+      const { employeeId, callCategory, clinicalSpecialty, noteFormat } = req.body;
 
       // Validate callCategory against allowed values
       const validCategories = CALL_CATEGORIES.map(c => c.value);
@@ -644,7 +655,7 @@ export function registerCallRoutes(app: Express): void {
       const mimeType = req.file.mimetype || "audio/mpeg";
       const orgId = req.orgId!;
       const uploadUserId = (req as any).user?.id;
-      processAudioFile(orgId, call.id, req.file.path, audioBuffer, originalName, mimeType, callCategory, uploadUserId)
+      processAudioFile(orgId, call.id, req.file.path, audioBuffer, originalName, mimeType, callCategory, uploadUserId, clinicalSpecialty, noteFormat)
         .catch(async (error) => {
           logger.error({ callId: call.id, err: error }, "Failed to process call");
           try {
