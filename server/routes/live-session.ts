@@ -22,6 +22,8 @@ import { getOrgAIProvider } from "../services/ai-factory";
 import { parseJsonResponse, type PromptTemplateConfig } from "../services/ai-provider";
 import { sanitizeStylePreferences } from "../services/clinical-validation";
 import { encryptField } from "../services/phi-encryption";
+import { notifyFlaggedCall } from "../services/notifications";
+import { onCallAnalysisComplete } from "../services/proactive-alerts";
 import { PLAN_DEFINITIONS, type PlanTier, type OrgSettings, type ClinicalNote } from "@shared/schema";
 
 // Track active real-time transcription sessions
@@ -584,24 +586,25 @@ export function registerLiveSessionRoutes(app: Express): void {
               cnForStorage = finalNote;
             }
 
-            // Update sentiment from AI if available
-            if (parsed.sentiment && parsed.sentiment !== "neutral") {
-              const validSentiments = ["positive", "neutral", "negative"] as const;
-              const normalized = parsed.sentiment.toLowerCase();
-              const validated = validSentiments.includes(normalized as any)
-                ? (normalized as "positive" | "neutral" | "negative")
-                : "neutral";
-              // Note: sentiment already created above — could update, but default is fine for MVP
+            // Server-side flag enforcement (matches calls.ts pattern)
+            const existingFlags: string[] = Array.isArray(parsed.flags) ? [...parsed.flags] : [];
+            const perfScore = parsed.performance_score ?? 5.0;
+            if (perfScore <= 2.0 && !existingFlags.includes("low_score")) {
+              existingFlags.push("low_score");
+            }
+            if (perfScore >= 9.0 && !existingFlags.includes("exceptional_call")) {
+              existingFlags.push("exceptional_call");
             }
 
-            await storage.createCallAnalysis(orgId, {
+            const analysis = await storage.createCallAnalysis(orgId, {
               orgId,
               callId: call.id,
-              performanceScore: parsed.performance_score?.toString(),
+              performanceScore: perfScore.toString(),
               summary: parsed.summary,
               topics: parsed.topics,
               feedback: parsed.feedback as any,
-              flags: parsed.flags,
+              flags: existingFlags,
+              detectedAgentName: parsed.detected_agent_name || undefined,
               subScores: {
                 compliance: parsed.sub_scores?.compliance,
                 customerExperience: parsed.sub_scores?.customer_experience,
@@ -618,6 +621,63 @@ export function registerLiveSessionRoutes(app: Express): void {
                 aiAnalysisCompleted: true,
                 overallScore: 0.85,
               },
+            });
+
+            // Auto-assign to employee based on detected agent name
+            let assignedEmployeeId: string | undefined;
+            if (parsed.detected_agent_name) {
+              const detectedName = parsed.detected_agent_name.toLowerCase().trim();
+              if (detectedName) {
+                try {
+                  const allEmployees = await storage.getAllEmployees(orgId);
+                  const activeEmployees = allEmployees.filter(emp => !emp.status || emp.status === "Active");
+                  const matchingEmployees = activeEmployees.filter(emp => {
+                    const empName = emp.name.toLowerCase().trim();
+                    const nameParts = empName.split(/\s+/);
+                    return empName === detectedName ||
+                      nameParts[0] === detectedName ||
+                      nameParts[nameParts.length - 1] === detectedName;
+                  });
+                  if (matchingEmployees.length === 1) {
+                    assignedEmployeeId = matchingEmployees[0].id;
+                    logger.info({ callId: call.id, employeeId: assignedEmployeeId, detectedName }, "Auto-assigned live session call to employee");
+                  } else if (matchingEmployees.length > 1) {
+                    const exactMatch = matchingEmployees.find(emp => emp.name.toLowerCase().trim() === detectedName);
+                    if (exactMatch) {
+                      assignedEmployeeId = exactMatch.id;
+                    } else {
+                      logger.info({ callId: call.id, detectedName, candidates: matchingEmployees.length }, "Ambiguous agent name in live session — skipping auto-assignment");
+                    }
+                  }
+                  if (assignedEmployeeId) {
+                    await storage.updateCall(orgId, call.id, { employeeId: assignedEmployeeId });
+                  }
+                } catch (empErr) {
+                  logger.warn({ callId: call.id, err: empErr }, "Failed to auto-assign employee (non-blocking)");
+                }
+              }
+            }
+
+            // Send webhook notification for flagged calls (non-blocking)
+            if (existingFlags.length > 0) {
+              notifyFlaggedCall({
+                event: "call_flagged",
+                callId: call.id,
+                orgId,
+                flags: existingFlags,
+                performanceScore: perfScore,
+                agentName: parsed.detected_agent_name || undefined,
+                fileName: call.fileName || undefined,
+                summary: typeof parsed.summary === "string" ? parsed.summary : undefined,
+                timestamp: new Date().toISOString(),
+              }).catch((notifErr) => {
+                logger.warn({ callId: call.id, err: notifErr }, "Failed to send flagged call notification (non-blocking)");
+              });
+            }
+
+            // Auto-generate coaching recommendations (non-blocking)
+            onCallAnalysisComplete(orgId, call.id, assignedEmployeeId).catch((coachErr) => {
+              logger.warn({ callId: call.id, err: coachErr }, "Failed to generate coaching recommendations (non-blocking)");
             });
 
             finalNote = cnForStorage || finalNote;
