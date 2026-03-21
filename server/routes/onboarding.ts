@@ -59,7 +59,7 @@ const docUpload = multer({
 function cleanupFile(filePath: string) {
   try {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-  } catch { /* ignore */ }
+  } catch (err) { logger.debug({ err }, "Failed to clean up temporary file"); }
 }
 
 /**
@@ -128,7 +128,8 @@ function extractColorsFromImage(buffer: Buffer, mimeType: string): { primary: st
     }
 
     return { primary: primaryHex, secondary: secondaryHex };
-  } catch {
+  } catch (err) {
+    logger.warn({ err }, "Failed to extract brand colors from logo image");
     return null;
   }
 }
@@ -345,7 +346,8 @@ export function registerOnboardingRoutes(app: Express): void {
               return res.status(400).json({ message: "appliesTo must be a JSON array of strings" });
             }
             parsedAppliesTo = parsed;
-          } catch {
+          } catch (err) {
+            logger.warn({ err }, "Invalid appliesTo JSON format in reference doc upload");
             return res.status(400).json({ message: "Invalid appliesTo format" });
           }
         }
@@ -440,7 +442,7 @@ export function registerOnboardingRoutes(app: Express): void {
       if (objectStorage && doc.storagePath) {
         try {
           await objectStorage.deleteObject(doc.storagePath);
-        } catch { /* non-blocking */ }
+        } catch (err) { logger.warn({ err, storagePath: doc.storagePath }, "Failed to delete reference doc from object storage"); }
       }
 
       // Remove RAG chunks if database is available
@@ -451,7 +453,7 @@ export function registerOnboardingRoutes(app: Express): void {
           if (db) {
             await removeDocumentChunks(db as any, req.params.id);
           }
-        } catch { /* non-blocking */ }
+        } catch (err) { logger.warn({ err, documentId: req.params.id }, "Failed to remove RAG chunks for deleted document"); }
       }
 
       await storage.deleteReferenceDocument(req.orgId!, req.params.id);
@@ -500,7 +502,7 @@ export function registerOnboardingRoutes(app: Express): void {
               return acc;
             }, {});
           }
-        } catch { /* non-blocking */ }
+        } catch (err) { logger.warn({ err }, "Failed to fetch RAG chunk counts"); }
       }
 
       res.json(result);

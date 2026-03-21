@@ -76,7 +76,8 @@ function getClient(): BedrockRuntimeClient | null {
   if (_client === undefined) {
     try {
       _client = createEmbeddingClient();
-    } catch {
+    } catch (err) {
+      logger.warn({ err }, "Failed to initialize Bedrock embedding client");
       _client = null;
     }
   }

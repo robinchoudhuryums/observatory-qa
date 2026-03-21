@@ -11,6 +11,7 @@ import { safeInt, withRetry } from "./helpers";
 import { enqueueReanalysis } from "../services/queue";
 import { getWafStats, blockIp, unblockIp } from "../middleware/waf";
 import { requirePlanFeature, enforceUserQuota } from "./billing";
+import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import {
   declareIncident, advanceIncidentPhase, addTimelineEntry, addActionItem,
   updateActionItem, updateIncident, getIncident, listIncidents,
@@ -25,7 +26,7 @@ export function registerAdminRoutes(app: Express): void {
       const templates = await storage.getAllPromptTemplates(req.orgId!);
       res.json(templates);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch prompt templates" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to fetch prompt templates"));
     }
   });
 
@@ -42,7 +43,7 @@ export function registerAdminRoutes(app: Express): void {
       });
       res.status(201).json(template);
     } catch (error) {
-      res.status(500).json({ message: "Failed to create prompt template" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to create prompt template"));
     }
   });
 
@@ -60,12 +61,12 @@ export function registerAdminRoutes(app: Express): void {
         updatedBy: req.user?.username,
       });
       if (!updated) {
-        res.status(404).json({ message: "Template not found" });
+        res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Template not found"));
         return;
       }
       res.json(updated);
     } catch (error) {
-      res.status(500).json({ message: "Failed to update prompt template" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update prompt template"));
     }
   });
 
@@ -74,7 +75,7 @@ export function registerAdminRoutes(app: Express): void {
       await storage.deletePromptTemplate(req.orgId!, req.params.id);
       res.json({ message: "Template deleted" });
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete template" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to delete template"));
     }
   });
 
@@ -88,7 +89,7 @@ export function registerAdminRoutes(app: Express): void {
       }
 
       if (!aiProvider.isAvailable) {
-        res.status(503).json({ message: "AI provider not configured" });
+        res.status(503).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "AI provider not configured"));
         return;
       }
 
@@ -178,7 +179,7 @@ export function registerAdminRoutes(app: Express): void {
       })().catch(err => logger.error({ err }, "Bulk re-analysis failed"));
     } catch (error) {
       logger.error({ err: error }, "Failed to start re-analysis");
-      res.status(500).json({ message: "Failed to start re-analysis" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to start re-analysis"));
     }
   });
 
@@ -201,7 +202,7 @@ export function registerAdminRoutes(app: Express): void {
       })));
     } catch (error) {
       logger.error({ err: error }, "Failed to list users");
-      res.status(500).json({ message: "Failed to list users" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to list users"));
     }
   });
 
@@ -236,7 +237,7 @@ export function registerAdminRoutes(app: Express): void {
       res.status(201).json({ id: user.id, username: user.username, name: user.name, role: user.role });
     } catch (error) {
       logger.error({ err: error }, "Failed to create user");
-      res.status(500).json({ message: "Failed to create user" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to create user"));
     }
   });
 
@@ -260,14 +261,14 @@ export function registerAdminRoutes(app: Express): void {
 
       const updated = await storage.updateUser(req.orgId!, req.params.id, updates as any);
       if (!updated) {
-        return res.status(404).json({ message: "User not found" });
+        return res.status(404).json(errorResponse(ERROR_CODES.ADMIN_USER_NOT_FOUND, "User not found"));
       }
 
       logger.info({ userId: req.params.id, org: req.orgId }, "User updated");
       res.json({ id: updated.id, username: updated.username, name: updated.name, role: updated.role });
     } catch (error) {
       logger.error({ err: error }, "Failed to update user");
-      res.status(500).json({ message: "Failed to update user" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update user"));
     }
   });
 
@@ -281,7 +282,7 @@ export function registerAdminRoutes(app: Express): void {
 
       const user = await storage.getUser(req.params.id);
       if (!user || user.orgId !== req.orgId) {
-        return res.status(404).json({ message: "User not found" });
+        return res.status(404).json(errorResponse(ERROR_CODES.ADMIN_USER_NOT_FOUND, "User not found"));
       }
 
       await storage.deleteUser(req.orgId!, req.params.id);
@@ -289,7 +290,7 @@ export function registerAdminRoutes(app: Express): void {
       res.json({ message: "User deleted" });
     } catch (error) {
       logger.error({ err: error }, "Failed to delete user");
-      res.status(500).json({ message: "Failed to delete user" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to delete user"));
     }
   });
 
@@ -301,10 +302,10 @@ export function registerAdminRoutes(app: Express): void {
   app.get("/api/organization", requireAuth, injectOrgContext, async (req, res) => {
     try {
       const org = await storage.getOrganization(req.orgId!);
-      if (!org) return res.status(404).json({ message: "Organization not found" });
+      if (!org) return res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Organization not found"));
       res.json(org);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch organization" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to fetch organization"));
     }
   });
 
@@ -312,7 +313,7 @@ export function registerAdminRoutes(app: Express): void {
   app.patch("/api/organization/settings", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
     try {
       const org = await storage.getOrganization(req.orgId!);
-      if (!org) return res.status(404).json({ message: "Organization not found" });
+      if (!org) return res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Organization not found"));
 
       const parsed = orgSettingsSchema.partial().safeParse(req.body);
       if (!parsed.success) {
@@ -353,7 +354,7 @@ export function registerAdminRoutes(app: Express): void {
       res.json(updated);
     } catch (error) {
       logger.error({ err: error }, "Failed to update organization settings");
-      res.status(500).json({ message: "Failed to update settings" });
+      res.status(500).json(errorResponse(ERROR_CODES.ADMIN_SETTINGS_FAILED, "Failed to update settings"));
     }
   });
 
@@ -387,7 +388,7 @@ export function registerAdminRoutes(app: Express): void {
       });
     } catch (error) {
       logger.error({ err: error }, "Failed to fetch audit logs");
-      res.status(500).json({ message: "Failed to fetch audit logs" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to fetch audit logs"));
     }
   });
 
@@ -403,7 +404,7 @@ export function registerAdminRoutes(app: Express): void {
       });
     } catch (error) {
       logger.error({ err: error }, "Failed to verify audit chain");
-      res.status(500).json({ message: "Failed to verify audit chain integrity" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to verify audit chain integrity"));
     }
   });
 
@@ -441,7 +442,7 @@ export function registerAdminRoutes(app: Express): void {
 
   app.get("/api/admin/incidents/:id", requireAuth, requireRole("admin"), injectOrgContext, (req, res) => {
     const incident = getIncident(req.orgId!, req.params.id);
-    if (!incident) { res.status(404).json({ message: "Incident not found" }); return; }
+    if (!incident) { res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Incident not found")); return; }
     res.json(incident);
   });
 
@@ -461,7 +462,7 @@ export function registerAdminRoutes(app: Express): void {
 
   app.post("/api/admin/incidents/:id/advance", requireAuth, requireRole("admin"), injectOrgContext, (req, res) => {
     const incident = advanceIncidentPhase(req.orgId!, req.params.id, req.user!.username);
-    if (!incident) { res.status(404).json({ message: "Incident not found" }); return; }
+    if (!incident) { res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Incident not found")); return; }
     res.json(incident);
   });
 
@@ -469,13 +470,13 @@ export function registerAdminRoutes(app: Express): void {
     const { description } = req.body;
     if (!description) { res.status(400).json({ message: "description is required" }); return; }
     const incident = addTimelineEntry(req.orgId!, req.params.id, description, req.user!.username);
-    if (!incident) { res.status(404).json({ message: "Incident not found" }); return; }
+    if (!incident) { res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Incident not found")); return; }
     res.json(incident);
   });
 
   app.patch("/api/admin/incidents/:id", requireAuth, requireRole("admin"), injectOrgContext, (req, res) => {
     const incident = updateIncident(req.orgId!, req.params.id, req.body);
-    if (!incident) { res.status(404).json({ message: "Incident not found" }); return; }
+    if (!incident) { res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Incident not found")); return; }
     res.json(incident);
   });
 
@@ -483,7 +484,7 @@ export function registerAdminRoutes(app: Express): void {
     const { description, assignedTo, dueDate } = req.body;
     if (!description) { res.status(400).json({ message: "description is required" }); return; }
     const incident = addActionItem(req.orgId!, req.params.id, { description, assignedTo, dueDate });
-    if (!incident) { res.status(404).json({ message: "Incident not found" }); return; }
+    if (!incident) { res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Incident not found")); return; }
     res.json(incident);
   });
 
@@ -491,7 +492,7 @@ export function registerAdminRoutes(app: Express): void {
     const { status } = req.body;
     if (!status) { res.status(400).json({ message: "status is required" }); return; }
     const incident = updateActionItem(req.orgId!, req.params.incidentId, req.params.itemId, status);
-    if (!incident) { res.status(404).json({ message: "Incident or action item not found" }); return; }
+    if (!incident) { res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Incident or action item not found")); return; }
     res.json(incident);
   });
 
@@ -503,7 +504,7 @@ export function registerAdminRoutes(app: Express): void {
 
   app.get("/api/admin/breach-reports/:id", requireAuth, requireRole("admin"), injectOrgContext, (req, res) => {
     const report = getBreachReport(req.orgId!, req.params.id);
-    if (!report) { res.status(404).json({ message: "Breach report not found" }); return; }
+    if (!report) { res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Breach report not found")); return; }
     res.json(report);
   });
 
@@ -523,7 +524,7 @@ export function registerAdminRoutes(app: Express): void {
 
   app.patch("/api/admin/breach-reports/:id", requireAuth, requireRole("admin"), injectOrgContext, (req, res) => {
     const report = updateBreachReport(req.orgId!, req.params.id, req.body);
-    if (!report) { res.status(404).json({ message: "Breach report not found" }); return; }
+    if (!report) { res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Breach report not found")); return; }
     res.json(report);
   });
 }

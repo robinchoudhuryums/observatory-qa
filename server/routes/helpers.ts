@@ -1,6 +1,7 @@
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import type { Request, Response, NextFunction } from "express";
 import { logger } from "../services/logger";
 
 /** Parse a numeric value safely, returning fallback if NaN or non-finite. */
@@ -37,6 +38,36 @@ export async function withRetry<T>(
     }
   }
   throw lastError;
+}
+
+// --- Validation middleware ---
+
+/** UUID v4 regex for validating :id params */
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Middleware to validate that a URL parameter is a valid UUID.
+ * Returns 400 if the parameter is not a valid UUID v4 format.
+ */
+export function validateUUIDParam(paramName = "id") {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const value = req.params[paramName];
+    if (value && !UUID_REGEX.test(value)) {
+      res.status(400).json({ message: `Invalid ${paramName} format` });
+      return;
+    }
+    next();
+  };
+}
+
+/**
+ * Parse and validate a date query parameter. Returns undefined if absent or invalid.
+ */
+export function parseDateParam(val: unknown): Date | undefined {
+  if (!val || typeof val !== "string") return undefined;
+  const date = new Date(val);
+  if (isNaN(date.getTime())) return undefined;
+  return date;
 }
 
 // Ensure uploads directory exists

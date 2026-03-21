@@ -83,8 +83,8 @@ async function getChainState(orgId: string): Promise<{ prevHash: string; sequenc
         return state;
       }
     }
-  } catch {
-    // If DB unavailable, start fresh chain
+  } catch (err) {
+    logger.debug({ err, orgId }, "Database unavailable for audit chain state, starting fresh chain");
   }
 
   const state = { prevHash: "genesis", sequenceNum: 0 };
@@ -158,8 +158,8 @@ async function persistAuditEntry(entry: AuditEntry & { timestamp: string }): Pro
 
     // Update chain state
     chainState.set(orgId, { prevHash: integrityHash, sequenceNum: nextSeq });
-  } catch {
-    // DB write failure is acceptable — Pino is the primary audit trail
+  } catch (err) {
+    logger.warn({ err, orgId: entry.orgId }, "Failed to persist audit log entry to database");
   }
 }
 

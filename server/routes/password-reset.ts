@@ -40,8 +40,8 @@ async function storeResetToken(userId: string, orgId: string, tokenHash: string,
       });
       return;
     }
-  } catch {
-    // DB not available — fall through to in-memory
+  } catch (err) {
+    logger.debug({ err }, "Database unavailable for password reset token storage, falling back to in-memory");
   }
   memoryTokens.set(tokenHash, { userId, orgId, expiresAt });
 }
@@ -68,8 +68,8 @@ async function validateAndConsumeToken(tokenHash: string): Promise<{ userId: str
         .where(eq(passwordResetTokens.id, row.id));
       return { userId: row.userId, orgId: (row as any).orgId || "" };
     }
-  } catch {
-    // DB not available — fall through to in-memory
+  } catch (err) {
+    logger.debug({ err }, "Database unavailable for password reset token validation, falling back to in-memory");
   }
 
   // In-memory fallback

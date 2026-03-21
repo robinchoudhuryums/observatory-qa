@@ -8,6 +8,7 @@ import { getManagerReviewQueue, generateWeeklyDigest } from "../services/proacti
 import { sendDigestNotification } from "../services/notifications";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
+import { errorResponse, ERROR_CODES } from "../services/error-codes";
 
 export function registerCoachingRoutes(app: Express): void {
   // ==================== COACHING ROUTES ====================
@@ -29,7 +30,8 @@ export function registerCoachingRoutes(app: Express): void {
       });
       res.json(enriched.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()));
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch coaching sessions" });
+      logger.error({ err: error }, "Failed to fetch coaching sessions");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to fetch coaching sessions"));
     }
   });
 
@@ -46,7 +48,8 @@ export function registerCoachingRoutes(app: Express): void {
       });
       res.json(sessions.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()));
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch coaching sessions" });
+      logger.error({ err: error }, "Failed to fetch employee coaching sessions");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to fetch coaching sessions"));
     }
   });
 
@@ -64,7 +67,8 @@ export function registerCoachingRoutes(app: Express): void {
       const session = await storage.createCoachingSession(req.orgId!, parsed.data);
       res.status(201).json(session);
     } catch (error) {
-      res.status(500).json({ message: "Failed to create coaching session" });
+      logger.error({ err: error }, "Failed to create coaching session");
+      res.status(500).json(errorResponse(ERROR_CODES.COACHING_CREATE_FAILED, "Failed to create coaching session"));
     }
   });
 
@@ -91,12 +95,13 @@ export function registerCoachingRoutes(app: Express): void {
       }
       const updated = await storage.updateCoachingSession(req.orgId!, req.params.id, updates);
       if (!updated) {
-        res.status(404).json({ message: "Coaching session not found" });
+        res.status(404).json(errorResponse(ERROR_CODES.COACHING_NOT_FOUND, "Coaching session not found"));
         return;
       }
       res.json(updated);
     } catch (error) {
-      res.status(500).json({ message: "Failed to update coaching session" });
+      logger.error({ err: error }, "Failed to update coaching session");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update coaching session"));
     }
   });
 
@@ -133,7 +138,7 @@ export function registerCoachingRoutes(app: Express): void {
       res.json(rows);
     } catch (error) {
       logger.error({ err: error }, "Failed to fetch coaching recommendations");
-      res.status(500).json({ message: "Failed to fetch recommendations" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to fetch recommendations"));
     }
   });
 
@@ -152,7 +157,7 @@ export function registerCoachingRoutes(app: Express): void {
       res.json({ generated: recs.length, saved, recommendations: recs });
     } catch (error) {
       logger.error({ err: error }, "Failed to generate recommendations");
-      res.status(500).json({ message: "Failed to generate recommendations" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to generate recommendations"));
     }
   });
 
@@ -168,7 +173,7 @@ export function registerCoachingRoutes(app: Express): void {
       const { getDatabase } = await import("../db/index");
       const db = getDatabase();
       if (!db) {
-        res.status(503).json({ message: "Database not available" });
+        res.status(503).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Database not available"));
         return;
       }
 
@@ -183,7 +188,7 @@ export function registerCoachingRoutes(app: Express): void {
         .limit(1);
 
       if (!rec) {
-        res.status(404).json({ message: "Recommendation not found" });
+        res.status(404).json(errorResponse(ERROR_CODES.COACHING_NOT_FOUND, "Recommendation not found"));
         return;
       }
 
@@ -194,7 +199,7 @@ export function registerCoachingRoutes(app: Express): void {
       res.json({ ...rec, status });
     } catch (error) {
       logger.error({ err: error }, "Failed to update recommendation");
-      res.status(500).json({ message: "Failed to update recommendation" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update recommendation"));
     }
   });
 
@@ -205,13 +210,13 @@ export function registerCoachingRoutes(app: Express): void {
     try {
       const result = await generateCoachingPlan(req.orgId!, req.params.id);
       if (!result) {
-        res.status(404).json({ message: "Session not found or AI not available" });
+        res.status(404).json(errorResponse(ERROR_CODES.COACHING_NOT_FOUND, "Session not found or AI not available"));
         return;
       }
       res.json(result);
     } catch (error) {
       logger.error({ err: error }, "Failed to generate coaching plan");
-      res.status(500).json({ message: "Failed to generate coaching plan" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to generate coaching plan"));
     }
   });
 
@@ -228,7 +233,7 @@ export function registerCoachingRoutes(app: Express): void {
       res.json(result);
     } catch (error) {
       logger.error({ err: error }, "Failed to calculate coaching effectiveness");
-      res.status(500).json({ message: "Failed to calculate effectiveness" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to calculate effectiveness"));
     }
   });
 
@@ -241,7 +246,7 @@ export function registerCoachingRoutes(app: Express): void {
       res.json(queue);
     } catch (error) {
       logger.error({ err: error }, "Failed to get review queue");
-      res.status(500).json({ message: "Failed to get review queue" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get review queue"));
     }
   });
 
@@ -254,7 +259,7 @@ export function registerCoachingRoutes(app: Express): void {
       res.json(digest);
     } catch (error) {
       logger.error({ err: error }, "Failed to generate digest");
-      res.status(500).json({ message: "Failed to generate digest" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to generate digest"));
     }
   });
 
@@ -266,7 +271,7 @@ export function registerCoachingRoutes(app: Express): void {
       res.json({ sent, digest });
     } catch (error) {
       logger.error({ err: error }, "Failed to send digest");
-      res.status(500).json({ message: "Failed to send digest" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to send digest"));
     }
   });
 }

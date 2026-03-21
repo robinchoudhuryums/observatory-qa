@@ -25,7 +25,21 @@ import { registerClinicalRoutes } from "./clinical";
 import { registerEhrRoutes } from "./ehr";
 import { registerSuperAdminRoutes } from "./super-admin";
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Validate UUID params on API routes that use :id, :callId, etc.
+  // This prevents malformed IDs from reaching the database layer.
+  for (const param of ["id", "callId"]) {
+    app.param(param, (req, res, next, value) => {
+      if (req.path.startsWith("/api/") && !UUID_REGEX.test(value)) {
+        res.status(400).json({ message: `Invalid ${param} format` });
+        return;
+      }
+      next();
+    });
+  }
+
   // API key auth middleware (before routes, after session middleware)
   app.use("/api", apiKeyAuth);
 

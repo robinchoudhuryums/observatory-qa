@@ -362,7 +362,8 @@ async function getCoachingSession(orgId: string, sessionId: string): Promise<Coa
   try {
     const sessions = await storage.getAllCoachingSessions(orgId);
     return sessions.find(s => s.id === sessionId) || null;
-  } catch {
+  } catch (err) {
+    logger.warn({ err, orgId, sessionId }, "Failed to retrieve coaching session");
     return null;
   }
 }

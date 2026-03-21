@@ -7,6 +7,7 @@ import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { insertEmployeeSchema } from "@shared/schema";
 import { z } from "zod";
 import { logger } from "../services/logger";
+import { errorResponse, ERROR_CODES } from "../services/error-codes";
 
 export function registerEmployeeRoutes(app: Express): void {
   // Get all employees
@@ -15,7 +16,8 @@ export function registerEmployeeRoutes(app: Express): void {
       const employees = await storage.getAllEmployees(req.orgId!);
       res.json(employees);
     } catch (error) {
-      res.status(500).json({ message: "Failed to get employees" });
+      logger.error({ err: error }, "Failed to get employees");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get employees"));
     }
   });
 
@@ -29,7 +31,8 @@ export function registerEmployeeRoutes(app: Express): void {
       if (error instanceof z.ZodError) {
         res.status(400).json({ message: "Invalid employee data", errors: error.errors });
       } else {
-        res.status(500).json({ message: "Failed to create employee" });
+        logger.error({ err: error }, "Failed to create employee");
+        res.status(500).json(errorResponse(ERROR_CODES.EMP_CREATE_FAILED, "Failed to create employee"));
       }
     }
   });
@@ -53,13 +56,14 @@ export function registerEmployeeRoutes(app: Express): void {
       }
       const employee = await storage.getEmployee(req.orgId!, req.params.id);
       if (!employee) {
-        res.status(404).json({ message: "Employee not found" });
+        res.status(404).json(errorResponse(ERROR_CODES.EMP_NOT_FOUND, "Employee not found"));
         return;
       }
       const updated = await storage.updateEmployee(req.orgId!, req.params.id, parsed.data);
       res.json(updated);
     } catch (error) {
-      res.status(500).json({ message: "Failed to update employee" });
+      logger.error({ err: error }, "Failed to update employee");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update employee"));
     }
   });
 
@@ -99,7 +103,7 @@ export function registerEmployeeRoutes(app: Express): void {
           .on("error", reject);
       }).catch((err: Error) => {
         if (err.message === "FILE_NOT_FOUND") {
-          res.status(404).json({ message: "employees.csv not found on server" });
+          res.status(404).json(errorResponse(ERROR_CODES.EMP_IMPORT_FAILED, "employees.csv not found on server"));
           return;
         }
         throw err;
@@ -143,7 +147,7 @@ export function registerEmployeeRoutes(app: Express): void {
       res.json({ message: `Import complete: ${created} created, ${skipped} skipped`, details: results });
     } catch (error) {
       logger.error({ err: error }, "CSV import failed");
-      res.status(500).json({ message: "Failed to import employees from CSV" });
+      res.status(500).json(errorResponse(ERROR_CODES.EMP_IMPORT_FAILED, "Failed to import employees from CSV"));
     }
   });
 }

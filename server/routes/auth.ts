@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import passport from "passport";
 import { storage } from "../storage";
+import { logger } from "../services/logger";
 
 export function registerAuthRoutes(app: Express): void {
   // ==================== AUTH ROUTES (unauthenticated) ====================
@@ -45,8 +46,8 @@ export function registerAuthRoutes(app: Express): void {
           });
           return;
         }
-      } catch {
-        // If user lookup fails (e.g. env user), proceed without MFA
+      } catch (err) {
+        logger.debug({ err }, "MFA check skipped — user lookup failed (e.g. env user)");
       }
 
       // Regenerate session ID on login to prevent session fixation attacks

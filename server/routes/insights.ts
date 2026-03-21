@@ -127,6 +127,7 @@ export function registerInsightRoutes(app: Express): void {
         },
       });
     } catch (error) {
+      logger.error({ err: error }, "Failed to compute company insights");
       res.status(500).json({ message: "Failed to compute company insights" });
     }
   });

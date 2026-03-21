@@ -151,10 +151,10 @@ export default function ClinicalNotesPage() {
       hpiNarrative: cn.hpiNarrative || "",
       followUp: cn.followUp || "",
       // DAP/BIRP fields
-      data: (cn as any).data || "",
-      behavior: (cn as any).behavior || "",
-      intervention: (cn as any).intervention || "",
-      response: (cn as any).response || "",
+      data: cn.data || "",
+      behavior: cn.behavior || "",
+      intervention: cn.intervention || "",
+      response: cn.response || "",
       // Dental fields
       toothNumbers: cn.toothNumbers || [],
       quadrants: cn.quadrants || [],
@@ -195,8 +195,11 @@ export default function ClinicalNotesPage() {
     if (!printContent) return;
     const printWindow = window.open("", "_blank");
     if (!printWindow) return;
-    printWindow.document.write(`
-      <html><head><title>Clinical Note — ${call?.employee?.name || "Patient"}</title>
+    // Sanitize title to prevent injection via employee name
+    const safeTitle = (call?.employee?.name || "Patient").replace(/[<>&"']/g, "");
+    const doc = printWindow.document;
+    doc.open();
+    doc.write(`<html><head><title>Clinical Note — ${safeTitle}</title>
       <style>
         body { font-family: system-ui, -apple-system, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; font-size: 14px; }
         h1 { font-size: 20px; border-bottom: 2px solid #333; padding-bottom: 8px; }
@@ -208,12 +211,13 @@ export default function ClinicalNotesPage() {
         ul { padding-left: 20px; }
         p { line-height: 1.6; }
         @media print { .no-print { display: none; } }
-      </style></head><body>
-      ${printContent.innerHTML}
-      <script>window.print(); window.close();</script>
-      </body></html>
-    `);
-    printWindow.document.close();
+      </style></head><body></body></html>`);
+    // Use DOM API to safely insert content instead of string interpolation
+    doc.body.innerHTML = printContent.innerHTML;
+    const printScript = doc.createElement("script");
+    printScript.textContent = "window.print(); window.close();";
+    doc.body.appendChild(printScript);
+    doc.close();
   };
 
   if (isLoading) {
@@ -400,13 +404,13 @@ export default function ClinicalNotesPage() {
             /* --- BIRP Format --- */
             <>
               <SectionCard title="Behavior" icon={<Activity className="w-4 h-4 text-blue-500" />} empty="No behavior observations documented" editing={editing} editValue={editFields.behavior as string} onEditChange={handleFieldChange} fieldName="behavior">
-                {(cn as any).behavior && <p className="text-sm whitespace-pre-wrap">{(cn as any).behavior}</p>}
+                {cn.behavior && <p className="text-sm whitespace-pre-wrap">{cn.behavior}</p>}
               </SectionCard>
               <SectionCard title="Intervention" icon={<MessageSquare className="w-4 h-4 text-green-500" />} empty="No interventions documented" editing={editing} editValue={editFields.intervention as string} onEditChange={handleFieldChange} fieldName="intervention">
-                {(cn as any).intervention && <p className="text-sm whitespace-pre-wrap">{(cn as any).intervention}</p>}
+                {cn.intervention && <p className="text-sm whitespace-pre-wrap">{cn.intervention}</p>}
               </SectionCard>
               <SectionCard title="Response" icon={<ClipboardList className="w-4 h-4 text-purple-500" />} empty="No response documented" editing={editing} editValue={editFields.response as string} onEditChange={handleFieldChange} fieldName="response">
-                {(cn as any).response && <p className="text-sm whitespace-pre-wrap">{(cn as any).response}</p>}
+                {cn.response && <p className="text-sm whitespace-pre-wrap">{cn.response}</p>}
               </SectionCard>
               <SectionCard title="Plan" icon={<Calendar className="w-4 h-4 text-orange-500" />} empty="No plan documented" editing={editing} editValue={(editFields.plan as string[] || []).join("\n")} onEditChange={(_, v) => handlePlanChange(v)} fieldName="plan">
                 {cn.plan && cn.plan.length > 0 && (
@@ -420,7 +424,7 @@ export default function ClinicalNotesPage() {
             /* --- DAP Format --- */
             <>
               <SectionCard title="Data" icon={<FileText className="w-4 h-4 text-blue-500" />} empty="No data documented" editing={editing} editValue={editFields.data as string} onEditChange={handleFieldChange} fieldName="data">
-                {(cn as any).data && <p className="text-sm whitespace-pre-wrap">{(cn as any).data}</p>}
+                {cn.data && <p className="text-sm whitespace-pre-wrap">{cn.data}</p>}
               </SectionCard>
               <SectionCard title="Assessment" icon={<Stethoscope className="w-4 h-4 text-purple-500" />} empty="No assessment documented" editing={editing} editValue={editFields.assessment as string} onEditChange={handleFieldChange} fieldName="assessment">
                 {cn.assessment && <p className="text-sm whitespace-pre-wrap">{cn.assessment}</p>}
@@ -652,7 +656,7 @@ export default function ClinicalNotesPage() {
       )}
 
       {/* Validation Warnings (from server-side code/format validation) */}
-      {(cn as any).validationWarnings?.length > 0 && (
+      {(cn.validationWarnings?.length ?? 0) > 0 && (
         <Card className="border-blue-200 print:hidden">
           <CardHeader className="pb-2">
             <CardTitle className="text-base text-blue-700 dark:text-blue-300 flex items-center gap-2">
@@ -662,7 +666,7 @@ export default function ClinicalNotesPage() {
           </CardHeader>
           <CardContent>
             <ul className="text-sm space-y-1 text-blue-700 dark:text-blue-300">
-              {((cn as any).validationWarnings as string[]).map((warning, i) => (
+              {cn.validationWarnings!.map((warning, i) => (
                 <li key={i} className="flex items-start gap-2">
                   <span className="text-blue-400 mt-0.5">&#8226;</span>
                   {warning}
@@ -683,14 +687,14 @@ export default function ClinicalNotesPage() {
       )}
 
       {/* Edit History */}
-      {(call.analysis?.clinicalNote as any)?.editHistory?.length > 0 && (
+      {call.analysis?.clinicalNote?.editHistory?.length && call.analysis.clinicalNote.editHistory.length > 0 && (
         <Card className="print:hidden">
           <CardHeader className="pb-2">
             <CardTitle className="text-base text-muted-foreground">Edit History</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-1">
-              {((call.analysis?.clinicalNote as any).editHistory as Array<{ editedBy: string; editedAt: string; fieldsChanged: string[] }>).map((edit, i) => (
+              {call.analysis.clinicalNote.editHistory.map((edit, i) => (
                 <div key={i} className="text-xs text-muted-foreground flex gap-2">
                   <span>{new Date(edit.editedAt).toLocaleString()}</span>
                   <span>—</span>

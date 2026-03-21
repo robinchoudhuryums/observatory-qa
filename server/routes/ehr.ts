@@ -30,7 +30,8 @@ function isValidEhrBaseUrl(url: string): boolean {
     if (hostname.startsWith("10.") || hostname.startsWith("192.168.")) return false;
     if (/^172\.(1[6-9]|2\d|3[01])\./.test(hostname)) return false;
     return true;
-  } catch {
+  } catch (err) {
+    logger.debug({ err }, "Failed to parse EHR base URL for validation");
     return false;
   }
 }
