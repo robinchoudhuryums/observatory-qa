@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import {
   Mic, Square, Pause, Play, FileText, Stethoscope,
-  Clock, AlertCircle, CheckCircle2, Radio, ArrowLeft,
+  Clock, AlertCircle, CheckCircle2, Radio, ArrowLeft, WifiOff,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -47,15 +47,22 @@ export default function ClinicalLivePage() {
   const [finalSegments, setFinalSegments] = useState<string[]>([]);
   const [draftNote, setDraftNote] = useState<ClinicalNote | null>(null);
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
+  const [micError, setMicError] = useState<string | null>(null);
+  const [transcriptionConnected, setTranscriptionConnected] = useState(true);
 
-  // Refs
+  // Refs — isPausedRef solves the closure capture bug in onaudioprocess
+  const isPausedRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+
+  // Keep isPausedRef in sync with state
+  useEffect(() => {
+    isPausedRef.current = isPaused;
+  }, [isPaused]);
 
   // Auto-scroll transcript
   useEffect(() => {
@@ -64,32 +71,6 @@ export default function ClinicalLivePage() {
 
   // Listen for WebSocket live transcript events
   useEffect(() => {
-    function handleWsMessage(event: MessageEvent) {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type !== "live_transcript") return;
-        if (data.sessionId !== sessionIdRef.current) return;
-
-        if (data.eventType === "partial") {
-          setPartialText(data.text || "");
-        } else if (data.eventType === "final") {
-          setPartialText("");
-          if (data.text?.trim()) {
-            setFinalSegments((prev) => [...prev, data.text]);
-          }
-        } else if (data.eventType === "draft_note") {
-          setDraftNote(data.draftNote || null);
-          setIsGeneratingDraft(false);
-        } else if (data.eventType === "session_end") {
-          // Session ended (possibly from server side)
-        }
-      } catch {
-        // Ignore non-JSON or malformed
-      }
-    }
-
-    // The WebSocket is managed by use-websocket hook at the App level.
-    // We tap into its messages via a global event listener.
     function handleCustomEvent(e: Event) {
       const detail = (e as CustomEvent).detail;
       if (detail?.type === "live_transcript" && detail?.sessionId === sessionIdRef.current) {
@@ -103,6 +84,8 @@ export default function ClinicalLivePage() {
         } else if (detail.eventType === "draft_note") {
           setDraftNote(detail.draftNote || null);
           setIsGeneratingDraft(false);
+        } else if (detail.eventType === "error") {
+          setTranscriptionConnected(false);
         }
       }
     }
@@ -125,6 +108,74 @@ export default function ClinicalLivePage() {
     };
   }, [phase, isPaused]);
 
+  const stopAudioCapture = useCallback(() => {
+    processorRef.current?.disconnect();
+    audioContextRef.current?.close().catch(() => {});
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    processorRef.current = null;
+    audioContextRef.current = null;
+    streamRef.current = null;
+  }, []);
+
+  // Start microphone capture and stream audio to server
+  const startAudioCapture = useCallback(async (liveSessionId: string) => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true },
+      });
+      streamRef.current = stream;
+
+      const audioContext = new AudioContext({ sampleRate: 16000 });
+      audioContextRef.current = audioContext;
+      const source = audioContext.createMediaStreamSource(stream);
+      // ScriptProcessorNode is deprecated but AudioWorklet requires a separate file.
+      // This works reliably in all current browsers for the audio chunk sizes we need.
+      const processor = audioContext.createScriptProcessor(8192, 1, 1);
+      processorRef.current = processor;
+
+      processor.onaudioprocess = (e) => {
+        // Use ref to get current pause state (not stale closure value)
+        if (isPausedRef.current || !sessionIdRef.current) return;
+        const inputData = e.inputBuffer.getChannelData(0);
+        // Convert Float32 to Int16 PCM
+        const pcm16 = new Int16Array(inputData.length);
+        for (let i = 0; i < inputData.length; i++) {
+          const s = Math.max(-1, Math.min(1, inputData[i]));
+          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+        }
+        // Convert to base64
+        const bytes = new Uint8Array(pcm16.buffer);
+        let binary = "";
+        for (let i = 0; i < bytes.length; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        const base64 = btoa(binary);
+
+        // Send to server (fire-and-forget)
+        fetch(`/api/live-sessions/${sessionIdRef.current}/audio`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ audio: base64 }),
+        }).catch(() => {
+          // Silently handle audio send failures
+        });
+      };
+
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+      setMicError(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      setMicError(`Microphone access failed: ${message}`);
+      toast({
+        title: "Microphone access failed",
+        description: "Please allow microphone access to use live recording. The session has been created but no audio is being captured.",
+        variant: "destructive",
+      });
+    }
+  }, [toast]);
+
   // Start session mutation
   const startMutation = useMutation({
     mutationFn: async () => {
@@ -134,65 +185,25 @@ export default function ClinicalLivePage() {
         encounterType,
         consentObtained: true,
       });
-      return res.json() as Promise<LiveSession>;
+      return res.json() as Promise<LiveSession & { transcriptionConnected?: boolean }>;
     },
     onSuccess: async (data) => {
       setSession(data);
       sessionIdRef.current = data.id;
       setPhase("recording");
-      toast({ title: "Recording started", description: "Live transcription is active." });
+      setTranscriptionConnected(data.transcriptionConnected !== false);
 
-      // Start microphone capture
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true },
-        });
-        streamRef.current = stream;
-
-        // Use AudioContext + ScriptProcessor to get raw PCM16 data
-        const audioContext = new AudioContext({ sampleRate: 16000 });
-        audioContextRef.current = audioContext;
-        const source = audioContext.createMediaStreamSource(stream);
-        const processor = audioContext.createScriptProcessor(4096, 1, 1);
-        processorRef.current = processor;
-
-        processor.onaudioprocess = (e) => {
-          if (isPaused || !sessionIdRef.current) return;
-          const inputData = e.inputBuffer.getChannelData(0);
-          // Convert Float32 to Int16 PCM
-          const pcm16 = new Int16Array(inputData.length);
-          for (let i = 0; i < inputData.length; i++) {
-            const s = Math.max(-1, Math.min(1, inputData[i]));
-            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-          }
-          // Convert to base64
-          const bytes = new Uint8Array(pcm16.buffer);
-          let binary = "";
-          for (let i = 0; i < bytes.length; i++) {
-            binary += String.fromCharCode(bytes[i]);
-          }
-          const base64 = btoa(binary);
-
-          // Send to server
-          fetch(`/api/live-sessions/${sessionIdRef.current}/audio`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({ audio: base64 }),
-          }).catch(() => {
-            // Silently handle audio send failures
-          });
-        };
-
-        source.connect(processor);
-        processor.connect(audioContext.destination);
-      } catch (err) {
+      if (!data.transcriptionConnected) {
         toast({
-          title: "Microphone access failed",
-          description: "Please allow microphone access to use live recording.",
+          title: "Transcription service unavailable",
+          description: "Live transcription is not connected. You can still record, but real-time transcript will not appear.",
           variant: "destructive",
         });
+      } else {
+        toast({ title: "Recording started", description: "Live transcription is active." });
       }
+
+      await startAudioCapture(data.id);
     },
     onError: (err: Error) => {
       toast({ title: "Failed to start session", description: err.message, variant: "destructive" });
@@ -202,11 +213,11 @@ export default function ClinicalLivePage() {
   // Stop session
   const stopMutation = useMutation({
     mutationFn: async () => {
+      stopAudioCapture();
       const res = await apiRequest("POST", `/api/live-sessions/${sessionIdRef.current}/stop`);
       return res.json();
     },
     onSuccess: (data) => {
-      stopAudioCapture();
       setPhase("completed");
       setSession((s) => s ? { ...s, status: "completed", callId: data.callId } : null);
       toast({ title: "Session completed", description: "Clinical note has been generated." });
@@ -250,15 +261,6 @@ export default function ClinicalLivePage() {
       }
     },
   });
-
-  const stopAudioCapture = useCallback(() => {
-    processorRef.current?.disconnect();
-    audioContextRef.current?.close();
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    processorRef.current = null;
-    audioContextRef.current = null;
-    streamRef.current = null;
-  }, []);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -368,6 +370,20 @@ export default function ClinicalLivePage() {
   if (phase === "recording") {
     return (
       <div className="container max-w-6xl mx-auto py-6 px-4">
+        {/* Error banners */}
+        {micError && (
+          <div className="flex items-center gap-2 p-3 mb-4 rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 text-sm text-red-700 dark:text-red-400">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            {micError}
+          </div>
+        )}
+        {!transcriptionConnected && (
+          <div className="flex items-center gap-2 p-3 mb-4 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 text-sm text-amber-700 dark:text-amber-400">
+            <WifiOff className="w-4 h-4 shrink-0" />
+            Transcription service disconnected. Audio is still being captured but real-time transcription is unavailable.
+          </div>
+        )}
+
         {/* Header with controls */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
@@ -390,7 +406,7 @@ export default function ClinicalLivePage() {
               disabled={pauseMutation.isPending}
             >
               {isPaused ? <Play className="w-4 h-4 mr-1" /> : <Pause className="w-4 h-4 mr-1" />}
-              {isPaused ? "Resume" : "Pause"}
+              {pauseMutation.isPending ? "..." : isPaused ? "Resume" : "Pause"}
             </Button>
             <Button
               variant="outline"
@@ -534,6 +550,8 @@ export default function ClinicalLivePage() {
                 setDraftNote(null);
                 setElapsed(0);
                 setConsentConfirmed(false);
+                setMicError(null);
+                setTranscriptionConnected(true);
                 sessionIdRef.current = null;
               }}
             >

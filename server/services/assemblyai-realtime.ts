@@ -12,6 +12,7 @@ import WebSocket from "ws";
 import { logger } from "./logger";
 
 const ASSEMBLYAI_REALTIME_URL = "wss://api.assemblyai.com/v2/realtime/ws";
+const CONNECTION_TIMEOUT_MS = 10_000; // 10 seconds to connect
 
 export interface RealtimeTranscriptEvent {
   /** "partial" = interim (will change), "final" = committed segment */
@@ -51,7 +52,17 @@ export class RealtimeTranscriptionSession {
         headers: { Authorization: this.apiKey },
       });
 
+      // Connection timeout
+      const timeout = setTimeout(() => {
+        if (this.ws && this.ws.readyState !== WebSocket.OPEN) {
+          this.ws.close();
+          this.ws = null;
+          reject(new Error("AssemblyAI real-time connection timed out"));
+        }
+      }, CONNECTION_TIMEOUT_MS);
+
       this.ws.on("open", () => {
+        clearTimeout(timeout);
         logger.info("AssemblyAI real-time WebSocket connected");
         resolve();
       });
@@ -87,12 +98,16 @@ export class RealtimeTranscriptionSession {
       });
 
       this.ws.on("error", (err) => {
+        clearTimeout(timeout);
         logger.error({ err }, "AssemblyAI real-time WebSocket error");
         this.onEvent({ type: "error", text: "Transcription connection error" });
-        if (!this.ws) reject(err);
+        if (this.ws?.readyState !== WebSocket.OPEN) {
+          reject(err);
+        }
       });
 
       this.ws.on("close", (code, reason) => {
+        clearTimeout(timeout);
         logger.info({ code, reason: reason.toString() }, "AssemblyAI real-time WebSocket closed");
         this.ws = null;
         if (!this.closed) {
@@ -114,22 +129,29 @@ export class RealtimeTranscriptionSession {
    * Gracefully close the transcription session.
    */
   async close(): Promise<void> {
+    if (this.closed) return;
     this.closed = true;
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      this.ws = null;
+      return;
+    }
     // Send terminate_session message
-    this.ws.send(JSON.stringify({ terminate_session: true }));
+    try {
+      this.ws.send(JSON.stringify({ terminate_session: true }));
+    } catch { /* connection may already be closing */ }
     // Wait briefly for clean close
     await new Promise<void>((resolve) => {
       const timeout = setTimeout(() => {
-        this.ws?.close();
+        try { this.ws?.close(); } catch { /* best effort */ }
+        this.ws = null;
         resolve();
       }, 3000);
-      this.ws!.on("close", () => {
+      this.ws!.once("close", () => {
         clearTimeout(timeout);
+        this.ws = null;
         resolve();
       });
     });
-    this.ws = null;
   }
 
   get isConnected(): boolean {
