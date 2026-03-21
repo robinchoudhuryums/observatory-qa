@@ -8,6 +8,7 @@ import { logger } from "./services/logger";
 import { initRedis, checkRateLimit, closeRedis } from "./services/redis";
 import { initQueues, enqueueRetention, closeQueues } from "./services/queue";
 import { initEmail, sendEmail, buildQuotaAlertEmail } from "./services/email";
+import { isPhiEncryptionEnabled } from "./services/phi-encryption";
 import { wafMiddleware } from "./middleware/waf";
 import { PLAN_DEFINITIONS, type PlanTier } from "@shared/schema";
 
@@ -186,6 +187,14 @@ app.use("/api/ehr", distributedRateLimit(60 * 1000, 30) as any);
 
   // 4. Initialize email transport
   initEmail();
+
+  // 5. HIPAA: Validate PHI encryption key — warn if clinical features may store plaintext
+  if (!isPhiEncryptionEnabled()) {
+    logger.warn(
+      "PHI_ENCRYPTION_KEY is not configured — clinical notes and PHI fields will be stored in plaintext. " +
+      "Set PHI_ENCRYPTION_KEY (64 hex chars) for HIPAA-compliant PHI encryption at rest."
+    );
+  }
 
   // Authentication (must come before routes) - async to hash env var passwords on startup
   await setupAuth(app);

@@ -756,6 +756,12 @@ export function registerCallRoutes(app: Express): void {
         res.status(404).json({ message: "Sentiment analysis not found" });
         return;
       }
+      logPhiAccess({
+        ...auditContext(req),
+        event: "view_sentiment_analysis",
+        resourceType: "sentiment",
+        resourceId: req.params.id,
+      });
       res.json(sentiment);
     } catch (error) {
       res.status(500).json({ message: "Failed to get sentiment analysis" });
@@ -770,6 +776,12 @@ export function registerCallRoutes(app: Express): void {
         return;
       }
       decryptClinicalNote(analysis as Record<string, unknown>);
+      logPhiAccess({
+        ...auditContext(req),
+        event: "view_call_analysis",
+        resourceType: "analysis",
+        resourceId: req.params.id,
+      });
       res.json(analysis);
     } catch (error) {
       res.status(500).json({ message: "Failed to get call analysis" });
