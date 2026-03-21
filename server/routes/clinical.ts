@@ -20,7 +20,10 @@ import {
 function requireClinicalPlan() {
   return async (req: any, res: any, next: any) => {
     const orgId = req.orgId;
-    if (!orgId) return next();
+    if (!orgId) {
+      res.status(403).json({ message: "Organization context required", code: "OBS-AUTH-001" });
+      return;
+    }
 
     try {
       const sub = await storage.getSubscription(orgId);
@@ -91,8 +94,8 @@ export function registerClinicalRoutes(app: Express): void {
       // Verify the attesting user is the provider who should attest this note.
       // Admins can attest on behalf of others (override); managers must be the
       // provider associated with the encounter or the one who last edited it.
-      const currentUserName = (req as any).user?.name || (req as any).user?.username;
-      const currentUserRole = (req as any).user?.role;
+      const currentUserName = req.user?.name || req.user?.username;
+      const currentUserRole = req.user?.role;
       const noteCreator = analysis.clinicalNote.attestedBy // previously attested by
         || analysis.clinicalNote.editHistory?.at(-1)?.editedBy; // or last editor
 
@@ -137,7 +140,7 @@ export function registerClinicalRoutes(app: Express): void {
       }
 
       analysis.clinicalNote.patientConsentObtained = !!consentObtained;
-      analysis.clinicalNote.consentRecordedBy = (req as any).user?.name || (req as any).user?.username;
+      analysis.clinicalNote.consentRecordedBy = req.user?.name || req.user?.username;
       analysis.clinicalNote.consentRecordedAt = new Date().toISOString();
 
       await storage.createCallAnalysis(req.orgId!, analysis);
@@ -223,7 +226,7 @@ export function registerClinicalRoutes(app: Express): void {
         analysis.clinicalNote.editHistory = [];
       }
       analysis.clinicalNote.editHistory.push({
-        editedBy: (req as any).user?.name || (req as any).user?.username,
+        editedBy: req.user?.name || req.user?.username,
         editedAt: new Date().toISOString(),
         fieldsChanged: allEditedFields,
       });
@@ -250,7 +253,7 @@ export function registerClinicalRoutes(app: Express): void {
   app.get("/api/clinical/provider-preferences", requireAuth, injectOrgContext, requireClinicalPlan(), async (req, res) => {
     try {
       const org = await storage.getOrganization(req.orgId!);
-      const userId = (req as any).user?.id || "unknown";
+      const userId = req.user?.id || "unknown";
       const prefs = (org?.settings as any)?.providerStylePreferences?.[userId] || {};
       res.json(prefs);
     } catch (error) {
@@ -267,7 +270,7 @@ export function registerClinicalRoutes(app: Express): void {
         return;
       }
 
-      const userId = (req as any).user?.id || "unknown";
+      const userId = req.user?.id || "unknown";
       const allowedPrefFields = [
         "noteFormat", "sectionOrder", "abbreviationLevel",
         "includeNegativePertinents", "defaultSpecialty",
@@ -411,7 +414,7 @@ export function registerClinicalRoutes(app: Express): void {
   // Analyze provider's past notes and suggest style preferences
   app.post("/api/clinical/style-learning/analyze", requireAuth, injectOrgContext, requireClinicalPlan(), async (req, res) => {
     try {
-      const userId = (req as any).user?.id || "unknown";
+      const userId = req.user?.id || "unknown";
       const calls = await storage.getCallsWithDetails(req.orgId!, {});
       const clinicalCategories = [
         "clinical_encounter", "telemedicine",
@@ -427,7 +430,7 @@ export function registerClinicalRoutes(app: Express): void {
 
         // Only include notes attested by this user (if tracked)
         if (cn.attestedBy) {
-          const userName = (req as any).user?.name || (req as any).user?.username;
+          const userName = req.user?.name || req.user?.username;
           if (cn.attestedBy !== userName) continue;
         }
 
@@ -488,7 +491,7 @@ export function registerClinicalRoutes(app: Express): void {
         return;
       }
 
-      const userId = (req as any).user?.id || "unknown";
+      const userId = req.user?.id || "unknown";
       const settings = org.settings || {};
       const allPrefs = (settings as any).providerStylePreferences || {};
       allPrefs[userId] = { ...allPrefs[userId], ...preferences, learnedAt: new Date().toISOString() };

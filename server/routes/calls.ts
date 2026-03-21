@@ -115,7 +115,7 @@ async function processAudioFile(orgId: string, callId: string, filePath: string,
         warning: "Transcript was empty — audio may be silent, corrupted, or too short",
       }, orgId);
       // Still save what we have but skip AI analysis
-      const { transcript, sentiment, analysis } = assemblyAIService.processTranscriptData(transcriptResponse, null, callId);
+      const { transcript, sentiment, analysis } = assemblyAIService.processTranscriptData(transcriptResponse, null, callId, orgId);
       analysis.confidenceScore = "0.10";
       analysis.confidenceFactors = {
         transcriptConfidence: 0,
@@ -309,7 +309,7 @@ async function processAudioFile(orgId: string, callId: string, filePath: string,
     // Step 5: Process combined results
     broadcastCallUpdate(callId, "processing", { step: 5, totalSteps: 6, label: "Processing results..." }, orgId);
     logger.info({ callId, step: "5/6" }, "Processing combined transcript and analysis data");
-    const { transcript, sentiment, analysis } = assemblyAIService.processTranscriptData(transcriptResponse, aiAnalysis, callId);
+    const { transcript, sentiment, analysis } = assemblyAIService.processTranscriptData(transcriptResponse, aiAnalysis, callId, orgId);
 
     // Compute confidence score based on transcript quality and analysis completeness
     const transcriptConfidence = transcriptResponse.confidence || 0;
@@ -711,6 +711,7 @@ export function registerCallRoutes(app: Express): void {
       }
 
       const call = await storage.createCall(req.orgId!, {
+        orgId: req.orgId!,
         employeeId: employeeId || undefined,
         fileName: req.file.originalname,
         filePath: req.file.path,
@@ -721,7 +722,7 @@ export function registerCallRoutes(app: Express): void {
       const originalName = req.file.originalname;
       const mimeType = req.file.mimetype || "audio/mpeg";
       const orgId = req.orgId!;
-      const uploadUserId = (req as any).user?.id;
+      const uploadUserId = req.user?.id;
       processAudioFile(orgId, call.id, req.file.path, audioBuffer, originalName, mimeType, callCategory, uploadUserId, clinicalSpecialty, noteFormat)
         .catch(async (error) => {
           logger.error({ callId: call.id, err: error }, "Failed to process call");
@@ -894,7 +895,7 @@ export function registerCallRoutes(app: Express): void {
         return;
       }
 
-      const user = (req as any).user;
+      const user = req.user;
       const editedBy = user?.name || user?.username || "Unknown User";
 
       const previousEdits = Array.isArray(existing.manualEdits) ? existing.manualEdits : [];
