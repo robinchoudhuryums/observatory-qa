@@ -67,12 +67,8 @@ export function registerAuthRoutes(app: Express): void {
         res.status(500).json({ message: "Failed to logout" });
         return;
       }
-      req.session.destroy((destroyErr) => {
-        if (destroyErr) {
-          // Session cleared from passport but not from store — log but don't fail
-          res.json({ message: "Logged out" });
-          return;
-        }
+      req.session.destroy(() => {
+        // Always clear the cookie regardless of destroy success/failure
         res.clearCookie("connect.sid");
         res.json({ message: "Logged out" });
       });
