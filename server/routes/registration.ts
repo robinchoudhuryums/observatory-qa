@@ -267,10 +267,13 @@ export function registerRegistrationRoutes(app: Express): void {
         orgSlug: org?.slug || "default",
       };
 
-      req.login(sessionUser, (loginErr) => {
-        if (loginErr) return next(loginErr);
-        res.status(201).json({
-          user: { id: user.id, username: user.username, name: user.name, role: user.role },
+      req.session.regenerate((regenErr) => {
+        if (regenErr) return next(regenErr);
+        req.login(sessionUser, (loginErr) => {
+          if (loginErr) return next(loginErr);
+          res.status(201).json({
+            user: { id: user.id, username: user.username, name: user.name, role: user.role },
+          });
         });
       });
     } catch (error) {
