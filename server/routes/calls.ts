@@ -18,7 +18,7 @@ import { logger } from "../services/logger";
 import { searchRelevantChunks, formatRetrievedContext } from "../services/rag";
 import { PLAN_DEFINITIONS, CALL_CATEGORIES, type PlanTier, type UsageRecord } from "@shared/schema";
 import { estimateBedrockCost, estimateAssemblyAICost } from "./ab-testing";
-import { encryptField, decryptField } from "../services/phi-encryption";
+import { encryptField, decryptField, decryptClinicalNotePhi } from "../services/phi-encryption";
 import { calibrateAnalysis } from "../services/scoring-calibration";
 import { validateClinicalNote, sanitizeStylePreferences } from "../services/clinical-validation";
 
@@ -422,7 +422,8 @@ async function processAudioFile(orgId: string, callId: string, filePath: string,
       };
 
       // Validate clinical note completeness (before encryption)
-      const validation = validateClinicalNote(analysis.clinicalNote as any);
+      const cn = analysis.clinicalNote!;
+      const validation = validateClinicalNote(cn as any);
       if (!validation.valid) {
         logger.warn({
           callId,
@@ -431,25 +432,24 @@ async function processAudioFile(orgId: string, callId: string, filePath: string,
           emptySections: validation.emptySections,
         }, "Clinical note has missing or empty required sections");
         // Merge server-detected missing sections with AI-reported ones
-        const aiMissing = analysis.clinicalNote.missingSections || [];
-        analysis.clinicalNote.missingSections = Array.from(new Set([...aiMissing, ...validation.missingSections, ...validation.emptySections]));
+        const aiMissing = cn.missingSections || [];
+        cn.missingSections = Array.from(new Set([...aiMissing, ...validation.missingSections, ...validation.emptySections]));
       }
       // Use the more conservative (lower) of AI and server-computed completeness
       // AI may overestimate completeness when sections are empty/shallow
-      const aiCompleteness = analysis.clinicalNote.documentationCompleteness || 0;
+      const aiCompleteness = cn.documentationCompleteness || 0;
       const serverCompleteness = validation.computedCompleteness;
-      analysis.clinicalNote.documentationCompleteness = Math.min(
+      cn.documentationCompleteness = Math.min(
         aiCompleteness || serverCompleteness,
         serverCompleteness || aiCompleteness,
       ) || serverCompleteness;
       // Store validation warnings for downstream consumers
       if (validation.warnings.length > 0) {
-        (analysis.clinicalNote as any).validationWarnings = validation.warnings;
+        (cn as any).validationWarnings = validation.warnings;
         logger.info({ callId, warnings: validation.warnings }, "Clinical note validation warnings");
       }
 
       // Encrypt PHI fields in clinical notes
-      const cn = analysis.clinicalNote;
       if (cn.subjective) cn.subjective = encryptField(cn.subjective);
       if (cn.objective) cn.objective = encryptField(cn.objective);
       if (cn.assessment) cn.assessment = encryptField(cn.assessment);
@@ -599,17 +599,8 @@ async function processAudioFile(orgId: string, callId: string, filePath: string,
   }
 }
 
-/** Decrypt PHI fields in clinical notes for display */
-function decryptClinicalNote(analysis: Record<string, unknown> | null | undefined): void {
-  if (!analysis) return;
-  const cn = analysis.clinicalNote as Record<string, unknown> | undefined;
-  if (!cn) return;
-  if (typeof cn.subjective === "string") cn.subjective = decryptField(cn.subjective);
-  if (typeof cn.objective === "string") cn.objective = decryptField(cn.objective);
-  if (typeof cn.assessment === "string") cn.assessment = decryptField(cn.assessment);
-  if (typeof cn.hpiNarrative === "string") cn.hpiNarrative = decryptField(cn.hpiNarrative);
-  if (typeof cn.chiefComplaint === "string") cn.chiefComplaint = decryptField(cn.chiefComplaint);
-}
+/** @deprecated Use decryptClinicalNotePhi from phi-encryption.ts */
+const decryptClinicalNote = decryptClinicalNotePhi;
 
 export function registerCallRoutes(app: Express): void {
 

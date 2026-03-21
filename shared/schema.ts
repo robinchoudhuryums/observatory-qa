@@ -216,8 +216,12 @@ export const clinicalNoteSchema = z.object({
   missingSections: z.array(z.string()).optional(),
   patientConsentObtained: z.boolean().optional(),
   providerAttested: z.boolean().default(false),
+  // Optimistic locking for concurrent edit detection
+  version: z.number().optional(),
   // Attestation & audit metadata (HIPAA-required)
   attestedBy: z.string().optional(),
+  attestedById: z.string().optional(),
+  attestedNpi: z.string().optional(),
   attestedAt: z.string().optional(),
   consentRecordedBy: z.string().optional(),
   consentRecordedAt: z.string().optional(),

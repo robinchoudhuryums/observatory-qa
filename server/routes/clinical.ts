@@ -3,7 +3,7 @@ import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { storage } from "../storage";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
-import { decryptField, encryptField } from "../services/phi-encryption";
+import { decryptField, encryptField, decryptClinicalNotePhi } from "../services/phi-encryption";
 import { PLAN_DEFINITIONS, type PlanTier } from "@shared/schema";
 import { analyzeProviderStyle, type ClinicalNote as StyleClinicalNote } from "../services/style-learning";
 import {
@@ -68,12 +68,8 @@ export function registerClinicalRoutes(app: Express): void {
         resourceId: req.params.callId,
       });
 
-      // Decrypt PHI fields
-      if (typeof cn.subjective === "string") cn.subjective = decryptField(cn.subjective);
-      if (typeof cn.objective === "string") cn.objective = decryptField(cn.objective);
-      if (typeof cn.assessment === "string") cn.assessment = decryptField(cn.assessment);
-      if (typeof cn.hpiNarrative === "string") cn.hpiNarrative = decryptField(cn.hpiNarrative);
-      if (typeof cn.chiefComplaint === "string") cn.chiefComplaint = decryptField(cn.chiefComplaint);
+      // Decrypt PHI fields before sending to client
+      decryptClinicalNotePhi(analysis as Record<string, unknown>);
 
       res.json(cn);
     } catch (error) {
@@ -109,7 +105,12 @@ export function registerClinicalRoutes(app: Express): void {
 
       analysis.clinicalNote.providerAttested = true;
       analysis.clinicalNote.attestedBy = currentUserName;
+      analysis.clinicalNote.attestedById = req.user?.id;
       analysis.clinicalNote.attestedAt = new Date().toISOString();
+      // Record NPI if provided in the request (for HIPAA compliance)
+      if (req.body.npiNumber) {
+        analysis.clinicalNote.attestedNpi = req.body.npiNumber;
+      }
 
       await storage.createCallAnalysis(req.orgId!, analysis);
 
@@ -168,6 +169,20 @@ export function registerClinicalRoutes(app: Express): void {
         res.status(404).json({ message: "No clinical note found for this encounter" });
         return;
       }
+
+      // Optimistic locking: reject if version doesn't match (concurrent edit)
+      const currentVersion = analysis.clinicalNote.version || 0;
+      if (req.body.version !== undefined && req.body.version !== currentVersion) {
+        res.status(409).json({
+          message: "Clinical note has been modified by another user. Please refresh and try again.",
+          code: "OBS-CLINICAL-CONFLICT",
+          currentVersion,
+        });
+        return;
+      }
+
+      // Increment version on every edit
+      analysis.clinicalNote.version = currentVersion + 1;
 
       // Don't allow editing attested notes without re-attestation
       if (analysis.clinicalNote.providerAttested) {
@@ -567,11 +582,8 @@ export function registerClinicalRoutes(app: Express): void {
 
       // Decrypt PHI fields for validation
       const decrypted = { ...cn };
-      if (typeof decrypted.subjective === "string") decrypted.subjective = decryptField(decrypted.subjective);
-      if (typeof decrypted.objective === "string") decrypted.objective = decryptField(decrypted.objective);
-      if (typeof decrypted.assessment === "string") decrypted.assessment = decryptField(decrypted.assessment);
-      if (typeof decrypted.hpiNarrative === "string") decrypted.hpiNarrative = decryptField(decrypted.hpiNarrative);
-      if (typeof decrypted.chiefComplaint === "string") decrypted.chiefComplaint = decryptField(decrypted.chiefComplaint);
+      const wrapper = { clinicalNote: decrypted } as Record<string, unknown>;
+      decryptClinicalNotePhi(wrapper);
 
       const result = validateClinicalNote(decrypted);
       res.json(result);
