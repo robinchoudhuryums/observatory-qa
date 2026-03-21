@@ -1,9 +1,11 @@
+import { useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   BarChart3, Shield, Users, TrendingUp,
   Mic, Brain, FileText, Zap, ArrowRight, ChevronRight,
 } from "lucide-react";
 import { ObservatoryLogo } from "@/components/observatory-logo";
+import { motion, useInView } from "framer-motion";
 
 interface LandingPageProps {
   onNavigate: (view: "login" | "register") => void;
@@ -23,14 +25,12 @@ function WaveBackground() {
 
     const d = `M-100,${yBase} C200,${yBase - amplitude + phase * 0.1} 400,${yBase + amplitude - phase * 0.05} 600,${yBase} C800,${yBase - amplitude * 0.7} 1000,${yBase + amplitude * 0.5} 1200,${yBase} C1400,${yBase - amplitude * 0.3} 1600,${yBase + amplitude * 0.8} 2000,${yBase}`;
 
-    // Stagger the spark timing: each line's spark is offset slightly
     const sparkDelay = i * 0.15;
-    const sparkDuration = 3.5 + (i % 3) * 0.5; // vary slightly per line
+    const sparkDuration = 3.5 + (i % 3) * 0.5;
     const gradId = `spark-${i}`;
 
     return (
       <g key={i}>
-        {/* Animated gradient definition for this line's traveling spark */}
         <linearGradient id={gradId} x1="0" y1="0" x2="1" y2="0">
           <stop offset="0%" stopColor={color} stopOpacity={opacity * 0.6} />
           <stop offset="0%" stopColor={brightColor} stopOpacity={Math.min(opacity + 0.5, 1)}>
@@ -42,7 +42,6 @@ function WaveBackground() {
           <stop offset="100%" stopColor={color} stopOpacity={opacity * 0.6} />
         </linearGradient>
 
-        {/* Blurred glow layer — follows the spark */}
         <path
           d={d}
           fill="none"
@@ -56,7 +55,6 @@ function WaveBackground() {
           }}
           filter="url(#wave-blur)"
         />
-        {/* Sharp foreground line with the spark gradient */}
         <path
           d={d}
           fill="none"
@@ -104,38 +102,32 @@ const FEATURES = [
   {
     icon: Mic,
     title: "Auto Transcription",
-    description: "Upload call recordings and get accurate transcripts powered by AssemblyAI in minutes.",
-    gradient: "from-teal-500 to-cyan-500",
+    description: "Upload recordings and get accurate transcripts powered by AssemblyAI in minutes.",
   },
   {
     icon: Brain,
     title: "AI Analysis",
-    description: "Claude analyzes every call for sentiment, compliance, performance scores, and coaching opportunities.",
-    gradient: "from-blue-500 to-indigo-500",
+    description: "Claude analyzes every call for sentiment, compliance, and coaching opportunities.",
   },
   {
     icon: BarChart3,
     title: "Performance Dashboards",
-    description: "Real-time metrics, trend analysis, and team performance tracking with interactive charts.",
-    gradient: "from-indigo-500 to-purple-500",
+    description: "Real-time metrics, trend analysis, and team performance tracking.",
   },
   {
     icon: Shield,
     title: "Compliance Monitoring",
-    description: "Custom evaluation criteria, required phrase detection, and automated compliance flagging.",
-    gradient: "from-purple-500 to-pink-500",
+    description: "Custom evaluation criteria, required phrase detection, and automated flagging.",
   },
   {
     icon: Users,
     title: "Team Coaching",
-    description: "AI-generated coaching recommendations, review queues, and effectiveness tracking.",
-    gradient: "from-pink-500 to-rose-500",
+    description: "AI-generated coaching plans, review queues, and effectiveness tracking.",
   },
   {
     icon: TrendingUp,
     title: "Proactive Insights",
-    description: "Weekly digests, Slack/Teams alerts, and trend detection that surfaces issues before they escalate.",
-    gradient: "from-rose-500 to-orange-500",
+    description: "Weekly digests and trend detection that surfaces issues before they escalate.",
   },
 ];
 
@@ -151,6 +143,24 @@ const PLANS = [
   { name: "Pro", price: "$99", period: "/mo", calls: "1,000 calls/mo", highlight: true },
   { name: "Enterprise", price: "$499", period: "/mo", calls: "Unlimited calls", highlight: false },
 ];
+
+/** Fade-up animation wrapper — triggers when element enters viewport */
+function FadeUp({ children, delay = 0, className }: { children: React.ReactNode; delay?: number; className?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const inView = useInView(ref, { once: true, margin: "-60px" });
+
+  return (
+    <motion.div
+      ref={ref}
+      initial={{ opacity: 0, y: 32 }}
+      animate={inView ? { opacity: 1, y: 0 } : { opacity: 0, y: 32 }}
+      transition={{ duration: 0.6, delay, ease: [0.22, 1, 0.36, 1] }}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  );
+}
 
 export default function LandingPage({ onNavigate }: LandingPageProps) {
   return (
@@ -168,7 +178,7 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
         <header className="relative z-10 w-full">
           <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <ObservatoryLogo variant="full" height={38} hoverable className="landing-text" />
+              <ObservatoryLogo variant="icon" height={32} hoverable className="landing-text" />
             </div>
             <nav className="hidden md:flex items-center gap-8">
               <a href="#features" className="text-sm landing-text-muted hover:text-foreground transition-colors">Features</a>
@@ -193,31 +203,48 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
           </div>
         </header>
 
-        {/* Hero content */}
+        {/* Hero content — brand-first composition */}
         <div className="relative z-10 flex-1 flex items-center">
           <div className="max-w-7xl mx-auto px-6 w-full">
-            <div className="max-w-2xl">
-              <div className="inline-flex items-center gap-2 bg-teal-500/10 dark:bg-teal-500/10 text-teal-600 dark:text-teal-400 text-sm font-medium px-4 py-1.5 rounded-full mb-6 border border-teal-500/20">
-                <Shield className="w-3.5 h-3.5" />
-                HIPAA-Compliant
-              </div>
+            <div className="max-w-3xl">
+              {/* Brand as hero-level signal */}
+              <motion.div
+                initial={{ opacity: 0, y: 24 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+              >
+                <ObservatoryLogo variant="full" height={56} hoverable className="landing-text mb-8 block md:hidden" />
+                <ObservatoryLogo variant="full" height={72} hoverable className="landing-text mb-8 hidden md:block" />
+              </motion.div>
 
-              <h1 className="text-4xl md:text-6xl font-bold mb-6 leading-[1.1] tracking-tight">
-                <span className="landing-text">AI-Powered</span>{" "}
-                <span className="bg-gradient-to-r from-teal-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
-                  Call Quality
+              <motion.h1
+                className="text-3xl md:text-5xl font-bold mb-6 leading-[1.15] tracking-tight landing-text"
+                initial={{ opacity: 0, y: 24 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.7, delay: 0.12, ease: [0.22, 1, 0.36, 1] }}
+              >
+                Know every call.{" "}
+                <span className="bg-gradient-to-r from-teal-400 via-blue-400 to-cyan-300 bg-clip-text text-transparent">
+                  Coach every rep.
                 </span>
-                <br />
-                <span className="landing-text">Analysis</span>
-              </h1>
+              </motion.h1>
 
-              <p className="text-lg landing-text-muted max-w-xl mb-10 leading-relaxed">
-                Automatically transcribe, analyze, and score every customer call.
-                Get actionable coaching insights, compliance monitoring, and
-                performance tracking — all in one platform.
-              </p>
+              <motion.p
+                className="text-lg landing-text-muted max-w-xl mb-10 leading-relaxed"
+                initial={{ opacity: 0, y: 24 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.7, delay: 0.24, ease: [0.22, 1, 0.36, 1] }}
+              >
+                AI-powered transcription, scoring, and coaching for every customer
+                call — HIPAA-compliant and ready in minutes.
+              </motion.p>
 
-              <div className="flex flex-wrap gap-4">
+              <motion.div
+                className="flex flex-wrap gap-4"
+                initial={{ opacity: 0, y: 24 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.7, delay: 0.36, ease: [0.22, 1, 0.36, 1] }}
+              >
                 <Button
                   size="lg"
                   onClick={() => onNavigate("register")}
@@ -234,46 +261,54 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
                 >
                   Sign In
                 </Button>
-              </div>
+              </motion.div>
             </div>
           </div>
         </div>
 
         {/* Scroll indicator */}
-        <div className="relative z-10 pb-8 text-center">
+        <motion.div
+          className="relative z-10 pb-8 text-center"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 1, delay: 0.8 }}
+        >
           <div className="inline-flex flex-col items-center gap-2 landing-text-muted text-xs tracking-widest uppercase">
             <span>Scroll</span>
             <div className="w-px h-8 bg-gradient-to-b from-current to-transparent" />
           </div>
-        </div>
+        </motion.div>
       </section>
 
       {/* ── Features ─────────────────────────────────── */}
       <section id="features" className="relative py-24 landing-section">
         <div className="max-w-7xl mx-auto px-6">
-          <div className="text-center mb-16">
-            <p className="text-sm font-semibold text-teal-500 dark:text-teal-400 tracking-widest uppercase mb-3">Features</p>
-            <h2 className="text-3xl md:text-4xl font-bold landing-text mb-4">
-              Everything you need for call quality
-            </h2>
-            <p className="landing-text-muted max-w-2xl mx-auto">
-              From automated transcription to AI-powered coaching, Observatory gives your team
-              the tools to deliver consistently excellent customer experiences.
-            </p>
-          </div>
+          <FadeUp>
+            <div className="text-center mb-16">
+              <p className="text-sm font-semibold text-teal-500 dark:text-teal-400 tracking-widest uppercase mb-3">Features</p>
+              <h2 className="text-3xl md:text-4xl font-bold landing-text mb-4">
+                Everything you need for call quality
+              </h2>
+              <p className="landing-text-muted max-w-2xl mx-auto">
+                From automated transcription to AI-powered coaching, Observatory gives your team
+                the tools to deliver consistently excellent customer experiences.
+              </p>
+            </div>
+          </FadeUp>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {FEATURES.map((feature) => (
-              <div
-                key={feature.title}
-                className="group relative p-6 rounded-2xl landing-card transition-all duration-300 hover:-translate-y-1"
-              >
-                <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${feature.gradient} flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform`}>
-                  <feature.icon className="w-5 h-5 text-white" />
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-x-12 gap-y-10">
+            {FEATURES.map((feature, i) => (
+              <FadeUp key={feature.title} delay={i * 0.07}>
+                <div className="group flex gap-4 items-start">
+                  <div className="shrink-0 w-10 h-10 rounded-lg bg-gradient-to-br from-teal-500/15 to-blue-500/15 dark:from-teal-500/10 dark:to-blue-500/10 flex items-center justify-center mt-0.5">
+                    <feature.icon className="w-5 h-5 text-teal-600 dark:text-teal-400" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-base landing-text mb-1">{feature.title}</h3>
+                    <p className="text-sm landing-text-muted leading-relaxed">{feature.description}</p>
+                  </div>
                 </div>
-                <h3 className="font-semibold text-lg landing-text mb-2">{feature.title}</h3>
-                <p className="text-sm landing-text-muted leading-relaxed">{feature.description}</p>
-              </div>
+              </FadeUp>
             ))}
           </div>
         </div>
@@ -282,27 +317,31 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
       {/* ── How It Works ─────────────────────────────── */}
       <section id="how-it-works" className="relative py-24 landing-section-alt">
         <div className="max-w-7xl mx-auto px-6">
-          <div className="text-center mb-16">
-            <p className="text-sm font-semibold text-teal-500 dark:text-teal-400 tracking-widest uppercase mb-3">Process</p>
-            <h2 className="text-3xl md:text-4xl font-bold landing-text">How it works</h2>
-          </div>
+          <FadeUp>
+            <div className="text-center mb-16">
+              <p className="text-sm font-semibold text-teal-500 dark:text-teal-400 tracking-widest uppercase mb-3">Process</p>
+              <h2 className="text-3xl md:text-4xl font-bold landing-text">How it works</h2>
+            </div>
+          </FadeUp>
 
           <div className="grid md:grid-cols-4 gap-8">
             {STEPS.map((item, i) => (
-              <div key={item.step} className="relative text-center group">
-                {/* Connector line */}
-                {i < STEPS.length - 1 && (
-                  <div className="hidden md:block absolute top-8 left-[60%] w-[80%] h-px bg-gradient-to-r from-teal-500/30 to-transparent" />
-                )}
+              <FadeUp key={item.step} delay={i * 0.1}>
+                <div className="relative text-center">
+                  {/* Connector line */}
+                  {i < STEPS.length - 1 && (
+                    <div className="hidden md:block absolute top-8 left-[60%] w-[80%] h-px bg-gradient-to-r from-teal-500/30 to-transparent" />
+                  )}
 
-                <div className="relative inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-teal-500/10 to-blue-500/10 dark:from-teal-500/10 dark:to-blue-500/10 border border-teal-500/20 mb-4 group-hover:scale-110 transition-transform">
-                  <span className="text-2xl font-bold bg-gradient-to-r from-teal-400 to-blue-400 bg-clip-text text-transparent">
-                    {item.step}
-                  </span>
+                  <div className="relative inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-teal-500/10 to-blue-500/10 dark:from-teal-500/10 dark:to-blue-500/10 border border-teal-500/20 mb-4">
+                    <span className="text-2xl font-bold bg-gradient-to-r from-teal-400 to-blue-400 bg-clip-text text-transparent">
+                      {item.step}
+                    </span>
+                  </div>
+                  <h3 className="font-semibold landing-text mb-1">{item.title}</h3>
+                  <p className="text-sm landing-text-muted">{item.desc}</p>
                 </div>
-                <h3 className="font-semibold landing-text mb-1">{item.title}</h3>
-                <p className="text-sm landing-text-muted">{item.desc}</p>
-              </div>
+              </FadeUp>
             ))}
           </div>
         </div>
@@ -311,48 +350,51 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
       {/* ── Pricing ──────────────────────────────────── */}
       <section id="pricing" className="relative py-24 landing-section">
         <div className="max-w-7xl mx-auto px-6">
-          <div className="text-center mb-16">
-            <p className="text-sm font-semibold text-teal-500 dark:text-teal-400 tracking-widest uppercase mb-3">Pricing</p>
-            <h2 className="text-3xl md:text-4xl font-bold landing-text mb-4">
-              Simple, transparent pricing
-            </h2>
-            <p className="landing-text-muted">No credit card required. Start analyzing calls today.</p>
-          </div>
+          <FadeUp>
+            <div className="text-center mb-16">
+              <p className="text-sm font-semibold text-teal-500 dark:text-teal-400 tracking-widest uppercase mb-3">Pricing</p>
+              <h2 className="text-3xl md:text-4xl font-bold landing-text mb-4">
+                Simple, transparent pricing
+              </h2>
+              <p className="landing-text-muted">No credit card required. Start analyzing calls today.</p>
+            </div>
+          </FadeUp>
 
           <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-            {PLANS.map((plan) => (
-              <div
-                key={plan.name}
-                className={`relative p-8 rounded-2xl text-center transition-all duration-300 hover:-translate-y-1 ${
-                  plan.highlight
-                    ? "bg-gradient-to-b from-teal-500/10 to-blue-500/5 dark:from-teal-500/10 dark:to-blue-500/5 border-2 border-teal-500/30 shadow-xl shadow-teal-500/10"
-                    : "landing-card"
-                }`}
-              >
-                {plan.highlight && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 bg-gradient-to-r from-teal-500 to-blue-500 text-white text-xs font-semibold rounded-full">
-                    Most Popular
-                  </div>
-                )}
-                <h3 className="font-semibold text-lg landing-text mb-2">{plan.name}</h3>
-                <div className="mb-4">
-                  <span className="text-4xl font-bold landing-text">{plan.price}</span>
-                  <span className="landing-text-muted">{plan.period}</span>
-                </div>
-                <p className="text-sm landing-text-muted mb-6">{plan.calls}</p>
-                <Button
-                  className={`w-full ${
+            {PLANS.map((plan, i) => (
+              <FadeUp key={plan.name} delay={i * 0.08}>
+                <div
+                  className={`relative p-8 rounded-2xl text-center transition-all duration-300 hover:-translate-y-1 ${
                     plan.highlight
-                      ? "bg-gradient-to-r from-teal-500 to-blue-500 hover:from-teal-600 hover:to-blue-600 text-white border-0"
-                      : "landing-outline-btn"
+                      ? "bg-gradient-to-b from-teal-500/10 to-blue-500/5 dark:from-teal-500/10 dark:to-blue-500/5 border-2 border-teal-500/30 shadow-xl shadow-teal-500/10"
+                      : "landing-card"
                   }`}
-                  variant={plan.highlight ? "default" : "outline"}
-                  onClick={() => onNavigate("register")}
                 >
-                  {plan.highlight ? "Start Free Trial" : "Get Started"}
-                  <ChevronRight className="w-4 h-4 ml-1" />
-                </Button>
-              </div>
+                  {plan.highlight && (
+                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 bg-gradient-to-r from-teal-500 to-blue-500 text-white text-xs font-semibold rounded-full">
+                      Most Popular
+                    </div>
+                  )}
+                  <h3 className="font-semibold text-lg landing-text mb-2">{plan.name}</h3>
+                  <div className="mb-4">
+                    <span className="text-4xl font-bold landing-text">{plan.price}</span>
+                    <span className="landing-text-muted">{plan.period}</span>
+                  </div>
+                  <p className="text-sm landing-text-muted mb-6">{plan.calls}</p>
+                  <Button
+                    className={`w-full ${
+                      plan.highlight
+                        ? "bg-gradient-to-r from-teal-500 to-blue-500 hover:from-teal-600 hover:to-blue-600 text-white border-0"
+                        : "landing-outline-btn"
+                    }`}
+                    variant={plan.highlight ? "default" : "outline"}
+                    onClick={() => onNavigate("register")}
+                  >
+                    {plan.highlight ? "Start Free Trial" : "Get Started"}
+                    <ChevronRight className="w-4 h-4 ml-1" />
+                  </Button>
+                </div>
+              </FadeUp>
             ))}
           </div>
         </div>
@@ -364,22 +406,24 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
         <GlowOrb className="w-96 h-96 bg-teal-500/10 dark:bg-teal-500/5 -top-20 left-1/4" />
         <GlowOrb className="w-80 h-80 bg-blue-500/10 dark:bg-blue-500/5 -bottom-20 right-1/4" />
 
-        <div className="relative max-w-3xl mx-auto px-6 text-center">
-          <h2 className="text-3xl md:text-4xl font-bold landing-text mb-4">
-            Ready to improve your team's call quality?
-          </h2>
-          <p className="landing-text-muted mb-10 max-w-xl mx-auto text-lg">
-            Set up your organization in under 2 minutes. Start with 50 free calls per month.
-          </p>
-          <Button
-            size="lg"
-            onClick={() => onNavigate("register")}
-            className="bg-gradient-to-r from-teal-500 to-blue-500 hover:from-teal-600 hover:to-blue-600 text-white border-0 shadow-lg shadow-teal-500/25 px-10 h-13 text-base"
-          >
-            Create Your Organization
-            <ArrowRight className="w-4 h-4 ml-2" />
-          </Button>
-        </div>
+        <FadeUp>
+          <div className="relative max-w-3xl mx-auto px-6 text-center">
+            <h2 className="text-3xl md:text-4xl font-bold landing-text mb-4">
+              Ready to improve your team's call quality?
+            </h2>
+            <p className="landing-text-muted mb-10 max-w-xl mx-auto text-lg">
+              Set up your organization in under 2 minutes. Start with 50 free calls per month.
+            </p>
+            <Button
+              size="lg"
+              onClick={() => onNavigate("register")}
+              className="bg-gradient-to-r from-teal-500 to-blue-500 hover:from-teal-600 hover:to-blue-600 text-white border-0 shadow-lg shadow-teal-500/25 px-10 h-13 text-base"
+            >
+              Create Your Organization
+              <ArrowRight className="w-4 h-4 ml-2" />
+            </Button>
+          </div>
+        </FadeUp>
       </section>
 
       {/* ── Footer ───────────────────────────────────── */}
