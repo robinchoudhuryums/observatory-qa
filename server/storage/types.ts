@@ -35,6 +35,7 @@ import {
   type ABTest,
   type InsertABTest,
   type UsageRecord,
+  type ClinicalNote,
 } from "@shared/schema";
 
 /**
@@ -86,15 +87,20 @@ export function normalizeAnalysis(analysis: CallAnalysis | undefined): CallAnaly
 
   // Clamp scores to valid ranges when present
   if (normalized.performanceScore !== undefined) {
-    normalized.performanceScore = clamp(normalized.performanceScore, 0, 10) as any;
+    const clamped = clamp(normalized.performanceScore, 0, 10);
+    normalized.performanceScore = clamped !== undefined ? String(clamped) : undefined;
   }
   if (normalized.subScores) {
+    const clampToStr = (v: unknown, min: number, max: number): string | undefined => {
+      const n = clamp(v, min, max);
+      return n !== undefined ? String(n) : undefined;
+    };
     normalized.subScores = {
-      compliance: clamp(normalized.subScores.compliance, 0, 10),
-      customerExperience: clamp(normalized.subScores.customerExperience, 0, 10),
-      communication: clamp(normalized.subScores.communication, 0, 10),
-      resolution: clamp(normalized.subScores.resolution, 0, 10),
-    } as any;
+      compliance: clampToStr(normalized.subScores.compliance, 0, 10),
+      customerExperience: clampToStr(normalized.subScores.customerExperience, 0, 10),
+      communication: clampToStr(normalized.subScores.communication, 0, 10),
+      resolution: clampToStr(normalized.subScores.resolution, 0, 10),
+    };
   }
 
   return normalized;
@@ -183,10 +189,10 @@ export interface IStorage {
   getClinicalCallMetrics?(orgId: string, clinicalCategories: string[]): Promise<{
     totalEncounters: number;
     completed: number;
-    notesWithData: Array<{ clinicalNote: any; uploadedAt: string | null }>;
+    notesWithData: Array<{ clinicalNote: ClinicalNote | null; uploadedAt: string | null }>;
   }>;
   getAttestedClinicalNotes?(orgId: string, clinicalCategories: string[]): Promise<Array<{
-    clinicalNote: any;
+    clinicalNote: ClinicalNote | null;
     uploadedAt: string | null;
   }>>;
 

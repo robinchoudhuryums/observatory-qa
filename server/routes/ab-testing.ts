@@ -88,7 +88,7 @@ export function registerABTestRoutes(app: Express): void {
       const abValidCategories = CALL_CATEGORIES.map(c => c.value) as string[];
       const callCategory = abValidCategories.includes(req.body.callCategory) ? req.body.callCategory : undefined;
 
-      const user = req.user as any;
+      const user = req.user;
       const orgId = req.orgId!;
       const baselineModel = process.env.BEDROCK_MODEL || "us.anthropic.claude-sonnet-4-6";
 

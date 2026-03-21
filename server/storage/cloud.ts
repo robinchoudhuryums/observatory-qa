@@ -24,6 +24,17 @@ import {
   type InsertCoachingSession,
   type Organization,
   type InsertOrganization,
+  type Subscription,
+  type InsertSubscription,
+  type ReferenceDocument,
+  type InsertReferenceDocument,
+  type ApiKey,
+  type InsertApiKey,
+  type Invitation,
+  type InsertInvitation,
+  type ABTest,
+  type InsertABTest,
+  type UsageRecord,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { type IStorage, type ObjectStorageClient, mapConcurrent, normalizeAnalysis, applyCallFilters } from "./types";
@@ -513,54 +524,54 @@ export class CloudStorage implements IStorage {
   }
 
   // --- Subscription operations (not supported in cloud storage) ---
-  async getSubscription(_orgId: string): Promise<any> { return undefined; }
-  async getSubscriptionByStripeCustomerId(_id: string): Promise<any> { return undefined; }
-  async getSubscriptionByStripeSubId(_id: string): Promise<any> { return undefined; }
-  async upsertSubscription(_orgId: string, sub: any): Promise<any> { return { id: "mock", ...sub }; }
-  async updateSubscription(_orgId: string, _updates: any): Promise<any> { return undefined; }
+  async getSubscription(_orgId: string): Promise<Subscription | undefined> { return undefined; }
+  async getSubscriptionByStripeCustomerId(_id: string): Promise<Subscription | undefined> { return undefined; }
+  async getSubscriptionByStripeSubId(_id: string): Promise<Subscription | undefined> { return undefined; }
+  async upsertSubscription(_orgId: string, sub: InsertSubscription): Promise<Subscription> { return { id: "mock", ...sub } as Subscription; }
+  async updateSubscription(_orgId: string, _updates: Partial<Subscription>): Promise<Subscription | undefined> { return undefined; }
 
   // --- Reference document operations (not supported in cloud storage) ---
-  async createReferenceDocument(_orgId: string, doc: any): Promise<any> { return { id: "mock", ...doc }; }
-  async getReferenceDocument(_orgId: string, _id: string): Promise<any> { return undefined; }
-  async listReferenceDocuments(_orgId: string): Promise<any[]> { return []; }
-  async getReferenceDocumentsForCategory(_orgId: string, _cat: string): Promise<any[]> { return []; }
-  async updateReferenceDocument(_orgId: string, _id: string, _updates: any): Promise<any> { return undefined; }
+  async createReferenceDocument(_orgId: string, doc: InsertReferenceDocument): Promise<ReferenceDocument> { return { id: "mock", ...doc } as ReferenceDocument; }
+  async getReferenceDocument(_orgId: string, _id: string): Promise<ReferenceDocument | undefined> { return undefined; }
+  async listReferenceDocuments(_orgId: string): Promise<ReferenceDocument[]> { return []; }
+  async getReferenceDocumentsForCategory(_orgId: string, _cat: string): Promise<ReferenceDocument[]> { return []; }
+  async updateReferenceDocument(_orgId: string, _id: string, _updates: Partial<ReferenceDocument>): Promise<ReferenceDocument | undefined> { return undefined; }
   async deleteReferenceDocument(_orgId: string, _id: string): Promise<void> {}
 
   // --- API Key operations (not supported in cloud storage) ---
-  async createApiKey(_orgId: string, _apiKey: any): Promise<any> {
+  async createApiKey(_orgId: string, _apiKey: InsertApiKey): Promise<ApiKey> {
     throw new Error("API keys require PostgreSQL or in-memory storage");
   }
-  async getApiKeyByHash(_keyHash: string): Promise<any> { return undefined; }
-  async listApiKeys(_orgId: string): Promise<any[]> { return []; }
-  async updateApiKey(_orgId: string, _id: string, _updates: any): Promise<any> { return undefined; }
+  async getApiKeyByHash(_keyHash: string): Promise<ApiKey | undefined> { return undefined; }
+  async listApiKeys(_orgId: string): Promise<ApiKey[]> { return []; }
+  async updateApiKey(_orgId: string, _id: string, _updates: Partial<ApiKey>): Promise<ApiKey | undefined> { return undefined; }
   async deleteApiKey(_orgId: string, _id: string): Promise<void> {}
 
   // --- Invitation operations (not supported in cloud storage) ---
-  async createInvitation(_orgId: string, _invitation: any): Promise<any> {
+  async createInvitation(_orgId: string, _invitation: InsertInvitation): Promise<Invitation> {
     throw new Error("Invitations require PostgreSQL or in-memory storage");
   }
-  async getInvitationByToken(_token: string): Promise<any> {
+  async getInvitationByToken(_token: string): Promise<Invitation | undefined> {
     return undefined;
   }
-  async listInvitations(_orgId: string): Promise<any[]> {
+  async listInvitations(_orgId: string): Promise<Invitation[]> {
     return [];
   }
-  async updateInvitation(_orgId: string, _id: string, _updates: any): Promise<any> {
+  async updateInvitation(_orgId: string, _id: string, _updates: Partial<Invitation>): Promise<Invitation | undefined> {
     return undefined;
   }
   async deleteInvitation(_orgId: string, _id: string): Promise<void> {}
 
   // --- A/B test operations (not supported in cloud storage) ---
-  async createABTest(_orgId: string, _test: any): Promise<any> {
+  async createABTest(_orgId: string, _test: InsertABTest): Promise<ABTest> {
     throw new Error("A/B testing requires PostgreSQL or in-memory storage");
   }
-  async getABTest(_orgId: string, _id: string): Promise<any> { return undefined; }
-  async getAllABTests(_orgId: string): Promise<any[]> { return []; }
-  async updateABTest(_orgId: string, _id: string, _updates: any): Promise<any> { return undefined; }
+  async getABTest(_orgId: string, _id: string): Promise<ABTest | undefined> { return undefined; }
+  async getAllABTests(_orgId: string): Promise<ABTest[]> { return []; }
+  async updateABTest(_orgId: string, _id: string, _updates: Partial<ABTest>): Promise<ABTest | undefined> { return undefined; }
   async deleteABTest(_orgId: string, _id: string): Promise<void> {}
 
   // --- Spend tracking (not supported in cloud storage) ---
-  async createUsageRecord(_orgId: string, _record: any): Promise<void> {}
-  async getUsageRecords(_orgId: string): Promise<any[]> { return []; }
+  async createUsageRecord(_orgId: string, _record: UsageRecord): Promise<void> {}
+  async getUsageRecords(_orgId: string): Promise<UsageRecord[]> { return []; }
 }

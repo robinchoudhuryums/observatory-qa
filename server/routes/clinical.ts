@@ -4,7 +4,7 @@ import { storage } from "../storage";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { decryptField, encryptField, decryptClinicalNotePhi } from "../services/phi-encryption";
-import { PLAN_DEFINITIONS, type PlanTier } from "@shared/schema";
+import { PLAN_DEFINITIONS, type PlanTier, type OrgSettings } from "@shared/schema";
 import { analyzeProviderStyle, type ClinicalNote as StyleClinicalNote } from "../services/style-learning";
 import {
   getTemplatesBySpecialty, getTemplatesByFormat, getTemplatesByCategory,
@@ -56,7 +56,7 @@ export function registerClinicalRoutes(app: Express): void {
         return;
       }
 
-      const cn = (analysis as any).clinicalNote;
+      const cn = analysis.clinicalNote;
       if (!cn) {
         res.status(404).json({ message: "No clinical note found for this encounter" });
         return;
@@ -82,7 +82,7 @@ export function registerClinicalRoutes(app: Express): void {
   // Provider attestation — mark clinical note as reviewed and attested
   app.post("/api/clinical/notes/:callId/attest", requireAuth, injectOrgContext, requireClinicalPlan(), requireRole("manager", "admin"), async (req, res) => {
     try {
-      const analysis = await storage.getCallAnalysis(req.orgId!, req.params.callId) as any;
+      const analysis = await storage.getCallAnalysis(req.orgId!, req.params.callId);
       if (!analysis?.clinicalNote) {
         res.status(404).json({ message: "No clinical note found for this encounter" });
         return;
@@ -135,7 +135,7 @@ export function registerClinicalRoutes(app: Express): void {
   app.post("/api/clinical/notes/:callId/consent", requireAuth, injectOrgContext, requireClinicalPlan(), async (req, res) => {
     try {
       const { consentObtained } = req.body;
-      const analysis = await storage.getCallAnalysis(req.orgId!, req.params.callId) as any;
+      const analysis = await storage.getCallAnalysis(req.orgId!, req.params.callId);
       if (!analysis?.clinicalNote) {
         res.status(404).json({ message: "No clinical note found for this encounter" });
         return;
@@ -165,7 +165,7 @@ export function registerClinicalRoutes(app: Express): void {
   // Edit clinical note fields (provider correction before attestation)
   app.patch("/api/clinical/notes/:callId", requireAuth, injectOrgContext, requireClinicalPlan(), requireRole("manager", "admin"), async (req, res) => {
     try {
-      const analysis = await storage.getCallAnalysis(req.orgId!, req.params.callId) as any;
+      const analysis = await storage.getCallAnalysis(req.orgId!, req.params.callId);
       if (!analysis?.clinicalNote) {
         res.status(404).json({ message: "No clinical note found for this encounter" });
         return;
@@ -229,7 +229,7 @@ export function registerClinicalRoutes(app: Express): void {
       const phiFields = ["subjective", "objective", "assessment", "hpiNarrative", "chiefComplaint"];
       for (const field of phiFields) {
         if (typeof edits[field] === "string") {
-          analysis.clinicalNote[field] = encryptField(edits[field] as string);
+          (analysis.clinicalNote as Record<string, unknown>)[field] = encryptField(edits[field] as string);
           delete edits[field]; // Already handled via encryption
         }
       }
@@ -242,7 +242,7 @@ export function registerClinicalRoutes(app: Express): void {
         analysis.clinicalNote.editHistory = [];
       }
       analysis.clinicalNote.editHistory.push({
-        editedBy: req.user?.name || req.user?.username,
+        editedBy: req.user?.name || req.user?.username || "unknown",
         editedAt: new Date().toISOString(),
         fieldsChanged: allEditedFields,
       });
@@ -270,7 +270,7 @@ export function registerClinicalRoutes(app: Express): void {
     try {
       const org = await storage.getOrganization(req.orgId!);
       const userId = req.user?.id || "unknown";
-      const prefs = (org?.settings as any)?.providerStylePreferences?.[userId] || {};
+      const prefs = org?.settings?.providerStylePreferences?.[userId] || {};
       res.json(prefs);
     } catch (error) {
       logger.error({ err: error }, "Failed to get provider preferences");
@@ -300,12 +300,12 @@ export function registerClinicalRoutes(app: Express): void {
         }
       }
 
-      const settings = org.settings || {};
-      const allPrefs = (settings as any).providerStylePreferences || {};
+      const settings: Partial<OrgSettings> = org.settings || {};
+      const allPrefs: Record<string, Record<string, unknown>> = (settings.providerStylePreferences as Record<string, Record<string, unknown>>) || {};
       allPrefs[userId] = { ...allPrefs[userId], ...updates };
 
       await storage.updateOrganization(req.orgId!, {
-        settings: { ...settings, providerStylePreferences: allPrefs } as any,
+        settings: { ...settings, providerStylePreferences: allPrefs } as OrgSettings,
       });
 
       logger.info({ orgId: req.orgId, userId, fields: Object.keys(updates) }, "Provider style preferences updated");
@@ -448,7 +448,7 @@ export function registerClinicalRoutes(app: Express): void {
       const userName = req.user?.name || req.user?.username;
 
       for (const row of noteRows || []) {
-        const cn = row.clinicalNote as any;
+        const cn = row.clinicalNote;
         if (!cn?.providerAttested) continue;
 
         // Only include notes attested by this user (if tracked)
@@ -512,12 +512,12 @@ export function registerClinicalRoutes(app: Express): void {
       }
 
       const userId = req.user?.id || "unknown";
-      const settings = org.settings || {};
-      const allPrefs = (settings as any).providerStylePreferences || {};
+      const settings: Partial<OrgSettings> = org.settings || {};
+      const allPrefs: Record<string, Record<string, unknown>> = (settings.providerStylePreferences as Record<string, Record<string, unknown>>) || {};
       allPrefs[userId] = { ...allPrefs[userId], ...preferences, learnedAt: new Date().toISOString() };
 
       await storage.updateOrganization(req.orgId!, {
-        settings: { ...settings, providerStylePreferences: allPrefs } as any,
+        settings: { ...settings, providerStylePreferences: allPrefs } as OrgSettings,
       });
 
       logger.info({ orgId: req.orgId, userId }, "Applied learned style preferences");
@@ -575,7 +575,7 @@ export function registerClinicalRoutes(app: Express): void {
         res.status(404).json({ message: "Analysis not found" });
         return;
       }
-      const cn = (analysis as any).clinicalNote;
+      const cn = analysis.clinicalNote;
       if (!cn) {
         res.status(404).json({ message: "No clinical note found for this encounter" });
         return;

@@ -103,7 +103,7 @@ export function registerEmployeeRoutes(app: Express): void {
           .on("error", reject);
       }).catch((err: Error) => {
         if (err.message === "FILE_NOT_FOUND") {
-          res.status(404).json({ message: "employees.csv not found on server" });
+          res.status(404).json(errorResponse(ERROR_CODES.EMP_IMPORT_FAILED, "employees.csv not found on server"));
           return;
         }
         throw err;

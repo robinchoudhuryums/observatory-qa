@@ -631,7 +631,7 @@ export function registerCallRoutes(app: Express): void {
       }
     } catch (error) {
       logger.error({ err: error }, "Failed to get calls");
-      res.status(500).json({ message: "Failed to get calls" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get calls"));
     }
   });
 
@@ -639,7 +639,7 @@ export function registerCallRoutes(app: Express): void {
     try {
       const call = await storage.getCall(req.orgId!, req.params.id);
       if (!call) {
-        res.status(404).json({ message: "Call not found" });
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call not found"));
         return;
       }
 
@@ -669,7 +669,7 @@ export function registerCallRoutes(app: Express): void {
       });
     } catch (error) {
       logger.error({ err: error }, "Failed to get call details");
-      res.status(500).json({ message: "Failed to get call" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get call"));
     }
   });
 
@@ -694,7 +694,7 @@ export function registerCallRoutes(app: Express): void {
         const employee = await storage.getEmployee(req.orgId!, employeeId);
         if (!employee) {
           await cleanupFile(req.file.path);
-          res.status(404).json({ message: "Employee not found" });
+          res.status(404).json(errorResponse(ERROR_CODES.EMP_NOT_FOUND, "Employee not found"));
           return;
         }
       }
@@ -735,7 +735,7 @@ export function registerCallRoutes(app: Express): void {
     } catch (error) {
       logger.error({ err: error }, "Error during file upload");
       if (req.file?.path) await cleanupFile(req.file.path);
-      res.status(500).json({ message: "Failed to upload call" });
+      res.status(500).json(errorResponse(ERROR_CODES.CALL_UPLOAD_FAILED, "Failed to upload call"));
     }
   });
 
@@ -743,7 +743,7 @@ export function registerCallRoutes(app: Express): void {
     try {
       const call = await storage.getCall(req.orgId!, req.params.id);
       if (!call) {
-        res.status(404).json({ message: "Call not found" });
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call not found"));
         return;
       }
 
@@ -756,13 +756,13 @@ export function registerCallRoutes(app: Express): void {
 
       const audioFiles = await storage.getAudioFiles(req.orgId!, req.params.id);
       if (!audioFiles || audioFiles.length === 0) {
-        res.status(404).json({ message: "Audio file not found in archive" });
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Audio file not found in archive"));
         return;
       }
 
       const audioBuffer = await storage.downloadAudio(req.orgId!, audioFiles[0]);
       if (!audioBuffer) {
-        res.status(404).json({ message: "Audio file could not be retrieved" });
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Audio file could not be retrieved"));
         return;
       }
 

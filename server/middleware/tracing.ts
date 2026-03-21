@@ -46,8 +46,8 @@ export function tracingMiddleware(req: Request, res: Response, next: NextFunctio
         try {
           if (req.orgId) span.setAttribute("org_id", req.orgId);
           if (req.user) {
-            span.setAttribute("user_id", (req.user as any).id ?? (req.user as any).username ?? "");
-            span.setAttribute("user_role", (req.user as any).role ?? "");
+            span.setAttribute("user_id", req.user.id ?? req.user.username ?? "");
+            span.setAttribute("user_role", req.user.role ?? "");
           }
         } catch {
           // span may have already ended — ignore

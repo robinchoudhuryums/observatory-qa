@@ -173,7 +173,7 @@ export function registerCoachingRoutes(app: Express): void {
       const { getDatabase } = await import("../db/index");
       const db = getDatabase();
       if (!db) {
-        res.status(503).json({ message: "Database not available" });
+        res.status(503).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Database not available"));
         return;
       }
 

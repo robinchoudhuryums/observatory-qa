@@ -235,6 +235,8 @@ export const clinicalNoteSchema = z.object({
   behavior: z.string().optional(), // BIRP: observable client behaviors
   intervention: z.string().optional(), // BIRP: therapeutic interventions applied
   response: z.string().optional(), // BIRP: client's response to interventions
+  // Validation warnings from server-side code/format validation
+  validationWarnings: z.array(z.string()).optional(),
   // Dental-specific fields
   cdtCodes: z.array(z.object({ code: z.string(), description: z.string() })).optional(),
   toothNumbers: z.array(z.string()).optional(),
