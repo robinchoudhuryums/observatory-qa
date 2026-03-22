@@ -15,7 +15,7 @@ test.describe("Upload Flow", () => {
     // The upload area should be visible — look for dropzone / drag-and-drop region
     const dropzone = page
       .locator(
-        "[data-testid='file-upload'], [data-testid='dropzone'], [role='button']:has-text('drag'), .dropzone, input[type='file']",
+        "[data-testid='file-upload-dropzone'], [data-testid='file-upload'], [data-testid='dropzone'], [role='button']:has-text('drag'), .dropzone, input[type='file']",
       )
       .first();
     await expect(dropzone).toBeVisible({ timeout: 10000 });
