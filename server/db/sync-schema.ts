@@ -575,6 +575,8 @@ export async function syncSchema(db: Database): Promise<void> {
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS insurance_narratives_org_idx ON insurance_narratives (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS insurance_narratives_status_idx ON insurance_narratives (org_id, status)`);
+    // Index for call-linked narrative lookups (matches schema.ts definition)
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS insurance_narratives_call_idx ON insurance_narratives (org_id, call_id)`);
 
     // --- Call Revenue Tracking ---
     await db.execute(sql`

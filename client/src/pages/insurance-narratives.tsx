@@ -19,6 +19,35 @@ const statusColors: Record<string, string> = {
   submitted: "bg-green-100 text-green-800",
 };
 
+/** Inline editor for draft narratives — allows direct text editing before finalization */
+function NarrativeEditor({ narrative, onSave, isSaving }: {
+  narrative: InsuranceNarrative;
+  onSave: (text: string) => void;
+  isSaving: boolean;
+}) {
+  const [editText, setEditText] = useState(narrative.generatedNarrative || "");
+  const isDirty = editText !== (narrative.generatedNarrative || "");
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">Edit the letter text below. Changes are saved when you click Save.</p>
+        {isDirty && (
+          <Button size="sm" onClick={() => onSave(editText)} disabled={isSaving}>
+            {isSaving ? "Saving..." : "Save Changes"}
+          </Button>
+        )}
+      </div>
+      <Textarea
+        value={editText}
+        onChange={(e) => setEditText(e.target.value)}
+        className="font-mono text-sm min-h-[400px]"
+        rows={20}
+      />
+    </div>
+  );
+}
+
 export default function InsuranceNarrativesPage() {
   const { toast } = useToast();
   const [showCreate, setShowCreate] = useState(false);
@@ -211,11 +240,16 @@ export default function InsuranceNarrativesPage() {
                     <CardDescription>
                       {INSURANCE_LETTER_TYPES.find(t => t.value === selectedNarrative.letterType)?.label} — {selectedNarrative.insurerName}
                     </CardDescription>
+                    <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                      {selectedNarrative.patientDob && <span>DOB: {selectedNarrative.patientDob}</span>}
+                      {selectedNarrative.memberId && <span>Member: {selectedNarrative.memberId}</span>}
+                      {selectedNarrative.createdBy && <span>By: {selectedNarrative.createdBy}</span>}
+                    </div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap justify-end">
                     <Button size="sm" variant="outline" onClick={() => regenerateMutation.mutate(selectedNarrative.id)}
-                      disabled={regenerateMutation.isPending}>
-                      <RiRefreshLine className="w-4 h-4 mr-1" /> Regenerate
+                      disabled={regenerateMutation.isPending || selectedNarrative.status === "submitted"}>
+                      <RiRefreshLine className="w-4 h-4 mr-1" /> {regenerateMutation.isPending ? "Regenerating..." : "Regenerate"}
                     </Button>
                     <Button size="sm" variant="outline" onClick={() => {
                       navigator.clipboard.writeText(selectedNarrative.generatedNarrative || "");
@@ -239,18 +273,44 @@ export default function InsuranceNarrativesPage() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent>
-                <div className="bg-muted/50 rounded-lg p-4 font-mono text-sm whitespace-pre-wrap max-h-[600px] overflow-y-auto">
-                  {selectedNarrative.generatedNarrative || "No narrative generated yet."}
-                </div>
-                {selectedNarrative.diagnosisCodes && (selectedNarrative.diagnosisCodes as Array<{code: string; description: string}>).length > 0 && (
-                  <div className="mt-4">
-                    <p className="text-sm font-medium mb-2">Diagnosis Codes</p>
-                    <div className="flex flex-wrap gap-2">
-                      {(selectedNarrative.diagnosisCodes as Array<{code: string; description: string}>).map((c, i) => (
-                        <Badge key={i} variant="secondary">{c.code}: {c.description}</Badge>
-                      ))}
+              <CardContent className="space-y-4">
+                {selectedNarrative.status === "draft" ? (
+                  <NarrativeEditor
+                    narrative={selectedNarrative}
+                    onSave={(text) => updateMutation.mutate({ id: selectedNarrative.id, generatedNarrative: text })}
+                    isSaving={updateMutation.isPending}
+                  />
+                ) : (
+                  <div className="bg-muted/50 rounded-lg p-4 font-mono text-sm whitespace-pre-wrap max-h-[600px] overflow-y-auto">
+                    {selectedNarrative.generatedNarrative || "No narrative generated yet."}
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-4">
+                  {selectedNarrative.diagnosisCodes && (selectedNarrative.diagnosisCodes as Array<{code: string; description: string}>).length > 0 && (
+                    <div>
+                      <p className="text-sm font-medium mb-2">Diagnosis Codes</p>
+                      <div className="flex flex-wrap gap-2">
+                        {(selectedNarrative.diagnosisCodes as Array<{code: string; description: string}>).map((c, i) => (
+                          <Badge key={i} variant="secondary">{c.code}: {c.description}</Badge>
+                        ))}
+                      </div>
                     </div>
+                  )}
+                  {selectedNarrative.procedureCodes && (selectedNarrative.procedureCodes as Array<{code: string; description: string}>).length > 0 && (
+                    <div>
+                      <p className="text-sm font-medium mb-2">Procedure Codes</p>
+                      <div className="flex flex-wrap gap-2">
+                        {(selectedNarrative.procedureCodes as Array<{code: string; description: string}>).map((c, i) => (
+                          <Badge key={i} variant="outline">{c.code}: {c.description}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {selectedNarrative.clinicalJustification && (
+                  <div>
+                    <p className="text-sm font-medium mb-1">Clinical Justification</p>
+                    <p className="text-sm text-muted-foreground">{selectedNarrative.clinicalJustification}</p>
                   </div>
                 )}
               </CardContent>

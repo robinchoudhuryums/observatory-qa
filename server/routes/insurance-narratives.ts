@@ -1,35 +1,87 @@
 import type { Express } from "express";
 import { storage } from "../storage";
 import { requireAuth, requireRole, injectOrgContext } from "../auth";
+import { aiProvider } from "../services/ai-factory";
 import { logger } from "../services/logger";
-import { validateUUIDParam } from "./helpers";
+import { validateUUIDParam, withRetry } from "./helpers";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { requirePlanFeature } from "./billing";
 import { INSURANCE_LETTER_TYPES } from "@shared/schema";
 
 /**
- * Generate an AI-powered insurance narrative letter.
- * Uses the call's clinical note and diagnosis/procedure codes to create
- * a professionally formatted letter for insurers.
+ * Generate an insurance narrative letter.
+ * When AI (Bedrock) is available, generates a professional letter via LLM.
+ * Falls back to template-based generation when AI is unavailable.
  */
 async function generateNarrative(params: {
   letterType: string;
   patientName: string;
   insurerName: string;
+  patientDob?: string;
+  memberId?: string;
   diagnosisCodes?: Array<{ code: string; description: string }>;
   procedureCodes?: Array<{ code: string; description: string }>;
   clinicalJustification?: string;
   priorDenialReference?: string;
 }): Promise<string> {
-  // For now, generate a template-based narrative
-  // In production, this would call Bedrock with a specialized prompt
-  const { letterType, patientName, insurerName, diagnosisCodes, procedureCodes, clinicalJustification, priorDenialReference } = params;
-  const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
-
+  const { letterType, patientName, insurerName, patientDob, memberId, diagnosisCodes, procedureCodes, clinicalJustification, priorDenialReference } = params;
   const letterTypeLabel = INSURANCE_LETTER_TYPES.find(t => t.value === letterType)?.label || letterType;
 
-  let narrative = `${today}\n\nRe: ${letterTypeLabel}\nPatient: ${patientName}\n\nDear ${insurerName} Medical Review Team,\n\n`;
+  // Try AI generation first
+  if (aiProvider.isAvailable && aiProvider.generateText) {
+    try {
+      const diagnosisStr = diagnosisCodes?.map(c => `${c.code}: ${c.description}`).join("\n") || "None provided";
+      const procedureStr = procedureCodes?.map(c => `${c.code}: ${c.description}`).join("\n") || "None provided";
+
+      const prompt = `You are a dental/medical insurance specialist writing a "${letterTypeLabel}" letter. Generate a professional, compelling insurance letter.
+
+PATIENT: ${patientName}${patientDob ? ` (DOB: ${patientDob})` : ""}${memberId ? ` (Member ID: ${memberId})` : ""}
+INSURANCE COMPANY: ${insurerName}
+LETTER TYPE: ${letterTypeLabel}
+${priorDenialReference ? `PRIOR DENIAL REFERENCE: ${priorDenialReference}` : ""}
+
+DIAGNOSIS CODES:
+${diagnosisStr}
+
+PROCEDURE CODES:
+${procedureStr}
+
+CLINICAL JUSTIFICATION:
+${clinicalJustification || "Not provided — use the diagnosis and procedure codes to construct justification."}
+
+Write a complete, professionally formatted letter that:
+1. Opens with today's date and proper salutation
+2. Clearly states the purpose (${letterType === "appeal" ? "appeal of denial" : letterType === "prior_auth" ? "prior authorization request" : letterType === "medical_necessity" ? "medical necessity justification" : letterType === "predetermination" ? "predetermination request" : "peer-to-peer review summary"})
+3. Includes patient demographics and insurance details
+4. Presents a strong clinical justification citing the diagnosis codes
+5. Lists the specific procedures requested with CDT/CPT codes
+6. References evidence-based guidelines where applicable
+7. Closes with a professional request for approval
+8. Ends with signature block placeholders
+
+Output ONLY the letter text (no JSON, no markdown fences).`;
+
+      const response = await withRetry(
+        () => aiProvider.generateText!(prompt),
+        { retries: 1, baseDelay: 2000, label: "insurance narrative generation" }
+      );
+
+      if (response && response.length > 100) {
+        return response;
+      }
+    } catch (err) {
+      logger.warn({ err }, "AI narrative generation failed, falling back to template");
+    }
+  }
+
+  // Fallback: template-based generation
+  const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+
+  let narrative = `${today}\n\nRe: ${letterTypeLabel}\nPatient: ${patientName}`;
+  if (patientDob) narrative += `\nDate of Birth: ${patientDob}`;
+  if (memberId) narrative += `\nMember ID: ${memberId}`;
+  narrative += `\n\nDear ${insurerName} Medical Review Team,\n\n`;
 
   if (letterType === "prior_auth") {
     narrative += `I am writing to request prior authorization for the following treatment plan for the above-referenced patient.\n\n`;
@@ -109,9 +161,9 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
         }
       }
 
-      // Generate the narrative
+      // Generate the narrative (passes patient demographics for richer AI output)
       const generatedNarrative = await generateNarrative({
-        letterType, patientName, insurerName,
+        letterType, patientName, insurerName, patientDob, memberId,
         diagnosisCodes: enrichedDiagnosisCodes, procedureCodes: enrichedProcedureCodes,
         clinicalJustification: enrichedJustification, priorDenialReference,
       });
@@ -207,6 +259,8 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
         letterType: narrative.letterType,
         patientName: narrative.patientName,
         insurerName: narrative.insurerName,
+        patientDob: narrative.patientDob,
+        memberId: narrative.memberId,
         diagnosisCodes: narrative.diagnosisCodes,
         procedureCodes: narrative.procedureCodes,
         clinicalJustification: narrative.clinicalJustification,
