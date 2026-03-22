@@ -637,6 +637,8 @@ export class PostgresStorage implements IStorage {
 
   async getTopPerformers(orgId: string, limit = 3): Promise<TopPerformer[]> {
     // Single query: JOIN calls → analyses → employees, aggregate in SQL
+    // HAVING count(*) >= 5 prevents employees with 1-2 calls from dominating the leaderboard
+    const MIN_CALLS_FOR_RANKING = 5;
     const rows = await this.db.select({
       employeeId: tables.calls.employeeId,
       employeeName: tables.employees.name,
@@ -651,6 +653,7 @@ export class PostgresStorage implements IStorage {
         sql`${tables.calls.employeeId} is not null`,
       ))
       .groupBy(tables.calls.employeeId, tables.employees.id, tables.employees.name, tables.employees.role)
+      .having(sql`count(*) >= ${MIN_CALLS_FOR_RANKING}`)
       .orderBy(sql`avg(cast(${tables.callAnalyses.performanceScore} as float)) desc`)
       .limit(limit);
 

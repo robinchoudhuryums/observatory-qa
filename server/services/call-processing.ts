@@ -107,13 +107,20 @@ export function computeConfidence(
   callDuration: number,
   hasAiAnalysis: boolean,
 ): ConfidenceResult {
-  const wordConfidence = Math.min(wordCount / 50, 1);
-  const durationConfidence = callDuration > 30 ? 1 : callDuration / 30;
+  // Use words-per-minute density to normalize for call type:
+  // A short 30-second procedural call with 40 words is dense and valid,
+  // while a 5-minute call with 10 words suggests audio/transcription issues.
+  const wpm = callDuration > 0 ? (wordCount / callDuration) * 60 : 0;
+  // Normal speech: 100-180 WPM. Below 30 WPM is suspicious.
+  const densityConfidence = Math.min(wpm / 80, 1);
+  const wordConfidence = Math.min(wordCount / 30, 1); // Lower threshold (30 vs 50) for procedural calls
+  const durationConfidence = callDuration > 15 ? 1 : callDuration / 15; // Lower threshold (15s vs 30s)
   const aiConfidence = hasAiAnalysis ? 1 : 0.3;
 
   const score =
-    transcriptConfidence * 0.4 +
-    wordConfidence * 0.2 +
+    transcriptConfidence * 0.35 +
+    wordConfidence * 0.15 +
+    densityConfidence * 0.1 +
     durationConfidence * 0.15 +
     aiConfidence * 0.25;
 
@@ -169,23 +176,41 @@ export async function autoAssignEmployee(
   const allEmployees = await storage.getAllEmployees(orgId);
   const activeEmployees = allEmployees.filter(emp => !emp.status || emp.status === "Active");
 
-  const matches = activeEmployees.filter(emp => {
-    const empName = emp.name.toLowerCase().trim();
-    const parts = empName.split(/\s+/);
-    return empName === normalized ||
-      parts[0] === normalized ||
-      parts[parts.length - 1] === normalized;
-  });
-
-  if (matches.length === 1) {
-    return { employeeId: matches[0].id, reason: "single_match" };
+  // Phase 1: Exact full-name match (highest confidence)
+  const exactMatch = activeEmployees.find(emp => emp.name.toLowerCase().trim() === normalized);
+  if (exactMatch) {
+    return { employeeId: exactMatch.id, reason: "exact_match" };
   }
 
-  if (matches.length > 1) {
-    const exact = matches.find(emp => emp.name.toLowerCase().trim() === normalized);
-    if (exact) {
-      return { employeeId: exact.id, reason: "exact_match" };
+  // Phase 2: Multi-part name matching (require at least 2 name parts to match)
+  const detectedParts = normalized.split(/\s+/);
+  const partialMatches = activeEmployees.filter(emp => {
+    const empName = emp.name.toLowerCase().trim();
+    const empParts = empName.split(/\s+/);
+
+    // If detected name has multiple parts, check if each part matches an employee name part
+    if (detectedParts.length >= 2) {
+      const matchedParts = detectedParts.filter(dp =>
+        empParts.some(ep => ep === dp || ep.startsWith(dp) || dp.startsWith(ep))
+      );
+      return matchedParts.length >= 2;
     }
+
+    // Single-word detected name: only match against full last name (more unique than first name)
+    // Skip first-name-only matching to reduce false positives
+    if (empParts.length >= 2) {
+      return empParts[empParts.length - 1] === normalized;
+    }
+    return empParts[0] === normalized;
+  });
+
+  if (partialMatches.length === 1) {
+    return { employeeId: partialMatches[0].id, reason: "single_match" };
+  }
+
+  if (partialMatches.length > 1) {
+    logger.info({ orgId, detectedName, matchCount: partialMatches.length, matchNames: partialMatches.map(m => m.name) },
+      "Ambiguous employee name match — skipping auto-assignment");
     return { reason: "ambiguous" };
   }
 

@@ -11,13 +11,17 @@ import { buildAgentSummaryPrompt } from "./ai-provider";
 import { logger } from "./logger";
 import type { CallSummary, CoachingSession } from "@shared/schema";
 
-// Thresholds for auto-recommendations
-const THRESHOLDS = {
-  lowScore: 5,            // Performance score below this triggers recommendation
-  lowSubScore: 5,         // Sub-score below this triggers category-specific recommendation
-  minCallsForTrend: 3,    // Minimum calls to detect a trend
-  sentimentDecline: -0.3, // Sentiment score decline to flag
+// Default thresholds for auto-recommendations (can be overridden per-org via settings.coachingThresholds)
+const DEFAULT_THRESHOLDS = {
+  lowScore: 5,              // Performance score below this triggers recommendation (0-10)
+  lowSubScore: 5,           // Sub-score below this triggers category-specific recommendation (0-10)
+  minCallsForTrend: 3,      // Minimum calls to detect a trend
+  lowSentiment: 0.4,        // Sentiment score below this triggers recommendation (0-1 scale)
+  minCallsForPerformers: 5, // Minimum calls for an employee to appear in rankings
 };
+
+/** Non-coachable flags — system/audio issues, not agent behavior. */
+const NON_COACHABLE_FLAGS = new Set(["empty_transcript", "audio_missing", "low_confidence"]);
 
 export interface CoachingRecommendation {
   employeeId: string;
@@ -41,6 +45,11 @@ export async function generateRecommendations(
   const recommendations: CoachingRecommendation[] = [];
 
   try {
+    // Load per-org coaching thresholds (falls back to defaults)
+    const org = await storage.getOrganization(orgId);
+    const orgThresholds = (org?.settings as any)?.coachingThresholds || {};
+    const THRESHOLDS = { ...DEFAULT_THRESHOLDS, ...orgThresholds };
+
     const allCalls = await storage.getCallSummaries(orgId, { employee: employeeId, status: "completed" });
     if (allCalls.length < THRESHOLDS.minCallsForTrend) return [];
 
@@ -103,35 +112,35 @@ export async function generateRecommendations(
       }
     }
 
-    // 3. Check sentiment trend
+    // 3. Check sentiment trend (overallScore is 0-1 scale: 0=negative, 1=positive)
     const sentimentScores = recentCalls
       .map(c => c.sentiment?.overallScore != null ? Number(c.sentiment.overallScore) : undefined)
       .filter((s): s is number => s != null && !isNaN(s));
 
     if (sentimentScores.length >= THRESHOLDS.minCallsForTrend) {
       const avgSentiment = average(sentimentScores);
-      if (avgSentiment < THRESHOLDS.sentimentDecline) {
+      if (avgSentiment < THRESHOLDS.lowSentiment) {
         recommendations.push({
           employeeId,
           trigger: "negative_sentiment_trend",
           category: "communication",
-          title: `${employeeName}: Negative sentiment trend (avg ${avgSentiment.toFixed(2)})`,
-          description: `${employeeName}'s calls show a negative sentiment trend. Consider de-escalation training.`,
-          severity: avgSentiment < -0.5 ? "high" : "medium",
+          title: `${employeeName}: Low customer sentiment (avg ${(avgSentiment * 10).toFixed(1)}/10)`,
+          description: `${employeeName}'s calls show low customer sentiment (avg ${(avgSentiment * 10).toFixed(1)}/10 over ${sentimentScores.length} calls). Consider de-escalation or empathy training.`,
+          severity: avgSentiment < 0.25 ? "high" : "medium",
           callIds: recentCalls.slice(0, 3).map(c => c.id),
           metrics: { avgSentiment, callCount: sentimentScores.length },
         });
       }
     }
 
-    // 4. Check for recurring flags
+    // 4. Check for recurring coachable flags (skip system/audio flags)
     const flagCounts: Record<string, number> = {};
     for (const call of recentCalls) {
       const flags = call.analysis?.flags;
       if (Array.isArray(flags)) {
         for (const flag of flags) {
           const f = typeof flag === "string" ? flag : "";
-          if (f) flagCounts[f] = (flagCounts[f] || 0) + 1;
+          if (f && !NON_COACHABLE_FLAGS.has(f)) flagCounts[f] = (flagCounts[f] || 0) + 1;
         }
       }
     }

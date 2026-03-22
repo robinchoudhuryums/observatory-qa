@@ -40,9 +40,12 @@ export function registerExportRoutes(app: Express): void {
       const calls = rawCalls.slice(-MAX_EXPORT_ROWS);
 
       // Build per-employee performance stats
-      const empStats = new Map<string, { name: string; role: string; totalCalls: number; totalScore: number; scoredCalls: number }>();
+      const empStats = new Map<string, {
+        name: string; role: string; totalCalls: number; totalScore: number; scoredCalls: number;
+        flaggedCalls: number; lastCallDate: string;
+      }>();
       for (const emp of employees) {
-        empStats.set(emp.id, { name: emp.name, role: emp.role || "", totalCalls: 0, totalScore: 0, scoredCalls: 0 });
+        empStats.set(emp.id, { name: emp.name, role: emp.role || "", totalCalls: 0, totalScore: 0, scoredCalls: 0, flaggedCalls: 0, lastCallDate: "" });
       }
 
       for (const call of calls) {
@@ -55,9 +58,16 @@ export function registerExportRoutes(app: Express): void {
           stats.totalScore += Number(score);
           stats.scoredCalls++;
         }
+        const flags = (call.analysis as any)?.flags;
+        if (Array.isArray(flags) && flags.length > 0) {
+          stats.flaggedCalls++;
+        }
+        if (call.uploadedAt && (!stats.lastCallDate || call.uploadedAt > stats.lastCallDate)) {
+          stats.lastCallDate = call.uploadedAt;
+        }
       }
 
-      const headers = ["Employee", "Department", "Total Calls", "Avg Score"];
+      const headers = ["Employee", "Department", "Total Calls", "Avg Score", "Flagged Calls", "Last Call Date"];
       const rows = Array.from(empStats.values())
         .filter(s => s.totalCalls > 0)
         .sort((a, b) => (b.scoredCalls > 0 ? b.totalScore / b.scoredCalls : 0) - (a.scoredCalls > 0 ? a.totalScore / a.scoredCalls : 0))
@@ -66,6 +76,8 @@ export function registerExportRoutes(app: Express): void {
           s.role,
           s.totalCalls,
           s.scoredCalls > 0 ? (s.totalScore / s.scoredCalls).toFixed(1) : "",
+          s.flaggedCalls,
+          s.lastCallDate ? new Date(s.lastCallDate).toISOString().slice(0, 10) : "",
         ]));
 
       const csv = [toCsvRow(headers), ...rows].join("\n");
@@ -85,6 +97,53 @@ export function registerExportRoutes(app: Express): void {
     } catch (error) {
       logger.error({ err: error }, "Failed to export performance CSV");
       res.status(500).json({ message: "Failed to export performance data" });
+    }
+  });
+
+  /**
+   * Export flagged calls as CSV.
+   * Includes: call date, employee, score, flags, summary.
+   */
+  app.get("/api/export/flagged", requireAuth, requireRole("manager"), injectOrgContext, async (req, res) => {
+    try {
+      const rawCalls = await storage.getCallSummaries(req.orgId!, { status: "completed" });
+      const flaggedCalls = rawCalls
+        .filter(c => {
+          const flags = (c.analysis as any)?.flags;
+          return Array.isArray(flags) && flags.length > 0;
+        })
+        .slice(-MAX_EXPORT_ROWS);
+
+      const employees = await storage.getAllEmployees(req.orgId!);
+      const empMap = new Map(employees.map(e => [e.id, e.name]));
+
+      const headers = ["Date", "Employee", "Score", "Flags", "Summary", "Call ID"];
+      const rows = flaggedCalls.map(c => toCsvRow([
+        c.uploadedAt ? new Date(c.uploadedAt).toISOString().slice(0, 10) : "",
+        c.employeeId ? (empMap.get(c.employeeId) || "Unknown") : "Unassigned",
+        (c.analysis as any)?.performanceScore ?? "",
+        ((c.analysis as any)?.flags || []).join("; "),
+        (c.analysis as any)?.summary || "",
+        c.id,
+      ]));
+
+      const csv = [toCsvRow(headers), ...rows].join("\n");
+
+      logPhiAccess({
+        event: "export_flagged_csv",
+        userId: req.user!.id,
+        orgId: req.orgId!,
+        resourceType: "call",
+        detail: `Exported ${rows.length} flagged calls`,
+      });
+
+      const filename = `flagged-calls-${new Date().toISOString().slice(0, 10)}.csv`;
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to export flagged calls CSV");
+      res.status(500).json({ message: "Failed to export flagged calls" });
     }
   });
 

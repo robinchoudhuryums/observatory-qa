@@ -17,7 +17,7 @@ function safeJsonParse<T>(val: unknown, fallback: T): T {
 
 export function registerReportRoutes(app: Express): void {
 
-  // Search calls
+  // Search calls (with optional score/date/category filters)
   app.get("/api/search", requireAuth, injectOrgContext, async (req, res) => {
     try {
       const query = req.query.q as string;
@@ -26,7 +26,44 @@ export function registerReportRoutes(app: Express): void {
         return;
       }
 
-      const results = await storage.searchCalls(req.orgId!, query);
+      // Optional server-side filters
+      const minScore = req.query.minScore ? parseFloat(req.query.minScore as string) : undefined;
+      const maxScore = req.query.maxScore ? parseFloat(req.query.maxScore as string) : undefined;
+      const from = req.query.from as string | undefined;
+      const to = req.query.to as string | undefined;
+      const category = req.query.category as string | undefined;
+
+      let results = await storage.searchCalls(req.orgId!, query);
+
+      // Apply server-side filters to search results
+      if (minScore !== undefined && !isNaN(minScore)) {
+        results = results.filter(r => {
+          const score = Number(r.analysis?.performanceScore);
+          return !isNaN(score) && score >= minScore;
+        });
+      }
+      if (maxScore !== undefined && !isNaN(maxScore)) {
+        results = results.filter(r => {
+          const score = Number(r.analysis?.performanceScore);
+          return !isNaN(score) && score <= maxScore;
+        });
+      }
+      if (from) {
+        const fromDate = new Date(from);
+        if (!isNaN(fromDate.getTime())) {
+          results = results.filter(r => new Date(r.uploadedAt || 0) >= fromDate);
+        }
+      }
+      if (to) {
+        const toDate = new Date(to);
+        if (!isNaN(toDate.getTime())) {
+          toDate.setHours(23, 59, 59, 999);
+          results = results.filter(r => new Date(r.uploadedAt || 0) <= toDate);
+        }
+      }
+      if (category) {
+        results = results.filter(r => r.callCategory === category);
+      }
       logPhiAccess({
         ...auditContext(req),
         event: "search_calls",
