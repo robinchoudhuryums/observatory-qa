@@ -601,6 +601,58 @@ Uses AWS Bedrock (Claude) for AI analysis. Per-org `bedrockModel` can be configu
 | DELETE | `/api/calibration/:id` | manager+ | Delete session |
 | GET | `/api/calibration/analytics` | manager+ | Variance trends, evaluator alignment |
 
+### Live Sessions (org-scoped, requires Clinical Documentation plan)
+| Method | Path | Role | Description |
+|--------|------|------|-------------|
+| POST | `/api/live-sessions` | authenticated | Start real-time clinical session (AssemblyAI streaming) |
+| GET | `/api/live-sessions/:id` | authenticated | Get session status + transcript |
+| GET | `/api/live-sessions/:id/audio` | authenticated | Stream live audio |
+| POST | `/api/live-sessions/:id/draft-note` | authenticated | Draft clinical note during session |
+| PATCH | `/api/live-sessions/:id/pause` | authenticated | Pause session |
+| PATCH | `/api/live-sessions/:id/stop` | authenticated | Stop session |
+
+### LMS — Learning Management System (org-scoped)
+| Method | Path | Role | Description |
+|--------|------|------|-------------|
+| GET | `/api/lms/modules` | authenticated | List learning modules |
+| POST | `/api/lms/modules` | manager+ | Create module |
+| GET | `/api/lms/modules/:id` | authenticated | Get module content |
+| POST | `/api/lms/modules/generate` | manager+ | AI-generate module from call analysis |
+| GET | `/api/lms/paths` | authenticated | List learning paths |
+| POST | `/api/lms/paths` | manager+ | Create learning path |
+| GET | `/api/lms/paths/:id` | authenticated | Get learning path |
+| GET | `/api/lms/progress` | authenticated | User progress |
+| GET | `/api/lms/progress/:employeeId` | authenticated | Employee progress |
+| GET | `/api/lms/stats` | manager+ | LMS statistics |
+| GET | `/api/lms/knowledge-search` | authenticated | Search knowledge base |
+
+### Marketing Attribution (org-scoped)
+| Method | Path | Role | Description |
+|--------|------|------|-------------|
+| GET | `/api/marketing/campaigns` | authenticated | List campaigns |
+| POST | `/api/marketing/campaigns` | manager+ | Create campaign |
+| GET | `/api/marketing/campaigns/:id` | authenticated | Get campaign details |
+| GET | `/api/marketing/metrics` | authenticated | Campaign metrics |
+| GET | `/api/marketing/sources` | authenticated | Traffic source breakdown |
+| GET | `/api/marketing/attribution/:callId` | authenticated | Call-level attribution |
+
+### Email Management (org-scoped)
+| Method | Path | Role | Description |
+|--------|------|------|-------------|
+| POST | `/api/emails/submit` | manager+ | Submit email |
+| POST | `/api/emails/bulk-submit` | admin | Bulk submit emails |
+| GET | `/api/emails/threads` | authenticated | Email threads |
+| GET | `/api/emails/stats` | admin | Email analytics |
+
+### Super Admin (platform-level, requires SUPER_ADMIN_USERS)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/super-admin/organizations` | List all organizations |
+| POST | `/api/super-admin/organizations` | Create organization |
+| GET | `/api/super-admin/organizations/:id` | Get organization details |
+| POST | `/api/super-admin/organizations/:id/impersonate` | Impersonate organization |
+| GET | `/api/super-admin/stats` | Platform-wide statistics |
+
 ### Health
 | Method | Path | Description |
 |--------|------|-------------|
@@ -649,6 +701,7 @@ S3_BUCKET                       # S3 bucket name (also used for audio blobs alon
 # ─── Redis ────────────────────────────────────────────────────────────
 REDIS_URL                       # Redis connection (sessions, rate limiting, job queues)
                                 # Without this: in-memory fallback (single-instance only)
+REQUIRE_REDIS                   # Set to "true" to fail startup without Redis (production safety)
 
 # ─── AI Analysis (AWS Bedrock) ───────────────────────────────────────
 AWS_ACCESS_KEY_ID
@@ -662,6 +715,8 @@ STRIPE_SECRET_KEY               # Stripe API secret
 STRIPE_WEBHOOK_SECRET           # Stripe webhook signing secret
 STRIPE_PRICE_PRO_MONTHLY        # Price ID for Pro monthly
 STRIPE_PRICE_PRO_YEARLY         # Price ID for Pro yearly
+STRIPE_PRICE_CLINICAL_MONTHLY   # Price ID for Clinical Documentation monthly
+STRIPE_PRICE_CLINICAL_YEARLY    # Price ID for Clinical Documentation yearly
 STRIPE_PRICE_ENTERPRISE_MONTHLY # Price ID for Enterprise monthly
 STRIPE_PRICE_ENTERPRISE_YEARLY  # Price ID for Enterprise yearly
 
@@ -677,6 +732,9 @@ LOG_LEVEL                       # Pino level: debug, info, warn, error (default:
 # ─── Notifications ───────────────────────────────────────────────────
 WEBHOOK_URL                     # Slack/Teams webhook for flagged call notifications
 WEBHOOK_EVENTS                  # Event types to notify (default: low_score,agent_misconduct,exceptional_call)
+WEBHOOK_COACHING_URL            # Coaching notifications webhook
+WEBHOOK_DIGEST_URL              # Digest notifications webhook
+WEBHOOK_PLATFORM                # Webhook platform: slack or teams
 
 # ─── Email (pick one) ────────────────────────────────────────────────
 EMAIL_PROVIDER                  # "ses" for AWS SES API (uses existing AWS creds); omit for SMTP
@@ -699,6 +757,24 @@ CDN_ORIGIN                      # CDN domain (e.g. https://cdn.observatory-qa.co
 
 # ─── PHI Encryption ─────────────────────────────────────────────────
 PHI_ENCRYPTION_KEY              # 64-char hex for AES-256-GCM field-level encryption
+
+# ─── OpenTelemetry ───────────────────────────────────────────────────
+OTEL_ENABLED                    # Set to "true" to enable OpenTelemetry traces + metrics
+OTEL_EXPORTER_OTLP_ENDPOINT     # OTLP exporter endpoint (e.g. http://localhost:4318)
+
+# ─── Super Admin ─────────────────────────────────────────────────────
+SUPER_ADMIN_USERS               # Platform-level admin users (format: username:password, comma-separated)
+
+# ─── Score Calibration ──────────────────────────────────────────────
+SCORE_CALIBRATION_ENABLED       # Enable AI score distribution normalization
+SCORE_CALIBRATION_CENTER        # Target score center (default: 5.0)
+SCORE_CALIBRATION_SPREAD        # Target score spread
+SCORE_LOW_THRESHOLD             # Low score threshold for flagging
+SCORE_HIGH_THRESHOLD            # High score threshold for flagging
+
+# ─── Application ─────────────────────────────────────────────────────
+APP_BASE_URL                    # Application base URL (for email links, e.g. https://app.observatory-qa.com)
+REANALYSIS_CONCURRENCY          # Concurrent reanalysis jobs (default: 3)
 
 # ─── Optional ────────────────────────────────────────────────────────
 PORT                            # Server port (default: 5000)
