@@ -57,6 +57,36 @@ export async function checkAndAwardBadges(orgId: string, employeeId: string): Pr
       await storage.awardBadge(orgId, { orgId, employeeId, badgeId: "perfect_score", awardedAt: now, awardedFor: perfectCall.callId });
     }
 
+    // Consistency King: 10 consecutive calls with score >= 8.0
+    if (!hasBadge("consistency_king") && analyses.length >= 10) {
+      const last10 = analyses.slice(-10);
+      if (last10.every(a => a.score >= 8.0)) {
+        await storage.awardBadge(orgId, { orgId, employeeId, badgeId: "consistency_king", awardedAt: now });
+      }
+    }
+
+    // Most Improved: average improved by 2+ points comparing first half to second half of recent calls
+    if (!hasBadge("most_improved") && analyses.length >= 6) {
+      const half = Math.floor(analyses.length / 2);
+      const firstHalf = analyses.slice(0, half);
+      const secondHalf = analyses.slice(half);
+      const avgFirst = firstHalf.reduce((s, a) => s + a.score, 0) / firstHalf.length;
+      const avgSecond = secondHalf.reduce((s, a) => s + a.score, 0) / secondHalf.length;
+      if (avgSecond - avgFirst >= 2.0) {
+        await storage.awardBadge(orgId, { orgId, employeeId, badgeId: "most_improved", awardedAt: now });
+      }
+    }
+
+    // Comeback Kid: had calls with score < 5.0, then recent calls all >= 8.0
+    if (!hasBadge("comeback_kid") && analyses.length >= 5) {
+      const hadLowScores = analyses.some(a => a.score < 5.0);
+      const recent5 = analyses.slice(-5);
+      const recentAllHigh = recent5.every(a => a.score >= 8.0);
+      if (hadLowScores && recentAllHigh) {
+        await storage.awardBadge(orgId, { orgId, employeeId, badgeId: "comeback_kid", awardedAt: now });
+      }
+    }
+
     // Streak badges
     const profile = await storage.getGamificationProfile(orgId, employeeId);
     if (profile.currentStreak >= 7 && !hasBadge("streak_7")) {

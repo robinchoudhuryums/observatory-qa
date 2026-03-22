@@ -118,6 +118,17 @@ export function registerCoachingRoutes(app: Express): void {
         resourceId: req.params.id,
         detail: `Updated fields: ${Object.keys(parsed.data).join(", ")}`,
       });
+
+      // Gamification: award points when coaching session completed
+      if (updates.status === "completed" && updated.employeeId) {
+        try {
+          const { recordActivity } = await import("./gamification");
+          await recordActivity(req.orgId!, updated.employeeId, "coaching_completed");
+        } catch (err) {
+          logger.warn({ err, sessionId: req.params.id }, "Failed to update gamification for coaching completion");
+        }
+      }
+
       res.json(updated);
     } catch (error) {
       logger.error({ err: error }, "Failed to update coaching session");

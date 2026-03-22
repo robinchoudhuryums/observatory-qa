@@ -682,6 +682,23 @@ async function postProcessing(
     logger.warn({ callId, err }, "Failed to generate coaching recommendations"),
   );
 
+  // Gamification: record activity and check for badge awards
+  if (assignedEmployeeId) {
+    try {
+      const { recordActivity } = await import("../routes/gamification");
+      await recordActivity(orgId, assignedEmployeeId, "call_processed");
+      // Award bonus points for high/perfect scores
+      const perfScore = analysis.performanceScore ? safeFloat(analysis.performanceScore) : 0;
+      if (perfScore === 10.0) {
+        await recordActivity(orgId, assignedEmployeeId, "perfect_score");
+      } else if (perfScore >= 9.0) {
+        await recordActivity(orgId, assignedEmployeeId, "high_score");
+      }
+    } catch (err) {
+      logger.warn({ callId, employeeId: assignedEmployeeId, err }, "Failed to update gamification (non-blocking)");
+    }
+  }
+
   // Usage tracking
   trackUsage({ orgId, eventType: "transcription", quantity: 1, metadata: { callId } });
   if (aiAnalysis) {
