@@ -512,6 +512,41 @@ app.use("/api/ehr", distributedRateLimit(60 * 1000, 30, true) as any);
       }
     };
 
+    // Weekly digest — sends coaching/performance digest to org webhook
+    const runWeeklyDigest = async () => {
+      try {
+        const webhookUrl = process.env.WEBHOOK_DIGEST_URL;
+        if (!webhookUrl) return;
+
+        const { generateWeeklyDigest } = await import("./services/proactive-alerts");
+        const { sendSlackNotification } = await import("./services/notifications");
+        const orgs = await storage.listOrganizations();
+
+        for (const org of orgs) {
+          try {
+            const digest = await generateWeeklyDigest(org.id);
+            if (digest.totalCalls === 0) continue;
+
+            const text = [
+              `*Weekly Digest: ${org.name}*`,
+              `Calls: ${digest.totalCalls} | Avg Score: ${digest.avgScore} | Flagged: ${digest.flaggedCalls}`,
+              `Sentiment: +${digest.sentiment.positive} / ~${digest.sentiment.neutral} / -${digest.sentiment.negative}`,
+              digest.agentsNeedingAttention.length > 0
+                ? `Agents needing attention: ${digest.agentsNeedingAttention.map(a => a.name).join(", ")}`
+                : "No agents flagged for review",
+            ].join("\n");
+
+            await sendSlackNotification({ channel: "digest", text, blocks: [] });
+            logger.info({ orgId: org.id, totalCalls: digest.totalCalls }, "Weekly digest sent");
+          } catch (orgErr) {
+            logger.warn({ err: orgErr, orgId: org.id }, "Failed to send weekly digest for org");
+          }
+        }
+      } catch (error) {
+        logger.error({ err: error }, "Error during weekly digest generation");
+      }
+    };
+
     // Run once on startup (after 30s delay to let auth settle)
     const retentionStartupTimer = setTimeout(() => {
       runRetention();
@@ -523,6 +558,8 @@ app.use("/api/ehr", distributedRateLimit(60 * 1000, 30, true) as any);
     const retentionDailyTimer = setInterval(runRetention, 24 * 60 * 60 * 1000);
     const trialDowngradeTimer = setInterval(runTrialDowngrade, 24 * 60 * 60 * 1000);
     const quotaAlertDailyTimer = setInterval(runQuotaAlerts, 24 * 60 * 60 * 1000);
+    // Weekly digest (every 7 days)
+    const weeklyDigestTimer = setInterval(runWeeklyDigest, 7 * 24 * 60 * 60 * 1000);
 
     // Graceful shutdown
     const shutdown = async () => {
@@ -533,6 +570,7 @@ app.use("/api/ehr", distributedRateLimit(60 * 1000, 30, true) as any);
       clearInterval(retentionDailyTimer);
       clearInterval(trialDowngradeTimer);
       clearInterval(quotaAlertDailyTimer);
+      clearInterval(weeklyDigestTimer);
       const { closeWebSocket } = await import("./services/websocket");
       await Promise.all([
         closeQueues(),
