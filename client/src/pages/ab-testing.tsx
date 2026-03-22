@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { BEDROCK_MODEL_PRESETS, CALL_CATEGORIES, type ABTest } from "@shared/schema";
 import { toDisplayString } from "@/lib/display-utils";
-import {  RiFlaskLine, RiUploadLine, RiDeleteBinLine, RiTimeLine, RiArrowRightUpLine, RiArrowRightDownLine, RiSubtractLine, RiErrorWarningLine, RiCheckboxCircleLine, RiLoader4Line, RiFileMusicLine  } from "@remixicon/react";
+import {  RiFlaskLine, RiUploadLine, RiDeleteBinLine, RiTimeLine, RiArrowRightUpLine, RiArrowRightDownLine, RiSubtractLine, RiErrorWarningLine, RiCheckboxCircleLine, RiLoader4Line, RiFileMusicLine, RiDownload2Line  } from "@remixicon/react";
 
 function ScoreComparison({ label, baseline, test }: { label: string; baseline?: number; test?: number }) {
   const diff = (test ?? 0) - (baseline ?? 0);
@@ -187,8 +187,8 @@ function TestResultView({ test }: { test: ABTest }) {
             {test.callCategory || "Uncategorized"} &middot; {new Date(test.createdAt || "").toLocaleString()} &middot; by {test.createdBy}
           </p>
         </div>
-        <Badge variant={test.status === "completed" ? "default" : test.status === "failed" ? "destructive" : "secondary"}>
-          {test.status}
+        <Badge variant={test.status === "completed" ? "default" : test.status === "failed" ? "destructive" : test.status === "partial" ? "secondary" : "secondary"}>
+          {test.status === "partial" ? "partial (one model failed)" : test.status}
         </Badge>
       </div>
 
@@ -488,6 +488,8 @@ export default function ABTestingPage() {
                                 <RiLoader4Line className="w-3.5 h-3.5 animate-spin text-blue-500" />
                               ) : test.status === "completed" ? (
                                 <RiCheckboxCircleLine className="w-3.5 h-3.5 text-green-500" />
+                              ) : test.status === "partial" ? (
+                                <RiErrorWarningLine className="w-3.5 h-3.5 text-amber-500" />
                               ) : (
                                 <RiErrorWarningLine className="w-3.5 h-3.5 text-red-500" />
                               )}
@@ -513,7 +515,19 @@ export default function ABTestingPage() {
                 <div className="lg:col-span-2">
                   {selectedTest ? (
                     <div className="space-y-4">
-                      <div className="flex justify-end">
+                      <div className="flex justify-end gap-2">
+                        {(selectedTest.status === "completed" || selectedTest.status === "partial") && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              window.open(`/api/ab-tests/${selectedTest.id}/export`, "_blank");
+                            }}
+                          >
+                            <RiDownload2Line className="w-3.5 h-3.5 mr-1" />
+                            Export JSON
+                          </Button>
+                        )}
                         {deleteConfirmId === selectedTest.id ? (
                           <div className="flex items-center gap-2">
                             <span className="text-xs text-red-600">Delete this test?</span>
@@ -542,7 +556,7 @@ export default function ABTestingPage() {
                           </Button>
                         )}
                       </div>
-                      {selectedTest.status === "processing" || selectedTest.status === "analyzing" ? (
+                      {(selectedTest.status === "processing" || selectedTest.status === "analyzing") ? (
                         <Card>
                           <CardContent className="py-12 text-center">
                             <RiLoader4Line className="w-8 h-8 animate-spin text-primary mx-auto mb-3" />
