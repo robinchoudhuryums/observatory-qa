@@ -370,29 +370,54 @@ export class PostgresStorage implements IStorage {
     orgId: string,
     filters: { status?: string; sentiment?: string; employee?: string; limit?: number; offset?: number } = {},
   ): Promise<CallWithDetails[]> {
-    // Build dynamic where conditions
-    const conditions = [eq(tables.calls.orgId, orgId)];
-    if (filters.status) conditions.push(eq(tables.calls.status, filters.status));
-    if (filters.employee) conditions.push(eq(tables.calls.employeeId, filters.employee));
+    let callRows: any[];
 
-    let query = this.db.select().from(tables.calls)
-      .where(and(...conditions))
-      .orderBy(desc(tables.calls.uploadedAt));
+    if (filters.sentiment) {
+      // Use SQL-level JOIN to filter by sentiment (avoids loading all calls then filtering in-memory)
+      const conditions: any[] = [
+        eq(tables.calls.orgId, orgId),
+        eq(tables.sentimentAnalyses.overallSentiment, filters.sentiment),
+      ];
+      if (filters.status) conditions.push(eq(tables.calls.status, filters.status));
+      if (filters.employee) conditions.push(eq(tables.calls.employeeId, filters.employee));
 
-    // Apply SQL-level pagination when no sentiment filter (sentiment requires post-join filtering)
-    if (!filters.sentiment && filters.limit && filters.limit > 0) {
-      query = query.limit(filters.limit) as any;
-      if (filters.offset) query = query.offset(filters.offset) as any;
+      let query = this.db.select({ call: tables.calls })
+        .from(tables.calls)
+        .innerJoin(tables.sentimentAnalyses, eq(tables.calls.id, tables.sentimentAnalyses.callId))
+        .where(and(...conditions))
+        .orderBy(desc(tables.calls.uploadedAt));
+
+      if (filters.limit && filters.limit > 0) {
+        query = query.limit(filters.limit) as any;
+        if (filters.offset) query = query.offset(filters.offset) as any;
+      }
+
+      const joinRows = await query;
+      callRows = joinRows.map((r: any) => r.call);
+    } else {
+      // Standard query without sentiment filter
+      const conditions: any[] = [eq(tables.calls.orgId, orgId)];
+      if (filters.status) conditions.push(eq(tables.calls.status, filters.status));
+      if (filters.employee) conditions.push(eq(tables.calls.employeeId, filters.employee));
+
+      let query = this.db.select().from(tables.calls)
+        .where(and(...conditions))
+        .orderBy(desc(tables.calls.uploadedAt));
+
+      if (filters.limit && filters.limit > 0) {
+        query = query.limit(filters.limit) as any;
+        if (filters.offset) query = query.offset(filters.offset) as any;
+      }
+
+      callRows = await query;
     }
-
-    const callRows = await query;
 
     if (callRows.length === 0) return [];
 
-    const callIds = callRows.map((c) => c.id);
+    const callIds = callRows.map((c: any) => c.id);
 
     // Collect unique employee IDs to fetch only needed employees
-    const empIdsNeeded = Array.from(new Set(callRows.map((c) => c.employeeId).filter(Boolean))) as string[];
+    const empIdsNeeded = Array.from(new Set(callRows.map((c: any) => c.employeeId).filter(Boolean))) as string[];
 
     // Batch-load related data scoped to matched call IDs (chunked to avoid parameter limits)
     const [empRows, txRows, sentRows, analysisRows] = await Promise.all([
@@ -417,7 +442,7 @@ export class PostgresStorage implements IStorage {
     const sentMap = new Map(sentRows.map((s) => [s.callId, this.mapSentiment(s)]));
     const analysisMap = new Map(analysisRows.map((a) => [a.callId, this.mapAnalysis(a)]));
 
-    let results: CallWithDetails[] = callRows.map((row) => {
+    return callRows.map((row: any) => {
       const call = this.mapCall(row);
       return {
         ...call,
@@ -427,13 +452,6 @@ export class PostgresStorage implements IStorage {
         analysis: normalizeAnalysis(analysisMap.get(call.id)),
       };
     });
-
-    // Apply sentiment filter (post-query since it's in a separate table)
-    if (filters.sentiment) {
-      results = results.filter((c) => c.sentiment?.overallSentiment === filters.sentiment);
-    }
-
-    return results;
   }
 
   async getCallSummaries(

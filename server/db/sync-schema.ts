@@ -154,6 +154,10 @@ export async function syncSchema(db: Database): Promise<void> {
     `);
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS transcripts_call_id_idx ON transcripts (call_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS transcripts_org_id_idx ON transcripts (org_id)`);
+    // Full-text search index for transcript search (GIN tsvector)
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS transcripts_text_search_idx ON transcripts USING GIN (to_tsvector('english', coalesce(text, '')))`).catch(() => {
+      logger.warn("Failed to create transcript full-text search index (may already exist or text is encrypted)");
+    });
 
     // --- Sentiment Analyses ---
     await db.execute(sql`
@@ -213,6 +217,14 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS analyses_call_id_idx ON call_analyses (call_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS analyses_org_id_idx ON call_analyses (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS analyses_performance_idx ON call_analyses (org_id, performance_score)`);
+    // Full-text search index for analysis summaries
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS analyses_summary_search_idx ON call_analyses USING GIN (to_tsvector('english', coalesce(summary, '')))`).catch(() => {
+      logger.warn("Failed to create analysis summary full-text search index");
+    });
+    // GIN index for JSONB topics search
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS analyses_topics_gin_idx ON call_analyses USING GIN (topics jsonb_path_ops)`).catch(() => {
+      logger.warn("Failed to create topics GIN index");
+    });
 
     // --- Access Requests ---
     await db.execute(sql`
@@ -760,6 +772,10 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS audit_logs_event_idx ON audit_logs (org_id, event)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS audit_logs_user_idx ON audit_logs (org_id, user_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS audit_logs_sequence_idx ON audit_logs (org_id, sequence_num)`);
+    // BRIN index on created_at for efficient time-range archival queries (audit logs grow fast)
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS audit_logs_created_at_brin_idx ON audit_logs USING BRIN (created_at)`).catch(() => {
+      logger.warn("Failed to create audit_logs BRIN index");
+    });
 
     logger.info("Schema sync complete");
   } catch (error) {

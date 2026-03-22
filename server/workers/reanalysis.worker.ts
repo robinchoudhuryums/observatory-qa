@@ -7,6 +7,7 @@
  */
 import { Worker, type Job } from "bullmq";
 import type { BulkReanalysisJob } from "../services/queue";
+import { moveToDeadLetter } from "../services/queue";
 import { logger } from "../services/logger";
 
 export function createReanalysisWorker(
@@ -28,13 +29,27 @@ export function createReanalysisWorker(
         return { succeeded: 0, failed: 0, skipped: 0, reason: "AI provider unavailable" };
       }
 
-      // Get target calls
-      const allCalls = await storage.getCallsWithDetails(orgId, { status: "completed" });
-      const targetCalls = callIds?.length
-        ? allCalls.filter(c => callIds.includes(c.id))
-        : allCalls;
+      // Get target calls — use pagination to avoid loading entire table into memory
+      let callsWithTranscripts: Awaited<ReturnType<typeof storage.getCallsWithDetails>>;
 
-      const callsWithTranscripts = targetCalls.filter(c => c.transcript?.text);
+      if (callIds?.length) {
+        // Specific call IDs requested — fetch only those (small set, no full table scan)
+        const targetCalls = await storage.getCallsWithDetails(orgId, { status: "completed", limit: callIds.length });
+        callsWithTranscripts = targetCalls.filter(c => callIds.includes(c.id) && c.transcript?.text);
+      } else {
+        // All completed calls — paginate in chunks to avoid memory exhaustion
+        const CHUNK_SIZE = 200;
+        callsWithTranscripts = [];
+        let offset = 0;
+        let hasMore = true;
+        while (hasMore) {
+          const chunk = await storage.getCallsWithDetails(orgId, { status: "completed", limit: CHUNK_SIZE, offset });
+          const withTranscripts = chunk.filter(c => c.transcript?.text);
+          callsWithTranscripts.push(...withTranscripts);
+          offset += CHUNK_SIZE;
+          hasMore = chunk.length === CHUNK_SIZE;
+        }
+      }
 
       let succeeded = 0;
       let failed = 0;
@@ -113,6 +128,16 @@ export function createReanalysisWorker(
 
   worker.on("failed", (job, err) => {
     logger.error({ jobId: job?.id, err }, "Reanalysis worker: job failed");
+    // Move permanently failed jobs to dead letter queue for admin review
+    if (job && job.attemptsMade >= (job.opts?.attempts || 1)) {
+      moveToDeadLetter(
+        "bulk-reanalysis",
+        job.id || "unknown",
+        job.data.orgId,
+        err.message,
+        job.data as any,
+      ).catch(() => {});
+    }
   });
 
   return worker;

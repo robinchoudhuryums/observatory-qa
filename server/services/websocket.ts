@@ -2,11 +2,16 @@
  * WebSocket service for broadcasting real-time call processing updates to connected clients.
  * HIPAA: Connections are authenticated via session cookie verification.
  * Multi-tenant: Updates are scoped to the user's organization.
+ *
+ * Multi-instance: When Redis is available, broadcasts are published to a Redis
+ * pub/sub channel so all instances deliver updates to their local clients.
+ * Without Redis, broadcasts are local-only (single-instance mode).
  */
 import { WebSocketServer, WebSocket } from "ws";
 import type { Server, ServerResponse, IncomingMessage } from "http";
 import { sessionMiddleware, resolveUserOrgId } from "../auth";
 import { logger } from "../services/logger";
+import { publishMessage, getSubscriberClient } from "./redis";
 
 let wss: WebSocketServer | null = null;
 
@@ -24,12 +29,69 @@ const MAX_BUFFERED_AMOUNT = 128 * 1024; // 128 KB
 /** Heartbeat interval — ping every 30 seconds. */
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
-/** Close connection if no pong received within this time after a ping. */
-const PONG_TIMEOUT_MS = 10_000;
+/** Redis pub/sub channel for cross-instance WebSocket broadcasts. */
+const WS_BROADCAST_CHANNEL = "observatory:ws:broadcast";
 
 // Track alive status for heartbeat
 const clientAlive = new WeakMap<WebSocket, boolean>();
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let subscriberInitialized = false;
+
+/**
+ * Send a message directly to local WebSocket clients for an org.
+ * This is the local-only delivery — called both directly and via Redis subscriber.
+ */
+function deliverToLocalClients(orgId: string, message: string) {
+  const clients = orgClients.get(orgId);
+  if (!clients) return;
+  clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      if (client.bufferedAmount > MAX_BUFFERED_AMOUNT) {
+        logger.warn({ orgId, bufferedAmount: client.bufferedAmount }, "Closing slow WebSocket client (backpressure)");
+        cleanupClient(client, orgId);
+        client.terminate();
+        return;
+      }
+      try {
+        client.send(message);
+      } catch (err) {
+        logger.error({ err }, "Failed to send WebSocket message to client");
+      }
+    }
+  });
+}
+
+/**
+ * Initialize Redis subscriber for cross-instance broadcasts.
+ * When any instance publishes a broadcast, all instances receive it and deliver locally.
+ */
+function initRedisSubscriber() {
+  if (subscriberInitialized) return;
+  const subscriber = getSubscriberClient();
+  if (!subscriber) return;
+
+  subscriber.subscribe(WS_BROADCAST_CHANNEL, (err) => {
+    if (err) {
+      logger.error({ err }, "Failed to subscribe to WebSocket broadcast channel");
+      return;
+    }
+    logger.info("WebSocket Redis pub/sub subscriber active (multi-instance broadcasts enabled)");
+  });
+
+  subscriber.on("message", (channel: string, rawMessage: string) => {
+    if (channel !== WS_BROADCAST_CHANNEL) return;
+    try {
+      const { orgId, message } = JSON.parse(rawMessage);
+      if (orgId && message) {
+        deliverToLocalClients(orgId, message);
+      }
+    } catch (err) {
+      logger.error({ err }, "Failed to parse Redis WebSocket broadcast");
+    }
+  });
+
+  subscriberInitialized = true;
+}
 
 export function setupWebSocket(server: Server) {
   wss = new WebSocketServer({ noServer: true });
@@ -76,7 +138,6 @@ export function setupWebSocket(server: Server) {
     if (!wss) return;
     wss.clients.forEach((ws) => {
       if (clientAlive.get(ws) === false) {
-        // Missed last pong — terminate
         const orgId = clientOrgMap.get(ws);
         cleanupClient(ws, orgId);
         ws.terminate();
@@ -90,10 +151,8 @@ export function setupWebSocket(server: Server) {
 
   // HIPAA: Authenticate WebSocket connections using the session cookie
   server.on("upgrade", (req: IncomingMessage, socket, head) => {
-    // Only handle /ws path
     if (req.url !== "/ws") return;
 
-    // Create a minimal response object for the session middleware
     const res = { writeHead() {}, end() {} } as unknown as ServerResponse;
 
     sessionMiddleware(req as any, res as any, async () => {
@@ -106,7 +165,6 @@ export function setupWebSocket(server: Server) {
         return;
       }
 
-      // Resolve orgId from the user's session ID
       const orgId = await resolveUserOrgId(passport.user);
       if (!orgId) {
         socket.write("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n");
@@ -120,6 +178,9 @@ export function setupWebSocket(server: Server) {
       });
     });
   });
+
+  // Initialize Redis pub/sub for multi-instance broadcasting
+  initRedisSubscriber();
 
   logger.info("WebSocket server initialized on /ws (heartbeat: 30s, backpressure: 128KB)");
 }
@@ -137,29 +198,21 @@ function cleanupClient(ws: WebSocket, orgId: string | undefined) {
 /**
  * Broadcast a call processing update to all connected clients in the same organization.
  * orgId is required — updates are always scoped to a single tenant.
+ *
+ * When Redis is available, publishes to pub/sub so all instances deliver.
+ * Otherwise, delivers only to local clients (single-instance mode).
  */
 export function broadcastCallUpdate(callId: string, status: string, extra: Record<string, any> | undefined, orgId: string) {
   if (!wss) return;
   const message = JSON.stringify({ type: "call_update", callId, status, ...extra });
-  // O(m) broadcast: only iterate clients in the target org
-  const clients = orgClients.get(orgId);
-  if (!clients) return;
-  clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
-      // Backpressure: skip slow clients whose send buffer is overloaded
-      if (client.bufferedAmount > MAX_BUFFERED_AMOUNT) {
-        logger.warn({ orgId, bufferedAmount: client.bufferedAmount }, "Closing slow WebSocket client (backpressure)");
-        cleanupClient(client, orgId);
-        client.terminate();
-        return;
-      }
-      try {
-        client.send(message);
-      } catch (err) {
-        logger.error({ err }, "Failed to send WebSocket message to client");
-      }
-    }
-  });
+
+  // Publish via Redis for multi-instance delivery (also triggers local delivery via subscriber)
+  if (subscriberInitialized) {
+    publishMessage(WS_BROADCAST_CHANNEL, JSON.stringify({ orgId, message }));
+  } else {
+    // No Redis — deliver locally only
+    deliverToLocalClients(orgId, message);
+  }
 }
 
 /**
@@ -174,23 +227,12 @@ export function broadcastLiveTranscript(
 ) {
   if (!wss) return;
   const message = JSON.stringify({ type: "live_transcript", sessionId, eventType, ...data });
-  // O(m) broadcast: only iterate clients in the target org
-  const clients = orgClients.get(orgId);
-  if (!clients) return;
-  clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
-      if (client.bufferedAmount > MAX_BUFFERED_AMOUNT) {
-        cleanupClient(client, orgId);
-        client.terminate();
-        return;
-      }
-      try {
-        client.send(message);
-      } catch (err) {
-        logger.error({ err }, "Failed to send live transcript WebSocket message");
-      }
-    }
-  });
+
+  if (subscriberInitialized) {
+    publishMessage(WS_BROADCAST_CHANNEL, JSON.stringify({ orgId, message }));
+  } else {
+    deliverToLocalClients(orgId, message);
+  }
 }
 
 /**
