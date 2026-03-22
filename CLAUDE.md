@@ -58,6 +58,8 @@ npm run build          # Vite frontend + esbuild backend → dist/
 npm run start          # Production server (NODE_ENV=production node dist/index.js)
 npm run check          # TypeScript type check
 npm run test           # Run tests (tsx --test tests/*.test.ts)
+npm run test:e2e       # Run Playwright E2E tests (requires dev server running)
+npm run test:e2e:ui    # Open Playwright interactive UI
 npm run seed           # Seed data (tsx seed.ts)
 npm run workers        # Start BullMQ worker processes (requires REDIS_URL)
 npm run workers:build  # Build workers → dist/workers.js
@@ -69,27 +71,55 @@ npx vite build         # Frontend-only build (quick verification)
 ```
 
 ## Testing
-- **Framework**: Node.js built-in `test` module via `tsx`
-- **Location**: `tests/` directory
-- **Test files**:
+- **Unit tests**: Node.js built-in `test` module via `tsx` — `npm run test`
+- **E2E tests**: Playwright (Chromium) — `npm run test:e2e` or `npm run test:e2e:ui`
+- **Location**: `tests/` (unit), `tests/e2e/` (E2E)
+- **Unit test files** (27 files):
   - `tests/schema.test.ts` — Zod schema validation (orgId on all entities, organization schemas)
   - `tests/ai-provider.test.ts` — AI provider utilities (parseJsonResponse, buildAnalysisPrompt, smartTruncate)
   - `tests/routes.test.ts` — API route handler tests
+  - `tests/auth-routes.test.ts` — Auth route handler tests
   - `tests/multitenant.test.ts` — Cross-org data isolation verification
   - `tests/rbac.test.ts` — Role-based access control
   - `tests/pipeline.test.ts` — Audio processing pipeline
+  - `tests/call-pipeline.test.ts` — Call processing pipeline
   - `tests/user-management.test.ts` — User CRUD, invitations
   - `tests/registration.test.ts` — Self-service org registration
   - `tests/api-keys.test.ts` — API key auth
   - `tests/billing.test.ts` — Stripe subscription & quota enforcement
   - `tests/usage.test.ts` — Usage metering
   - `tests/notifications.test.ts` — Webhook notifications
+  - `tests/webhook.test.ts` — Webhook delivery
+  - `tests/audit-log.test.ts` — HIPAA audit logging
+  - `tests/chunker.test.ts` — Document chunking
+  - `tests/clinical-templates.test.ts` — Clinical note templates
+  - `tests/clinical-validation.test.ts` — Clinical data validation
+  - `tests/clinical-workflow.test.ts` — Clinical documentation workflow
+  - `tests/coaching-engine.test.ts` — Coaching recommendation engine
+  - `tests/ehr.test.ts` — EHR integration adapters
+  - `tests/error-codes.test.ts` — Error code system
+  - `tests/error-handling.test.ts` — Error handling patterns
+  - `tests/phi-encryption.test.ts` — PHI field encryption
+  - `tests/sso.test.ts` — SAML SSO
+  - `tests/validation.test.ts` — Input validation
+- **E2E test files** (11 specs):
+  - `tests/e2e/auth.spec.ts` — Login, landing page
+  - `tests/e2e/navigation.spec.ts` — Navigation flows
+  - `tests/e2e/rbac.spec.ts` — Role-based access
+  - `tests/e2e/dashboard.spec.ts` — Dashboard metrics
+  - `tests/e2e/upload.spec.ts` — File upload
+  - `tests/e2e/coaching.spec.ts` — Coaching sessions
+  - `tests/e2e/search.spec.ts` — Call search
+  - `tests/e2e/clinical.spec.ts` — Clinical notes
+  - `tests/e2e/settings.spec.ts` — User settings
+  - `tests/e2e/admin.spec.ts` — Admin panel
+  - `tests/e2e/api-health.spec.ts` — Health endpoint
 
 ## Architecture
 
 ### Key Directories
 ```
-client/src/pages/            # Route pages (25 pages)
+client/src/pages/            # Route pages (34 pages)
 client/src/components/       # UI components
   ui/                        #   shadcn/ui primitives
   dashboard/                 #   Dashboard cards (metrics-overview, sentiment-analysis, performance-card)
@@ -106,7 +136,7 @@ client/src/components/       # UI components
 
 client/src/lib/              # Client utilities
   display-utils.ts           #   toDisplayString() — safe AI response value rendering
-  error-reporting.ts         #   Centralized error logging (Sentry-ready)
+  error-reporting.ts         #   Sentry client-side integration + HIPAA PHI sanitization
 
 server/
   index.ts                   # App entry: Express setup, middleware, startup sequence
@@ -116,7 +146,7 @@ server/
   types.d.ts                 # Express type augmentations
   logger.ts                  # (Legacy) Logger — prefer server/services/logger.ts
 
-server/routes/               # Modular API route files (24 route files)
+server/routes/               # Modular API route files (36 route files)
   index.ts                   #   Route registration orchestrator
   auth.ts                    #   Login/logout/me
   registration.ts            #   Self-service org + user registration (supports industryType)
@@ -147,12 +177,20 @@ server/routes/               # Modular API route files (24 route files)
   insurance-narratives.ts    #   Insurance narrative drafting: prior auth, appeals, medical necessity
   revenue.ts                 #   Revenue tracking: per-call dollar values, conversion status, metrics
   calibration.ts             #   Calibration sessions: multi-evaluator QA alignment, variance tracking
+  call-insights.ts           #   Call-level insights and trend analysis
+  emails.ts                  #   Email management: templates, send history, email analytics
+  live-session.ts            #   Real-time live call session support (AssemblyAI real-time)
+  lms.ts                     #   Learning Management System: courses, lessons, AI-generated training
+  marketing.ts               #   Marketing attribution: UTM tracking, source/medium, campaign ROI
+  super-admin.ts             #   Platform-level admin (cross-org management, SUPER_ADMIN_USERS)
 
-server/services/             # Business logic & integrations
+server/services/             # Business logic & integrations (30 files)
   ai-factory.ts              #   AI provider setup (Bedrock, per-org model config)
   ai-provider.ts             #   AI analysis interface, prompt building, JSON parsing, clinical note generation
   bedrock.ts                 #   AWS Bedrock Claude provider (raw REST + SigV4)
   assemblyai.ts              #   AssemblyAI transcription + transcript processing
+  assemblyai-realtime.ts     #   AssemblyAI real-time streaming transcription
+  aws-credentials.ts         #   AWS credential resolution (env vars, instance roles, STS)
   s3.ts                      #   S3 client (raw REST + SigV4, no AWS SDK)
   redis.ts                   #   Redis connection, session store, rate limiter, pub/sub
   queue.ts                   #   BullMQ queue definitions (5 queues)
@@ -166,11 +204,21 @@ server/services/             # Business logic & integrations
   rag-worker.ts              #   In-process RAG indexing fallback
   chunker.ts                 #   Document chunking (sliding window, natural breaks, section detection)
   phi-encryption.ts          #   AES-256-GCM field-level encryption for PHI data
-  email.ts                   #   Transactional email (SMTP, AWS SES, console fallback)
+  email.ts                   #   Transactional email (AWS SES API, SMTP, console fallback)
   error-codes.ts             #   Standardized error codes (OBS-{DOMAIN}-{NUMBER})
   coaching-engine.ts         #   Auto-recommendations and AI coaching plan generation
   clinical-templates.ts      #   Pre-built clinical note templates (10+ specialties, multiple formats)
+  clinical-validation.ts     #   Clinical note field validation and completeness scoring
   style-learning.ts          #   Provider style analysis — auto-detect note preferences from history
+  scoring-calibration.ts     #   Cross-evaluator scoring calibration and variance analysis
+  sentry.ts                  #   Sentry server-side error tracking with HIPAA PHI sanitization
+  telemetry.ts               #   OpenTelemetry setup (traces, metrics — enabled via OTEL_ENABLED=true)
+  incident-response.ts       #   Automated incident detection and response workflows
+  proactive-alerts.ts        #   Proactive performance/compliance alerting engine
+
+server/middleware/           # Express middleware
+  waf.ts                     #   Web Application Firewall (request filtering, bot detection)
+  tracing.ts                 #   OpenTelemetry request tracing (trace IDs, span attributes)
 
 server/services/ehr/         # EHR integration adapters
   types.ts                   #   IEhrAdapter interface, EhrPatient, EhrAppointment, EhrClinicalNote, EhrTreatmentPlan
@@ -203,7 +251,8 @@ data/dental/                 # Dental-specific reference data
   default-prompt-templates.json  # 5 dental call categories with evaluation criteria
   dental-terminology-reference.md  # CDT codes, insurance terminology, coverage tiers
 deploy/ec2/                  # EC2 deployment config (Caddy, systemd, bootstrap script)
-tests/                       # Unit tests (Node test runner)
+tests/                       # Unit tests (27 files, Node test runner)
+tests/e2e/                   # Playwright E2E tests (11 spec files)
 ```
 
 ### Frontend Pages
@@ -222,7 +271,6 @@ tests/                       # Unit tests (Node test runner)
 | `performance.tsx` | `/performance` | Performance metrics & trends |
 | `sentiment.tsx` | `/sentiment` | Sentiment analysis views |
 | `search.tsx` | `/search` | Full-text call search |
-| `search-v2.tsx` | `/search-v2` | Enhanced search (v2) |
 | `insights.tsx` | `/insights` | Aggregate insights & trends |
 | `prompt-templates.tsx` | `/prompt-templates` | AI prompt template management |
 | `admin.tsx` | `/admin` | User management, org settings |
@@ -238,6 +286,12 @@ tests/                       # Unit tests (Node test runner)
 | `insurance-narratives.tsx` | `/insurance-narratives` | Insurance letter drafting: prior auth, appeals, medical necessity |
 | `revenue.tsx` | `/revenue` | Revenue tracking: per-call dollar values, conversion metrics |
 | `calibration.tsx` | `/calibration` | QA calibration sessions: multi-evaluator scoring alignment |
+| `learning.tsx` | `/learning` | Learning Management System: courses, lessons, training content |
+| `marketing.tsx` | `/marketing` | Marketing attribution: campaign tracking, source/medium, ROI |
+| `emails.tsx` | `/emails` | Email management: templates, send history, analytics |
+| `clinical-live.tsx` | `/clinical/live` | Live clinical session: real-time transcription + note generation |
+| `audit-logs.tsx` | `/admin/audit-logs` | HIPAA audit log viewer |
+| `not-found.tsx` | `*` | 404 page |
 
 ### Multi-Tenant Data Model
 Every data entity has an `orgId` field. All storage methods take `orgId` as the first parameter. Data isolation is enforced at the storage layer — no method can access data without specifying the org.
