@@ -18,6 +18,7 @@ import { storage } from "../storage";
 import { assemblyAIService } from "./assemblyai";
 import { aiProvider } from "./ai-factory";
 import { broadcastCallUpdate } from "./websocket";
+import { invalidateDashboardCache } from "../routes/dashboard";
 import { notifyFlaggedCall } from "./notifications";
 import { onCallAnalysisComplete } from "./proactive-alerts";
 import { trackUsage } from "./queue";
@@ -454,6 +455,9 @@ export async function processAudioFile(opts: ProcessAudioOptions): Promise<void>
 
     await cleanupFile(filePath);
     broadcastCallUpdate(callId, "completed", { step: 6, totalSteps: 6, label: "Complete" }, orgId);
+
+    // Invalidate dashboard cache so next request picks up new data
+    invalidateDashboardCache(orgId).catch(() => {});
 
     // Non-blocking: notifications, coaching, usage tracking
     await postProcessing(orgId, callId, analysis, aiAnalysis, assignedEmployeeId, originalName, transcriptResponse);

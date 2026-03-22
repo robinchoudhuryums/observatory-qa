@@ -4,7 +4,7 @@ import fs from "fs";
 import { storage, normalizeAnalysis } from "../storage";
 import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { logPhiAccess, auditContext } from "../services/audit-log";
-import { upload, safeFloat, validateUUIDParam } from "./helpers";
+import { upload, safeFloat, validateUUIDParam, acquireUploadSlot, releaseUploadSlot } from "./helpers";
 import { enforceQuota, requireActiveSubscription } from "./billing";
 import { logger } from "../services/logger";
 import { CALL_CATEGORIES } from "@shared/schema";
@@ -83,8 +83,15 @@ export function registerCallRoutes(app: Express): void {
   });
 
   app.post("/api/calls/upload", requireAuth, injectOrgContext, requireActiveSubscription(), enforceQuota("transcription"), upload.single('audioFile'), async (req, res) => {
+    const orgId = req.orgId!;
+    if (!acquireUploadSlot(orgId)) {
+      if (req.file) await cleanupFile(req.file.path);
+      res.status(429).json({ message: "Too many concurrent uploads. Please wait and try again." });
+      return;
+    }
     try {
       if (!req.file) {
+        releaseUploadSlot(orgId);
         res.status(400).json({ message: "No audio file provided" });
         return;
       }
@@ -128,7 +135,6 @@ export function registerCallRoutes(app: Express): void {
       });
       const originalName = req.file.originalname;
       const mimeType = req.file.mimetype || "audio/mpeg";
-      const orgId = req.orgId!;
       const uploadUserId = req.user?.id;
       processAudioFile({ orgId, callId: call.id, filePath: req.file.path, audioBuffer, originalName, mimeType, callCategory, userId: uploadUserId, clinicalSpecialty, noteFormat })
         .catch(async (error) => {
@@ -140,8 +146,10 @@ export function registerCallRoutes(app: Express): void {
           }
         });
 
+      releaseUploadSlot(orgId);
       res.status(201).json(call);
     } catch (error) {
+      releaseUploadSlot(orgId);
       logger.error({ err: error }, "Error during file upload");
       if (req.file?.path) await cleanupFile(req.file.path);
       res.status(500).json(errorResponse(ERROR_CODES.CALL_UPLOAD_FAILED, "Failed to upload call"));

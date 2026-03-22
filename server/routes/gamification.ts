@@ -20,8 +20,9 @@ const POINT_VALUES = {
  */
 export async function checkAndAwardBadges(orgId: string, employeeId: string): Promise<void> {
   try {
-    const calls = await storage.getAllCalls(orgId);
-    const employeeCalls = calls.filter(c => c.employeeId === employeeId && c.status === "completed");
+    // Use getCallSummaries which includes analysis data, avoiding N+1 queries
+    const allCalls = await storage.getCallSummaries(orgId, { status: "completed" });
+    const employeeCalls = allCalls.filter(c => c.employeeId === employeeId);
     const existingBadges = await storage.getEmployeeBadges(orgId, employeeId);
     const hasBadge = (id: string) => existingBadges.some(b => b.badgeId === id);
 
@@ -38,12 +39,11 @@ export async function checkAndAwardBadges(orgId: string, employeeId: string): Pr
       await storage.awardBadge(orgId, { orgId, employeeId, badgeId: "hundred_calls", awardedAt: now });
     }
 
-    // Performance badges — need analysis data
-    const analyses = [];
-    for (const call of employeeCalls.slice(-20)) { // Check last 20 calls
-      const analysis = await storage.getCallAnalysis(orgId, call.id);
-      if (analysis) analyses.push({ callId: call.id, score: parseFloat(String(analysis.performanceScore || "0")) });
-    }
+    // Performance badges — analysis data is already in call summaries
+    const recentCalls = employeeCalls.slice(-20);
+    const analyses = recentCalls
+      .filter(c => c.analysis)
+      .map(c => ({ callId: c.id, score: parseFloat(String(c.analysis?.performanceScore || "0")) }));
 
     const highScoreCalls = analyses.filter(a => a.score >= 9.0);
     if (highScoreCalls.length >= 5 && !hasBadge("high_performer")) {
@@ -119,9 +119,14 @@ export function registerGamificationRoutes(app: Express) {
       const limit = parseInt(req.query.limit as string) || 20;
       const leaderboardData = await storage.getLeaderboard(orgId, limit);
 
-      // Enrich with employee names and avg performance scores
-      const employees = await storage.getAllEmployees(orgId);
-      const employeeMap = new Map(employees.map(e => [e.id, e]));
+      // Only fetch employees that appear in the leaderboard (not all org employees)
+      const neededIds = leaderboardData.map(e => e.employeeId);
+      const employeeResults = await Promise.all(
+        neededIds.map(id => storage.getEmployee(orgId, id))
+      );
+      const employeeMap = new Map(
+        employeeResults.filter(Boolean).map(e => [e!.id, e!])
+      );
 
       const leaderboard = leaderboardData.map((entry, idx) => {
         const employee = employeeMap.get(entry.employeeId);

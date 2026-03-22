@@ -3,6 +3,7 @@ import { createHash, randomBytes } from "crypto";
 import { storage } from "../storage";
 import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { logger } from "../services/logger";
+import { parsePagination, paginateArray } from "./helpers";
 
 /** Hash an API key using SHA-256 */
 function hashApiKey(key: string): string {
@@ -84,12 +85,13 @@ export const apiKeyAuth: RequestHandler = async (req, res, next) => {
 };
 
 export function registerApiKeyRoutes(app: Express): void {
-  // List API keys for current org (admin only)
+  // List API keys for current org (admin only, paginated)
   app.get("/api/api-keys", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
     try {
+      const { limit, offset } = parsePagination(req.query);
       const keys = await storage.listApiKeys(req.orgId!);
       // Never return the hash — only metadata
-      res.json(keys.map(k => ({
+      const sanitized = keys.map(k => ({
         id: k.id,
         name: k.name,
         keyPrefix: k.keyPrefix,
@@ -99,7 +101,8 @@ export function registerApiKeyRoutes(app: Express): void {
         expiresAt: k.expiresAt,
         lastUsedAt: k.lastUsedAt,
         createdAt: k.createdAt,
-      })));
+      }));
+      res.json(paginateArray(sanitized, limit, offset));
     } catch (error) {
       res.status(500).json({ message: "Failed to list API keys" });
     }

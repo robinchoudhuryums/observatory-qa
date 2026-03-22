@@ -507,6 +507,37 @@ export const injectOrgContext: RequestHandler = (req: Request, res: Response, ne
 };
 
 /**
+ * Per-request org settings cache.
+ * Avoids repeated getOrganization() DB hits within the same request lifecycle.
+ * Uses a simple LRU approach with TTL for cross-request caching.
+ */
+const orgCache = new Map<string, { org: any; expiresAt: number }>();
+const ORG_CACHE_TTL_MS = 30_000; // 30 seconds
+const ORG_CACHE_MAX_SIZE = 200;
+
+export async function getCachedOrganization(orgId: string): Promise<any | undefined> {
+  const cached = orgCache.get(orgId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.org;
+  }
+  const org = await storage.getOrganization(orgId);
+  if (org) {
+    // Evict oldest entries if at capacity
+    if (orgCache.size >= ORG_CACHE_MAX_SIZE) {
+      const firstKey = orgCache.keys().next().value;
+      if (firstKey) orgCache.delete(firstKey);
+    }
+    orgCache.set(orgId, { org, expiresAt: Date.now() + ORG_CACHE_TTL_MS });
+  }
+  return org;
+}
+
+/** Invalidate org cache entry (call after org settings are updated). */
+export function invalidateOrgCache(orgId: string): void {
+  orgCache.delete(orgId);
+}
+
+/**
  * Check if the current request user is a super admin.
  */
 export function isSuperAdmin(req: Request): boolean {

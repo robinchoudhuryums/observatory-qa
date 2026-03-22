@@ -66,6 +66,10 @@ import { type IStorage, applyCallFilters } from "./types";
  * In-memory storage fallback for when cloud credentials are not configured.
  * Data lives only for the lifetime of the process.
  */
+/** Maximum items to keep in unbounded in-memory collections. */
+const MEM_USAGE_EVENTS_MAX = 10_000;
+const MEM_CLEANUP_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+
 export class MemStorage implements IStorage {
   private organizations = new Map<string, Organization>();
   private employees = new Map<string, Employee>();
@@ -77,6 +81,27 @@ export class MemStorage implements IStorage {
   private accessRequests = new Map<string, AccessRequest>();
   private promptTemplates = new Map<string, PromptTemplate>();
   private coachingSessions = new Map<string, CoachingSession>();
+  private cleanupTimer: ReturnType<typeof setInterval>;
+
+  constructor() {
+    // Periodic cleanup of stale/expired data to prevent unbounded memory growth
+    this.cleanupTimer = setInterval(() => this.cleanup(), MEM_CLEANUP_INTERVAL_MS);
+    this.cleanupTimer.unref(); // Don't block process exit
+  }
+
+  private cleanup(): void {
+    const now = Date.now();
+    // Purge expired invitations (older than 30 days regardless of status)
+    const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+    Array.from(this.invitations.entries()).forEach(([id, inv]) => {
+      const created = inv.createdAt ? new Date(inv.createdAt).getTime() : 0;
+      if (created < thirtyDaysAgo) this.invitations.delete(id);
+    });
+    // Cap usage events to prevent unbounded growth
+    if (this.usageEvents.length > MEM_USAGE_EVENTS_MAX) {
+      this.usageEvents = this.usageEvents.slice(-MEM_USAGE_EVENTS_MAX);
+    }
+  }
 
   // --- Organization operations ---
   async getOrganization(orgId: string): Promise<Organization | undefined> {

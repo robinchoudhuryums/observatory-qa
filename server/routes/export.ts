@@ -24,6 +24,9 @@ function toCsvRow(fields: unknown[]): string {
   return fields.map(escapeCsvField).join(",");
 }
 
+/** Maximum rows for CSV exports to prevent memory exhaustion. */
+const MAX_EXPORT_ROWS = 50_000;
+
 export function registerExportRoutes(app: Express): void {
 
   /**
@@ -33,7 +36,8 @@ export function registerExportRoutes(app: Express): void {
   app.get("/api/export/performance", requireAuth, requireRole("manager"), injectOrgContext, async (req, res) => {
     try {
       const employees = await storage.getAllEmployees(req.orgId!);
-      const calls = await storage.getCallSummaries(req.orgId!, {});
+      const rawCalls = await storage.getCallSummaries(req.orgId!, {});
+      const calls = rawCalls.slice(-MAX_EXPORT_ROWS);
 
       // Build per-employee performance stats
       const empStats = new Map<string, { name: string; role: string; totalCalls: number; totalScore: number; scoredCalls: number }>();

@@ -5,6 +5,9 @@ import { safeFloat } from "./helpers";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 
+/** Maximum calls to process for analytics to prevent memory exhaustion. */
+const MAX_ANALYTICS_CALLS = 10_000;
+
 export function registerInsightRoutes(app: Express): void {
 
   // ==================== COMPANY INSIGHTS API ====================
@@ -12,7 +15,9 @@ export function registerInsightRoutes(app: Express): void {
   app.get("/api/insights", requireAuth, injectOrgContext, async (req, res) => {
     try {
       const allCalls = await storage.getCallSummaries(req.orgId!);
-      const completed = allCalls.filter(c => c.status === "completed" && c.analysis);
+      const completed = allCalls
+        .filter(c => c.status === "completed" && c.analysis)
+        .slice(-MAX_ANALYTICS_CALLS); // Limit to most recent N calls for analytics
 
       // Aggregate topic frequency across all calls
       const topicCounts = new Map<string, number>();
@@ -140,10 +145,12 @@ export function registerInsightRoutes(app: Express): void {
    */
   app.get("/api/insights/team", requireAuth, injectOrgContext, async (req, res) => {
     try {
-      const [calls, employees] = await Promise.all([
+      const [allCalls, employees] = await Promise.all([
         storage.getCallSummaries(req.orgId!, { status: "completed" }),
         storage.getAllEmployees(req.orgId!),
       ]);
+      // Limit to most recent N calls for analytics
+      const calls = allCalls.slice(-MAX_ANALYTICS_CALLS);
 
       const empMap = new Map(employees.map(e => [e.id, e]));
 

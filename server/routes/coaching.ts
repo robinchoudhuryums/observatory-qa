@@ -9,6 +9,7 @@ import { sendDigestNotification } from "../services/notifications";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
+import { parsePagination, paginateArray } from "./helpers";
 
 export function registerCoachingRoutes(app: Express): void {
   // ==================== COACHING ROUTES ====================
@@ -16,11 +17,15 @@ export function registerCoachingRoutes(app: Express): void {
   // List all coaching sessions (managers and admins)
   app.get("/api/coaching", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
     try {
+      const { limit, offset } = parsePagination(req.query);
       const sessions = await storage.getAllCoachingSessions(req.orgId!);
-      // Enrich with employee names
-      const enriched = await Promise.all(sessions.map(async s => {
-        const emp = await storage.getEmployee(req.orgId!, s.employeeId);
-        return { ...s, employeeName: emp?.name || "Unknown" };
+      // Batch-load employee names instead of N+1
+      const empIds = Array.from(new Set(sessions.map(s => s.employeeId).filter(Boolean)));
+      const employees = await storage.getAllEmployees(req.orgId!);
+      const empMap = new Map(employees.map(e => [e.id, e.name]));
+      const enriched = sessions.map(s => ({
+        ...s,
+        employeeName: empMap.get(s.employeeId) || "Unknown",
       }));
       logPhiAccess({
         ...auditContext(req),
@@ -28,7 +33,8 @@ export function registerCoachingRoutes(app: Express): void {
         resourceType: "coaching",
         detail: `Listed ${enriched.length} coaching sessions`,
       });
-      res.json(enriched.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()));
+      const sorted = enriched.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      res.json(paginateArray(sorted, limit, offset));
     } catch (error) {
       logger.error({ err: error }, "Failed to fetch coaching sessions");
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to fetch coaching sessions"));

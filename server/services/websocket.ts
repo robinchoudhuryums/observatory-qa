@@ -10,8 +10,13 @@ import { logger } from "../services/logger";
 
 let wss: WebSocketServer | null = null;
 
-// Map each WebSocket to its orgId for org-scoped broadcasting
+// Per-org client sets for O(m) broadcast where m = org clients, not total clients
+const orgClients = new Map<string, Set<WebSocket>>();
+// Reverse map for cleanup on disconnect
 const clientOrgMap = new WeakMap<WebSocket, string>();
+
+/** Maximum WebSocket connections per org to prevent resource exhaustion. */
+const MAX_CONNECTIONS_PER_ORG = 500;
 
 export function setupWebSocket(server: Server) {
   wss = new WebSocketServer({ noServer: true });
@@ -24,12 +29,27 @@ export function setupWebSocket(server: Server) {
     // orgId was attached during upgrade handler
     const orgId = (req as any).__orgId;
     if (orgId) {
+      // Enforce per-org connection limit
+      const orgSet = orgClients.get(orgId) || new Set();
+      if (orgSet.size >= MAX_CONNECTIONS_PER_ORG) {
+        ws.close(1013, "Too many connections for organization");
+        return;
+      }
+      orgSet.add(ws);
+      orgClients.set(orgId, orgSet);
       clientOrgMap.set(ws, orgId);
     }
     ws.send(JSON.stringify({ type: "connected" }));
 
     ws.on("close", () => {
-      /* cleanup is handled by WeakMap */
+      // Remove from per-org set on disconnect
+      if (orgId) {
+        const orgSet = orgClients.get(orgId);
+        if (orgSet) {
+          orgSet.delete(ws);
+          if (orgSet.size === 0) orgClients.delete(orgId);
+        }
+      }
     });
   });
 
@@ -76,10 +96,11 @@ export function setupWebSocket(server: Server) {
 export function broadcastCallUpdate(callId: string, status: string, extra: Record<string, any> | undefined, orgId: string) {
   if (!wss) return;
   const message = JSON.stringify({ type: "call_update", callId, status, ...extra });
-  wss.clients.forEach((client) => {
+  // O(m) broadcast: only iterate clients in the target org
+  const clients = orgClients.get(orgId);
+  if (!clients) return;
+  clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
-      const clientOrg = clientOrgMap.get(client);
-      if (clientOrg && clientOrg !== orgId) return;
       try {
         client.send(message);
       } catch (err) {
@@ -101,10 +122,11 @@ export function broadcastLiveTranscript(
 ) {
   if (!wss) return;
   const message = JSON.stringify({ type: "live_transcript", sessionId, eventType, ...data });
-  wss.clients.forEach((client) => {
+  // O(m) broadcast: only iterate clients in the target org
+  const clients = orgClients.get(orgId);
+  if (!clients) return;
+  clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
-      const clientOrg = clientOrgMap.get(client);
-      if (clientOrg && clientOrg !== orgId) return;
       try {
         client.send(message);
       } catch (err) {

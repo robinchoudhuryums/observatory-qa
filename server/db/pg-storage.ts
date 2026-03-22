@@ -59,6 +59,29 @@ function toISOString(date: Date | null | undefined): string | undefined {
   return date ? date.toISOString() : undefined;
 }
 
+/**
+ * Execute an inArray query in chunks to avoid exceeding PostgreSQL's parameter limit.
+ * When arrays exceed ~5000 elements, some drivers hit issues with parameter binding.
+ */
+const IN_ARRAY_CHUNK_SIZE = 3000;
+
+async function chunkedInArray<T>(
+  db: Database,
+  queryFn: (chunk: string[]) => Promise<T[]>,
+  ids: string[],
+): Promise<T[]> {
+  if (ids.length <= IN_ARRAY_CHUNK_SIZE) {
+    return queryFn(ids);
+  }
+  const results: T[] = [];
+  for (let i = 0; i < ids.length; i += IN_ARRAY_CHUNK_SIZE) {
+    const chunk = ids.slice(i, i + IN_ARRAY_CHUNK_SIZE);
+    const chunkResults = await queryFn(chunk);
+    results.push(...chunkResults);
+  }
+  return results;
+}
+
 export class PostgresStorage implements IStorage {
   private db: Database;
   private blobClient: ObjectStorageClient | null;
@@ -370,14 +393,22 @@ export class PostgresStorage implements IStorage {
     // Collect unique employee IDs to fetch only needed employees
     const empIdsNeeded = Array.from(new Set(callRows.map((c) => c.employeeId).filter(Boolean))) as string[];
 
-    // Batch-load related data scoped to matched call IDs (not entire org)
+    // Batch-load related data scoped to matched call IDs (chunked to avoid parameter limits)
     const [empRows, txRows, sentRows, analysisRows] = await Promise.all([
       empIdsNeeded.length > 0
-        ? this.db.select().from(tables.employees).where(inArray(tables.employees.id, empIdsNeeded))
+        ? chunkedInArray(this.db, (ids) =>
+            this.db.select().from(tables.employees).where(inArray(tables.employees.id, ids)),
+          empIdsNeeded)
         : Promise.resolve([]),
-      this.db.select().from(tables.transcripts).where(inArray(tables.transcripts.callId, callIds)),
-      this.db.select().from(tables.sentimentAnalyses).where(inArray(tables.sentimentAnalyses.callId, callIds)),
-      this.db.select().from(tables.callAnalyses).where(inArray(tables.callAnalyses.callId, callIds)),
+      chunkedInArray(this.db, (ids) =>
+        this.db.select().from(tables.transcripts).where(inArray(tables.transcripts.callId, ids)),
+      callIds),
+      chunkedInArray(this.db, (ids) =>
+        this.db.select().from(tables.sentimentAnalyses).where(inArray(tables.sentimentAnalyses.callId, ids)),
+      callIds),
+      chunkedInArray(this.db, (ids) =>
+        this.db.select().from(tables.callAnalyses).where(inArray(tables.callAnalyses.callId, ids)),
+      callIds),
     ]);
 
     const empMap = new Map(empRows.map((e) => [e.id, this.mapEmployee(e)]));

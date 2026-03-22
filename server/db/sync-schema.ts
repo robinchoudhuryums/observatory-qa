@@ -119,6 +119,10 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS calls_employee_id_idx ON calls (employee_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS calls_uploaded_at_idx ON calls (uploaded_at)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS calls_org_file_hash_idx ON calls (org_id, file_hash)`);
+    // Composite index for time-scoped filtered reports (org + status + date)
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS calls_org_status_uploaded_idx ON calls (org_id, status, uploaded_at DESC)`);
+    // Composite index for employee + status queries (coaching, gamification)
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS calls_org_employee_status_idx ON calls (org_id, employee_id, status)`);
 
     // Multi-channel support columns
     await addColumnIfNotExists(db, "calls", "channel", "VARCHAR(20) NOT NULL DEFAULT 'voice'");
@@ -165,6 +169,8 @@ export async function syncSchema(db: Database): Promise<void> {
     `);
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS sentiments_call_id_idx ON sentiment_analyses (call_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS sentiments_org_id_idx ON sentiment_analyses (org_id)`);
+    // Index for sentiment filtering in insights/reports
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS sentiments_org_sentiment_idx ON sentiment_analyses (org_id, overall_sentiment)`);
 
     // --- Call Analyses ---
     await db.execute(sql`

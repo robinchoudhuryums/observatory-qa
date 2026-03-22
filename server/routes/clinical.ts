@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { requireAuth, requireRole, injectOrgContext } from "../auth";
+import { requireAuth, requireRole, injectOrgContext, getCachedOrganization, invalidateOrgCache } from "../auth";
 import { storage } from "../storage";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
@@ -271,7 +271,7 @@ export function registerClinicalRoutes(app: Express): void {
   // Get/update provider style preferences for clinical note generation
   app.get("/api/clinical/provider-preferences", requireAuth, injectOrgContext, requireClinicalPlan(), async (req, res) => {
     try {
-      const org = await storage.getOrganization(req.orgId!);
+      const org = await getCachedOrganization(req.orgId!);
       const userId = req.user?.id || "unknown";
       const prefs = org?.settings?.providerStylePreferences?.[userId] || {};
       res.json(prefs);
@@ -283,7 +283,7 @@ export function registerClinicalRoutes(app: Express): void {
 
   app.patch("/api/clinical/provider-preferences", requireAuth, injectOrgContext, requireClinicalPlan(), async (req, res) => {
     try {
-      const org = await storage.getOrganization(req.orgId!);
+      const org = await getCachedOrganization(req.orgId!);
       if (!org) {
         res.status(404).json({ message: "Organization not found" });
         return;
@@ -310,6 +310,7 @@ export function registerClinicalRoutes(app: Express): void {
       await storage.updateOrganization(req.orgId!, {
         settings: { ...settings, providerStylePreferences: allPrefs } as OrgSettings,
       });
+      invalidateOrgCache(req.orgId!);
 
       logPhiAccess({
         ...auditContext(req),
@@ -516,7 +517,7 @@ export function registerClinicalRoutes(app: Express): void {
         return;
       }
 
-      const org = await storage.getOrganization(req.orgId!);
+      const org = await getCachedOrganization(req.orgId!);
       if (!org) {
         res.status(404).json({ message: "Organization not found" });
         return;
@@ -530,6 +531,7 @@ export function registerClinicalRoutes(app: Express): void {
       await storage.updateOrganization(req.orgId!, {
         settings: { ...settings, providerStylePreferences: allPrefs } as OrgSettings,
       });
+      invalidateOrgCache(req.orgId!);
 
       logPhiAccess({
         ...auditContext(req),

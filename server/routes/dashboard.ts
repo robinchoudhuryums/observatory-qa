@@ -5,7 +5,7 @@ import { safeInt } from "./helpers";
 import { getRedis } from "../services/redis";
 import { logger } from "../services/logger";
 
-const DASHBOARD_CACHE_TTL = 60; // 60 seconds
+const DASHBOARD_CACHE_TTL = 300; // 5 minutes — dashboard data changes infrequently
 
 /** Cache-through helper: returns cached JSON if available, otherwise calls fn and caches result */
 async function withCache<T>(key: string, ttlSeconds: number, fn: () => Promise<T>): Promise<T> {
@@ -26,6 +26,22 @@ async function withCache<T>(key: string, ttlSeconds: number, fn: () => Promise<T
   }
 
   return result;
+}
+
+/** Invalidate all dashboard caches for an org (call after a call completes or is deleted). */
+export async function invalidateDashboardCache(orgId: string): Promise<void> {
+  const redis = getRedis();
+  if (!redis) return;
+  try {
+    const keys = [
+      `dashboard:metrics:${orgId}`,
+      `dashboard:sentiment:${orgId}`,
+    ];
+    // Also invalidate performers cache (keyed with limit suffix)
+    const performerKeys = await redis.keys(`dashboard:performers:${orgId}:*`);
+    keys.push(...performerKeys);
+    if (keys.length > 0) await redis.del(...keys);
+  } catch { /* Redis unavailable — skip */ }
 }
 
 export function registerDashboardRoutes(app: Express): void {

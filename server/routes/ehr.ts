@@ -9,7 +9,7 @@
  */
 
 import type { Express } from "express";
-import { requireAuth, requireRole, injectOrgContext } from "../auth";
+import { requireAuth, requireRole, injectOrgContext, getCachedOrganization, invalidateOrgCache } from "../auth";
 import { storage } from "../storage";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
@@ -54,7 +54,7 @@ export function registerEhrRoutes(app: Express): void {
   // Get current EHR configuration (redacts sensitive fields)
   app.get("/api/ehr/config", requireAuth, injectOrgContext, async (req, res) => {
     try {
-      const org = await storage.getOrganization(req.orgId!);
+      const org = await getCachedOrganization(req.orgId!);
       const ehrConfig = (org?.settings as any)?.ehrConfig;
 
       if (!ehrConfig) {
@@ -100,7 +100,7 @@ export function registerEhrRoutes(app: Express): void {
         return;
       }
 
-      const org = await storage.getOrganization(req.orgId!);
+      const org = await getCachedOrganization(req.orgId!);
       if (!org) {
         res.status(404).json({ message: "Organization not found" });
         return;
@@ -118,6 +118,7 @@ export function registerEhrRoutes(app: Express): void {
       await storage.updateOrganization(req.orgId!, {
         settings: { ...org.settings, ehrConfig } as any,
       });
+      invalidateOrgCache(req.orgId!);
 
       logPhiAccess({
         ...auditContext(req),
@@ -138,7 +139,7 @@ export function registerEhrRoutes(app: Express): void {
   // Test EHR connection
   app.post("/api/ehr/test-connection", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
     try {
-      const org = await storage.getOrganization(req.orgId!);
+      const org = await getCachedOrganization(req.orgId!);
       const ehrConfig = (org?.settings as any)?.ehrConfig as EhrConnectionConfig | undefined;
 
       if (!ehrConfig) {
@@ -163,7 +164,7 @@ export function registerEhrRoutes(app: Express): void {
   // Search patients in EHR
   app.get("/api/ehr/patients", requireAuth, injectOrgContext, async (req, res) => {
     try {
-      const org = await storage.getOrganization(req.orgId!);
+      const org = await getCachedOrganization(req.orgId!);
       const ehrConfig = (org?.settings as any)?.ehrConfig as EhrConnectionConfig | undefined;
 
       if (!ehrConfig?.enabled) {
@@ -206,7 +207,7 @@ export function registerEhrRoutes(app: Express): void {
   // Get specific patient from EHR
   app.get("/api/ehr/patients/:ehrPatientId", requireAuth, injectOrgContext, async (req, res) => {
     try {
-      const org = await storage.getOrganization(req.orgId!);
+      const org = await getCachedOrganization(req.orgId!);
       const ehrConfig = (org?.settings as any)?.ehrConfig as EhrConnectionConfig | undefined;
 
       if (!ehrConfig?.enabled) {
@@ -243,7 +244,7 @@ export function registerEhrRoutes(app: Express): void {
   // Get today's appointments from EHR
   app.get("/api/ehr/appointments/today", requireAuth, injectOrgContext, async (req, res) => {
     try {
-      const org = await storage.getOrganization(req.orgId!);
+      const org = await getCachedOrganization(req.orgId!);
       const ehrConfig = (org?.settings as any)?.ehrConfig as EhrConnectionConfig | undefined;
 
       if (!ehrConfig?.enabled) {
@@ -275,7 +276,7 @@ export function registerEhrRoutes(app: Express): void {
   // Get appointments for a date range from EHR
   app.get("/api/ehr/appointments", requireAuth, injectOrgContext, async (req, res) => {
     try {
-      const org = await storage.getOrganization(req.orgId!);
+      const org = await getCachedOrganization(req.orgId!);
       const ehrConfig = (org?.settings as any)?.ehrConfig as EhrConnectionConfig | undefined;
 
       if (!ehrConfig?.enabled) {
@@ -316,7 +317,7 @@ export function registerEhrRoutes(app: Express): void {
   // Push clinical note to EHR
   app.post("/api/ehr/push-note/:callId", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
     try {
-      const org = await storage.getOrganization(req.orgId!);
+      const org = await getCachedOrganization(req.orgId!);
       const ehrConfig = (org?.settings as any)?.ehrConfig as EhrConnectionConfig | undefined;
 
       if (!ehrConfig?.enabled) {
@@ -398,7 +399,7 @@ export function registerEhrRoutes(app: Express): void {
   // Get patient treatment plans from EHR
   app.get("/api/ehr/patients/:ehrPatientId/treatment-plans", requireAuth, injectOrgContext, async (req, res) => {
     try {
-      const org = await storage.getOrganization(req.orgId!);
+      const org = await getCachedOrganization(req.orgId!);
       const ehrConfig = (org?.settings as any)?.ehrConfig as EhrConnectionConfig | undefined;
 
       if (!ehrConfig?.enabled) {
@@ -431,7 +432,7 @@ export function registerEhrRoutes(app: Express): void {
   // Disable EHR integration
   app.delete("/api/ehr/config", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
     try {
-      const org = await storage.getOrganization(req.orgId!);
+      const org = await getCachedOrganization(req.orgId!);
       if (!org) {
         res.status(404).json({ message: "Organization not found" });
         return;
@@ -443,6 +444,7 @@ export function registerEhrRoutes(app: Express): void {
       }
 
       await storage.updateOrganization(req.orgId!, { settings });
+      invalidateOrgCache(req.orgId!);
 
       logPhiAccess({
         ...auditContext(req),

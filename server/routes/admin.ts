@@ -12,6 +12,7 @@ import { enqueueReanalysis } from "../services/queue";
 import { getWafStats, blockIp, unblockIp } from "../middleware/waf";
 import { requirePlanFeature, enforceUserQuota } from "./billing";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
+import { parsePagination, paginateArray } from "./helpers";
 import {
   declareIncident, advanceIncidentPhase, addTimelineEntry, addActionItem,
   updateActionItem, updateIncident, getIncident, listIncidents,
@@ -23,8 +24,9 @@ export function registerAdminRoutes(app: Express): void {
 
   app.get("/api/prompt-templates", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
     try {
+      const { limit, offset } = parsePagination(req.query);
       const templates = await storage.getAllPromptTemplates(req.orgId!);
-      res.json(templates);
+      res.json(paginateArray(templates, limit, offset));
     } catch (error) {
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to fetch prompt templates"));
     }
@@ -187,19 +189,21 @@ export function registerAdminRoutes(app: Express): void {
   // USER MANAGEMENT (database-backed, admin only)
   // ============================================================
 
-  // List all users in the current organization
+  // List all users in the current organization (paginated)
   app.get("/api/users", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
     try {
+      const { limit, offset } = parsePagination(req.query);
       const users = await storage.listUsersByOrg(req.orgId!);
       // Return users without password hashes
-      res.json(users.map(u => ({
+      const sanitized = users.map(u => ({
         id: u.id,
         username: u.username,
         name: u.name,
         role: u.role,
         orgId: u.orgId,
         createdAt: u.createdAt,
-      })));
+      }));
+      res.json(paginateArray(sanitized, limit, offset));
     } catch (error) {
       logger.error({ err: error }, "Failed to list users");
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to list users"));

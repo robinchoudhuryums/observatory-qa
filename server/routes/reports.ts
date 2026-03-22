@@ -7,6 +7,9 @@ import { safeFloat } from "./helpers";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 
+/** Maximum calls to process for report generation to prevent memory exhaustion. */
+const MAX_REPORT_CALLS = 10_000;
+
 function safeJsonParse<T>(val: unknown, fallback: T): T {
   if (typeof val !== 'string') return (val as T) ?? fallback;
   try { return JSON.parse(val); } catch { return fallback; }
@@ -84,7 +87,8 @@ export function registerReportRoutes(app: Express): void {
         return;
       }
 
-      const allCalls = await storage.getCallSummaries(req.orgId!, { status: "completed" });
+      const rawCalls = await storage.getCallSummaries(req.orgId!, { status: "completed" });
+      const allCalls = rawCalls.slice(-MAX_REPORT_CALLS);
       const employees = await storage.getAllEmployees(req.orgId!);
 
       // Build employee lookup maps
