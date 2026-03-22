@@ -184,6 +184,7 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                     onChange={(e) => setUsername(e.target.value)}
                     required
                     autoComplete="username"
+                    data-testid="login-username"
                   />
                 </div>
                 <div>
@@ -198,9 +199,10 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     autoComplete="current-password"
+                    data-testid="login-password"
                   />
                 </div>
-                <Button type="submit" className="w-full" disabled={isLoading}>
+                <Button type="submit" className="w-full" disabled={isLoading} data-testid="login-submit">
                   {isLoading ? (
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   ) : (

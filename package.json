@@ -16,6 +16,7 @@
     "db:studio": "drizzle-kit studio",
     "workers": "tsx server/workers/index.ts",
     "workers:build": "esbuild server/workers/index.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/workers.js",
+    "test:coverage": "c8 --reporter=text --reporter=lcov --src=server --src=shared tsx --test tests/*.test.ts",
     "test:e2e": "npx playwright test --config tests/e2e/playwright.config.ts",
     "test:e2e:ui": "npx playwright test --config tests/e2e/playwright.config.ts --ui"
   },

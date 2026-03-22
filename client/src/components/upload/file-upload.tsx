@@ -173,10 +173,10 @@ export default function FileUpload() {
         Upload Call Recordings
         <HelpTip text="Upload audio files to automatically transcribe, analyze sentiment, score performance, and generate coaching insights. Processing takes 1-3 minutes per call." />
       </h3>
-      <div {...getRootProps()} className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+      <div {...getRootProps()} data-testid="file-upload-dropzone" className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
         isDragActive ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
       }`}>
-        <input {...getInputProps()} />
+        <input {...getInputProps()} data-testid="file-input" />
         <CloudUpload className={`mx-auto h-12 w-12 ${isDragActive ? "text-primary" : "text-muted-foreground"}`} />
         <p className="mt-2 text-sm text-muted-foreground">
           {isDragActive ? "Drop files here..." : "Drag & drop files here, or click to select files"}
@@ -200,7 +200,7 @@ export default function FileUpload() {
                 </span>
               )}
               {uploadFiles.some(f => f.status === 'pending') && (
-                <Button type="button" onClick={uploadAll} disabled={uploadMutation.isPending}>
+                <Button type="button" onClick={uploadAll} disabled={uploadMutation.isPending} data-testid="upload-all-button">
                   Upload All ({uploadFiles.filter(f => f.status === 'pending').length})
                 </Button>
               )}

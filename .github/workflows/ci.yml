@@ -20,6 +20,19 @@ jobs:
       - run: npm run check
       - run: npm test
 
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Audit for high/critical vulnerabilities
+        run: npm audit --audit-level=high
+
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -36,3 +49,24 @@ jobs:
         run: |
           test -f dist/index.js
           test -d dist/public
+
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - name: Run E2E tests
+        run: npm run test:e2e
+        env:
+          CI: true
+          SESSION_SECRET: e2e-test-secret
+          ASSEMBLYAI_API_KEY: test-key
+          AUTH_USERS: "admin:admin123:admin:Test Admin:default,viewer:viewer123:viewer:Test Viewer:default"
