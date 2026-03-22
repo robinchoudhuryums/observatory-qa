@@ -25,13 +25,13 @@ export function registerSuperAdminRoutes(app: Express): void {
       let activeSubscriptions = 0;
 
       for (const org of orgs) {
-        const [users, calls, subscription] = await Promise.all([
-          storage.listUsersByOrg(org.id),
-          storage.getAllCalls(org.id),
+        const [userCount, callCount, subscription] = await Promise.all([
+          storage.countUsersByOrg(org.id),
+          storage.countCallsByOrg(org.id),
           storage.getSubscription(org.id),
         ]);
-        totalUsers += users.length;
-        totalCalls += calls.length;
+        totalUsers += userCount;
+        totalCalls += callCount;
         if (subscription && subscription.status === "active") {
           activeSubscriptions++;
         }
@@ -68,9 +68,9 @@ export function registerSuperAdminRoutes(app: Express): void {
 
       const orgsWithStats = await Promise.all(
         orgs.map(async (org) => {
-          const [users, calls, subscription] = await Promise.all([
-            storage.listUsersByOrg(org.id),
-            storage.getAllCalls(org.id),
+          const [userCount, callCount, subscription] = await Promise.all([
+            storage.countUsersByOrg(org.id),
+            storage.countCallsByOrg(org.id),
             storage.getSubscription(org.id),
           ]);
 
@@ -85,8 +85,8 @@ export function registerSuperAdminRoutes(app: Express): void {
               retentionDays: org.settings?.retentionDays,
             },
             stats: {
-              userCount: users.length,
-              callCount: calls.length,
+              userCount,
+              callCount,
               subscriptionStatus: subscription?.status || "none",
               planTier: subscription?.planTier || "free",
             },
@@ -112,25 +112,19 @@ export function registerSuperAdminRoutes(app: Express): void {
         return res.status(404).json({ message: "Organization not found" });
       }
 
-      const [users, calls, subscription] = await Promise.all([
+      const [users, userCount, callCount, callsByStatus, subscription] = await Promise.all([
         storage.listUsersByOrg(org.id),
-        storage.getAllCalls(org.id),
+        storage.countUsersByOrg(org.id),
+        storage.countCallsByOrg(org.id),
+        storage.countCallsByOrgAndStatus(org.id),
         storage.getSubscription(org.id),
       ]);
-
-      // Compute call status breakdown
-      const callsByStatus = {
-        pending: calls.filter(c => c.status === "pending").length,
-        processing: calls.filter(c => c.status === "processing").length,
-        completed: calls.filter(c => c.status === "completed").length,
-        failed: calls.filter(c => c.status === "failed").length,
-      };
 
       res.json({
         ...org,
         stats: {
-          userCount: users.length,
-          callCount: calls.length,
+          userCount,
+          callCount,
           callsByStatus,
           subscriptionStatus: subscription?.status || "none",
           planTier: subscription?.planTier || "free",

@@ -215,6 +215,34 @@ export class PostgresStorage implements IStorage {
     return rows.map((r) => this.mapEmployee(r));
   }
 
+  // --- Count operations (SQL COUNT for efficiency) ---
+  async countUsersByOrg(orgId: string): Promise<number> {
+    const [result] = await this.db.select({ count: sql<number>`count(*)::int` })
+      .from(tables.users).where(eq(tables.users.orgId, orgId));
+    return result?.count || 0;
+  }
+
+  async countCallsByOrg(orgId: string): Promise<number> {
+    const [result] = await this.db.select({ count: sql<number>`count(*)::int` })
+      .from(tables.calls).where(eq(tables.calls.orgId, orgId));
+    return result?.count || 0;
+  }
+
+  async countCallsByOrgAndStatus(orgId: string): Promise<{ pending: number; processing: number; completed: number; failed: number }> {
+    const rows = await this.db.select({
+      status: tables.calls.status,
+      count: sql<number>`count(*)::int`,
+    }).from(tables.calls)
+      .where(eq(tables.calls.orgId, orgId))
+      .groupBy(tables.calls.status);
+
+    const result = { pending: 0, processing: 0, completed: 0, failed: 0 };
+    for (const row of rows) {
+      if (row.status in result) (result as any)[row.status] = row.count;
+    }
+    return result;
+  }
+
   // --- Call operations ---
   async getCall(orgId: string, id: string): Promise<Call | undefined> {
     const rows = await this.db.select().from(tables.calls)
@@ -248,6 +276,7 @@ export class PostgresStorage implements IStorage {
       emailReceivedAt: call.emailReceivedAt ? new Date(call.emailReceivedAt) : undefined,
       chatPlatform: call.chatPlatform,
       messageCount: call.messageCount,
+      fileHash: call.fileHash,
     }).returning();
     return this.mapCall(row);
   }
@@ -267,7 +296,12 @@ export class PostgresStorage implements IStorage {
     if (updates.emailFrom !== undefined) setClause.emailFrom = updates.emailFrom;
     if (updates.emailTo !== undefined) setClause.emailTo = updates.emailTo;
     if (updates.emailBody !== undefined) setClause.emailBody = updates.emailBody;
+    if (updates.emailBodyHtml !== undefined) setClause.emailBodyHtml = updates.emailBodyHtml;
+    if (updates.emailCc !== undefined) setClause.emailCc = updates.emailCc;
+    if (updates.emailMessageId !== undefined) setClause.emailMessageId = updates.emailMessageId;
     if (updates.emailThreadId !== undefined) setClause.emailThreadId = updates.emailThreadId;
+    if (updates.emailReceivedAt !== undefined) setClause.emailReceivedAt = updates.emailReceivedAt ? new Date(updates.emailReceivedAt) : null;
+    if (updates.fileHash !== undefined) setClause.fileHash = updates.fileHash;
 
     const [row] = await this.db.update(tables.calls)
       .set(setClause)
@@ -501,6 +535,35 @@ export class PostgresStorage implements IStorage {
       clinicalNote: analysis.clinicalNote || null,
     }).returning();
     return this.mapAnalysis(row);
+  }
+
+  async updateCallAnalysis(orgId: string, callId: string, updates: Partial<InsertCallAnalysis>): Promise<CallAnalysis | undefined> {
+    const setClause: Record<string, unknown> = {};
+    if (updates.performanceScore !== undefined) setClause.performanceScore = updates.performanceScore;
+    if (updates.summary !== undefined) setClause.summary = updates.summary;
+    if (updates.topics !== undefined) setClause.topics = updates.topics;
+    if (updates.actionItems !== undefined) setClause.actionItems = updates.actionItems;
+    if (updates.feedback !== undefined) setClause.feedback = updates.feedback;
+    if (updates.flags !== undefined) setClause.flags = updates.flags;
+    if (updates.manualEdits !== undefined) setClause.manualEdits = updates.manualEdits;
+    if (updates.subScores !== undefined) setClause.subScores = updates.subScores;
+    if (updates.confidenceScore !== undefined) setClause.confidenceScore = updates.confidenceScore;
+    if (updates.confidenceFactors !== undefined) setClause.confidenceFactors = updates.confidenceFactors;
+    if (updates.clinicalNote !== undefined) setClause.clinicalNote = updates.clinicalNote;
+    if (updates.detectedAgentName !== undefined) setClause.detectedAgentName = updates.detectedAgentName;
+    if (updates.keywords !== undefined) setClause.keywords = updates.keywords;
+    if (updates.talkTimeRatio !== undefined) setClause.talkTimeRatio = updates.talkTimeRatio;
+    if (updates.responseTime !== undefined) setClause.responseTime = updates.responseTime;
+    if (updates.lemurResponse !== undefined) setClause.lemurResponse = updates.lemurResponse;
+    if (updates.callPartyType !== undefined) setClause.callPartyType = updates.callPartyType;
+
+    if (Object.keys(setClause).length === 0) return this.getCallAnalysis(orgId, callId);
+
+    const [row] = await this.db.update(tables.callAnalyses)
+      .set(setClause)
+      .where(and(eq(tables.callAnalyses.callId, callId), eq(tables.callAnalyses.orgId, orgId)))
+      .returning();
+    return row ? this.mapAnalysis(row) : undefined;
   }
 
   // --- Dashboard metrics (efficient SQL queries!) ---
@@ -1152,6 +1215,7 @@ export class PostgresStorage implements IStorage {
       emailReceivedAt: toISOString(row.emailReceivedAt),
       chatPlatform: row.chatPlatform,
       messageCount: row.messageCount,
+      fileHash: row.fileHash,
     };
   }
 

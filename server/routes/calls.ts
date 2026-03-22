@@ -921,7 +921,7 @@ export function registerCallRoutes(app: Express): void {
         manualEdits: [...previousEdits, editRecord],
       };
 
-      await storage.createCallAnalysis(req.orgId!, updatedAnalysis);
+      await storage.updateCallAnalysis(req.orgId!, callId, updatedAnalysis);
 
       logger.info({ callId, editedBy, reason, fields: editRecord.fieldsChanged }, "Manual edit applied to call analysis");
       res.json(updatedAnalysis);

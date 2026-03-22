@@ -159,6 +159,23 @@ export class MemStorage implements IStorage {
     return Array.from(this.employees.values()).filter(e => e.orgId === orgId);
   }
 
+  // --- Count operations (in-memory fallback) ---
+  async countUsersByOrg(orgId: string): Promise<number> {
+    return Array.from(this.users.values()).filter(u => u.orgId === orgId).length;
+  }
+  async countCallsByOrg(orgId: string): Promise<number> {
+    return Array.from(this.calls.values()).filter(c => c.orgId === orgId).length;
+  }
+  async countCallsByOrgAndStatus(orgId: string): Promise<{ pending: number; processing: number; completed: number; failed: number }> {
+    const calls = Array.from(this.calls.values()).filter(c => c.orgId === orgId);
+    return {
+      pending: calls.filter(c => c.status === "pending").length,
+      processing: calls.filter(c => c.status === "processing").length,
+      completed: calls.filter(c => c.status === "completed").length,
+      failed: calls.filter(c => c.status === "failed").length,
+    };
+  }
+
   // --- Call operations (org-scoped) ---
   async getCall(orgId: string, id: string): Promise<Call | undefined> {
     const call = this.calls.get(id);
@@ -274,6 +291,13 @@ export class MemStorage implements IStorage {
     const newAnalysis: CallAnalysis = { ...analysis, id, orgId, createdAt: new Date().toISOString() };
     this.analyses.set(analysis.callId, newAnalysis);
     return newAnalysis;
+  }
+  async updateCallAnalysis(orgId: string, callId: string, updates: Partial<InsertCallAnalysis>): Promise<CallAnalysis | undefined> {
+    const existing = this.analyses.get(callId);
+    if (!existing || existing.orgId !== orgId) return undefined;
+    const updated: CallAnalysis = { ...existing, ...updates, id: existing.id, orgId, callId };
+    this.analyses.set(callId, updated);
+    return updated;
   }
 
   // --- Audio operations (org-scoped) ---

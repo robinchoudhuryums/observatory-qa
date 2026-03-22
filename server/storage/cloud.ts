@@ -170,6 +170,25 @@ export class CloudStorage implements IStorage {
     }
   }
 
+  // --- Count operations (cloud fallback — loads data) ---
+  async countUsersByOrg(orgId: string): Promise<number> {
+    const users = await this.listUsersByOrg(orgId);
+    return users.length;
+  }
+  async countCallsByOrg(orgId: string): Promise<number> {
+    const calls = await this.getAllCalls(orgId);
+    return calls.length;
+  }
+  async countCallsByOrgAndStatus(orgId: string): Promise<{ pending: number; processing: number; completed: number; failed: number }> {
+    const calls = await this.getAllCalls(orgId);
+    return {
+      pending: calls.filter(c => c.status === "pending").length,
+      processing: calls.filter(c => c.status === "processing").length,
+      completed: calls.filter(c => c.status === "completed").length,
+      failed: calls.filter(c => c.status === "failed").length,
+    };
+  }
+
   // --- Call Methods (org-scoped) ---
   async getCall(orgId: string, id: string): Promise<Call | undefined> {
     return this.client.downloadJson<Call>(`${this.orgPrefix(orgId)}/calls/${id}.json`);
@@ -340,6 +359,13 @@ export class CloudStorage implements IStorage {
     };
     await this.client.uploadJson(`${this.orgPrefix(orgId)}/analyses/${analysis.callId}.json`, newAnalysis);
     return newAnalysis;
+  }
+  async updateCallAnalysis(orgId: string, callId: string, updates: Partial<InsertCallAnalysis>): Promise<CallAnalysis | undefined> {
+    const existing = await this.getCallAnalysis(orgId, callId);
+    if (!existing) return undefined;
+    const updated: CallAnalysis = { ...existing, ...updates, id: existing.id, orgId, callId };
+    await this.client.uploadJson(`${this.orgPrefix(orgId)}/analyses/${callId}.json`, updated);
+    return updated;
   }
 
   // --- Audio File Methods (org-scoped) ---

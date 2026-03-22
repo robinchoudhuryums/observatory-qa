@@ -173,6 +173,11 @@ export interface IStorage {
   updateEmployee(orgId: string, id: string, updates: Partial<Employee>): Promise<Employee | undefined>;
   getAllEmployees(orgId: string): Promise<Employee[]>;
 
+  // Count operations (efficient — use SQL COUNT where possible)
+  countUsersByOrg(orgId: string): Promise<number>;
+  countCallsByOrg(orgId: string): Promise<number>;
+  countCallsByOrgAndStatus(orgId: string): Promise<{ pending: number; processing: number; completed: number; failed: number }>;
+
   // Call operations (org-scoped)
   getCall(orgId: string, id: string): Promise<Call | undefined>;
   createCall(orgId: string, call: InsertCall): Promise<Call>;
@@ -196,6 +201,7 @@ export interface IStorage {
   // Call analysis operations (org-scoped)
   getCallAnalysis(orgId: string, callId: string): Promise<CallAnalysis | undefined>;
   createCallAnalysis(orgId: string, analysis: InsertCallAnalysis): Promise<CallAnalysis>;
+  updateCallAnalysis(orgId: string, callId: string, updates: Partial<InsertCallAnalysis>): Promise<CallAnalysis | undefined>;
 
   // Dashboard metrics (org-scoped)
   getDashboardMetrics(orgId: string): Promise<DashboardMetrics>;
