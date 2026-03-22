@@ -2,6 +2,7 @@ import type { Express, RequestHandler } from "express";
 import { createHash, randomBytes } from "crypto";
 import { storage } from "../storage";
 import { requireAuth, requireRole, injectOrgContext } from "../auth";
+import { logPhiAccess, auditContext } from "../services/audit-log";
 import { logger } from "../services/logger";
 import { parsePagination, paginateArray } from "./helpers";
 
@@ -139,6 +140,13 @@ export function registerApiKeyRoutes(app: Express): void {
         expiresAt,
       });
 
+      logPhiAccess({
+        ...auditContext(req),
+        event: "api_key_created",
+        resourceType: "api_key",
+        resourceId: apiKey.id,
+        detail: `Name: ${name}, Prefix: ${keyPrefix}, Permissions: ${perms.join(",")}${expiresAt ? `, Expires: ${expiresAt}` : ", No expiry"}`,
+      });
       logger.info({ orgId: req.orgId, keyId: apiKey.id, name }, "API key created");
 
       // Return the full key ONLY on creation (it's never stored/returned again)
@@ -164,6 +172,13 @@ export function registerApiKeyRoutes(app: Express): void {
       if (!updated) {
         return res.status(404).json({ message: "API key not found" });
       }
+      logPhiAccess({
+        ...auditContext(req),
+        event: "api_key_revoked",
+        resourceType: "api_key",
+        resourceId: req.params.id,
+        detail: `Key: ${updated.name || req.params.id}`,
+      });
       logger.info({ orgId: req.orgId, keyId: req.params.id }, "API key revoked");
       res.json({ message: "API key revoked" });
     } catch (error) {
@@ -174,6 +189,12 @@ export function registerApiKeyRoutes(app: Express): void {
   // Delete an API key permanently (admin only)
   app.delete("/api/api-keys/:id", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
     try {
+      logPhiAccess({
+        ...auditContext(req),
+        event: "api_key_deleted",
+        resourceType: "api_key",
+        resourceId: req.params.id,
+      });
       await storage.deleteApiKey(req.orgId!, req.params.id);
       res.json({ message: "API key deleted" });
     } catch (error) {

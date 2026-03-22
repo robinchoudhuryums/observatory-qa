@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import { storage } from "../storage";
 import { requireAuth, requireRole, injectOrgContext, hashPassword, validatePasswordComplexity } from "../auth";
 import { logger } from "../services/logger";
+import { logPhiAccess, auditContext } from "../services/audit-log";
 import { randomUUID } from "crypto";
 import { enforceUserQuota } from "./billing";
 
@@ -199,6 +200,13 @@ export function registerRegistrationRoutes(app: Express): void {
         invitedBy: req.user!.username,
       });
 
+      logPhiAccess({
+        ...auditContext(req),
+        event: "invitation_sent",
+        resourceType: "invitation",
+        resourceId: invitation.id,
+        detail: `Email: ${email}, Role: ${role || "viewer"}, Invited by: ${req.user!.username}`,
+      });
       logger.info({ orgId: req.orgId, email, role: role || "viewer" }, "Invitation created");
       res.status(201).json(invitation);
     } catch (error) {
@@ -258,6 +266,19 @@ export function registerRegistrationRoutes(app: Express): void {
         acceptedAt: new Date().toISOString(),
       });
 
+      logPhiAccess({
+        orgId: invitation.orgId,
+        userId: user.id,
+        username,
+        role: invitation.role,
+        ip: req.ip || "unknown",
+        userAgent: req.get("user-agent") || "unknown",
+        event: "invitation_accepted",
+        resourceType: "invitation",
+        resourceId: invitation.id,
+        detail: `New user: ${username} (${name}), Role: ${invitation.role}, Invited email: ${invitation.email}`,
+      });
+
       // Resolve org for session
       const org = await storage.getOrganization(invitation.orgId);
 
@@ -291,6 +312,12 @@ export function registerRegistrationRoutes(app: Express): void {
   // Revoke invitation (admin/manager only)
   app.delete("/api/invitations/:id", requireAuth, requireRole("manager"), injectOrgContext, async (req, res) => {
     try {
+      logPhiAccess({
+        ...auditContext(req),
+        event: "invitation_revoked",
+        resourceType: "invitation",
+        resourceId: req.params.id,
+      });
       await storage.deleteInvitation(req.orgId!, req.params.id);
       res.json({ message: "Invitation revoked" });
     } catch (error) {

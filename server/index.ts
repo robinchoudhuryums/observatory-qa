@@ -395,6 +395,18 @@ app.post("/api/clinical/style-learning/analyze", distributedRateLimit(60 * 1000,
             // Fallback: run inline
             const purged = await currentStorage.purgeExpiredCalls(org.id, orgRetention);
             if (purged > 0) {
+              const { logPhiAccess } = await import("./services/audit-log");
+              logPhiAccess({
+                orgId: org.id,
+                userId: "system",
+                username: "system:retention",
+                role: "admin",
+                ip: "localhost",
+                userAgent: "retention-scheduler",
+                event: "data_retention_purge",
+                resourceType: "call",
+                detail: `Purged ${purged} calls older than ${orgRetention} days`,
+              });
               logger.info({ org: org.slug, purged, retentionDays: orgRetention }, "Retention purge completed");
               totalPurged += purged;
             }
@@ -430,6 +442,18 @@ app.post("/api/clinical/style-learning/analyze", distributedRateLimit(60 * 1000,
                 status: "active",
                 billingInterval: "monthly",
                 cancelAtPeriodEnd: false,
+              });
+              const { logPhiAccess } = await import("./services/audit-log");
+              logPhiAccess({
+                orgId: org.id,
+                userId: "system",
+                username: "system:trial-downgrade",
+                role: "admin",
+                ip: "localhost",
+                userAgent: "trial-scheduler",
+                event: "subscription_auto_downgraded",
+                resourceType: "subscription",
+                detail: `Trial expired — From: ${sub.planTier}, To: free`,
               });
               logger.info({ orgId: org.id, orgSlug: org.slug, previousTier: sub.planTier }, "Trial expired — downgraded to free");
               downgraded++;

@@ -44,6 +44,13 @@ export function registerAdminRoutes(app: Express): void {
         ...parsed.data,
         updatedBy: req.user?.username,
       });
+      logPhiAccess({
+        ...auditContext(req),
+        event: "prompt_template_created",
+        resourceType: "prompt_template",
+        resourceId: template.id,
+        detail: `Category: ${parsed.data.callCategory || "default"}, Created by: ${req.user?.username}`,
+      });
       res.status(201).json(template);
     } catch (error) {
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to create prompt template"));
@@ -67,6 +74,13 @@ export function registerAdminRoutes(app: Express): void {
         res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Template not found"));
         return;
       }
+      logPhiAccess({
+        ...auditContext(req),
+        event: "prompt_template_updated",
+        resourceType: "prompt_template",
+        resourceId: req.params.id,
+        detail: `Fields changed: ${Object.keys(templateUpdateParsed.data).join(", ")}, Updated by: ${req.user?.username}`,
+      });
       res.json(updated);
     } catch (error) {
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update prompt template"));
@@ -75,6 +89,12 @@ export function registerAdminRoutes(app: Express): void {
 
   app.delete("/api/prompt-templates/:id", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
     try {
+      logPhiAccess({
+        ...auditContext(req),
+        event: "prompt_template_deleted",
+        resourceType: "prompt_template",
+        resourceId: req.params.id,
+      });
       await storage.deletePromptTemplate(req.orgId!, req.params.id);
       res.json({ message: "Template deleted" });
     } catch (error) {
