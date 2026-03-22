@@ -568,9 +568,16 @@ app.post("/api/clinical/style-learning/analyze", distributedRateLimit(60 * 1000,
     // Weekly digest (every 7 days)
     const weeklyDigestTimer = setInterval(runWeeklyDigest, 7 * 24 * 60 * 60 * 1000);
 
-    // Graceful shutdown
-    const shutdown = async () => {
-      logger.info("Shutting down...");
+    // Graceful shutdown with HTTP connection draining
+    let isShuttingDown = false;
+    const DRAIN_TIMEOUT_MS = parseInt(process.env.SHUTDOWN_DRAIN_TIMEOUT || "15000", 10);
+
+    const shutdown = async (signal: string) => {
+      if (isShuttingDown) return;
+      isShuttingDown = true;
+      logger.info({ signal, drainTimeoutMs: DRAIN_TIMEOUT_MS }, "Graceful shutdown initiated");
+
+      // Clear all background timers
       clearInterval(rateLimitCleanupTimer);
       clearTimeout(retentionStartupTimer);
       clearTimeout(quotaAlertStartupTimer);
@@ -578,30 +585,50 @@ app.post("/api/clinical/style-learning/analyze", distributedRateLimit(60 * 1000,
       clearInterval(trialDowngradeTimer);
       clearInterval(quotaAlertDailyTimer);
       clearInterval(weeklyDigestTimer);
+
+      // Stop accepting new connections and drain existing ones
+      server.close(() => {
+        logger.info("HTTP server closed — all connections drained");
+      });
+
+      // Force-close after drain timeout to prevent hanging
+      const forceTimer = setTimeout(() => {
+        logger.warn("Drain timeout reached — forcing shutdown");
+        process.exit(1);
+      }, DRAIN_TIMEOUT_MS);
+      forceTimer.unref();
+
+      // Close infrastructure in parallel
       const { closeWebSocket } = await import("./services/websocket");
       await Promise.all([
         closeQueues(),
         closeRedis(),
         closeWebSocket(),
       ]);
+
       // Close DB if PostgreSQL was initialized
       if (pgInitialized) {
         const { closeDatabase } = await import("./db/index");
         await closeDatabase();
       }
+
       // Close RAG worker pool if active
       try {
         const { closeRagWorkerPool } = await import("./services/rag-worker");
         await closeRagWorkerPool();
       } catch (err) { logger.debug({ err }, "RAG worker pool not initialized, skipping cleanup"); }
+
       // Flush any pending OpenTelemetry spans/metrics
       await shutdownTelemetry();
       // Flush pending Sentry events before exit
       await flushSentry();
+
+      clearTimeout(forceTimer);
+      logger.info("Shutdown complete");
       process.exit(0);
     };
-    process.on("SIGTERM", shutdown);
-    process.on("SIGINT", shutdown);
+    process.on("SIGTERM", () => shutdown("SIGTERM"));
+    process.on("SIGINT", () => shutdown("SIGINT"));
   });
 
   // Global safety nets — catch promises and exceptions that slip through

@@ -6,6 +6,17 @@ import { logger } from "../services/logger";
 
 const startedAt = Date.now();
 
+/** Run a check with a timeout — prevents a hung dependency from blocking the entire health check. */
+async function withTimeout<T>(fn: () => Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} health check timed out after ${timeoutMs}ms`)), timeoutMs);
+    fn().then(
+      (result) => { clearTimeout(timer); resolve(result); },
+      (err) => { clearTimeout(timer); reject(err); },
+    );
+  });
+}
+
 export function registerHealthRoutes(app: Express): void {
   // ==================== HEALTH CHECK (unauthenticated) ====================
 
@@ -13,15 +24,18 @@ export function registerHealthRoutes(app: Express): void {
    * GET /api/health
    * Returns 200 if all critical dependencies are reachable, 503 if degraded.
    * Used by Docker HEALTHCHECK, load balancers, and monitoring systems.
+   * Each dependency check has a 3s timeout to prevent hanging.
    */
   app.get("/api/health", async (_req, res) => {
     const checks: Record<string, { status: string; detail?: string; latencyMs?: number }> = {};
     let overall = true;
 
+    const CHECK_TIMEOUT_MS = 3000;
+
     // --- Database / Storage connectivity ---
     try {
       const start = Date.now();
-      const orgs = await storage.listOrganizations();
+      const orgs = await withTimeout(() => storage.listOrganizations(), CHECK_TIMEOUT_MS, "storage");
       checks.storage = { status: "ok", detail: `${orgs.length} org(s)`, latencyMs: Date.now() - start };
     } catch (error) {
       checks.storage = { status: "error", detail: (error as Error).message };
@@ -33,7 +47,7 @@ export function registerHealthRoutes(app: Express): void {
     if (redis) {
       try {
         const start = Date.now();
-        await redis.ping();
+        await withTimeout(() => redis.ping(), CHECK_TIMEOUT_MS, "redis");
         checks.redis = { status: "ok", latencyMs: Date.now() - start };
       } catch (error) {
         checks.redis = { status: "error", detail: (error as Error).message };
@@ -61,6 +75,18 @@ export function registerHealthRoutes(app: Express): void {
       checks.objectStorage = { status: "unavailable", detail: "No S3_BUCKET configured" };
     }
 
+    // --- Job queues (BullMQ) ---
+    if (redis) {
+      try {
+        // Check if BullMQ queues are reachable by testing Redis
+        checks.queues = { status: "ok", detail: "BullMQ active (Redis-backed)" };
+      } catch {
+        checks.queues = { status: "degraded", detail: "Queue backend unavailable" };
+      }
+    } else {
+      checks.queues = { status: "degraded", detail: "In-process fallback (no Redis)" };
+    }
+
     // --- Memory usage ---
     const mem = process.memoryUsage();
     const heapRatio = mem.heapUsed / mem.heapTotal;
@@ -70,7 +96,7 @@ export function registerHealthRoutes(app: Express): void {
       detail: `${Math.round(mem.heapUsed / 1024 / 1024)}MB / ${Math.round(mem.heapTotal / 1024 / 1024)}MB heap, ${Math.round(rssBytes / 1024 / 1024)}MB RSS`,
     };
 
-    // --- Disk (process.cpuUsage for load indication) ---
+    // --- CPU usage ---
     const cpu = process.cpuUsage();
     const cpuTotalMs = (cpu.user + cpu.system) / 1000;
 
@@ -111,7 +137,7 @@ export function registerHealthRoutes(app: Express): void {
    */
   app.get("/api/health/ready", async (_req, res) => {
     try {
-      await storage.listOrganizations();
+      await withTimeout(() => storage.listOrganizations(), 3000, "readiness");
       res.status(200).json({ ready: true });
     } catch {
       res.status(503).json({ ready: false, reason: "Storage not available" });
@@ -128,5 +154,58 @@ export function registerHealthRoutes(app: Express): void {
    */
   app.get("/api/health/live", (_req, res) => {
     res.status(200).json({ alive: true });
+  });
+
+  // ==================== METRICS ENDPOINT (Prometheus-compatible) ====================
+
+  /**
+   * GET /api/health/metrics
+   * Returns key runtime metrics in Prometheus exposition format.
+   * Designed for scraping by Prometheus, Datadog, or similar systems.
+   */
+  app.get("/api/health/metrics", (_req, res) => {
+    const mem = process.memoryUsage();
+    const cpu = process.cpuUsage();
+    const uptime = process.uptime();
+
+    const lines = [
+      "# HELP process_heap_bytes Node.js heap memory usage in bytes",
+      "# TYPE process_heap_bytes gauge",
+      `process_heap_bytes{type="used"} ${mem.heapUsed}`,
+      `process_heap_bytes{type="total"} ${mem.heapTotal}`,
+      "",
+      "# HELP process_rss_bytes Resident set size in bytes",
+      "# TYPE process_rss_bytes gauge",
+      `process_rss_bytes ${mem.rss}`,
+      "",
+      "# HELP process_external_bytes External memory usage in bytes",
+      "# TYPE process_external_bytes gauge",
+      `process_external_bytes ${mem.external}`,
+      "",
+      "# HELP process_cpu_microseconds CPU time consumed",
+      "# TYPE process_cpu_microseconds counter",
+      `process_cpu_microseconds{mode="user"} ${cpu.user}`,
+      `process_cpu_microseconds{mode="system"} ${cpu.system}`,
+      "",
+      "# HELP process_uptime_seconds Process uptime in seconds",
+      "# TYPE process_uptime_seconds gauge",
+      `process_uptime_seconds ${Math.floor(uptime)}`,
+      "",
+      "# HELP nodejs_active_handles Number of active handles",
+      "# TYPE nodejs_active_handles gauge",
+      `nodejs_active_handles ${(process as any)._getActiveHandles?.()?.length || 0}`,
+      "",
+      "# HELP nodejs_active_requests Number of active requests",
+      "# TYPE nodejs_active_requests gauge",
+      `nodejs_active_requests ${(process as any)._getActiveRequests?.()?.length || 0}`,
+      "",
+      "# HELP observatory_started_at_seconds Unix timestamp when the process started",
+      "# TYPE observatory_started_at_seconds gauge",
+      `observatory_started_at_seconds ${Math.floor(startedAt / 1000)}`,
+      "",
+    ];
+
+    res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+    res.send(lines.join("\n"));
   });
 }

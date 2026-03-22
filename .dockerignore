@@ -17,3 +17,12 @@ AUDIT_REPORT.md
 IMPROVEMENT_RECOMMENDATIONS.md
 CODEBASE_REVIEW.md
 CLAUDE.md
+MULTI_TENANT_TRANSFORMATION_PLAN.md
+HEALTHCARE_EXPANSION_PLAN.md
+README.md
+.github
+deploy
+docker-compose*.yml
+test-results
+playwright-report
+playwright.config.ts
