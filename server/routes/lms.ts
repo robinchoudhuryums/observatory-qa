@@ -281,27 +281,140 @@ Respond with ONLY valid JSON (no markdown fences):
     res.json(progress);
   });
 
+  /**
+   * POST /api/lms/modules/:id/submit-quiz — Submit quiz answers for grading.
+   * Returns score, per-question results, and updates progress.
+   */
+  app.post("/api/lms/modules/:id/submit-quiz", requireAuth, validateUUIDParam(), async (req: Request, res: Response) => {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+
+    const { employeeId, answers } = req.body;
+    if (!employeeId || !Array.isArray(answers)) {
+      return res.status(400).json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "employeeId and answers array are required"));
+    }
+
+    try {
+      const module = await storage.getLearningModule(orgId, req.params.id);
+      if (!module) return res.status(404).json({ message: "Module not found" });
+      if (!module.quizQuestions || module.quizQuestions.length === 0) {
+        return res.status(400).json({ message: "This module does not have quiz questions" });
+      }
+
+      const questions = module.quizQuestions as Array<{ question: string; options: string[]; correctIndex: number; explanation?: string }>;
+
+      // Grade each answer
+      const results = questions.map((q, i) => {
+        const userAnswer = answers[i] ?? -1;
+        const correct = userAnswer === q.correctIndex;
+        return {
+          questionIndex: i,
+          question: q.question,
+          userAnswer,
+          correctIndex: q.correctIndex,
+          correct,
+          explanation: q.explanation,
+        };
+      });
+
+      const correctCount = results.filter(r => r.correct).length;
+      const score = Math.round((correctCount / questions.length) * 100);
+
+      // Get existing progress to track attempts
+      const existing = await storage.getLearningProgress(orgId, employeeId, module.id);
+      const attempts = (existing?.quizAttempts || 0) + 1;
+
+      // Update progress with quiz results
+      const progress = await storage.upsertLearningProgress(orgId, {
+        orgId,
+        employeeId,
+        moduleId: module.id,
+        status: score >= 70 ? "completed" : "in_progress",
+        quizScore: score,
+        quizAttempts: attempts,
+        completedAt: score >= 70 ? new Date().toISOString() : undefined,
+      });
+
+      res.json({
+        score,
+        passed: score >= 70,
+        correctCount,
+        totalQuestions: questions.length,
+        results,
+        attempts,
+        progress,
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to grade quiz");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to grade quiz"));
+    }
+  });
+
+  /**
+   * GET /api/lms/paths/:id/progress/:employeeId — Get an employee's progress through a learning path.
+   * Returns the path with per-module completion status.
+   */
+  app.get("/api/lms/paths/:id/progress/:employeeId", requireAuth, async (req: Request, res: Response) => {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+
+    try {
+      const path = await storage.getLearningPath(orgId, req.params.id);
+      if (!path) return res.status(404).json({ message: "Path not found" });
+
+      const allProgress = await storage.getEmployeeLearningProgress(orgId, req.params.employeeId);
+      const progressMap = new Map(allProgress.map(p => [p.moduleId, p]));
+
+      // Load modules with progress
+      const modules = await Promise.all(
+        path.moduleIds.map(async (mid) => {
+          const mod = await storage.getLearningModule(orgId, mid);
+          if (!mod) return null;
+          return { ...mod, progress: progressMap.get(mid) || null };
+        })
+      );
+
+      const validModules = modules.filter(Boolean);
+      const completedCount = validModules.filter((m: any) => m.progress?.status === "completed").length;
+
+      res.json({
+        ...path,
+        modules: validModules,
+        completedCount,
+        totalModules: validModules.length,
+        percentComplete: validModules.length > 0 ? Math.round((completedCount / validModules.length) * 100) : 0,
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to get path progress");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get path progress"));
+    }
+  });
+
   /** GET /api/lms/stats — LMS analytics overview */
   app.get("/api/lms/stats", requireAuth, async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
     try {
-      const modules = await storage.listLearningModules(orgId);
-      const paths = await storage.listLearningPaths(orgId);
-      const employees = await storage.getAllEmployees(orgId);
+      const [modules, paths, employees] = await Promise.all([
+        storage.listLearningModules(orgId),
+        storage.listLearningPaths(orgId),
+        storage.getAllEmployees(orgId),
+      ]);
 
       const publishedModules = modules.filter(m => m.isPublished);
       const aiGenerated = modules.filter(m => m.contentType === "ai_generated");
 
-      // Get aggregate progress
-      let totalCompletions = 0;
-      let totalInProgress = 0;
-      for (const emp of employees.slice(0, 50)) { // Cap at 50 for performance
-        const progress = await storage.getEmployeeLearningProgress(orgId, emp.id);
-        totalCompletions += progress.filter(p => p.status === "completed").length;
-        totalInProgress += progress.filter(p => p.status === "in_progress").length;
-      }
+      // Batch-load progress for employees (parallel, capped at 50)
+      const progressArrays = await Promise.all(
+        employees.slice(0, 50).map(emp => storage.getEmployeeLearningProgress(orgId, emp.id))
+      );
+      const allProgress = progressArrays.flat();
+      const totalCompletions = allProgress.filter(p => p.status === "completed").length;
+      const totalInProgress = allProgress.filter(p => p.status === "in_progress").length;
+      const avgQuizScore = allProgress.filter(p => p.quizScore != null).length > 0
+        ? Math.round(allProgress.filter(p => p.quizScore != null).reduce((sum, p) => sum + (p.quizScore || 0), 0) / allProgress.filter(p => p.quizScore != null).length)
+        : null;
 
       res.json({
         totalModules: modules.length,
@@ -310,6 +423,8 @@ Respond with ONLY valid JSON (no markdown fences):
         totalPaths: paths.length,
         totalCompletions,
         totalInProgress,
+        avgQuizScore,
+        totalEmployeesLearning: new Set(allProgress.map(p => p.employeeId)).size,
         modulesByCategory: modules.reduce((acc, m) => {
           const cat = m.category || "general";
           acc[cat] = (acc[cat] || 0) + 1;
