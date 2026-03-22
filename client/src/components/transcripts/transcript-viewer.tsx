@@ -8,7 +8,7 @@ import { Link } from "wouter";
 import { useBeforeUnload } from "@/hooks/use-before-unload";
 import { toDisplayString } from "@/lib/display-utils";
 import type { CallWithDetails } from "@shared/schema";
-import {  RiPlayLine, RiPauseLine, RiDownloadLine, RiTimeLine, RiFileTextLine, RiAlertLine, RiShieldLine, RiPencilLine, RiCloseLine, RiSaveLine, RiHistoryLine, RiAwardLine, RiDashboard3Line, RiShieldKeyholeLine, RiClipboardLine, RiBrainLine, RiVoiceprintLine, RiCheckLine, RiKeyLine, RiInputMethodLine  } from "@remixicon/react";
+import {  RiPlayLine, RiPauseLine, RiDownloadLine, RiTimeLine, RiFileTextLine, RiAlertLine, RiShieldLine, RiPencilLine, RiCloseLine, RiSaveLine, RiHistoryLine, RiAwardLine, RiDashboard3Line, RiShieldKeyholeLine, RiClipboardLine, RiBrainLine, RiVoiceprintLine, RiCheckLine, RiKeyLine, RiInputMethodLine, RiRefreshLine  } from "@remixicon/react";
 
 interface TranscriptViewerProps {
   callId: string;
@@ -45,6 +45,8 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
   const [editScore, setEditScore] = useState("");
   const [editSummary, setEditSummary] = useState("");
   const [editReason, setEditReason] = useState("");
+  const [editSubScores, setEditSubScores] = useState<Record<string, string>>({});
+  const [editActionItems, setEditActionItems] = useState<string[]>([]);
 
   // Warn before navigating away with unsaved edits
   useBeforeUnload(isEditing && (editScore !== "" || editSummary !== "" || editReason !== ""));
@@ -74,10 +76,38 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
     },
   });
 
+  const reanalyzeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/calls/${callId}/reanalyze`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Failed to start reanalysis");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/calls", callId] });
+    },
+  });
+
   const startEditing = () => {
     setEditScore(call?.analysis?.performanceScore?.toString() || "");
     setEditSummary(call?.analysis?.summary?.toString() || "");
     setEditReason("");
+    const subs = call?.analysis?.subScores as Record<string, number> | undefined;
+    setEditSubScores({
+      compliance: subs?.compliance?.toString() || "",
+      customerExperience: subs?.customerExperience?.toString() || "",
+      communication: subs?.communication?.toString() || "",
+      resolution: subs?.resolution?.toString() || "",
+    });
+    const items = call?.analysis?.actionItems;
+    setEditActionItems(
+      Array.isArray(items) ? items.map((item: unknown) => typeof item === "string" ? item : typeof item === "object" && item !== null ? (item as any).text || JSON.stringify(item) : String(item || "")) : []
+    );
     setIsEditing(true);
   };
 
@@ -89,6 +119,14 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
     }
     if (editSummary !== (call?.analysis?.summary?.toString() || "")) {
       updates.summary = editSummary;
+    }
+    // Check if action items changed
+    const origItems = Array.isArray(call?.analysis?.actionItems)
+      ? (call!.analysis!.actionItems as unknown[]).map((i: unknown) => typeof i === "string" ? i : String(i))
+      : [];
+    const cleanedItems = editActionItems.filter(i => i.trim());
+    if (JSON.stringify(cleanedItems) !== JSON.stringify(origItems)) {
+      updates.actionItems = cleanedItems;
     }
     if (Object.keys(updates).length === 0) {
       setIsEditing(false);
@@ -473,9 +511,19 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
             <div className="flex items-center justify-between mb-3">
               <h4 className="font-semibold text-foreground">Call Summary</h4>
               {!isEditing && call.analysis && (
-                <Button size="sm" variant="ghost" onClick={startEditing} className="h-7 text-xs">
-                  <RiPencilLine className="w-3 h-3 mr-1" /> Edit
-                </Button>
+                <div className="flex gap-1">
+                  <Button size="sm" variant="ghost" onClick={startEditing} className="h-7 text-xs">
+                    <RiPencilLine className="w-3 h-3 mr-1" /> Edit
+                  </Button>
+                  <Button
+                    size="sm" variant="ghost" className="h-7 text-xs"
+                    onClick={() => reanalyzeMutation.mutate()}
+                    disabled={reanalyzeMutation.isPending || call.status !== "completed"}
+                    title="Re-run AI analysis with current prompt templates"
+                  >
+                    <RiRefreshLine className="w-3 h-3 mr-1" /> {reanalyzeMutation.isPending ? "Reanalyzing..." : "Reanalyze"}
+                  </Button>
+                </div>
               )}
             </div>
 
@@ -497,6 +545,31 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
                     onChange={e => setEditSummary(e.target.value)}
                     className="w-full min-h-[80px] rounded-md border border-input bg-background px-3 py-2 text-sm"
                   />
+                </div>
+                <div>
+                  <Label className="text-xs">Action Items</Label>
+                  <div className="space-y-1">
+                    {editActionItems.map((item, i) => (
+                      <div key={i} className="flex gap-1">
+                        <Input
+                          value={item}
+                          onChange={e => {
+                            const next = [...editActionItems];
+                            next[i] = e.target.value;
+                            setEditActionItems(next);
+                          }}
+                          className="h-7 text-xs"
+                          placeholder={`Action item ${i + 1}`}
+                        />
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 shrink-0" onClick={() => setEditActionItems(editActionItems.filter((_, j) => j !== i))}>
+                          <RiCloseLine className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    ))}
+                    <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => setEditActionItems([...editActionItems, ""])}>
+                      + Add Item
+                    </Button>
+                  </div>
                 </div>
                 <div>
                   <Label className="text-xs text-red-600">Reason for Edit *</Label>

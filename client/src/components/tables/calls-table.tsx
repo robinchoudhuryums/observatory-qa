@@ -23,6 +23,9 @@ export default function CallsTable() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [sentimentFilter, setSentimentFilter] = useState<string>("all");
   const [employeeFilter, setEmployeeFilter] = useState<string>("all");
+  const [scoreFilter, setScoreFilter] = useState<string>("all");
+  const [flagFilter, setFlagFilter] = useState<string>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
   // Pagination
   const [page, setPage] = useState(0);
@@ -92,10 +95,39 @@ export default function CallsTable() {
     },
   });
 
+  // Client-side filters (score range, flags, category) applied before sort
+  const filteredCalls = useMemo(() => {
+    if (!calls) return [];
+    return calls.filter(call => {
+      // Score range filter
+      if (scoreFilter !== "all" && call.analysis?.performanceScore) {
+        const score = Number(call.analysis.performanceScore);
+        if (scoreFilter === "high" && score < 8) return false;
+        if (scoreFilter === "mid" && (score < 4 || score >= 8)) return false;
+        if (scoreFilter === "low" && score >= 4) return false;
+      }
+      // Flag filter
+      if (flagFilter !== "all") {
+        const flags = Array.isArray(call.analysis?.flags) ? call.analysis.flags as string[] : [];
+        if (flagFilter === "flagged" && flags.length === 0) return false;
+        if (flagFilter === "unflagged" && flags.length > 0) return false;
+        if (flagFilter === "exceptional" && !flags.includes("exceptional_call")) return false;
+        if (flagFilter === "low_score" && !flags.includes("low_score")) return false;
+        if (flagFilter === "low_confidence" && !flags.includes("low_confidence")) return false;
+      }
+      // Category filter
+      if (categoryFilter !== "all") {
+        const category = call.callCategory || (call as any).call_category;
+        if (!category || category !== categoryFilter) return false;
+      }
+      return true;
+    });
+  }, [calls, scoreFilter, flagFilter, categoryFilter]);
+
   // Sorted and paginated data
   const sortedCalls = useMemo(() => {
-    if (!calls) return [];
-    const sorted = [...calls].sort((a, b) => {
+    if (!filteredCalls) return [];
+    const sorted = [...filteredCalls].sort((a, b) => {
       let cmp = 0;
       switch (sortField) {
         case "date":
@@ -116,7 +148,7 @@ export default function CallsTable() {
       return sortDir === "desc" ? -cmp : cmp;
     });
     return sorted;
-  }, [calls, sortField, sortDir]);
+  }, [filteredCalls, sortField, sortDir]);
 
   const totalPages = Math.max(1, Math.ceil(sortedCalls.length / pageSize));
   const pagedCalls = sortedCalls.slice(page * pageSize, (page + 1) * pageSize);
@@ -240,8 +272,8 @@ export default function CallsTable() {
           <h3 className="text-lg font-semibold text-foreground flex items-center gap-1">
             Recent Calls
             <HelpTip text="All uploaded call recordings sorted by date. Use filters to narrow by employee, sentiment, or status. Click a row to view the full transcript and AI analysis." />
-            {[statusFilter, sentimentFilter, employeeFilter].filter(v => v !== "all").length > 0 && (
-              <Badge variant="secondary" className="text-xs ml-2">{[statusFilter, sentimentFilter, employeeFilter].filter(v => v !== "all").length} active</Badge>
+            {[statusFilter, sentimentFilter, employeeFilter, scoreFilter, flagFilter, categoryFilter].filter(v => v !== "all").length > 0 && (
+              <Badge variant="secondary" className="text-xs ml-2">{[statusFilter, sentimentFilter, employeeFilter, scoreFilter, flagFilter, categoryFilter].filter(v => v !== "all").length} active</Badge>
             )}
           </h3>
           <span className="text-xs text-muted-foreground">
@@ -299,7 +331,31 @@ export default function CallsTable() {
               <SelectItem value="negative">Negative</SelectItem>
             </SelectContent>
           </Select>
-          {(statusFilter !== "all" || sentimentFilter !== "all" || employeeFilter !== "all") && (
+          <Select value={scoreFilter} onValueChange={handleFilterChange(setScoreFilter)}>
+            <SelectTrigger className="w-40" data-testid="score-filter">
+              <SelectValue placeholder="All Scores" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Scores</SelectItem>
+              <SelectItem value="high">High (8-10)</SelectItem>
+              <SelectItem value="mid">Mid (4-7.9)</SelectItem>
+              <SelectItem value="low">Low (0-3.9)</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={flagFilter} onValueChange={handleFilterChange(setFlagFilter)}>
+            <SelectTrigger className="w-40" data-testid="flag-filter">
+              <SelectValue placeholder="All Flags" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Flags</SelectItem>
+              <SelectItem value="flagged">Flagged</SelectItem>
+              <SelectItem value="unflagged">Unflagged</SelectItem>
+              <SelectItem value="exceptional">Exceptional</SelectItem>
+              <SelectItem value="low_score">Low Score</SelectItem>
+              <SelectItem value="low_confidence">Low Confidence</SelectItem>
+            </SelectContent>
+          </Select>
+          {(statusFilter !== "all" || sentimentFilter !== "all" || employeeFilter !== "all" || scoreFilter !== "all" || flagFilter !== "all" || categoryFilter !== "all") && (
             <Button
               variant="ghost"
               size="sm"
@@ -307,6 +363,9 @@ export default function CallsTable() {
                 setStatusFilter("all");
                 setSentimentFilter("all");
                 setEmployeeFilter("all");
+                setScoreFilter("all");
+                setFlagFilter("all");
+                setCategoryFilter("all");
                 setPage(0);
                 setSelectedIds(new Set());
               }}
@@ -586,13 +645,13 @@ export default function CallsTable() {
         onConfirm={deleteConfirm.bulk ? confirmBulkDelete : confirmDelete}
       />
 
-      {!calls?.length && (statusFilter !== "all" || sentimentFilter !== "all" || employeeFilter !== "all") && (
+      {sortedCalls.length === 0 && (statusFilter !== "all" || sentimentFilter !== "all" || employeeFilter !== "all" || scoreFilter !== "all" || flagFilter !== "all" || categoryFilter !== "all") && (
         <EmptyState
           compact
           icon={RiSearchLine}
           title="No matching calls"
           description="Try adjusting your filters or search criteria."
-          action={{ label: "Clear Filters", onClick: () => { setStatusFilter("all"); setSentimentFilter("all"); setEmployeeFilter("all"); setPage(0); } }}
+          action={{ label: "Clear Filters", onClick: () => { setStatusFilter("all"); setSentimentFilter("all"); setEmployeeFilter("all"); setScoreFilter("all"); setFlagFilter("all"); setCategoryFilter("all"); setPage(0); } }}
         />
       )}
 

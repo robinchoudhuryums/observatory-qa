@@ -11,6 +11,7 @@ import { CALL_CATEGORIES } from "@shared/schema";
 import { decryptClinicalNotePhi } from "../services/phi-encryption";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import { processAudioFile, invalidateRefDocCache, cleanupFile } from "../services/call-processing";
+import { broadcastCallUpdate } from "../services/websocket";
 import path from "path";
 
 // Re-export invalidateRefDocCache for consumers that import from calls route
@@ -381,6 +382,14 @@ export function registerCallRoutes(app: Express): void {
         return;
       }
 
+      logPhiAccess({
+        ...auditContext(req),
+        event: "assign_call",
+        resourceType: "call",
+        resourceId: req.params.id,
+        detail: `Assigned to employee ${employee.name} (${employeeId})${call.employeeId ? `, previously ${call.employeeId}` : ""}`,
+      });
+
       const updated = await storage.updateCall(req.orgId!, req.params.id, { employeeId });
       res.json(updated);
     } catch (error) {
@@ -400,10 +409,120 @@ export function registerCallRoutes(app: Express): void {
         res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call not found"));
         return;
       }
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "update_call_tags",
+        resourceType: "call",
+        resourceId: req.params.id,
+        detail: `Tags: ${tags.join(", ")}`,
+      });
+
       const updated = await storage.updateCall(req.orgId!, req.params.id, { tags });
       res.json(updated);
     } catch (error) {
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update tags"));
+    }
+  });
+
+  // Reanalyze a single call with current prompt templates and AI provider
+  app.post("/api/calls/:id/reanalyze", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
+    try {
+      const callId = req.params.id;
+      const orgId = req.orgId!;
+
+      const call = await storage.getCall(orgId, callId);
+      if (!call) {
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call not found"));
+        return;
+      }
+
+      if (call.status !== "completed") {
+        res.status(400).json({ message: "Only completed calls can be reanalyzed" });
+        return;
+      }
+
+      const transcript = await storage.getTranscript(orgId, callId);
+      if (!transcript?.text || transcript.text.length < 10) {
+        res.status(400).json({ message: "Call has no valid transcript for reanalysis" });
+        return;
+      }
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "reanalyze_call",
+        resourceType: "call",
+        resourceId: callId,
+        detail: `Reanalysis requested by ${req.user?.name || req.user?.username}`,
+      });
+
+      // Run reanalysis in the background
+      (async () => {
+        try {
+          await storage.updateCall(orgId, callId, { status: "processing" });
+          broadcastCallUpdate(callId, "reanalyzing", { step: 1, totalSteps: 2, label: "Re-running AI analysis..." }, orgId);
+
+          const { getOrgAIProvider } = await import("../services/ai-factory");
+          const org = await storage.getOrganization(orgId);
+          const provider = getOrgAIProvider(orgId, org?.settings);
+
+          if (!provider.isAvailable) {
+            await storage.updateCall(orgId, callId, { status: "completed" });
+            broadcastCallUpdate(callId, "failed", { step: 2, totalSteps: 2, label: "AI provider unavailable" }, orgId);
+            return;
+          }
+
+          // Load prompt template for this call's category
+          const template = call.callCategory
+            ? await storage.getPromptTemplateByCategory(orgId, call.callCategory)
+            : undefined;
+
+          const result = await provider.analyzeCallTranscript(
+            transcript.text!,
+            callId,
+            call.callCategory || undefined,
+            template ? {
+              evaluationCriteria: template.evaluationCriteria || undefined,
+              scoringWeights: template.scoringWeights,
+              requiredPhrases: template.requiredPhrases,
+            } as import("../services/ai-provider").PromptTemplateConfig : undefined,
+          );
+
+          // Preserve existing data that shouldn't be overwritten
+          const existing = await storage.getCallAnalysis(orgId, callId);
+          const manualEdits = existing?.manualEdits || [];
+
+          await storage.createCallAnalysis(orgId, {
+            id: existing?.id || callId,
+            orgId,
+            callId,
+            ...result,
+            manualEdits: [
+              ...Array.isArray(manualEdits) ? manualEdits : [],
+              {
+                editedBy: "system",
+                editedAt: new Date().toISOString(),
+                reason: `Reanalysis requested by ${req.user?.name || req.user?.username}`,
+                fieldsChanged: ["reanalysis"],
+                previousValues: { performanceScore: existing?.performanceScore },
+              },
+            ],
+          } as any);
+
+          await storage.updateCall(orgId, callId, { status: "completed" });
+          broadcastCallUpdate(callId, "completed", { step: 2, totalSteps: 2, label: "Reanalysis complete" }, orgId);
+          logger.info({ orgId, callId }, "Call reanalysis completed");
+        } catch (err) {
+          logger.error({ err, callId }, "Reanalysis failed");
+          await storage.updateCall(orgId, callId, { status: "completed" });
+          broadcastCallUpdate(callId, "failed", { step: 2, totalSteps: 2, label: "Reanalysis failed" }, orgId);
+        }
+      })();
+
+      res.json({ success: true, message: "Reanalysis started" });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to start reanalysis");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to start reanalysis"));
     }
   });
 
