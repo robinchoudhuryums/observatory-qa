@@ -10,7 +10,8 @@ import { logger } from "../services/logger";
 import { CALL_CATEGORIES } from "@shared/schema";
 import { decryptClinicalNotePhi } from "../services/phi-encryption";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
-import { processAudioFile, invalidateRefDocCache } from "../services/call-processing";
+import { processAudioFile, invalidateRefDocCache, cleanupFile } from "../services/call-processing";
+import path from "path";
 
 // Re-export invalidateRefDocCache for consumers that import from calls route
 export { invalidateRefDocCache } from "../services/call-processing";
@@ -66,7 +67,7 @@ export function registerCallRoutes(app: Express): void {
       ]);
 
       const analysis = normalizeAnalysis(rawAnalysis);
-      decryptClinicalNote(analysis as Record<string, unknown> | null);
+      decryptClinicalNotePhi(analysis as Record<string, unknown> | null);
 
       res.json({
         ...call,
@@ -249,7 +250,7 @@ export function registerCallRoutes(app: Express): void {
         res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
         return;
       }
-      decryptClinicalNote(analysis as Record<string, unknown>);
+      decryptClinicalNotePhi(analysis as Record<string, unknown>);
       logPhiAccess({
         ...auditContext(req),
         event: "view_call_analysis",

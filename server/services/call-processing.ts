@@ -37,7 +37,7 @@ const REF_DOC_CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_REF_DOC_CACHE_ENTRIES = 1_000;
 
 interface RefDocCacheEntry {
-  docs: Array<{ name: string; category: string; extractedText: string | null; id: string }>;
+  docs: Array<{ name: string; category: string; extractedText?: string | null; id: string }>;
   expiresAt: number;
 }
 
@@ -193,7 +193,7 @@ export async function autoAssignEmployee(
 
 // ==================== CLINICAL NOTE MAPPING ====================
 
-export function mapClinicalNote(rawNote: any): Record<string, any> {
+export function mapClinicalNote(rawNote: any): any {
   return {
     format: rawNote.format || "soap",
     specialty: rawNote.specialty,
@@ -302,7 +302,7 @@ async function loadPromptTemplate(
 async function loadReferenceContext(
   orgId: string,
   callId: string,
-  docsWithText: Array<{ name: string; category: string; extractedText: string | null; id: string }>,
+  docsWithText: Array<{ name: string; category: string; extractedText?: string | null; id: string }>,
   transcriptText: string | undefined,
 ): Promise<Array<{ name: string; category: string; text: string }>> {
   // Check RAG eligibility
