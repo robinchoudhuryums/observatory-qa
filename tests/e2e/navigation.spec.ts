@@ -1,24 +1,5 @@
-import { test, expect, type Page } from "@playwright/test";
-
-async function login(page: Page) {
-  await page.goto("/");
-  const loginLink = page.getByText(/sign in|log in|get started/i).first();
-  if (await loginLink.isVisible()) {
-    await loginLink.click();
-  }
-
-  const usernameInput = page.locator("input[type='text'], input[name='username']").first();
-  await usernameInput.waitFor({ timeout: 5000 });
-  await usernameInput.fill("admin");
-
-  const passwordInput = page.locator("input[type='password']").first();
-  await passwordInput.fill("admin123");
-
-  const submitBtn = page.getByRole("button", { name: /sign in|log in|submit/i }).first();
-  await submitBtn.click();
-
-  await expect(page.locator("[data-testid='sidebar']")).toBeVisible({ timeout: 10000 });
-}
+import { test, expect } from "@playwright/test";
+import { login } from "./helpers";
 
 test.describe("Navigation", () => {
   test.beforeEach(async ({ page }) => {

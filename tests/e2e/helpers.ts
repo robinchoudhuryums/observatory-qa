@@ -11,15 +11,26 @@ export async function login(
   password = "admin123",
 ) {
   await page.goto("/");
+
+  // Wait for either the landing page "Sign In" link or the login form input.
+  // The app first shows a loading spinner while /api/auth/me resolves, then
+  // renders the landing page (unauthenticated) or dashboard (authenticated).
   const loginLink = page.getByText(/sign in|log in|get started/i).first();
+  const usernameInput = page.locator("[data-testid='login-username'], input[name='username']").first();
+
+  // Wait for one of the two to appear (landing page button or auth form input)
+  await Promise.race([
+    loginLink.waitFor({ timeout: 15000 }).catch(() => {}),
+    usernameInput.waitFor({ timeout: 15000 }).catch(() => {}),
+  ]);
+
+  // If on landing page, click through to login form
   if (await loginLink.isVisible()) {
     await loginLink.click();
+    // Wait for the auth page to load (lazy-loaded via Suspense)
+    await usernameInput.waitFor({ timeout: 10000 });
   }
 
-  const usernameInput = page
-    .locator("input[type='text'], input[name='username']")
-    .first();
-  await usernameInput.waitFor({ timeout: 5000 });
   await usernameInput.fill(username);
 
   const passwordInput = page.locator("input[type='password']").first();
@@ -31,6 +42,6 @@ export async function login(
   await submitBtn.click();
 
   await expect(page.locator("[data-testid='sidebar']")).toBeVisible({
-    timeout: 10000,
+    timeout: 15000,
   });
 }
