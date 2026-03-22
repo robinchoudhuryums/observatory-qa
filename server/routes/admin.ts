@@ -216,10 +216,18 @@ export function registerAdminRoutes(app: Express): void {
     try {
       const { username, password, name, role } = req.body;
       if (!username || !password || !name) {
-        return res.status(400).json({ message: "username, password, and name are required" });
+        return res.status(400).json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "username, password, and name are required"));
+      }
+      // Validate field lengths
+      if (username.length > 255 || name.length > 255) {
+        return res.status(400).json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "Field length exceeds maximum allowed"));
+      }
+      // Validate email format for username
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(username)) {
+        return res.status(400).json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "Username must be a valid email address"));
       }
       if (!["viewer", "manager", "admin"].includes(role || "viewer")) {
-        return res.status(400).json({ message: "Invalid role" });
+        return res.status(400).json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "Invalid role"));
       }
 
       // HIPAA: Enforce password complexity

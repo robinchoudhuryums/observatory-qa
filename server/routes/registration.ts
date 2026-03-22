@@ -27,10 +27,29 @@ export function registerRegistrationRoutes(app: Express): void {
         });
       }
 
+      // Validate field lengths to prevent DoS via huge payloads
+      if (orgName.length > 200 || orgSlug.length > 100 || username.length > 255 || name.length > 255) {
+        return res.status(400).json({ message: "Field length exceeds maximum allowed" });
+      }
+
+      // Validate email format for username (used as email in invitations)
+      const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!EMAIL_REGEX.test(username)) {
+        return res.status(400).json({ message: "Username must be a valid email address" });
+      }
+
       // Validate slug format
       if (!/^[a-z0-9-]+$/.test(orgSlug)) {
         return res.status(400).json({
           message: "Organization slug must be lowercase alphanumeric with hyphens only",
+        });
+      }
+
+      // Validate industryType against allowed values
+      const VALID_INDUSTRIES = ["general", "dental", "medical", "behavioral_health", "veterinary"];
+      if (industryType && !VALID_INDUSTRIES.includes(industryType)) {
+        return res.status(400).json({
+          message: `Invalid industry type. Must be one of: ${VALID_INDUSTRIES.join(", ")}`,
         });
       }
 

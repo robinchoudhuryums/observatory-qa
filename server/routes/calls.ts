@@ -21,7 +21,7 @@ export function registerCallRoutes(app: Express): void {
   app.get("/api/calls", requireAuth, injectOrgContext, async (req, res) => {
     try {
       const { status, sentiment, employee, limit, offset } = req.query;
-      const parsedLimit = limit ? Math.min(Math.max(1, parseInt(limit as string, 10) || 100), 500) : undefined;
+      const parsedLimit = Math.min(Math.max(1, parseInt(limit as string, 10) || 100), 500);
       const parsedOffset = Math.max(0, parseInt(offset as string, 10) || 0);
 
       const calls = await storage.getCallsWithDetails(req.orgId!, {
@@ -32,12 +32,14 @@ export function registerCallRoutes(app: Express): void {
         offset: parsedOffset,
       });
 
-      if (parsedLimit && parsedLimit > 0) {
-        res.json({ data: calls, total: calls.length, limit: parsedLimit, offset: parsedOffset });
-      } else {
-        // Backwards compatible — return raw array when no limit specified
-        res.json(calls);
-      }
+      // Consistent pagination shape matching paginateArray() used by other endpoints
+      res.json({
+        data: calls,
+        total: calls.length,
+        limit: parsedLimit,
+        offset: parsedOffset,
+        hasMore: calls.length === parsedLimit,
+      });
     } catch (error) {
       logger.error({ err: error }, "Failed to get calls");
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get calls"));
@@ -87,12 +89,13 @@ export function registerCallRoutes(app: Express): void {
     upload.single('audioFile')(req, res, (err: any) => {
       if (err) {
         if (err.code === 'LIMIT_FILE_SIZE') {
-          return res.status(413).json({ message: "File too large. Maximum size is 100MB." });
+          return res.status(413).json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "File too large. Maximum size is 100MB."));
         }
         if (err.message?.includes('Invalid file type')) {
-          return res.status(400).json({ message: err.message });
+          return res.status(400).json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "Invalid file type. Only audio files (MP3, WAV, M4A, MP4, FLAC, OGG) are allowed."));
         }
-        return res.status(400).json({ message: `Upload error: ${err.message}` });
+        logger.warn({ err: err.message }, "Upload error");
+        return res.status(400).json(errorResponse(ERROR_CODES.CALL_UPLOAD_FAILED, "File upload failed. Please try again."));
       }
       next();
     });

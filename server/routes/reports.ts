@@ -6,6 +6,7 @@ import { requireAuth, injectOrgContext } from "../auth";
 import { safeFloat } from "./helpers";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
+import { errorResponse, ERROR_CODES } from "../services/error-codes";
 
 /** Maximum calls to process for report generation to prevent memory exhaustion. */
 const MAX_REPORT_CALLS = 10_000;
@@ -72,7 +73,7 @@ export function registerReportRoutes(app: Express): void {
       });
       res.json(results);
     } catch (error) {
-      res.status(500).json({ message: "Failed to search calls" });
+      res.status(500).json(errorResponse(ERROR_CODES.REPORT_SEARCH_FAILED, "Failed to search calls"));
     }
   });
 
@@ -85,7 +86,7 @@ export function registerReportRoutes(app: Express): void {
       res.json(performers);
     } catch (error) {
       logger.error({ err: error }, "Failed to get performance data");
-      res.status(500).json({ message: "Failed to get performance data" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get performance data"));
     }
   });
 
@@ -107,7 +108,7 @@ export function registerReportRoutes(app: Express): void {
       res.json(reportData);
     } catch (error) {
       logger.error({ err: error }, "Failed to generate report data");
-      res.status(500).json({ message: "Failed to generate report data" });
+      res.status(500).json(errorResponse(ERROR_CODES.REPORT_GENERATION_FAILED, "Failed to generate report data"));
     }
   });
 
@@ -280,7 +281,7 @@ export function registerReportRoutes(app: Express): void {
       });
     } catch (error) {
       logger.error({ err: error }, "Failed to generate filtered report");
-      res.status(500).json({ message: "Failed to generate filtered report" });
+      res.status(500).json(errorResponse(ERROR_CODES.REPORT_GENERATION_FAILED, "Failed to generate filtered report"));
     }
   });
 
@@ -344,7 +345,7 @@ export function registerReportRoutes(app: Express): void {
       res.json({ current, previous, delta });
     } catch (error) {
       logger.error({ err: error }, "Failed to generate comparative report");
-      res.status(500).json({ message: "Failed to generate comparative report" });
+      res.status(500).json(errorResponse(ERROR_CODES.REPORT_GENERATION_FAILED, "Failed to generate comparative report"));
     }
   });
 
@@ -356,7 +357,7 @@ export function registerReportRoutes(app: Express): void {
 
       const employee = await storage.getEmployee(req.orgId!, employeeId);
       if (!employee) {
-        res.status(404).json({ message: "Employee not found" });
+        res.status(404).json(errorResponse(ERROR_CODES.EMP_NOT_FOUND, "Employee not found"));
         return;
       }
 
@@ -502,7 +503,7 @@ export function registerReportRoutes(app: Express): void {
       });
     } catch (error) {
       logger.error({ err: error }, "Failed to generate agent profile");
-      res.status(500).json({ message: "Failed to generate agent profile" });
+      res.status(500).json(errorResponse(ERROR_CODES.REPORT_GENERATION_FAILED, "Failed to generate agent profile"));
     }
   });
 
@@ -519,7 +520,7 @@ export function registerReportRoutes(app: Express): void {
 
       const employee = await storage.getEmployee(req.orgId!, employeeId);
       if (!employee) {
-        res.status(404).json({ message: "Employee not found" });
+        res.status(404).json(errorResponse(ERROR_CODES.EMP_NOT_FOUND, "Employee not found"));
         return;
       }
 
@@ -618,7 +619,7 @@ export function registerReportRoutes(app: Express): void {
       res.json({ summary });
     } catch (error) {
       logger.error({ err: error }, "Failed to generate agent summary");
-      res.status(500).json({ message: "Failed to generate AI summary" });
+      res.status(500).json(errorResponse(ERROR_CODES.REPORT_GENERATION_FAILED, "Failed to generate AI summary"));
     }
   });
 
@@ -628,7 +629,7 @@ export function registerReportRoutes(app: Express): void {
       const { employeeId } = req.params;
       const employee = await storage.getEmployee(req.orgId!, employeeId);
       if (!employee) {
-        res.status(404).json({ message: "Employee not found" });
+        res.status(404).json(errorResponse(ERROR_CODES.EMP_NOT_FOUND, "Employee not found"));
         return;
       }
 
@@ -696,7 +697,7 @@ export function registerReportRoutes(app: Express): void {
       res.send(html);
     } catch (error) {
       logger.error({ err: error }, "Failed to export agent report");
-      res.status(500).json({ message: "Failed to export agent report" });
+      res.status(500).json(errorResponse(ERROR_CODES.REPORT_GENERATION_FAILED, "Failed to export agent report"));
     }
   });
 }
