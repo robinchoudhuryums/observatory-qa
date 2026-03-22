@@ -21,25 +21,25 @@ test.describe("Admin Settings", () => {
   });
 
   test("prompt templates page loads for admin", async ({ page }) => {
-    await page.goto("/prompt-templates");
+    await page.goto("/admin/templates");
     const content = page.getByText(/prompt|template|evaluation|category/i).first();
     await expect(content).toBeVisible({ timeout: 10000 });
   });
 
   test("A/B testing page loads for admin", async ({ page }) => {
-    await page.goto("/ab-testing");
+    await page.goto("/admin/ab-testing");
     const content = page.getByText(/a\/b|model|test|comparison|upload/i).first();
     await expect(content).toBeVisible({ timeout: 10000 });
   });
 
   test("spend tracking page loads", async ({ page }) => {
-    await page.goto("/spend-tracking");
+    await page.goto("/admin/spend-tracking");
     const content = page.getByText(/spend|cost|usage|track/i).first();
     await expect(content).toBeVisible({ timeout: 10000 });
   });
 
   test("audit logs page loads", async ({ page }) => {
-    await page.goto("/audit-logs");
+    await page.goto("/admin/audit-logs");
     const content = page.getByText(/audit|log|event|activity/i).first();
     await expect(content).toBeVisible({ timeout: 10000 });
   });

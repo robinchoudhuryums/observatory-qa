@@ -16,8 +16,8 @@ test.describe("Coaching", () => {
     await page.goto("/coaching");
     // Admin should see ability to create coaching sessions
     const createBtn = page.getByRole("button", { name: /create|new|add/i }).first();
-    const hasButtton = await createBtn.isVisible().catch(() => false);
-    if (hasButtton) {
+    const hasButton = await createBtn.isVisible().catch(() => false);
+    if (hasButton) {
       await expect(createBtn).toBeVisible();
     }
   });
