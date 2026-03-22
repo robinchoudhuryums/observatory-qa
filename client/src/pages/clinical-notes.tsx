@@ -11,6 +11,14 @@ import { apiRequest } from "@/lib/queryClient";
 import type { ClinicalNote } from "@shared/schema";
 import {  RiStethoscopeLine, RiShieldCheckLine, RiAlertLine, RiFileTextLine, RiCalendarLine, RiPencilLine, RiSaveLine, RiCloseLine, RiPulseLine, RiMessage2Line, RiInformationLine, RiFileCopyLine, RiArrowDownSLine, RiArrowUpSLine, RiRefreshLine, RiCheckDoubleLine, RiCapsuleLine, RiListCheck2, RiPrinterLine, RiInputMethodLine, RiHistoryLine  } from "@remixicon/react";
 
+interface QualityFeedbackEntry {
+  rating: number;
+  comment?: string;
+  improvementAreas?: string[];
+  ratedBy?: string;
+  ratedAt?: string;
+}
+
 interface CallWithClinical {
   id: string;
   fileName?: string;
@@ -27,6 +35,9 @@ interface CallWithClinical {
       consentRecordedAt?: string;
       editHistory?: Array<{ editedBy: string; editedAt: string; fieldsChanged: string[] }>;
       validationWarnings?: string[];
+      weightedCompleteness?: number;
+      sectionDepth?: Record<string, "empty" | "minimal" | "adequate" | "thorough">;
+      qualityFeedback?: QualityFeedbackEntry[];
     };
   };
   employee?: { name: string };
@@ -133,6 +144,30 @@ export default function ClinicalNotesPage() {
     },
     onError: (err) => {
       toast({ title: "Save failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // --- Quality feedback state ---
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [feedbackRating, setFeedbackRating] = useState(0);
+  const [feedbackComment, setFeedbackComment] = useState("");
+
+  const feedbackMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/clinical/notes/${callId}/feedback`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ rating: feedbackRating, comment: feedbackComment || undefined }),
+      });
+      if (!res.ok) throw new Error("Failed to submit feedback");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Feedback submitted", description: "Thank you for rating the AI note quality." });
+      setShowFeedback(false);
+      setFeedbackRating(0);
+      setFeedbackComment("");
+      queryClient.invalidateQueries({ queryKey: ["/api/calls", callId] });
     },
   });
 
@@ -481,7 +516,7 @@ export default function ClinicalNotesPage() {
         )}
 
         {/* Quality Scores */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 print:hidden">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 print:hidden">
           {cn.documentationCompleteness != null && (
             <Card>
               <CardContent className="pt-4 text-center">
@@ -491,10 +526,21 @@ export default function ClinicalNotesPage() {
               </CardContent>
             </Card>
           )}
+          {cn.weightedCompleteness != null && (
+            <Card>
+              <CardContent className="pt-4 text-center">
+                <p className="text-xs text-muted-foreground">Weighted</p>
+                <p className={`text-2xl font-bold ${cn.weightedCompleteness >= 8 ? "text-green-600" : cn.weightedCompleteness >= 5 ? "text-amber-600" : "text-red-600"}`}>
+                  {cn.weightedCompleteness.toFixed(1)}
+                </p>
+                <p className="text-xs text-muted-foreground">/10</p>
+              </CardContent>
+            </Card>
+          )}
           {cn.clinicalAccuracy != null && (
             <Card>
               <CardContent className="pt-4 text-center">
-                <p className="text-xs text-muted-foreground">Clinical Accuracy</p>
+                <p className="text-xs text-muted-foreground">Accuracy</p>
                 <p className="text-2xl font-bold">{cn.clinicalAccuracy.toFixed(1)}</p>
                 <p className="text-xs text-muted-foreground">/10</p>
               </CardContent>
@@ -517,6 +563,32 @@ export default function ClinicalNotesPage() {
             </Card>
           )}
         </div>
+
+        {/* Section Depth Indicators */}
+        {cn.sectionDepth && Object.keys(cn.sectionDepth).length > 0 && (
+          <Card className="print:hidden">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-muted-foreground">Section Depth</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(cn.sectionDepth).map(([section, depth]) => {
+                  const colors: Record<string, string> = {
+                    empty: "bg-red-100 text-red-700 border-red-200",
+                    minimal: "bg-amber-100 text-amber-700 border-amber-200",
+                    adequate: "bg-blue-100 text-blue-700 border-blue-200",
+                    thorough: "bg-green-100 text-green-700 border-green-200",
+                  };
+                  return (
+                    <Badge key={section} variant="outline" className={`text-xs ${colors[depth] || ""}`}>
+                      {section.replace(/([A-Z])/g, " $1").trim()}: {depth}
+                    </Badge>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Format-specific sections */}
         <div className="space-y-4">
@@ -810,7 +882,10 @@ export default function ClinicalNotesPage() {
       {call.analysis?.clinicalNote?.editHistory?.length && call.analysis.clinicalNote.editHistory.length > 0 && (
         <Card className="print:hidden">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base text-muted-foreground">Edit History</CardTitle>
+            <CardTitle className="text-base text-muted-foreground flex items-center gap-2">
+              <RiHistoryLine className="w-4 h-4" />
+              Edit History
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-1">
@@ -822,6 +897,63 @@ export default function ClinicalNotesPage() {
                 </div>
               ))}
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Quality Feedback — Post-attestation note quality rating */}
+      {cn.providerAttested && !editing && (
+        <Card className="print:hidden">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <RiStethoscopeLine className="w-4 h-4 text-primary" />
+              AI Note Quality Feedback
+            </CardTitle>
+            <CardDescription className="text-xs">Rate how well the AI-generated note matched the encounter</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {cn.qualityFeedback && cn.qualityFeedback.length > 0 && (
+              <div className="mb-3 space-y-1">
+                {cn.qualityFeedback.map((fb, i) => (
+                  <div key={i} className="text-xs text-muted-foreground flex items-center gap-2">
+                    <span className="font-mono">{"★".repeat(fb.rating)}{"☆".repeat(5 - fb.rating)}</span>
+                    <span>— {fb.ratedBy}</span>
+                    {fb.comment && <span className="italic">"{fb.comment}"</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {showFeedback ? (
+              <div className="space-y-3">
+                <div>
+                  <p className="text-xs font-medium mb-1">Rating</p>
+                  <div className="flex gap-1">
+                    {[1, 2, 3, 4, 5].map(star => (
+                      <button key={star} onClick={() => setFeedbackRating(star)}
+                        className={`text-xl ${star <= feedbackRating ? "text-amber-500" : "text-gray-300"} hover:text-amber-400`}>
+                        ★
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-medium mb-1">Comment (optional)</p>
+                  <Input value={feedbackComment} onChange={e => setFeedbackComment(e.target.value)}
+                    placeholder="What could be improved?" className="text-sm h-8" />
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => feedbackMutation.mutate()}
+                    disabled={feedbackRating === 0 || feedbackMutation.isPending}>
+                    {feedbackMutation.isPending ? "Submitting..." : "Submit"}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setShowFeedback(false)}>Cancel</Button>
+                </div>
+              </div>
+            ) : (
+              <Button size="sm" variant="outline" onClick={() => setShowFeedback(true)}>
+                Rate Note Quality
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}

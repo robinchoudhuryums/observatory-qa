@@ -92,7 +92,16 @@ export function registerClinicalRoutes(app: Express): void {
         return;
       }
 
-      res.json(cn);
+      // Run validation and attach warnings + weighted completeness
+      const validation = validateClinicalNote(cn as Record<string, unknown>);
+      const enriched = {
+        ...cn,
+        validationWarnings: validation.warnings.length > 0 ? validation.warnings : undefined,
+        weightedCompleteness: validation.weightedCompleteness,
+        sectionDepth: validation.sectionDepth,
+      };
+
+      res.json(enriched);
     } catch (error) {
       logger.error({ err: error }, "Failed to get clinical note");
       res.status(500).json({ message: "Failed to get clinical note" });
@@ -915,4 +924,54 @@ export function registerClinicalRoutes(app: Express): void {
       }
     },
   );
+
+  // Post-attestation quality feedback — providers rate AI note quality
+  app.post("/api/clinical/notes/:callId/feedback", requireAuth, injectOrgContext, requireClinicalPlan(), async (req, res) => {
+    try {
+      const { rating, comment, improvementAreas } = req.body;
+
+      if (typeof rating !== "number" || rating < 1 || rating > 5) {
+        res.status(400).json({ message: "Rating must be 1-5" });
+        return;
+      }
+
+      const analysis = await storage.getCallAnalysis(req.orgId!, req.params.callId);
+      if (!analysis?.clinicalNote) {
+        res.status(404).json({ message: "No clinical note found for this encounter" });
+        return;
+      }
+
+      const feedback = {
+        rating,
+        comment: typeof comment === "string" ? comment.slice(0, 1000) : undefined,
+        improvementAreas: Array.isArray(improvementAreas)
+          ? improvementAreas.filter((a: unknown) => typeof a === "string").slice(0, 10) as string[]
+          : undefined,
+        ratedBy: req.user?.name || req.user?.username,
+        ratedById: req.user?.id,
+        ratedAt: new Date().toISOString(),
+      };
+
+      // Store feedback on the clinical note
+      const existingFeedback = Array.isArray((analysis.clinicalNote as any).qualityFeedback)
+        ? (analysis.clinicalNote as any).qualityFeedback
+        : [];
+      (analysis.clinicalNote as any).qualityFeedback = [...existingFeedback, feedback];
+
+      await storage.createCallAnalysis(req.orgId!, analysis);
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "clinical_note_feedback",
+        resourceType: "clinical_note",
+        resourceId: req.params.callId,
+        detail: `Rating: ${rating}/5${improvementAreas?.length ? `, Areas: ${improvementAreas.join(", ")}` : ""}`,
+      });
+
+      res.json({ success: true, feedback });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to save clinical note feedback");
+      res.status(500).json({ message: "Failed to save feedback" });
+    }
+  });
 }

@@ -56,12 +56,30 @@ export function getRequiredSections(format: string): string[] {
   return REQUIRED_SECTIONS[format.toLowerCase()] || REQUIRED_SECTIONS.soap;
 }
 
+// --- Section importance weights (critical > standard > supplementary) ---
+const SECTION_WEIGHTS: Record<string, number> = {
+  chiefComplaint: 2.0,   // Critical — drives entire clinical reasoning
+  assessment: 2.0,        // Critical — clinical conclusion
+  plan: 1.8,              // Critical — actionable treatment
+  subjective: 1.5,        // Standard — patient report
+  objective: 1.5,         // Standard — provider findings
+  hpiNarrative: 1.5,      // Standard — detailed history
+  data: 1.5,              // Standard (DAP format)
+  behavior: 1.2,          // Standard (BIRP format)
+  intervention: 1.2,      // Standard (BIRP format)
+  response: 1.2,          // Standard (BIRP format)
+};
+
 export interface ClinicalNoteValidationResult {
   valid: boolean;
   format: string;
   missingSections: string[];
   emptySections: string[];
   computedCompleteness: number;
+  /** Weighted completeness accounting for section importance */
+  weightedCompleteness: number;
+  /** Per-section depth assessment */
+  sectionDepth: Record<string, "empty" | "minimal" | "adequate" | "thorough">;
   warnings: string[];
 }
 
@@ -154,12 +172,56 @@ export function validateClinicalNote(
     }
   }
 
-  // Compute completeness: ratio of filled required sections
+  // Compute completeness: ratio of filled required sections (unweighted)
   const totalRequired = required.length;
   const filled = totalRequired - missingSections.length - emptySections.length;
   const computedCompleteness = totalRequired > 0
     ? Math.round((filled / totalRequired) * 10 * 10) / 10 // 0-10 scale, 1 decimal
     : 0;
+
+  // Compute weighted completeness: accounts for section importance
+  let totalWeight = 0;
+  let filledWeight = 0;
+  for (const section of required) {
+    const weight = SECTION_WEIGHTS[section] || 1.0;
+    totalWeight += weight;
+    if (!missingSections.includes(section) && !emptySections.includes(section)) {
+      filledWeight += weight;
+    }
+  }
+  const weightedCompleteness = totalWeight > 0
+    ? Math.round((filledWeight / totalWeight) * 10 * 10) / 10
+    : 0;
+
+  // Compute section depth: categorize content quality by length
+  const sectionDepth: Record<string, "empty" | "minimal" | "adequate" | "thorough"> = {};
+  for (const section of required) {
+    const value = clinicalNote[section];
+    if (value === undefined || value === null) {
+      sectionDepth[section] = "empty";
+    } else if (typeof value === "string") {
+      const len = value.trim().length;
+      if (len === 0) sectionDepth[section] = "empty";
+      else if (len < 50) sectionDepth[section] = "minimal";
+      else if (len < 200) sectionDepth[section] = "adequate";
+      else sectionDepth[section] = "thorough";
+    } else if (Array.isArray(value)) {
+      const nonEmpty = value.filter((item: unknown) => typeof item === "string" && item.trim().length > 0);
+      if (nonEmpty.length === 0) sectionDepth[section] = "empty";
+      else if (nonEmpty.length <= 1) sectionDepth[section] = "minimal";
+      else if (nonEmpty.length <= 3) sectionDepth[section] = "adequate";
+      else sectionDepth[section] = "thorough";
+    }
+  }
+
+  // Add depth warnings for critical sections that are too brief
+  const criticalSections = required.filter(s => (SECTION_WEIGHTS[s] || 1) >= 1.5);
+  for (const section of criticalSections) {
+    if (sectionDepth[section] === "minimal") {
+      const label = section.replace(/([A-Z])/g, " $1").trim();
+      warnings.push(`${label} section is very brief — consider adding more clinical detail`);
+    }
+  }
 
   const valid = missingSections.length === 0 && emptySections.length === 0;
 
@@ -169,6 +231,8 @@ export function validateClinicalNote(
     missingSections,
     emptySections,
     computedCompleteness,
+    weightedCompleteness,
+    sectionDepth,
     warnings,
   };
 }
