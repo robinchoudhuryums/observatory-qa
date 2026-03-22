@@ -14,7 +14,7 @@ test.describe("Admin Settings", () => {
   });
 
   test("settings page loads", async ({ page }) => {
-    await page.goto("/settings");
+    await page.goto("/admin/settings");
     // Should show settings tabs or content
     const content = page.getByText(/settings|organization|billing|branding|preferences/i).first();
     await expect(content).toBeVisible({ timeout: 10000 });

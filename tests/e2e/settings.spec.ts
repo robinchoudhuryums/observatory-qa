@@ -7,7 +7,7 @@ test.describe("Settings Page", () => {
   });
 
   test("settings page loads", async ({ page }) => {
-    await page.goto("/settings");
+    await page.goto("/admin/settings");
 
     // Page should show settings-related content
     const settingsContent = page
@@ -24,7 +24,7 @@ test.describe("Settings Page", () => {
   });
 
   test("dark mode toggle exists", async ({ page }) => {
-    await page.goto("/settings");
+    await page.goto("/admin/settings");
 
     // Look for dark mode toggle — could be switch, checkbox, or button
     const darkModeToggle = page
@@ -46,7 +46,7 @@ test.describe("Settings Page", () => {
   });
 
   test("user info is displayed", async ({ page }) => {
-    await page.goto("/settings");
+    await page.goto("/admin/settings");
 
     // Should show the logged-in user's name or username
     const userInfo = page

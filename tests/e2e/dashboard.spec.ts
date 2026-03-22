@@ -7,13 +7,13 @@ test.describe("Dashboard", () => {
   });
 
   test("dashboard loads after login", async ({ page }) => {
-    // After login the sidebar should already be visible; verify we are on the dashboard
-    await expect(page).toHaveURL(/\/dashboard/);
+    // After login the sidebar should already be visible; verify we are on the dashboard (root route)
+    await expect(page).toHaveURL(/\/$/);
     await expect(page.locator("[data-testid='sidebar']")).toBeVisible();
   });
 
   test("shows metrics overview cards", async ({ page }) => {
-    await page.goto("/dashboard");
+    await page.goto("/");
 
     // Look for metric cards — common patterns: data-testid, card role, or heading text
     const metricsSection = page
@@ -36,7 +36,7 @@ test.describe("Dashboard", () => {
   });
 
   test("shows performance section", async ({ page }) => {
-    await page.goto("/dashboard");
+    await page.goto("/");
 
     const performanceSection = page
       .locator("[data-testid='performance-card'], [data-testid='performance-section']")
@@ -54,7 +54,7 @@ test.describe("Dashboard", () => {
   });
 
   test("shows sentiment analysis section", async ({ page }) => {
-    await page.goto("/dashboard");
+    await page.goto("/");
 
     const sentimentSection = page
       .locator("[data-testid='sentiment-analysis'], [data-testid='sentiment-section']")
@@ -72,7 +72,7 @@ test.describe("Dashboard", () => {
   });
 
   test("date filters are visible", async ({ page }) => {
-    await page.goto("/dashboard");
+    await page.goto("/");
 
     // Look for date filter UI: date picker, range selector, or filter buttons
     const dateFilter = page

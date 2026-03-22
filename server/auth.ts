@@ -185,6 +185,7 @@ async function resolveUserOrgIds(): Promise<void> {
         name: user.orgSlug === "default" ? "Default Organization" : user.orgSlug,
         slug: user.orgSlug,
         status: "active",
+        settings: { retentionDays: 90, branding: { appName: "Observatory", onboardingCompleted: true } },
       });
     }
 
