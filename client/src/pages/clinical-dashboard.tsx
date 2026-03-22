@@ -111,9 +111,10 @@ export default function ClinicalDashboardPage() {
   const [templateSearch, setTemplateSearch] = useState("");
 
   // Data queries
-  const { data: metrics, isLoading: metricsLoading } = useQuery<ClinicalMetrics>({
+  const { data: metrics, isLoading: metricsLoading, isRefetching: metricsRefetching } = useQuery<ClinicalMetrics>({
     queryKey: ["/api/clinical/metrics"],
     staleTime: 30000,
+    gcTime: 300000,
   });
 
   const { data: callsData } = useQuery<CallItem[] | { data: CallItem[]; total: number }>({
@@ -121,7 +122,7 @@ export default function ClinicalDashboardPage() {
     staleTime: 30000,
   });
 
-  const { data: templates } = useQuery<ClinicalTemplate[]>({
+  const { data: templates, isLoading: templatesLoading } = useQuery<ClinicalTemplate[]>({
     queryKey: ["/api/clinical/templates", templateSearch],
     queryFn: async () => {
       const params = templateSearch ? `?search=${encodeURIComponent(templateSearch)}` : "";
@@ -130,6 +131,7 @@ export default function ClinicalDashboardPage() {
       return res.json();
     },
     staleTime: 60000,
+    gcTime: 300000,
   });
 
   const { data: styleResult, isLoading: styleLoading } = useQuery<StyleAnalysisResult>({
@@ -188,7 +190,10 @@ export default function ClinicalDashboardPage() {
             <Stethoscope className="w-6 h-6 text-primary" />
             <h1 className="text-2xl font-bold text-foreground">Clinical Dashboard</h1>
           </div>
-          <p className="text-muted-foreground mt-1">Documentation quality, attestation tracking, and AI style learning.</p>
+          <p className="text-muted-foreground mt-1">
+            Documentation quality, attestation tracking, and AI style learning.
+            {metricsRefetching && <span className="ml-2 text-xs text-muted-foreground animate-pulse">Updating...</span>}
+          </p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => navigate("/clinical/templates")}>
@@ -670,7 +675,12 @@ export default function ClinicalDashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              {!templates || templates.length === 0 ? (
+              {templatesLoading ? (
+                <div className="py-8 text-center text-muted-foreground">
+                  <Activity className="w-6 h-6 mx-auto mb-2 animate-spin opacity-50" />
+                  <p className="text-sm">Loading templates...</p>
+                </div>
+              ) : !templates || templates.length === 0 ? (
                 <div className="py-8 text-center text-muted-foreground">
                   <BookTemplate className="w-12 h-12 mx-auto mb-4 opacity-50" />
                   <p>{templateSearch ? "No templates match your search." : "No templates available."}</p>

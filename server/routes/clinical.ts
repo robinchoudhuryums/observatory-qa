@@ -15,6 +15,7 @@ import {
 } from "../services/clinical-templates";
 import {
   validateClinicalNote, getRecommendedFormat, getRequiredSections,
+  validateClinicalEditFields, VALID_NOTE_FORMATS,
 } from "../services/clinical-validation";
 
 /**
@@ -144,6 +145,7 @@ export function registerClinicalRoutes(app: Express): void {
         return;
       }
 
+      const previousConsent = analysis.clinicalNote.patientConsentObtained;
       analysis.clinicalNote.patientConsentObtained = !!consentObtained;
       analysis.clinicalNote.consentRecordedBy = req.user?.name || req.user?.username;
       analysis.clinicalNote.consentRecordedAt = new Date().toISOString();
@@ -155,7 +157,7 @@ export function registerClinicalRoutes(app: Express): void {
         event: "record_patient_consent",
         resourceType: "clinical_note",
         resourceId: req.params.callId,
-        detail: `Consent: ${consentObtained}`,
+        detail: `Consent: ${previousConsent} → ${!!consentObtained}, recorded by ${analysis.clinicalNote.consentRecordedBy} (${req.user?.id})`,
       });
 
       res.json({ success: true });
@@ -174,13 +176,23 @@ export function registerClinicalRoutes(app: Express): void {
         return;
       }
 
-      // Optimistic locking: reject if version doesn't match (concurrent edit)
+      // Optimistic locking: version is REQUIRED when editing attested notes
       const currentVersion = analysis.clinicalNote.version || 0;
+      if (analysis.clinicalNote.providerAttested && req.body.version === undefined) {
+        res.status(400).json({
+          message: "Version field is required when editing an attested note. Fetch the note first to get the current version.",
+          code: "OBS-CLINICAL-VERSION-REQUIRED",
+          currentVersion,
+        });
+        return;
+      }
       if (req.body.version !== undefined && req.body.version !== currentVersion) {
         res.status(409).json({
           message: "Clinical note has been modified by another user. Please refresh and try again.",
           code: "OBS-CLINICAL-CONFLICT",
           currentVersion,
+          lastEditedBy: analysis.clinicalNote.editHistory?.at(-1)?.editedBy,
+          lastEditedAt: analysis.clinicalNote.editHistory?.at(-1)?.editedAt,
         });
         return;
       }
@@ -188,11 +200,28 @@ export function registerClinicalRoutes(app: Express): void {
       // Increment version on every edit
       analysis.clinicalNote.version = currentVersion + 1;
 
-      // Don't allow editing attested notes without re-attestation
-      if (analysis.clinicalNote.providerAttested) {
+      // Editing an attested note requires explicit acknowledgment and triggers re-attestation
+      const wasAttested = !!analysis.clinicalNote.providerAttested;
+      if (wasAttested) {
+        if (!req.body.acknowledgeReAttestation) {
+          res.status(400).json({
+            message: "This note has been attested. Editing will require re-attestation. Set acknowledgeReAttestation: true to proceed.",
+            code: "OBS-CLINICAL-REATTESTATION-REQUIRED",
+            attestedBy: analysis.clinicalNote.attestedBy,
+            attestedAt: analysis.clinicalNote.attestedAt,
+          });
+          return;
+        }
+        // Clear attestation — provider must re-attest after edits
+        const previousAttester = analysis.clinicalNote.attestedBy;
         analysis.clinicalNote.providerAttested = false;
         analysis.clinicalNote.attestedBy = undefined;
         analysis.clinicalNote.attestedAt = undefined;
+        logger.info({
+          callId: req.params.callId,
+          previousAttester,
+          editedBy: req.user?.name || req.user?.username,
+        }, "Attested clinical note edited — re-attestation required");
       }
 
       const allowedFields = [
@@ -210,26 +239,58 @@ export function registerClinicalRoutes(app: Express): void {
         }
       }
 
-      // Warn if format change would orphan existing sections
+      // Validate edit field values (codes, formats, sizes)
+      const validationErrors = validateClinicalEditFields(edits);
+      if (validationErrors.length > 0) {
+        res.status(400).json({
+          message: "Invalid clinical note data",
+          errors: validationErrors,
+        });
+        return;
+      }
+
+      // Prevent format change from silently discarding non-empty required sections
       if (edits.format && edits.format !== analysis.clinicalNote.format) {
         const newRequired = getRequiredSections(edits.format as string);
         const oldRequired = getRequiredSections(analysis.clinicalNote.format || "soap");
         const lostSections = oldRequired.filter(s => !newRequired.includes(s));
+
+        // Check which lost sections have actual content
+        const nonEmptyLostSections = lostSections.filter(s => {
+          const value = (analysis.clinicalNote as Record<string, unknown>)[s];
+          if (typeof value === "string" && value.trim().length > 0 && !value.startsWith("enc_v1:")) return true;
+          if (Array.isArray(value) && value.length > 0) return true;
+          return false;
+        });
+
+        if (nonEmptyLostSections.length > 0 && !req.body.forceFormatChange) {
+          res.status(400).json({
+            message: `Changing format from ${analysis.clinicalNote.format} to ${edits.format} would discard content in: ${nonEmptyLostSections.join(", ")}. Set forceFormatChange: true to proceed.`,
+            code: "OBS-CLINICAL-FORMAT-LOSS",
+            lostSections: nonEmptyLostSections,
+            oldFormat: analysis.clinicalNote.format,
+            newFormat: edits.format,
+          });
+          return;
+        }
+
         if (lostSections.length > 0) {
           logger.info({
             callId: req.params.callId,
             oldFormat: analysis.clinicalNote.format,
             newFormat: edits.format,
             lostSections,
-          }, "Clinical note format change — some sections may be lost");
+            forced: !!req.body.forceFormatChange,
+          }, "Clinical note format change — sections may be lost");
         }
       }
 
       // Track all edited field names before PHI fields are separated
       const allEditedFields = Object.keys(req.body).filter(k => allowedFields.includes(k));
 
-      // Encrypt PHI fields before storage
-      const phiFields = ["subjective", "objective", "assessment", "hpiNarrative", "chiefComplaint"];
+      // Encrypt PHI fields before storage (must match PHI_FIELDS in phi-encryption.ts)
+      const phiFields = ["subjective", "objective", "assessment", "hpiNarrative", "chiefComplaint",
+        "reviewOfSystems", "differentialDiagnoses", "periodontalFindings"];
       for (const field of phiFields) {
         if (typeof edits[field] === "string") {
           (analysis.clinicalNote as Record<string, unknown>)[field] = encryptField(edits[field] as string);
@@ -274,6 +335,12 @@ export function registerClinicalRoutes(app: Express): void {
       const org = await getCachedOrganization(req.orgId!);
       const userId = req.user?.id || "unknown";
       const prefs = org?.settings?.providerStylePreferences?.[userId] || {};
+      logPhiAccess({
+        ...auditContext(req),
+        event: "view_provider_preferences",
+        resourceType: "clinical_preferences",
+        detail: `Provider ${userId} viewed style preferences`,
+      });
       res.json(prefs);
     } catch (error) {
       logger.error({ err: error }, "Failed to get provider preferences");
@@ -623,6 +690,13 @@ export function registerClinicalRoutes(app: Express): void {
         res.status(404).json({ message: "Template not found" });
         return;
       }
+      logPhiAccess({
+        ...auditContext(req),
+        event: "view_clinical_template",
+        resourceType: "clinical_template",
+        resourceId: req.params.id,
+        detail: `Viewed template: ${template.name}`,
+      });
       res.json(template);
     } catch (error) {
       logger.error({ err: error }, "Failed to get clinical template");

@@ -111,7 +111,10 @@ export function decryptMfaSecret(encrypted: string): string {
  * Safe to call on already-decrypted or null data — no-ops gracefully.
  * Modifies the object in-place for efficiency.
  */
-const PHI_FIELDS = ["subjective", "objective", "assessment", "hpiNarrative", "chiefComplaint"] as const;
+const PHI_FIELDS = [
+  "subjective", "objective", "assessment", "hpiNarrative", "chiefComplaint",
+  "reviewOfSystems", "differentialDiagnoses", "periodontalFindings",
+] as const;
 
 export function decryptClinicalNotePhi(analysis: Record<string, unknown> | null | undefined): void {
   if (!analysis) return;

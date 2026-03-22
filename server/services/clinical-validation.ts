@@ -94,8 +94,16 @@ export function validateClinicalNote(
   // Check documentation quality indicators
   if (clinicalNote.plan) {
     const plan = clinicalNote.plan;
-    if (Array.isArray(plan) && plan.length === 0) {
+    if (typeof plan === "string" && plan.trim().length === 0) {
+      emptySections.push("plan");
       warnings.push("Plan section is empty — clinical notes should include at least one plan item");
+    } else if (Array.isArray(plan)) {
+      // Filter out empty/whitespace-only items
+      const nonEmptyItems = plan.filter((item: unknown) => typeof item === "string" && item.trim().length > 0);
+      if (nonEmptyItems.length === 0) {
+        emptySections.push("plan");
+        warnings.push("Plan section has no non-empty items — clinical notes should include at least one plan item");
+      }
     }
   }
 
@@ -163,6 +171,140 @@ export function validateClinicalNote(
     computedCompleteness,
     warnings,
   };
+}
+
+// --- Valid note formats ---
+export const VALID_NOTE_FORMATS = ["soap", "dap", "birp", "hpi_focused", "procedure_note"];
+
+// --- Input validation for clinical note edits ---
+
+/** Max sizes for array fields to prevent abuse. */
+const MAX_CODE_ARRAY_LENGTH = 30;
+const MAX_TOOTH_NUMBERS = 32;
+const MAX_PLAN_ITEMS = 50;
+const MAX_STRING_FIELD_LENGTH = 10_000;
+
+/**
+ * Validate fields submitted in a clinical note edit.
+ * Returns an array of error strings. Empty = valid.
+ */
+export function validateClinicalEditFields(edits: Record<string, unknown>): string[] {
+  const errors: string[] = [];
+
+  // Validate format
+  if (edits.format !== undefined) {
+    if (typeof edits.format !== "string" || !VALID_NOTE_FORMATS.includes(edits.format)) {
+      errors.push(`Invalid format "${edits.format}". Must be one of: ${VALID_NOTE_FORMATS.join(", ")}`);
+    }
+  }
+
+  // Validate specialty against known specialties
+  if (edits.specialty !== undefined) {
+    if (typeof edits.specialty !== "string" || edits.specialty.length > 50) {
+      errors.push("Specialty must be a string under 50 characters");
+    } else if (!/^[a-z_]+$/.test(edits.specialty)) {
+      errors.push("Specialty must contain only lowercase letters and underscores");
+    }
+  }
+
+  // Validate string fields length
+  const stringFields = ["chiefComplaint", "subjective", "objective", "assessment", "hpiNarrative",
+    "reviewOfSystems", "periodontalFindings", "followUp"];
+  for (const field of stringFields) {
+    if (edits[field] !== undefined && typeof edits[field] === "string") {
+      if ((edits[field] as string).length > MAX_STRING_FIELD_LENGTH) {
+        errors.push(`${field} exceeds maximum length of ${MAX_STRING_FIELD_LENGTH} characters`);
+      }
+    }
+  }
+
+  // Validate plan array
+  if (edits.plan !== undefined) {
+    if (typeof edits.plan === "string") {
+      // Allow string plan (will be split later), check length
+      if (edits.plan.length > MAX_STRING_FIELD_LENGTH) {
+        errors.push(`plan exceeds maximum length of ${MAX_STRING_FIELD_LENGTH} characters`);
+      }
+    } else if (Array.isArray(edits.plan)) {
+      if (edits.plan.length > MAX_PLAN_ITEMS) {
+        errors.push(`plan has too many items (max ${MAX_PLAN_ITEMS})`);
+      }
+      for (const item of edits.plan) {
+        if (typeof item !== "string") {
+          errors.push("Each plan item must be a string");
+          break;
+        }
+      }
+    }
+  }
+
+  // Validate ICD-10 codes
+  if (edits.icd10Codes !== undefined && Array.isArray(edits.icd10Codes)) {
+    if (edits.icd10Codes.length > MAX_CODE_ARRAY_LENGTH) {
+      errors.push(`Too many ICD-10 codes (max ${MAX_CODE_ARRAY_LENGTH})`);
+    }
+    for (const entry of edits.icd10Codes) {
+      const code = (entry as any)?.code;
+      if (typeof code === "string" && !/^[A-Z]\d{2}(\.\d{1,4})?$/.test(code)) {
+        errors.push(`Invalid ICD-10 code format: "${code}" (expected A00-Z99 with optional decimal)`);
+      }
+    }
+  }
+
+  // Validate CPT codes
+  if (edits.cptCodes !== undefined && Array.isArray(edits.cptCodes)) {
+    if (edits.cptCodes.length > MAX_CODE_ARRAY_LENGTH) {
+      errors.push(`Too many CPT codes (max ${MAX_CODE_ARRAY_LENGTH})`);
+    }
+    for (const entry of edits.cptCodes) {
+      const code = (entry as any)?.code;
+      if (typeof code === "string" && !/^\d{5}$/.test(code)) {
+        errors.push(`Invalid CPT code format: "${code}" (expected 5-digit format)`);
+      }
+    }
+  }
+
+  // Validate CDT codes
+  if (edits.cdtCodes !== undefined && Array.isArray(edits.cdtCodes)) {
+    if (edits.cdtCodes.length > MAX_CODE_ARRAY_LENGTH) {
+      errors.push(`Too many CDT codes (max ${MAX_CODE_ARRAY_LENGTH})`);
+    }
+    for (const entry of edits.cdtCodes) {
+      const code = (entry as any)?.code;
+      if (typeof code === "string" && !/^D\d{4}$/.test(code)) {
+        errors.push(`Invalid CDT code format: "${code}" (expected D0000-D9999)`);
+      }
+    }
+  }
+
+  // Validate tooth numbers (Universal Numbering: 1-32 permanent, A-T primary)
+  if (edits.toothNumbers !== undefined && Array.isArray(edits.toothNumbers)) {
+    if (edits.toothNumbers.length > MAX_TOOTH_NUMBERS) {
+      errors.push(`Too many tooth numbers (max ${MAX_TOOTH_NUMBERS})`);
+    }
+    for (const tooth of edits.toothNumbers) {
+      const t = String(tooth).trim();
+      if (!/^([1-9]|[12]\d|3[0-2])$/.test(t) && !/^[A-T]$/.test(t)) {
+        errors.push(`Invalid tooth number: "${t}" (expected 1-32 or A-T)`);
+      }
+    }
+  }
+
+  // Validate differentialDiagnoses
+  if (edits.differentialDiagnoses !== undefined && Array.isArray(edits.differentialDiagnoses)) {
+    if (edits.differentialDiagnoses.length > 20) {
+      errors.push("Too many differential diagnoses (max 20)");
+    }
+  }
+
+  // Validate prescriptions
+  if (edits.prescriptions !== undefined && Array.isArray(edits.prescriptions)) {
+    if (edits.prescriptions.length > 30) {
+      errors.push("Too many prescriptions (max 30)");
+    }
+  }
+
+  return errors;
 }
 
 // --- Max length for style preference fields to prevent prompt injection ---

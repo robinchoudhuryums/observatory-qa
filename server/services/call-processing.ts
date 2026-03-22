@@ -614,17 +614,23 @@ function validateAndEncryptClinicalNote(callId: string, cn: any) {
   const serverCompleteness = validation.computedCompleteness;
   cn.documentationCompleteness = Math.min(aiCompleteness || serverCompleteness, serverCompleteness || aiCompleteness) || serverCompleteness;
 
+  // Flag notes with low completeness (below 60% / score 6.0)
+  if (cn.documentationCompleteness < 6.0) {
+    cn.lowCompleteness = true;
+    logger.warn({ callId, completeness: cn.documentationCompleteness }, "Clinical note has low completeness — review required before attestation");
+  }
+
   if (validation.warnings.length > 0) {
     cn.validationWarnings = validation.warnings;
     logger.info({ callId, warnings: validation.warnings }, "Clinical note validation warnings");
   }
 
-  // Encrypt PHI fields
-  if (cn.subjective) cn.subjective = encryptField(cn.subjective);
-  if (cn.objective) cn.objective = encryptField(cn.objective);
-  if (cn.assessment) cn.assessment = encryptField(cn.assessment);
-  if (cn.hpiNarrative) cn.hpiNarrative = encryptField(cn.hpiNarrative);
-  if (cn.chiefComplaint) cn.chiefComplaint = encryptField(cn.chiefComplaint);
+  // Encrypt PHI fields (must match PHI_FIELDS in phi-encryption.ts)
+  const phiFields = ["subjective", "objective", "assessment", "hpiNarrative", "chiefComplaint",
+    "reviewOfSystems", "differentialDiagnoses", "periodontalFindings"];
+  for (const field of phiFields) {
+    if (typeof cn[field] === "string") cn[field] = encryptField(cn[field]);
+  }
 }
 
 async function postProcessing(
