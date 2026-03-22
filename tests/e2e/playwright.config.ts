@@ -19,10 +19,11 @@ export default defineConfig({
     ? {
         command: "npm run start",
         port: 5000,
-        timeout: 30_000,
+        timeout: 60_000,
         reuseExistingServer: false,
         env: {
           NODE_ENV: "production",
+          PORT: "5000",
           DISABLE_SECURE_COOKIE: "true",
           SESSION_SECRET: "e2e-test-secret",
           ASSEMBLYAI_API_KEY: "test-key",
