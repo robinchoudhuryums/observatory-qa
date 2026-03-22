@@ -190,8 +190,8 @@ Multiple instances of `as any` casts throughout the codebase, particularly in st
 
 Type definitions should be in devDependencies.
 
-### 18. No CI/CD Configuration
-No `.github/workflows/`, `Jenkinsfile`, or equivalent CI configuration found. For a HIPAA-compliant product, automated testing on every PR is essential.
+### 18. Minimal CI/CD Configuration
+`.github/workflows/ci.yml` exists with type checking, unit tests, and build verification. However, it lacks E2E tests, security scanning (`npm audit`), code coverage reporting, linting, and accessibility testing. For a HIPAA-compliant product, the pipeline should be significantly expanded.
 
 ### 19. Test Files Excluded from Type Checking
 **Location**: `tsconfig.json:3`
@@ -337,17 +337,20 @@ No `.github/workflows/`, `Jenkinsfile`, or equivalent CI configuration found. Fo
 ### 7. Testing: 5.5/10
 
 **Strengths**:
-- 27 unit test files covering major features
+- 27 unit test files (~757 test cases) covering major features
 - 11 E2E test specs covering critical flows
 - Tests cover security-critical areas (RBAC, multi-tenant isolation, PHI encryption, audit logging)
+- Basic CI pipeline exists (type check + unit tests + build)
 
 **Concerns**:
+- **Critical test gaps**: Three largest route files (calls.ts ~800 LOC, admin.ts ~700 LOC, clinical.ts ~900 LOC) have ZERO tests
+- 16 npm audit vulnerabilities (4 high severity) — Multer DoS affects upload endpoint
 - No CSRF testing
 - Tests excluded from type checking
-- No test coverage measurement
+- No test coverage measurement (test-to-code ratio ~0.5:1, should be >1:1 for healthcare)
 - No integration tests (testing routes with real database)
-- E2E tests likely require manual dev server startup
-- No CI/CD means tests may not run regularly
+- E2E tests use brittle selectors (no `data-testid` attributes)
+- CI pipeline lacks E2E tests, security scanning, and coverage reporting
 - Missing tests for: WebSocket behavior, rate limiting, file upload validation, concurrent access
 
 ### 8. Scalability: 5/10
@@ -368,18 +371,19 @@ No `.github/workflows/`, `Jenkinsfile`, or equivalent CI configuration found. Fo
 - Single-process architecture (no clustering, no horizontal scaling plan)
 - In-memory caches don't work across instances
 
-### 9. DevOps & Operations: 4.5/10
+### 9. DevOps & Operations: 5/10
 
 **Strengths**:
 - EC2 deployment guide with Caddy + systemd
 - Render.com staging configuration
+- Basic CI pipeline (type check + unit tests + build)
 - Pino structured logging + Betterstack
 - Sentry error tracking (both client and server)
 - OpenTelemetry instrumentation (opt-in)
 - Graceful shutdown handlers
 
 **Concerns**:
-- No CI/CD configuration at all
+- CI pipeline is minimal (no E2E, no security scanning, no coverage)
 - No Dockerfile (containerization)
 - No infrastructure-as-code (Terraform, CloudFormation)
 - No health check endpoint monitoring configuration
@@ -399,7 +403,7 @@ No `.github/workflows/`, `Jenkinsfile`, or equivalent CI configuration found. Fo
 3. **Add `updateCallAnalysis()` to storage interface** — analysis edits crash with constraint violation
 4. **Fix `updateCall()` missing email fields** in pg-storage.ts
 5. **Add `getCallCount()` to storage interface** — stop loading all calls into memory
-6. **Set up CI/CD** with automated tests on every PR
+6. **Expand CI/CD** — add E2E tests, `npm audit`, coverage reporting to existing pipeline
 7. **Conduct formal HIPAA security assessment**
 8. **Document and execute BAA agreements** with AssemblyAI, AWS, Stripe
 
