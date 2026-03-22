@@ -430,6 +430,72 @@
     outline-offset: 2px;
     box-shadow: 0 0 12px rgba(124, 58, 237, 0.2);
   }
+
+  /* ── Enhanced Interactive States ──────────────────── */
+
+  /* Button press effect */
+  button:active:not(:disabled),
+  [role="button"]:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  /* Table row hover — subtle lift + left accent */
+  .table-row-interactive {
+    transition: background-color 0.15s, box-shadow 0.2s;
+  }
+
+  .table-row-interactive:hover {
+    background-color: rgba(124, 58, 237, 0.03);
+    box-shadow: inset 3px 0 0 hsl(262, 83%, 58%);
+  }
+
+  .dark .table-row-interactive:hover {
+    background-color: rgba(124, 58, 237, 0.06);
+  }
+
+  /* Badge hover glow */
+  .badge-interactive {
+    transition: box-shadow 0.2s, transform 0.15s;
+  }
+
+  .badge-interactive:hover {
+    box-shadow: 0 2px 8px rgba(124, 58, 237, 0.12);
+    transform: translateY(-1px);
+  }
+
+  /* Input focus enhancement */
+  input:focus,
+  textarea:focus,
+  select:focus {
+    border-color: hsl(262, 83%, 58%) !important;
+    box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.1) !important;
+  }
+
+  /* Card clickable variant */
+  .card-clickable {
+    cursor: pointer;
+    transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+  }
+
+  .card-clickable:hover {
+    border-color: rgba(124, 58, 237, 0.25);
+    box-shadow: 0 4px 20px rgba(124, 58, 237, 0.08);
+    transform: translateY(-1px);
+  }
+
+  .dark .card-clickable:hover {
+    box-shadow: 0 4px 20px rgba(124, 58, 237, 0.15);
+  }
+
+  /* Smooth skeleton pulse — aurora tinted */
+  @keyframes aurora-pulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+  }
+
+  .animate-pulse {
+    animation: aurora-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
 }
 
 /* ── Landing Page ──────────────────────────────────────────── */

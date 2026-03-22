@@ -8,7 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { CALL_CATEGORIES } from "@shared/schema";
 import type { Employee } from "@shared/schema";
-import {  RiUploadCloud2Line, RiFileMusicLine, RiCloseLine, RiCheckboxCircleLine, RiCloseCircleLine, RiLoader4Line, RiUploadLine  } from "@remixicon/react";
+import {  RiUploadCloud2Line, RiFileMusicLine, RiCloseLine, RiCheckboxCircleLine, RiCloseCircleLine, RiLoader4Line, RiUploadLine, RiCheckLine  } from "@remixicon/react";
 
 interface UploadFile {
   file: File;
@@ -178,10 +178,21 @@ export default function FileUpload() {
       }`}>
         <input {...getInputProps()} data-testid="file-input" />
         <RiUploadCloud2Line className={`mx-auto h-12 w-12 ${isDragActive ? "text-primary" : "text-muted-foreground"}`} />
-        <p className="mt-2 text-sm text-muted-foreground">
-          {isDragActive ? "Drop files here..." : "Drag & drop files here, or click to select files"}
-        </p>
-        <p className="text-xs text-muted-foreground mt-1">MP3, WAV, M4A, MP4, FLAC, OGG — up to 100MB per file, {MAX_BATCH_SIZE} files max</p>
+        {uploadFiles.length >= MAX_BATCH_SIZE ? (
+          <>
+            <p className="mt-2 text-sm font-medium text-amber-600 dark:text-amber-400">
+              Maximum {MAX_BATCH_SIZE} files reached
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">Remove existing files to add more</p>
+          </>
+        ) : (
+          <>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {isDragActive ? "Drop files here..." : "Drag & drop files here, or click to select files"}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">MP3, WAV, M4A, MP4, FLAC, OGG — up to 100MB per file, {MAX_BATCH_SIZE} files max</p>
+          </>
+        )}
       </div>
 
       {uploadFiles.length > 0 && (
@@ -199,6 +210,15 @@ export default function FileUpload() {
                   {uploadFiles.filter(f => f.status === 'uploading' || f.status === 'processing').length} in progress
                 </span>
               )}
+              {(() => {
+                const pendingCount = uploadFiles.filter(f => f.status === 'pending' || f.status === 'uploading' || f.status === 'processing').length;
+                const estimatedMinutes = Math.ceil(pendingCount * 2.5);
+                return pendingCount > 0 && uploadFiles.some(f => f.status === 'uploading' || f.status === 'processing') ? (
+                  <span className="text-xs text-muted-foreground italic">
+                    ~{estimatedMinutes} min remaining
+                  </span>
+                ) : null;
+              })()}
               {uploadFiles.some(f => f.status === 'pending') && (
                 <Button type="button" onClick={uploadAll} disabled={uploadMutation.isPending} data-testid="upload-all-button">
                   Upload All ({uploadFiles.filter(f => f.status === 'pending').length})
@@ -261,21 +281,47 @@ export default function FileUpload() {
               {(fileData.status === 'uploading' || fileData.status === 'processing') && (
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <RiLoader4Line className="w-4 h-4 animate-spin text-primary" />
-                    <span className="text-xs font-medium text-primary">
+                    <RiLoader4Line className={`w-4 h-4 animate-spin ${
+                      fileData.status === 'uploading' ? 'text-blue-500' : 'text-violet-500'
+                    }`} />
+                    <span className={`text-xs font-medium ${
+                      fileData.status === 'uploading' ? 'text-blue-600 dark:text-blue-400' : 'text-violet-600 dark:text-violet-400'
+                    }`}>
                       {fileData.processingStep || "Processing..."}
                     </span>
                   </div>
-                  <Progress value={fileData.processingProgress || 0} className="h-2" />
-                  <div className="flex justify-between text-[10px] text-muted-foreground px-0.5">
+                  <div className="relative">
+                    <Progress
+                      value={fileData.processingProgress || 0}
+                      className={`h-2 ${
+                        fileData.status === 'uploading'
+                          ? '[&>div]:bg-blue-500'
+                          : '[&>div]:bg-violet-500'
+                      }`}
+                    />
+                  </div>
+                  <div className="flex justify-between text-xs px-0.5">
                     {PROCESSING_STEPS.map((step, i) => {
                       const currentIdx = PROCESSING_STEPS.findIndex(s =>
                         fileData.processingStep?.toLowerCase().includes(s.key)
                       );
-                      const isDone = i <= currentIdx;
+                      const isDone = i < currentIdx;
                       const isCurrent = i === currentIdx;
                       return (
-                        <span key={step.key} className={`${isDone ? "text-primary" : ""} ${isCurrent ? "font-semibold" : ""}`}>
+                        <span key={step.key} className={`inline-flex items-center gap-0.5 ${
+                          isDone
+                            ? "text-green-600 dark:text-green-400"
+                            : isCurrent
+                              ? "font-bold text-primary"
+                              : "text-muted-foreground"
+                        }`}>
+                          {isDone && <RiCheckLine className="w-3 h-3" />}
+                          {isCurrent && (
+                            <span className="relative flex h-2 w-2 mr-0.5">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+                            </span>
+                          )}
                           {step.label}
                         </span>
                       );

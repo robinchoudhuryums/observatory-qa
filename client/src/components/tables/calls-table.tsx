@@ -11,7 +11,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, getQueryFn } from "@/lib/queryClient";
 import { ConfirmDialog } from "@/components/lib/confirm-dialog";
-import {  RiEyeLine, RiPlayLine, RiDownloadLine, RiStarLine, RiDeleteBinLine, RiUserFollowLine, RiAlertLine, RiAwardLine, RiArrowLeftSLine, RiArrowRightSLine, RiExpandUpDownLine, RiArrowUpLine, RiArrowDownLine, RiCheckboxLine, RiCheckboxBlankLine, RiFileMusicLine, RiShieldKeyholeLine, RiFileDownloadLine, RiBrainLine, RiVoiceprintLine, RiUploadLine  } from "@remixicon/react";
+import {  RiEyeLine, RiPlayLine, RiDownloadLine, RiDeleteBinLine, RiUserFollowLine, RiAlertLine, RiAwardLine, RiArrowLeftSLine, RiArrowRightSLine, RiExpandUpDownLine, RiArrowUpLine, RiArrowDownLine, RiCheckboxLine, RiCheckboxBlankLine, RiFileMusicLine, RiShieldKeyholeLine, RiFileDownloadLine, RiVoiceprintLine, RiUploadLine, RiPhoneLine, RiSearchLine, RiCloseLine, RiBrainLine  } from "@remixicon/react";
+import { EmptyState } from "@/components/ui/empty-state";
 
 type SortField = "date" | "duration" | "score" | "sentiment";
 type SortDir = "asc" | "desc";
@@ -232,17 +233,6 @@ export default function CallsTable() {
   const getSentimentBadge = getSentimentBadgeHelper;
   const getStatusBadge = getStatusBadgeHelper;
 
-  const renderStars = (score: number) => {
-    const filledStars = Math.floor(score / 2);
-    const emptyStars = 5 - filledStars;
-    return (
-      <div className="flex text-yellow-400 text-xs">
-        {[...Array(filledStars)].map((_, i) => <RiStarLine key={`filled-${i}`} className="w-3 h-3 fill-current" />)}
-        {[...Array(emptyStars)].map((_, i) => <RiStarLine key={`empty-${i}`} className="w-3 h-3" />)}
-      </div>
-    );
-  };
-
   return (
     <div className="bg-card rounded-lg border border-border p-6" data-testid="calls-table">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
@@ -250,6 +240,9 @@ export default function CallsTable() {
           <h3 className="text-lg font-semibold text-foreground flex items-center gap-1">
             Recent Calls
             <HelpTip text="All uploaded call recordings sorted by date. Use filters to narrow by employee, sentiment, or status. Click a row to view the full transcript and AI analysis." />
+            {[statusFilter, sentimentFilter, employeeFilter].filter(v => v !== "all").length > 0 && (
+              <Badge variant="secondary" className="text-xs ml-2">{[statusFilter, sentimentFilter, employeeFilter].filter(v => v !== "all").length} active</Badge>
+            )}
           </h3>
           <span className="text-xs text-muted-foreground">
             {sortedCalls.length} total
@@ -271,6 +264,17 @@ export default function CallsTable() {
               CSV
             </Button>
           )}
+          <Select value={statusFilter} onValueChange={handleFilterChange(setStatusFilter)}>
+            <SelectTrigger className="w-40" data-testid="status-filter">
+              <SelectValue placeholder="All Statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Statuses</SelectItem>
+              <SelectItem value="completed">Completed</SelectItem>
+              <SelectItem value="processing">Processing</SelectItem>
+              <SelectItem value="failed">Failed</SelectItem>
+            </SelectContent>
+          </Select>
           <Select value={employeeFilter} onValueChange={handleFilterChange(setEmployeeFilter)}>
             <SelectTrigger className="w-40" data-testid="employee-filter">
               <SelectValue placeholder="All Employees" />
@@ -295,6 +299,23 @@ export default function CallsTable() {
               <SelectItem value="negative">Negative</SelectItem>
             </SelectContent>
           </Select>
+          {(statusFilter !== "all" || sentimentFilter !== "all" || employeeFilter !== "all") && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setStatusFilter("all");
+                setSentimentFilter("all");
+                setEmployeeFilter("all");
+                setPage(0);
+                setSelectedIds(new Set());
+              }}
+              className="text-xs text-muted-foreground hover:text-foreground"
+            >
+              <RiCloseLine className="w-3.5 h-3.5 mr-1" />
+              Clear filters
+            </Button>
+          )}
         </div>
       </div>
 
@@ -407,30 +428,28 @@ export default function CallsTable() {
                   {call.duration ? `${Math.floor(call.duration / 60)}m ${call.duration % 60}s` : '-'}
                 </td>
                 <td className="py-3 px-2">{getSentimentBadge(call.sentiment?.overallSentiment)}</td>
-                <td className="py-3 px-2">
+                <td className="px-4 py-3">
                   {call.analysis?.performanceScore && (() => {
                     const score = Number(call.analysis.performanceScore);
-                    const aiCompleted = call.analysis.confidenceFactors &&
+                    const aiCompleted = !(call.analysis.confidenceFactors &&
                       typeof call.analysis.confidenceFactors === "object" &&
-                      (call.analysis.confidenceFactors as Record<string, unknown>).aiAnalysisCompleted === false;
-                    const scoreColor = aiCompleted ? "text-muted-foreground" : score >= 8 ? "text-green-600" : score >= 6 ? "text-blue-600" : score >= 4 ? "text-yellow-600" : "text-red-600";
-                    const barColor = aiCompleted ? "from-gray-400 to-gray-300" : score >= 8 ? "from-green-500 to-emerald-400" : score >= 6 ? "from-blue-500 to-cyan-400" : score >= 4 ? "from-yellow-500 to-amber-400" : "from-red-500 to-orange-400";
+                      (call.analysis.confidenceFactors as Record<string, unknown>).aiAnalysisCompleted === false);
+                    const scoreColor = score >= 9 ? "text-emerald-600" : score >= 7 ? "text-green-600" : score >= 4 ? "text-amber-600" : "text-red-600";
+                    const scoreBarColor = score >= 9 ? "bg-emerald-500" : score >= 7 ? "bg-green-500" : score >= 4 ? "bg-amber-500" : "bg-red-500";
                     return (
-                      <div className="space-y-1">
-                        <div className="flex items-center space-x-2">
-                          <span className={`font-bold ${scoreColor}`}>{aiCompleted ? "—" : score.toFixed(1)}</span>
-                          {aiCompleted ? (
-                            <span title="AI analysis unavailable — score is a default">
-                              <RiBrainLine className="w-4 h-4 text-amber-500" />
-                            </span>
-                          ) : renderStars(score)}
+                      <>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-sm font-bold tabular-nums ${scoreColor}`}>
+                            {score.toFixed(1)}
+                          </span>
+                          {!aiCompleted && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" title="AI analysis incomplete — scores may be approximate" />
+                          )}
                         </div>
-                        {!aiCompleted && (
-                          <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
-                            <div className={`h-full rounded-full bg-gradient-to-r ${barColor}`} style={{ width: `${score * 10}%` }} />
-                          </div>
-                        )}
-                      </div>
+                        <div className="w-full h-1 bg-muted rounded-full mt-1 overflow-hidden">
+                          <div className={`h-full rounded-full ${scoreBarColor}`} style={{ width: `${score * 10}%` }} />
+                        </div>
+                      </>
                     );
                   })()}
                 </td>
@@ -567,17 +586,23 @@ export default function CallsTable() {
         onConfirm={deleteConfirm.bulk ? confirmBulkDelete : confirmDelete}
       />
 
-      {!calls?.length && (
-        <div className="text-center py-16">
-          <div className="mx-auto w-16 h-16 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full flex items-center justify-center mb-4">
-            <RiFileMusicLine className="w-8 h-8 text-primary/60" />
-          </div>
-          <h4 className="font-semibold text-foreground mb-1">No call recordings yet</h4>
-          <p className="text-sm text-muted-foreground mb-4 max-w-sm mx-auto">
-            Upload your first audio file to get started with AI-powered call analysis.
-          </p>
-          <Link href="/upload"><Button>Upload Your First Call</Button></Link>
-        </div>
+      {!calls?.length && (statusFilter !== "all" || sentimentFilter !== "all" || employeeFilter !== "all") && (
+        <EmptyState
+          compact
+          icon={RiSearchLine}
+          title="No matching calls"
+          description="Try adjusting your filters or search criteria."
+          action={{ label: "Clear Filters", onClick: () => { setStatusFilter("all"); setSentimentFilter("all"); setEmployeeFilter("all"); setPage(0); } }}
+        />
+      )}
+
+      {!calls?.length && statusFilter === "all" && sentimentFilter === "all" && employeeFilter === "all" && (
+        <EmptyState
+          icon={RiPhoneLine}
+          title="No calls analyzed yet"
+          description="Upload your first call recording to see performance metrics, sentiment analysis, and AI-powered coaching insights."
+          action={{ label: "Upload Your First Call", href: "/upload", icon: RiUploadLine }}
+        />
       )}
     </div>
   );

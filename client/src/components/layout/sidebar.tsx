@@ -7,7 +7,7 @@ import { apiRequest, queryClient, getQueryFn } from "@/lib/queryClient";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { CallWithDetails, Employee, AccessRequest, AuthUser } from "@shared/schema";
 import { useAppName, useOrganization } from "@/hooks/use-organization";
-import {  RiBarChartBoxLine, RiUploadLine, RiFileTextLine, RiHeartLine, RiTeamLine, RiUserAddLine, RiSearchLine, RiLogoutBoxLine, RiUserLine, RiArrowRightUpLine, RiSunLine, RiMoonLine, RiShieldLine, RiBuilding2Line, RiEqualizerLine, RiClipboardLine, RiPaletteLine, RiFileList3Line, RiMenuLine, RiCloseLine, RiFlaskLine, RiMoneyDollarCircleLine, RiStethoscopeLine, RiBookOpenLine, RiBroadcastLine, RiTrophyLine, RiScales3Line, RiFileShield2Line, RiMessage2Line, RiMailLine, RiGraduationCapLine, RiMegaphoneLine, RiSettings3Line  } from "@remixicon/react";
+import {  RiBarChartBoxLine, RiUploadLine, RiFileTextLine, RiHeartLine, RiTeamLine, RiUserAddLine, RiSearchLine, RiLogoutBoxLine, RiUserLine, RiArrowRightUpLine, RiSunLine, RiMoonLine, RiShieldLine, RiBuilding2Line, RiEqualizerLine, RiClipboardLine, RiPaletteLine, RiFileList3Line, RiMenuLine, RiCloseLine, RiFlaskLine, RiMoneyDollarCircleLine, RiStethoscopeLine, RiBookOpenLine, RiBroadcastLine, RiTrophyLine, RiScales3Line, RiFileShield2Line, RiMessage2Line, RiMailLine, RiGraduationCapLine, RiMegaphoneLine, RiSettings3Line, RiArrowDownSLine  } from "@remixicon/react";
 
 type NavItem = { name: string; href: string; icon: any; section?: string; requireRole?: string[] };
 
@@ -28,6 +28,24 @@ export default function Sidebar() {
   const [location, navigate] = useLocation();
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains("dark"));
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
+
+  // Initialize Clinical section as collapsed for non-clinical orgs
+  const { data: orgData } = useOrganization();
+  const industryType = orgData?.settings?.industryType;
+  useEffect(() => {
+    if (orgData) {
+      const clinicalIndustries = ['dental', 'medical', 'behavioral_health'];
+      const isClinicalOrg = clinicalIndustries.includes(industryType || '');
+      if (!isClinicalOrg) {
+        setCollapsedSections(prev => ({ ...prev, Clinical: prev.Clinical ?? true }));
+      }
+    }
+  }, [industryType]);
+
+  const toggleSection = useCallback((section: string) => {
+    setCollapsedSections(prev => ({ ...prev, [section]: !prev[section] }));
+  }, []);
 
   // Close mobile sidebar on route change
   useEffect(() => {
@@ -57,7 +75,6 @@ export default function Sidebar() {
   }, []);
 
   const appName = useAppName();
-  const { data: orgData } = useOrganization();
   const logoUrl = orgData?.settings?.branding?.logoUrl;
 
   const { data: user } = useQuery<AuthUser>({
@@ -117,10 +134,10 @@ export default function Sidebar() {
       <Link
         href={href}
         className={cn(
-          "flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all duration-200",
+          "flex items-center space-x-3 py-2 rounded-lg font-medium transition-all duration-200",
           isActive
-            ? "sidebar-active-link text-white"
-            : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+            ? "px-3 sidebar-active-link text-white"
+            : "pl-3 pr-3 text-muted-foreground hover:bg-muted/50 hover:text-foreground hover:border-l-2 hover:border-primary/40 hover:pl-[10px]"
         )}
         data-testid={testId}
       >
@@ -152,7 +169,7 @@ export default function Sidebar() {
       {/* Mobile overlay */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          className="fixed inset-0 bg-black/30 z-40 md:hidden"
           onClick={() => setMobileOpen(false)}
         />
       )}
@@ -217,10 +234,10 @@ export default function Sidebar() {
               <Link
                 href={item.href}
                 className={cn(
-                  "flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all duration-200",
+                  "flex items-center space-x-3 py-2 rounded-lg font-medium transition-all duration-200",
                   isActive
-                    ? "sidebar-active-link text-white"
-                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                    ? "px-3 sidebar-active-link text-white"
+                    : "pl-3 pr-3 text-muted-foreground hover:bg-muted/50 hover:text-foreground hover:border-l-2 hover:border-primary/40 hover:pl-[10px]"
                 )}
                 data-testid={`nav-link-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
               >
@@ -243,27 +260,48 @@ export default function Sidebar() {
 
         {/* Multi-Channel */}
         <div className="pt-4 pb-1.5 px-3">
-          <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">Channels</p>
+          <button onClick={() => toggleSection('Channels')} className="flex items-center justify-between w-full">
+            <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">Channels</p>
+            <RiArrowDownSLine className={cn("w-3.5 h-3.5 text-muted-foreground/70 transition-transform", collapsedSections['Channels'] && "-rotate-90")} />
+          </button>
         </div>
-        <AdminLink href="/emails" icon={RiMailLine} label="Email QA" testId="nav-link-emails" />
-        <AdminLink href="/learning" icon={RiGraduationCapLine} label="Learning Center" testId="nav-link-learning" />
-        <AdminLink href="/marketing" icon={RiMegaphoneLine} label="Marketing" testId="nav-link-marketing" />
+        {!collapsedSections['Channels'] && (
+          <div className="space-y-0.5">
+            <AdminLink href="/emails" icon={RiMailLine} label="Email QA" testId="nav-link-emails" />
+            <AdminLink href="/learning" icon={RiGraduationCapLine} label="Learning Center" testId="nav-link-learning" />
+            <AdminLink href="/marketing" icon={RiMegaphoneLine} label="Marketing" testId="nav-link-marketing" />
+          </div>
+        )}
 
         {/* Performance & Engagement */}
         <div className="pt-4 pb-1.5 px-3">
-          <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">Engagement</p>
+          <button onClick={() => toggleSection('Engagement')} className="flex items-center justify-between w-full">
+            <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">Engagement</p>
+            <RiArrowDownSLine className={cn("w-3.5 h-3.5 text-muted-foreground/70 transition-transform", collapsedSections['Engagement'] && "-rotate-90")} />
+          </button>
         </div>
-        <AdminLink href="/gamification" icon={RiTrophyLine} label="Leaderboard" testId="nav-link-gamification" />
-        <AdminLink href="/revenue" icon={RiMoneyDollarCircleLine} label="Revenue Tracking" testId="nav-link-revenue" />
+        {!collapsedSections['Engagement'] && (
+          <div className="space-y-0.5">
+            <AdminLink href="/gamification" icon={RiTrophyLine} label="Leaderboard" testId="nav-link-gamification" />
+            <AdminLink href="/revenue" icon={RiMoneyDollarCircleLine} label="Revenue Tracking" testId="nav-link-revenue" />
+          </div>
+        )}
 
         {/* Clinical Documentation links */}
         <div className="pt-4 pb-1.5 px-3">
-          <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">Clinical</p>
+          <button onClick={() => toggleSection('Clinical')} className="flex items-center justify-between w-full">
+            <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">Clinical</p>
+            <RiArrowDownSLine className={cn("w-3.5 h-3.5 text-muted-foreground/70 transition-transform", collapsedSections['Clinical'] && "-rotate-90")} />
+          </button>
         </div>
-        <AdminLink href="/clinical" icon={RiStethoscopeLine} label="Clinical Dashboard" testId="nav-link-clinical" />
-        <AdminLink href="/clinical/upload" icon={RiUploadLine} label="Record Encounter" testId="nav-link-clinical-upload" />
-        <AdminLink href="/clinical/live" icon={RiBroadcastLine} label="Live Recording" testId="nav-link-clinical-live" />
-        <AdminLink href="/clinical/templates" icon={RiBookOpenLine} label="Note Templates" testId="nav-link-clinical-templates" />
+        {!collapsedSections['Clinical'] && (
+          <div className="space-y-0.5">
+            <AdminLink href="/clinical" icon={RiStethoscopeLine} label="Clinical Dashboard" testId="nav-link-clinical" />
+            <AdminLink href="/clinical/upload" icon={RiUploadLine} label="Record Encounter" testId="nav-link-clinical-upload" />
+            <AdminLink href="/clinical/live" icon={RiBroadcastLine} label="Live Recording" testId="nav-link-clinical-live" />
+            <AdminLink href="/clinical/templates" icon={RiBookOpenLine} label="Note Templates" testId="nav-link-clinical-templates" />
+          </div>
+        )}
 
         {/* Admin-only links */}
         {user?.role === "admin" && (

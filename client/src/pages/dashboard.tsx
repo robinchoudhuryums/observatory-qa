@@ -1,9 +1,11 @@
-import { useMemo } from "react";
+import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ChartSkeleton, TableSkeleton } from "@/components/ui/skeletons";
 import MetricsOverview from "@/components/dashboard/metrics-overview";
 import SentimentAnalysis from "@/components/dashboard/sentiment-analysis";
 import PerformanceCard from "@/components/dashboard/performance-card";
@@ -13,13 +15,15 @@ import type { CallWithDetails, PlanTier } from "@shared/schema";
 import { PLAN_DEFINITIONS } from "@shared/schema";
 import { getQueryFn } from "@/lib/queryClient";
 import OnboardingTour from "@/components/onboarding-tour";
-import {  RiSearchLine, RiAddLine, RiAlertLine, RiAwardLine, RiArrowRightUpLine, RiFlashlightLine, RiUploadLine  } from "@remixicon/react";
+import {  RiSearchLine, RiAddLine, RiAlertLine, RiAwardLine, RiArrowRightUpLine, RiFlashlightLine, RiUploadLine, RiArrowDownSLine  } from "@remixicon/react";
 
 export default function Dashboard() {
   const [, navigate] = useLocation();
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [flagsExpanded, setFlagsExpanded] = useState(false);
 
   // Fetch recent calls to extract flagged ones for the dashboard alert panel
-  const { data: calls, error: callsError } = useQuery<CallWithDetails[]>({
+  const { data: calls, error: callsError, isLoading: callsLoading } = useQuery<CallWithDetails[]>({
     queryKey: ["/api/calls", { status: "", sentiment: "", employee: "" }],
   });
 
@@ -112,6 +116,8 @@ export default function Dashboard() {
     }));
   }, [calls]);
 
+  const isDataLoading = callsLoading && !calls && !callsError;
+
   return (
     <div className="min-h-screen" data-testid="dashboard-page">
       <OnboardingTour />
@@ -138,15 +144,14 @@ export default function Dashboard() {
               <RiSearchLine className="w-4 h-4 mr-2" />
               Search calls...
             </Button>
-            <Link href="/upload">
-              <Button
-                className="text-white border-0 shadow-md rounded-lg brand-gradient-btn whitespace-nowrap"
-                data-testid="upload-call-button"
-              >
-                <RiAddLine className="w-4 h-4 mr-2" />
-                Upload Call
-              </Button>
-            </Link>
+            <Button
+              className="text-white border-0 shadow-md rounded-lg brand-gradient-btn whitespace-nowrap"
+              data-testid="upload-call-button"
+              onClick={() => setUploadOpen(true)}
+            >
+              <RiAddLine className="w-4 h-4 mr-2" />
+              Upload Call
+            </Button>
           </div>
         </div>
       </header>
@@ -213,62 +218,67 @@ export default function Dashboard() {
           );
         })()}
 
-        {/* Flagged Calls Alert Banner */}
+        {/* Flagged Calls Alert — Compact Expandable */}
         {flaggedCalls.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {badCalls.length > 0 && (
-              <div className="bg-red-50 dark:bg-red-950/30 rounded-lg border border-red-200 dark:border-red-900 p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <RiAlertLine className="w-5 h-5 text-red-500" />
-                  <h3 className="font-semibold text-red-700 dark:text-red-400">
-                    {badCalls.length} Call{badCalls.length > 1 ? "s" : ""} Need Attention
-                  </h3>
-                </div>
-                <p className="text-sm text-red-600/80 dark:text-red-400/80 mb-2">
-                  Calls flagged for low scores or agent misconduct.
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {badCalls.slice(0, 5).map(c => (
-                    <Link key={c.id} href={`/transcripts/${c.id}`}>
-                      <Badge className="bg-red-200 text-red-900 text-xs cursor-pointer hover:bg-red-300">
-                        {c.employee?.name || "Unassigned"} — {Number(c.analysis?.performanceScore || 0).toFixed(1)}
-                      </Badge>
-                    </Link>
-                  ))}
-                  {badCalls.length > 5 && (
-                    <Link href="/reports">
-                      <Badge variant="outline" className="text-xs cursor-pointer">+{badCalls.length - 5} more</Badge>
-                    </Link>
-                  )}
-                </div>
+          <div className="rounded-lg border border-border bg-card">
+            <button
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-left"
+              onClick={() => setFlagsExpanded(!flagsExpanded)}
+            >
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                {badCalls.length > 0 && (
+                  <span className="inline-flex items-center gap-1.5 text-sm font-medium text-red-600 dark:text-red-400">
+                    <RiAlertLine className="w-4 h-4 flex-shrink-0" />
+                    {badCalls.length} need attention
+                  </span>
+                )}
+                {badCalls.length > 0 && goodCalls.length > 0 && (
+                  <span className="text-muted-foreground">|</span>
+                )}
+                {goodCalls.length > 0 && (
+                  <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400">
+                    <RiAwardLine className="w-4 h-4 flex-shrink-0" />
+                    {goodCalls.length} exceptional
+                  </span>
+                )}
               </div>
-            )}
-            {goodCalls.length > 0 && (
-              <div className="bg-emerald-50 dark:bg-emerald-950/30 rounded-lg border border-emerald-200 dark:border-emerald-900 p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <RiAwardLine className="w-5 h-5 text-emerald-500" />
-                  <h3 className="font-semibold text-emerald-700 dark:text-emerald-400">
-                    {goodCalls.length} Exceptional Call{goodCalls.length > 1 ? "s" : ""}
-                  </h3>
-                </div>
-                <p className="text-sm text-emerald-600/80 dark:text-emerald-400/80 mb-2">
-                  Calls where agents went above and beyond.
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {goodCalls.slice(0, 5).map(c => (
-                    <Link key={c.id} href={`/transcripts/${c.id}`}>
-                      <Badge className="bg-emerald-200 text-emerald-900 text-xs cursor-pointer hover:bg-emerald-300">
-                        <RiAwardLine className="w-3 h-3 mr-1" />
-                        {c.employee?.name || "Unassigned"} — {Number(c.analysis?.performanceScore || 0).toFixed(1)}
-                      </Badge>
-                    </Link>
-                  ))}
-                  {goodCalls.length > 5 && (
-                    <Link href="/reports">
-                      <Badge variant="outline" className="text-xs cursor-pointer">+{goodCalls.length - 5} more</Badge>
-                    </Link>
-                  )}
-                </div>
+              <RiArrowDownSLine className={`w-4 h-4 text-muted-foreground transition-transform ${flagsExpanded ? "rotate-180" : ""}`} />
+            </button>
+            {flagsExpanded && (
+              <div className="px-4 pb-3 pt-0 grid grid-cols-1 md:grid-cols-2 gap-3">
+                {badCalls.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {badCalls.slice(0, 5).map(c => (
+                      <Link key={c.id} href={`/transcripts/${c.id}`}>
+                        <Badge className="bg-red-200 text-red-900 text-xs cursor-pointer hover:bg-red-300">
+                          {c.employee?.name || "Unassigned"} — {Number(c.analysis?.performanceScore || 0).toFixed(1)}
+                        </Badge>
+                      </Link>
+                    ))}
+                    {badCalls.length > 5 && (
+                      <Link href="/reports">
+                        <Badge variant="outline" className="text-xs cursor-pointer">+{badCalls.length - 5} more</Badge>
+                      </Link>
+                    )}
+                  </div>
+                )}
+                {goodCalls.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {goodCalls.slice(0, 5).map(c => (
+                      <Link key={c.id} href={`/transcripts/${c.id}`}>
+                        <Badge className="bg-emerald-200 text-emerald-900 text-xs cursor-pointer hover:bg-emerald-300">
+                          <RiAwardLine className="w-3 h-3 mr-1" />
+                          {c.employee?.name || "Unassigned"} — {Number(c.analysis?.performanceScore || 0).toFixed(1)}
+                        </Badge>
+                      </Link>
+                    ))}
+                    {goodCalls.length > 5 && (
+                      <Link href="/reports">
+                        <Badge variant="outline" className="text-xs cursor-pointer">+{goodCalls.length - 5} more</Badge>
+                      </Link>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -276,6 +286,19 @@ export default function Dashboard() {
 
         {/* Metrics Overview */}
         <MetricsOverview />
+
+        {/* Sentiment + Performance Cards (side by side) */}
+        {isDataLoading ? (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <ChartSkeleton height={300} />
+            <ChartSkeleton height={300} />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <SentimentAnalysis />
+            <PerformanceCard />
+          </div>
+        )}
 
         {/* Sentiment & Call Volume Trend (Last 30 Days) */}
         {trendData.length > 0 && trendData.some(d => d.calls > 0) && (
@@ -313,20 +336,26 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* File Upload Section */}
-        <FileUpload />
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Sentiment Analysis */}
-          <SentimentAnalysis />
-
-          {/* Top Performers */}
-          <PerformanceCard />
-        </div>
-
         {/* Recent Calls Table */}
-        <CallsTable />
+        {isDataLoading ? (
+          <TableSkeleton rows={8} columns={6} />
+        ) : (
+          <CallsTable />
+        )}
       </div>
+
+      {/* Upload Dialog */}
+      <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RiUploadLine className="w-5 h-5" />
+              Upload Call Recording
+            </DialogTitle>
+          </DialogHeader>
+          <FileUpload />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

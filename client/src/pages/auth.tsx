@@ -10,6 +10,7 @@ import { USER_ROLES, INDUSTRY_TYPES } from "@shared/schema";
 import { useAppName } from "@/hooks/use-organization";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {  RiLoginBoxLine, RiUserAddLine, RiShieldLine, RiEyeLine, RiSettings3Line, RiLoader4Line, RiArrowLeftLine  } from "@remixicon/react";
+import { cn } from "@/lib/utils";
 
 interface AuthPageProps {
   onLogin: () => void;
@@ -218,6 +219,7 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
             {/* REGISTER FORM */}
             {view === "register" && (
               <form onSubmit={handleRegister} className="space-y-4">
+                <div className="text-xs uppercase font-semibold text-muted-foreground tracking-wide mb-3">Organization Details</div>
                 <div>
                   <label className="text-sm font-medium text-foreground">Organization Name</label>
                   <Input
@@ -241,6 +243,7 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                     pattern="^[a-z0-9-]+$"
                   />
                   <p className="text-xs text-muted-foreground mt-1">URL-safe identifier (lowercase, hyphens)</p>
+                  <p className="text-xs text-muted-foreground mt-1">Your URL: <span className="font-mono text-foreground/70">{regOrgSlug || "your-org"}</span>.observatory-qa.com</p>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-foreground">Industry</label>
@@ -256,6 +259,7 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                   </Select>
                   <p className="text-xs text-muted-foreground mt-1">We'll set up default templates and categories for your industry</p>
                 </div>
+                <div className="text-xs uppercase font-semibold text-muted-foreground tracking-wide mb-3 mt-5">Your Account</div>
                 <div>
                   <label className="text-sm font-medium text-foreground">Your Full Name</label>
                   <Input value={regName} onChange={(e) => setRegName(e.target.value)} placeholder="Jane Doe" required />
@@ -266,6 +270,7 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                 </div>
                 <div>
                   <label className="text-sm font-medium text-foreground">Password</label>
+                  <p className="text-xs text-muted-foreground mb-1.5">Minimum 8 characters. Use a mix of letters, numbers, and symbols for a strong password.</p>
                   <Input
                     type="password"
                     value={regPassword}
@@ -275,7 +280,26 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                     minLength={8}
                     autoComplete="new-password"
                   />
-                  <p className="text-xs text-muted-foreground mt-1">Minimum 8 characters. Use a mix of letters, numbers, and symbols for a strong password.</p>
+                  {regPassword.length > 0 && (
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className={cn("h-full rounded-full transition-all duration-300",
+                            regPassword.length >= 12 ? "bg-emerald-500 w-full" :
+                            regPassword.length >= 8 ? "bg-amber-500 w-2/3" :
+                            "bg-red-500 w-1/3"
+                          )}
+                        />
+                      </div>
+                      <span className={cn("text-[10px] font-medium",
+                        regPassword.length >= 12 ? "text-emerald-600" :
+                        regPassword.length >= 8 ? "text-amber-600" :
+                        "text-red-500"
+                      )}>
+                        {regPassword.length >= 12 ? "Strong" : regPassword.length >= 8 ? "Good" : "Too short"}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? (
