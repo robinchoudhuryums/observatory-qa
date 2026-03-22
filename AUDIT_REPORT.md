@@ -48,23 +48,61 @@ The `/api/super-admin/stats` and `/api/super-admin/organizations` endpoints call
 
 **Fix**: Add a `getCallCount(orgId)` method to the storage interface that does `SELECT COUNT(*) FROM calls WHERE org_id = $1`.
 
-### 3. CLAUDE.md Documentation Drift — "No AWS SDK" Claim is False
+### 3. PostgreSQL `createCall()` Doesn't Save `fileHash` — Dedup Broken
+**Severity**: Critical (data integrity)
+**Location**: `server/db/pg-storage.ts:226-253`
+
+The `createCall()` method in PostgreSQL storage explicitly lists 21+ fields but **omits `fileHash`**. This means:
+- The `fileHash` column is always NULL in the database
+- `getCallByFileHash()` always returns undefined
+- **Duplicate file detection is completely broken** on the PostgreSQL backend
+- Users can upload the same audio file repeatedly, wasting transcription and AI analysis costs
+
+The field IS defined in the schema, IS passed by `calls.ts:722`, and IS correctly saved by `memory.ts` and `cloud.ts` backends — only `pg-storage.ts` is broken.
+
+**Fix**: Add `fileHash: call.fileHash || null,` to the insert values object.
+
+### 4. Missing `updateCallAnalysis()` — Analysis Edits Crash
+**Severity**: Critical (runtime error)
+**Location**: `server/storage/types.ts:195-198`, `server/routes/calls.ts:924`
+
+The `IStorage` interface defines `createCallAnalysis()` but has **no `updateCallAnalysis()` method**. The PATCH `/api/calls/:id/analysis` endpoint calls `createCallAnalysis()` to update existing analyses, which will throw a **unique constraint violation** on the `call_analyses(call_id)` index.
+
+This means manager+ users **cannot edit AI analysis results** — a core feature for QA review workflows.
+
+**Fix**: Add `updateCallAnalysis(orgId, callId, updates)` to `IStorage` interface and implement in all three backends.
+
+### 5. CLAUDE.md Documentation Drift — "No AWS SDK" Claim is False
 **Severity**: Medium (misleading for contributors)
-**Location**: `CLAUDE.md:850`
+**Location**: `CLAUDE.md:850` (now fixed)
 
-CLAUDE.md states: *"No AWS SDK: S3, Bedrock, and Titan Embed all use raw REST APIs with manual SigV4 signing"*
+CLAUDE.md stated: *"No AWS SDK: S3, Bedrock, and Titan Embed all use raw REST APIs with manual SigV4 signing"*
 
-This is false. The codebase uses:
+This was false. The codebase uses:
 - `@aws-sdk/client-bedrock-runtime` in `server/services/bedrock.ts`
 - `@aws-sdk/client-s3` in `server/services/s3.ts`
 - `@aws-sdk/client-ses` in `server/services/email.ts`
 - `@aws-sdk/credential-providers` across multiple files
 
+**Status**: Fixed in this commit — updated CLAUDE.md to reflect actual AWS SDK v3 usage.
+
 ---
 
 ## High Priority Issues
 
-### 4. No Input Sanitization on Super-Admin Org Settings Update
+### 6. `updateCall()` Missing Email Fields in PostgreSQL
+**Location**: `server/db/pg-storage.ts:255-277`
+
+`createCall()` includes `emailCc`, `emailBodyHtml`, and `emailReceivedAt`, but `updateCall()` omits them from the update clause. Email field updates silently fail.
+
+### 7. DOM innerHTML Injection in Clinical Notes Print
+**Location**: `client/src/pages/clinical-notes.tsx:263`
+
+`doc.body.innerHTML = printContent.innerHTML` assigns DOM content to a print window without sanitization. If clinical note data contains XSS payloads (from AI-generated content or manual edits), they execute in the print context.
+
+**Fix**: Use DOMPurify or `textContent` for safe DOM building.
+
+### 8. No Input Sanitization on Super-Admin Org Settings Update
 **Location**: `server/routes/super-admin.ts:158-200`
 
 The `PATCH /api/super-admin/organizations/:id` endpoint merges `req.body.settings` directly into org settings with only a `typeof settings === "object"` check. An attacker with super-admin access could inject arbitrary nested objects, potentially overwriting SSO config, EHR credentials, or other sensitive settings.
@@ -357,10 +395,13 @@ No `.github/workflows/`, `Jenkinsfile`, or equivalent CI configuration found. Fo
 
 ### Immediate (Before Any Production Healthcare Deployment)
 1. **Fix CSRF token integration** in the client
-2. **Add `getCallCount()` to storage interface** — stop loading all calls into memory
-3. **Set up CI/CD** with automated tests on every PR
-4. **Conduct formal HIPAA security assessment**
-5. **Document and execute BAA agreements** with AssemblyAI, AWS, Stripe
+2. **Fix `createCall()` in pg-storage.ts** — add missing `fileHash` field (dedup is broken)
+3. **Add `updateCallAnalysis()` to storage interface** — analysis edits crash with constraint violation
+4. **Fix `updateCall()` missing email fields** in pg-storage.ts
+5. **Add `getCallCount()` to storage interface** — stop loading all calls into memory
+6. **Set up CI/CD** with automated tests on every PR
+7. **Conduct formal HIPAA security assessment**
+8. **Document and execute BAA agreements** with AssemblyAI, AWS, Stripe
 
 ### Short-Term (Next 1-2 Sprints)
 6. **Add pagination** to all list endpoints
