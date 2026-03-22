@@ -238,9 +238,27 @@ export default function MarketingPage() {
     queryKey: ["/api/marketing/campaigns"],
   });
 
+  const { toast } = useToast();
+
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       await fetch(`/api/marketing/campaigns/${id}`, { method: "DELETE" });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/marketing/metrics"] });
+      toast({ title: "Campaign deleted" });
+    },
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: async ({ id, isActive }: { id: string; isActive: boolean }) => {
+      const res = await fetch(`/api/marketing/campaigns/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive }),
+      });
+      if (!res.ok) throw new Error("Failed to update campaign");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns"] });
@@ -295,7 +313,7 @@ export default function MarketingPage() {
             campaigns.map(c => (
               <Card key={c.id}>
                 <CardContent className="p-4 flex items-center justify-between">
-                  <div>
+                  <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <h3 className="font-medium text-sm">{c.name}</h3>
                       <Badge variant={c.isActive ? "default" : "secondary"} className="text-xs">
@@ -306,11 +324,21 @@ export default function MarketingPage() {
                       {MARKETING_SOURCES.find(s => s.value === c.source)?.label || c.source}
                       {c.budget && ` · Budget: ${formatCurrency(c.budget)}`}
                       {c.trackingCode && ` · Code: ${c.trackingCode}`}
+                      {c.startDate && ` · Started: ${new Date(c.startDate).toLocaleDateString()}`}
                     </div>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => deleteMutation.mutate(c.id)}>
-                    <RiDeleteBinLine className="w-4 h-4 text-muted-foreground" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => toggleMutation.mutate({ id: c.id, isActive: !c.isActive })}
+                    >
+                      {c.isActive ? "Pause" : "Resume"}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => deleteMutation.mutate(c.id)}>
+                      <RiDeleteBinLine className="w-4 h-4 text-muted-foreground" />
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             ))
