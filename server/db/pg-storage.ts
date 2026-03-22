@@ -2058,7 +2058,9 @@ export class PostgresStorage implements IStorage {
     const tracked = rows.filter(r => r.conversionStatus !== "unknown");
     const converted = tracked.filter(r => r.conversionStatus === "converted");
     const conversionRate = tracked.length > 0 ? converted.length / tracked.length : 0;
-    const avgDealValue = converted.length > 0 ? totalActual / converted.length : 0;
+    // Only sum actualRevenue from converted calls for accurate avg deal value
+    const convertedActual = converted.reduce((sum, r) => sum + (r.actualRevenue || 0), 0);
+    const avgDealValue = converted.length > 0 ? convertedActual / converted.length : 0;
     return { totalEstimated, totalActual, conversionRate, avgDealValue };
   }
 

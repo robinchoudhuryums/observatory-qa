@@ -3,6 +3,7 @@ import { getQueryFn } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import {  RiMoneyDollarCircleLine, RiArrowRightUpLine, RiTeamLine, RiSubtractLine  } from "@remixicon/react";
 
 type RevenueMetrics = {
@@ -34,6 +35,14 @@ type EmployeeRevenue = {
   converted: number;
 };
 
+type RevenueTrend = {
+  weekStart: string;
+  estimated: number;
+  actual: number;
+  count: number;
+  converted: number;
+};
+
 const conversionColors: Record<string, string> = {
   converted: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
   pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
@@ -61,6 +70,11 @@ export default function RevenuePage() {
     queryFn: getQueryFn({ on401: "returnNull" }),
   });
 
+  const { data: trend = [] } = useQuery<RevenueTrend[]>({
+    queryKey: ["/api/revenue/trend"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
+  });
+
   return (
     <div className="space-y-6">
       <div>
@@ -72,7 +86,7 @@ export default function RevenuePage() {
       </div>
 
       {/* Metrics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Estimated Revenue</CardDescription>
@@ -118,6 +132,37 @@ export default function RevenuePage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Revenue Trend Chart */}
+      {trend.some(w => w.count > 0) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <RiArrowRightUpLine className="w-5 h-5" style={{ color: "hsl(var(--brand-from))" }} />
+              Revenue Trend — Last 12 Weeks
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={trend.map(w => ({
+                ...w,
+                label: new Date(w.weekStart).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+              }))}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+                <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" tickFormatter={v => `$${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 12, borderRadius: 8 }}
+                  formatter={(value: number, name: string) => [formatCurrency(value), name]}
+                />
+                <Legend />
+                <Bar dataKey="estimated" name="Estimated" fill="hsl(var(--brand-from))" opacity={0.4} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="actual" name="Actual" fill="#22c55e" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
 
       <Tabs defaultValue="calls">
         <TabsList>

@@ -891,10 +891,12 @@ export class MemStorage implements IStorage {
     const revenues = Array.from(this.callRevenuesStore.values()).filter(r => r.orgId === orgId);
     const totalEstimated = revenues.reduce((sum, r) => sum + (r.estimatedRevenue || 0), 0);
     const totalActual = revenues.reduce((sum, r) => sum + (r.actualRevenue || 0), 0);
-    const converted = revenues.filter(r => r.conversionStatus === "converted").length;
+    const convertedRevs = revenues.filter(r => r.conversionStatus === "converted");
     const total = revenues.filter(r => r.conversionStatus !== "unknown").length;
-    const conversionRate = total > 0 ? converted / total : 0;
-    const avgDealValue = converted > 0 ? totalActual / converted : 0;
+    const conversionRate = total > 0 ? convertedRevs.length / total : 0;
+    // Only sum actualRevenue from converted calls for accurate avg deal value
+    const convertedActual = convertedRevs.reduce((sum, r) => sum + (r.actualRevenue || 0), 0);
+    const avgDealValue = convertedRevs.length > 0 ? convertedActual / convertedRevs.length : 0;
     return { totalEstimated, totalActual, conversionRate, avgDealValue };
   }
 
