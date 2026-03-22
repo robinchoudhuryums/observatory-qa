@@ -9,6 +9,7 @@
  */
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { MemStorage } from "../server/storage/memory.js";
 
 const ORG_ID = "org-clinical-test";
@@ -200,7 +201,6 @@ describe("Clinical note formats", () => {
 describe("PHI encryption logic", () => {
   // Test encryption primitives directly using Node.js crypto
   // (phi-encryption.ts imports logger/pino which may not be available in test env)
-  const { createCipheriv, createDecipheriv, randomBytes } = require("node:crypto") as typeof import("node:crypto");
 
   function testEncrypt(plaintext: string, key: Buffer): string {
     const iv = randomBytes(12);
