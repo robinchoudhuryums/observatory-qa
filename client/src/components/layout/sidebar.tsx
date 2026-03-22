@@ -28,7 +28,12 @@ export default function Sidebar() {
   const [location, navigate] = useLocation();
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains("dark"));
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = safeStorage.getItem("sidebar-collapsed");
+      return saved ? JSON.parse(saved) : {};
+    } catch { return {}; }
+  });
 
   // Initialize Clinical section as collapsed for non-clinical orgs
   const { data: orgData } = useOrganization();
@@ -44,7 +49,11 @@ export default function Sidebar() {
   }, [industryType]);
 
   const toggleSection = useCallback((section: string) => {
-    setCollapsedSections(prev => ({ ...prev, [section]: !prev[section] }));
+    setCollapsedSections(prev => {
+      const next = { ...prev, [section]: !prev[section] };
+      safeStorage.setItem("sidebar-collapsed", JSON.stringify(next));
+      return next;
+    });
   }, []);
 
   // Close mobile sidebar on route change
@@ -201,6 +210,8 @@ export default function Sidebar() {
               onClick={toggleDarkMode}
               className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all duration-200"
               title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+              aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+              aria-pressed={isDark}
             >
               {isDark ? <RiSunLine className="w-4 h-4" /> : <RiMoonLine className="w-4 h-4" />}
             </button>
@@ -260,7 +271,7 @@ export default function Sidebar() {
 
         {/* Multi-Channel */}
         <div className="pt-4 pb-1.5 px-3">
-          <button onClick={() => toggleSection('Channels')} className="flex items-center justify-between w-full">
+          <button onClick={() => toggleSection('Channels')} className="flex items-center justify-between w-full hover:text-foreground transition-colors cursor-pointer" aria-expanded={!collapsedSections['Channels']}>
             <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">Channels</p>
             <RiArrowDownSLine className={cn("w-3.5 h-3.5 text-muted-foreground/70 transition-transform", collapsedSections['Channels'] && "-rotate-90")} />
           </button>
@@ -275,7 +286,7 @@ export default function Sidebar() {
 
         {/* Performance & Engagement */}
         <div className="pt-4 pb-1.5 px-3">
-          <button onClick={() => toggleSection('Engagement')} className="flex items-center justify-between w-full">
+          <button onClick={() => toggleSection('Engagement')} className="flex items-center justify-between w-full hover:text-foreground transition-colors cursor-pointer" aria-expanded={!collapsedSections['Engagement']}>
             <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">Engagement</p>
             <RiArrowDownSLine className={cn("w-3.5 h-3.5 text-muted-foreground/70 transition-transform", collapsedSections['Engagement'] && "-rotate-90")} />
           </button>
@@ -289,7 +300,7 @@ export default function Sidebar() {
 
         {/* Clinical Documentation links */}
         <div className="pt-4 pb-1.5 px-3">
-          <button onClick={() => toggleSection('Clinical')} className="flex items-center justify-between w-full">
+          <button onClick={() => toggleSection('Clinical')} className="flex items-center justify-between w-full hover:text-foreground transition-colors cursor-pointer" aria-expanded={!collapsedSections['Clinical']}>
             <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">Clinical</p>
             <RiArrowDownSLine className={cn("w-3.5 h-3.5 text-muted-foreground/70 transition-transform", collapsedSections['Clinical'] && "-rotate-90")} />
           </button>

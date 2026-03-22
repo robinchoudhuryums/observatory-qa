@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Link, useLocation } from "wouter";
@@ -21,6 +21,7 @@ export default function Dashboard() {
   const [, navigate] = useLocation();
   const [uploadOpen, setUploadOpen] = useState(false);
   const [flagsExpanded, setFlagsExpanded] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   // Fetch recent calls to extract flagged ones for the dashboard alert panel
   const { data: calls, error: callsError, isLoading: callsLoading } = useQuery<CallWithDetails[]>({
@@ -71,6 +72,16 @@ export default function Dashboard() {
     const flags = c.analysis?.flags;
     return Array.isArray(flags) && flags.includes("exceptional_call");
   });
+
+  // Track last data update time
+  useEffect(() => {
+    if (calls) setLastUpdated(new Date());
+  }, [calls]);
+
+  // Auto-expand flagged calls when issues need attention
+  useEffect(() => {
+    if (badCalls.length > 0) setFlagsExpanded(true);
+  }, [badCalls.length]);
 
   // Compute daily trend data from calls for the last 30 days
   const trendData = useMemo(() => {
@@ -132,25 +143,33 @@ export default function Dashboard() {
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div>
             <h2 className="text-2xl font-bold text-foreground tracking-tight">Call Analysis Dashboard</h2>
-            <p className="text-sm text-muted-foreground mt-0.5">Monitor performance and sentiment across all customer interactions</p>
+            <div className="flex items-center gap-3 mt-0.5">
+              <p className="text-sm text-muted-foreground">Monitor performance and sentiment across all customer interactions</p>
+              {lastUpdated && (
+                <span className="text-xs text-muted-foreground/60 whitespace-nowrap hidden sm:inline">
+                  Updated {lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              )}
+            </div>
           </div>
-          <div className="flex items-center space-x-3 w-full sm:w-auto">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
             <Button
               variant="outline"
-              className="flex-1 sm:flex-none sm:w-64 justify-start text-muted-foreground rounded-lg"
+              className="flex-1 sm:flex-none sm:w-56 justify-start text-muted-foreground rounded-lg"
               onClick={() => navigate("/search")}
               data-testid="search-input"
             >
               <RiSearchLine className="w-4 h-4 mr-2" />
-              Search calls...
+              <span className="hidden sm:inline">Search calls...</span>
+              <span className="sm:hidden">Search</span>
             </Button>
             <Button
-              className="text-white border-0 shadow-md rounded-lg brand-gradient-btn whitespace-nowrap"
+              className="text-white border-0 shadow-md rounded-lg brand-gradient-btn whitespace-nowrap shrink-0"
               data-testid="upload-call-button"
               onClick={() => setUploadOpen(true)}
             >
-              <RiAddLine className="w-4 h-4 mr-2" />
-              Upload Call
+              <RiAddLine className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Upload Call</span>
             </Button>
           </div>
         </div>
@@ -227,7 +246,7 @@ export default function Dashboard() {
             >
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 {badCalls.length > 0 && (
-                  <span className="inline-flex items-center gap-1.5 text-sm font-medium text-red-600 dark:text-red-400">
+                  <span className="inline-flex items-center gap-1.5 text-sm font-medium text-red-600 dark:text-red-400" aria-label={`${badCalls.length} calls need attention`}>
                     <RiAlertLine className="w-4 h-4 flex-shrink-0" />
                     {badCalls.length} need attention
                   </span>
@@ -287,18 +306,11 @@ export default function Dashboard() {
         {/* Metrics Overview */}
         <MetricsOverview />
 
-        {/* Sentiment + Performance Cards (side by side) */}
-        {isDataLoading ? (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <ChartSkeleton height={300} />
-            <ChartSkeleton height={300} />
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <SentimentAnalysis />
-            <PerformanceCard />
-          </div>
-        )}
+        {/* Sentiment + Performance Cards (side by side, each handles own loading) */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <SentimentAnalysis />
+          <PerformanceCard />
+        </div>
 
         {/* Sentiment & Call Volume Trend (Last 30 Days) */}
         {trendData.length > 0 && trendData.some(d => d.calls > 0) && (
@@ -336,12 +348,8 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Recent Calls Table */}
-        {isDataLoading ? (
-          <TableSkeleton rows={8} columns={6} />
-        ) : (
-          <CallsTable />
-        )}
+        {/* Recent Calls Table (handles its own loading state) */}
+        <CallsTable />
       </div>
 
       {/* Upload Dialog */}
