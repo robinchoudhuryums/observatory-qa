@@ -28,9 +28,17 @@ AI-powered call quality analysis and clinical documentation for healthcare and c
 - **MFA** — TOTP-based multi-factor authentication, optional per-org enforcement
 - **Billing** — Stripe integration with Free / Clinical Documentation ($49/mo) / Pro ($99/mo) / Enterprise ($499/mo) tiers
 - **HIPAA compliant** — session timeouts, session fixation prevention, audit logging (PHI access on all sensitive endpoints), MFA, PHI field encryption, org-scoped rate limiting, data retention
+- **Learning Management System** — AI-generated training courses from call analysis, lesson tracking
+- **Marketing attribution** — UTM parameter tracking, campaign source/medium, ROI calculation
+- **Real-time clinical sessions** — Live transcription with AssemblyAI real-time streaming
+- **Email management** — Template management, send history, email analytics
+- **Super admin** — Platform-level admin (cross-org management) via `SUPER_ADMIN_USERS`
+- **Error tracking** — Sentry integration (client + server) with HIPAA-safe PHI sanitization
+- **Observability** — OpenTelemetry traces/metrics, WAF middleware, Pino structured logging + Betterstack
 - **Data export** — CSV export for calls, employees, and performance data
-- **Password reset** — Self-service forgot-password flow via email
+- **Password reset** — Self-service forgot-password flow via email (SMTP or AWS SES)
 - **Real-time updates** — WebSocket notifications for call processing status
+- **CDN-ready** — Static assets with proper cache headers, configurable CDN origin
 - **Dark mode** — full dark theme support
 
 ## Tech Stack
@@ -47,6 +55,10 @@ AI-powered call quality analysis and clinical documentation for healthcare and c
 | Auth | Passport.js (local + Google OAuth + SAML SSO), MFA (TOTP), session-based |
 | Billing | Stripe |
 | Logging | Pino + Betterstack |
+| Error Tracking | Sentry (client + server) |
+| Observability | OpenTelemetry (traces + metrics) |
+| Email | AWS SES API or SMTP (Nodemailer) |
+| E2E Testing | Playwright (Chromium) |
 
 ## Quick Start
 
@@ -116,15 +128,16 @@ npm run workers   # Requires REDIS_URL
 
 ```
 client/src/
-  pages/              # 25 route pages (dashboard, transcripts, clinical, ab-testing, etc.)
+  pages/              # 34 route pages (dashboard, transcripts, clinical, ab-testing, LMS, marketing, etc.)
   components/         # UI components (shadcn/ui + custom)
   lib/                # Utilities (display-utils, error-reporting)
 
 server/
   index.ts            # App entry point
   auth.ts             # Authentication + org context middleware
-  routes/             # 24 modular route files (auth, SSO, calls, clinical, ehr, ab-testing, etc.)
-  services/           # AI provider (Bedrock), S3, Redis, RAG, Stripe, EHR adapters, style learning
+  routes/             # 36 modular route files (auth, SSO, calls, clinical, ehr, lms, marketing, etc.)
+  services/           # AI provider (Bedrock), S3, Redis, RAG, Stripe, EHR adapters, Sentry, telemetry
+  middleware/          # WAF, OpenTelemetry tracing
   services/ehr/       # EHR integration adapters (Open Dental, Eaglesoft)
   storage/            # Storage abstraction (PostgreSQL, S3, memory)
   db/                 # Drizzle ORM schema + PostgreSQL storage + auto schema sync
@@ -135,7 +148,8 @@ shared/
 
 data/dental/          # Dental-specific reference data (CDT codes, prompt templates)
 deploy/ec2/           # EC2 deployment (Caddy, systemd, bootstrap script)
-tests/                # 12 test files (Node test runner)
+tests/                # 27 unit test files (Node test runner)
+tests/e2e/            # 11 Playwright E2E spec files
 ```
 
 ## Commands
@@ -145,7 +159,9 @@ tests/                # 12 test files (Node test runner)
 | `npm run dev` | Dev server with Vite HMR (port 5000) |
 | `npm run build` | Production build (Vite frontend + esbuild backend) |
 | `npm run start` | Start production server |
-| `npm run test` | Run test suite |
+| `npm run test` | Run unit test suite |
+| `npm run test:e2e` | Run Playwright E2E tests |
+| `npm run test:e2e:ui` | Open Playwright interactive UI |
 | `npm run check` | TypeScript type check |
 | `npm run workers` | Start BullMQ workers (requires Redis) |
 | `npm run db:push` | Push Drizzle schema to PostgreSQL |
@@ -222,11 +238,23 @@ Observatory QA implements healthcare-grade security controls:
 npm run test
 ```
 
-12+ test files covering schemas, routes, multi-tenancy, RBAC, billing, API keys, and more. Uses Node.js built-in test runner via tsx (351 tests).
+27 unit test files covering schemas, routes, multi-tenancy, RBAC, billing, API keys, clinical workflows, EHR, PHI encryption, SSO, and more. Uses Node.js built-in test runner via tsx. Plus 11 Playwright E2E specs for browser-level testing.
+
+### E2E Tests (Playwright)
+```bash
+npm run test:e2e      # headless Chromium
+npm run test:e2e:ui   # interactive browser UI
+```
+Requires the dev server running on port 5000 (or set `BASE_URL`). Test auth users: `admin/admin123`, `viewer/viewer123`.
 
 ## Environment Variables
 
-See [`.env.example`](.env.example) for the full list with documentation.
+See [`.env.example`](.env.example) for the full list. Key new additions:
+- `EMAIL_PROVIDER=ses` — Use AWS SES API for email (reuses existing AWS credentials)
+- `SENTRY_DSN` / `VITE_SENTRY_DSN` — Error tracking (server / client)
+- `CDN_ORIGIN` — CDN domain for static asset URLs and CSP headers
+- `OTEL_ENABLED=true` — Enable OpenTelemetry traces and metrics
+- `SUPER_ADMIN_USERS` — Platform-level admin users (cross-org)
 
 ## License
 
