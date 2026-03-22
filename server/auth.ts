@@ -10,7 +10,9 @@ import { storage } from "./storage";
 import { createRedisSessionStore } from "./services/redis";
 import { logger } from "./services/logger";
 
-const scryptAsync = promisify(scrypt);
+const scryptAsync = promisify(scrypt) as (
+  password: string | Buffer, salt: string | Buffer, keylen: number, options?: { N?: number; r?: number; p?: number; maxmem?: number }
+) => Promise<Buffer>;
 
 // HIPAA: Login attempt tracking for account lockout
 const MAX_FAILED_ATTEMPTS = 5;
@@ -78,16 +80,36 @@ interface EnvUser {
 // In-memory store of hashed user credentials parsed from env vars
 const envUsers: EnvUser[] = [];
 
+/**
+ * Validate password complexity for HIPAA compliance.
+ * Requires: 12+ chars, uppercase, lowercase, digit, special character.
+ * Returns error message string, or null if valid.
+ */
+export function validatePasswordComplexity(password: string): string | null {
+  if (password.length < 12) return "Password must be at least 12 characters";
+  if (!/[A-Z]/.test(password)) return "Password must contain at least one uppercase letter";
+  if (!/[a-z]/.test(password)) return "Password must contain at least one lowercase letter";
+  if (!/[0-9]/.test(password)) return "Password must contain at least one digit";
+  if (!/[^A-Za-z0-9]/.test(password)) return "Password must contain at least one special character";
+  return null;
+}
+
+/**
+ * HIPAA: scrypt KDF parameters.
+ * N=32768 (2^15), r=8, p=1 — stronger than Node.js defaults for healthcare.
+ */
+const SCRYPT_PARAMS = { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
+
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16).toString("hex");
-  const buf = (await scryptAsync(password, salt, 64)) as Buffer;
+  const buf = (await scryptAsync(password, salt, 64, SCRYPT_PARAMS)) as Buffer;
   return `${buf.toString("hex")}.${salt}`;
 }
 
 export async function comparePasswords(supplied: string, stored: string): Promise<boolean> {
   const [hashedPassword, salt] = stored.split(".");
   const hashedPasswordBuf = Buffer.from(hashedPassword, "hex");
-  const suppliedPasswordBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
+  const suppliedPasswordBuf = (await scryptAsync(supplied, salt, 64, SCRYPT_PARAMS)) as Buffer;
   return timingSafeEqual(hashedPasswordBuf, suppliedPasswordBuf);
 }
 

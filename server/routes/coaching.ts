@@ -71,6 +71,13 @@ export function registerCoachingRoutes(app: Express): void {
         return;
       }
       const session = await storage.createCoachingSession(req.orgId!, parsed.data);
+      logPhiAccess({
+        ...auditContext(req),
+        event: "create_coaching_session",
+        resourceType: "coaching",
+        resourceId: session.id,
+        detail: `Created coaching session for employee ${session.employeeId}`,
+      });
       res.status(201).json(session);
     } catch (error) {
       logger.error({ err: error }, "Failed to create coaching session");
@@ -104,6 +111,13 @@ export function registerCoachingRoutes(app: Express): void {
         res.status(404).json(errorResponse(ERROR_CODES.COACHING_NOT_FOUND, "Coaching session not found"));
         return;
       }
+      logPhiAccess({
+        ...auditContext(req),
+        event: "update_coaching_session",
+        resourceType: "coaching",
+        resourceId: req.params.id,
+        detail: `Updated fields: ${Object.keys(parsed.data).join(", ")}`,
+      });
       res.json(updated);
     } catch (error) {
       logger.error({ err: error }, "Failed to update coaching session");

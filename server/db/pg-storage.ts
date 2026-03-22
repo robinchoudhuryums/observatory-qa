@@ -1040,6 +1040,25 @@ export class PostgresStorage implements IStorage {
     return expiredCalls.length;
   }
 
+  /**
+   * HIPAA: Purge audit logs older than retentionDays.
+   * Default retention is 7 years (2555 days) per HIPAA requirements.
+   * Audit logs are NEVER deleted alongside PHI data.
+   */
+  async purgeExpiredAuditLogs(orgId: string, retentionDays: number): Promise<number> {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - retentionDays);
+
+    const result = await this.db.delete(tables.auditLogs)
+      .where(and(
+        eq(tables.auditLogs.orgId, orgId),
+        lt(tables.auditLogs.createdAt, cutoff),
+      ))
+      .returning({ id: tables.auditLogs.id });
+
+    return result.length;
+  }
+
   // --- Usage tracking ---
   async recordUsageEvent(event: { orgId: string; eventType: string; quantity: number; metadata?: Record<string, unknown> }): Promise<void> {
     const id = randomUUID();

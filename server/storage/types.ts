@@ -250,6 +250,8 @@ export interface IStorage {
 
   // Data retention (org-scoped)
   purgeExpiredCalls(orgId: string, retentionDays: number): Promise<number>;
+  /** HIPAA: Purge audit logs older than retentionDays. Default 7 years (2555 days). */
+  purgeExpiredAuditLogs?(orgId: string, retentionDays: number): Promise<number>;
 
   // Usage tracking (org-scoped)
   recordUsageEvent(event: { orgId: string; eventType: string; quantity: number; metadata?: Record<string, unknown> }): Promise<void>;

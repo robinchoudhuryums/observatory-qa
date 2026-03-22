@@ -76,6 +76,22 @@ export function registerClinicalRoutes(app: Express): void {
       // Decrypt PHI fields before sending to client
       decryptClinicalNotePhi(analysis as Record<string, unknown>);
 
+      // HIPAA: Check for decryption failures — don't send garbled data
+      const phiFields = ["subjective", "objective", "assessment", "hpiNarrative", "chiefComplaint",
+        "reviewOfSystems", "differentialDiagnoses", "periodontalFindings"];
+      const decryptionFailed = phiFields.some(f => {
+        const val = (cn as Record<string, unknown>)[f];
+        return typeof val === "string" && (val === "[DECRYPTION FAILED]" || val === "[ENCRYPTED - KEY UNAVAILABLE]");
+      });
+      if (decryptionFailed) {
+        logger.error({ callId: req.params.callId }, "PHI decryption failed — refusing to serve clinical note with corrupted data");
+        res.status(500).json({
+          message: "Unable to decrypt clinical note. PHI encryption key may be misconfigured.",
+          code: "OBS-PHI-DECRYPT-001",
+        });
+        return;
+      }
+
       res.json(cn);
     } catch (error) {
       logger.error({ err: error }, "Failed to get clinical note");

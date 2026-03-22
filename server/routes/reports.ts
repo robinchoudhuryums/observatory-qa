@@ -44,6 +44,7 @@ export function registerReportRoutes(app: Express): void {
     try {
       // We can reuse the existing function to get top performers
       const performers = await storage.getTopPerformers(req.orgId!, 10); // Get top 10
+      logPhiAccess({ ...auditContext(req), event: "view_performance", resourceType: "performance" });
       res.json(performers);
     } catch (error) {
       logger.error({ err: error }, "Failed to get performance data");
@@ -65,6 +66,7 @@ export function registerReportRoutes(app: Express): void {
         performers,
       };
 
+      logPhiAccess({ ...auditContext(req), event: "view_report_summary", resourceType: "report" });
       res.json(reportData);
     } catch (error) {
       logger.error({ err: error }, "Failed to generate report data");
@@ -226,6 +228,7 @@ export function registerReportRoutes(app: Express): void {
       // Count auto-assigned calls
       const autoAssignedCount = filtered.filter(c => (c.analysis as any)?.detectedAgentName).length;
 
+      logPhiAccess({ ...auditContext(req), event: "view_filtered_report", resourceType: "report", detail: `${totalCalls} calls, date range: ${from || "all"} to ${to || "now"}` });
       res.json({
         metrics: {
           totalCalls,
@@ -300,6 +303,7 @@ export function registerReportRoutes(app: Express): void {
         flaggedCount: current.flaggedCount - previous.flaggedCount,
       };
 
+      logPhiAccess({ ...auditContext(req), event: "view_report_compare", resourceType: "report" });
       res.json({ current, previous, delta });
     } catch (error) {
       logger.error({ err: error }, "Failed to generate comparative report");

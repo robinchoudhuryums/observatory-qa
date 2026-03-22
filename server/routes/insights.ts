@@ -245,6 +245,13 @@ export function registerInsightRoutes(app: Express): void {
         agentBreakdown,
         departmentBreakdown,
       });
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "view_team_insights",
+        resourceType: "insights",
+        detail: `${calls.length} calls, ${empStats.size} agents analyzed`,
+      });
     } catch (error) {
       logger.error({ err: error }, "Failed to compute team insights");
       res.status(500).json({ message: "Failed to compute team insights" });
@@ -338,6 +345,7 @@ export function registerInsightRoutes(app: Express): void {
           flaggedCount: d.flagged,
         }));
 
+      logPhiAccess({ ...auditContext(req), event: "view_trend_insights", resourceType: "insights" });
       res.json({ granularity: useWeekly ? "week" : "day", trends });
     } catch (error) {
       logger.error({ err: error }, "Failed to compute trend insights");
@@ -425,6 +433,7 @@ export function registerInsightRoutes(app: Express): void {
         .map(c => (c.analysis as any)?.subScores?.compliance)
         .filter((v): v is number => v != null);
 
+      logPhiAccess({ ...auditContext(req), event: "view_compliance_insights", resourceType: "insights", detail: `${calls.length} calls analyzed` });
       res.json({
         overallCompliance: avg(allCompliance),
         totalAnalyzed: calls.length,

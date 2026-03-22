@@ -260,10 +260,17 @@ app.get("/api/calls", distributedRateLimit(60 * 1000, 100, true) as any);
 app.post("/api/calls/upload", distributedRateLimit(60 * 1000, 30, true) as any);
 app.use("/api/export", distributedRateLimit(60 * 1000, 10, true) as any);
 app.post("/api/onboarding/rag/search", distributedRateLimit(60 * 1000, 20, true) as any);
+// Tighter limits on individual PHI detail reads (transcript, analysis, sentiment)
+app.get("/api/calls/:id/transcript", distributedRateLimit(60 * 1000, 30, true) as any);
+app.get("/api/calls/:id/analysis", distributedRateLimit(60 * 1000, 30, true) as any);
+app.get("/api/calls/:id/sentiment", distributedRateLimit(60 * 1000, 30, true) as any);
 app.use("/api/calls", distributedRateLimit(60 * 1000, 60, true) as any);
 app.use("/api/employees", distributedRateLimit(60 * 1000, 60, true) as any);
-app.use("/api/clinical", distributedRateLimit(60 * 1000, 60, true) as any);
-app.use("/api/ehr", distributedRateLimit(60 * 1000, 30, true) as any);
+// Tighter limits on clinical/EHR (PHI-heavy endpoints)
+app.use("/api/clinical", distributedRateLimit(60 * 1000, 40, true) as any);
+app.use("/api/ehr", distributedRateLimit(60 * 1000, 20, true) as any);
+// Style learning is computationally expensive — stricter limit
+app.post("/api/clinical/style-learning/analyze", distributedRateLimit(60 * 1000, 3, true) as any);
 
 (async () => {
   // --- Infrastructure initialization ---
