@@ -11,13 +11,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
-import {
-  Mail, Send, BarChart3, MessageSquare, Clock, TrendingUp,
-  AlertCircle, CheckCircle2, Loader2, Inbox, ArrowUpRight,
-  ChevronRight, Star, Flag, Users,
-} from "lucide-react";
 import { CALL_CATEGORIES, type CallWithDetails } from "@shared/schema";
 import { toDisplayString } from "@/lib/display-utils";
+import {  RiMailLine, RiBarChartBoxLine, RiMessage2Line, RiTimeLine, RiArrowRightUpLine, RiErrorWarningLine, RiCheckboxCircleLine, RiLoader4Line, RiArrowRightSLine, RiStarLine, RiTeamLine, RiSendPlaneLine, RiInboxLine, RiInputMethodLine  } from "@remixicon/react";
 
 const EMAIL_CATEGORIES = CALL_CATEGORIES.filter(c => c.value.startsWith("email_"));
 
@@ -45,14 +41,14 @@ function EmailCard({ email }: { email: CallWithDetails }) {
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
-              <Mail className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+              <RiMailLine className="w-4 h-4 text-muted-foreground flex-shrink-0" />
               <h3 className="font-medium text-sm truncate">{email.emailSubject || "No subject"}</h3>
-              {isProcessing && <Loader2 className="w-3 h-3 animate-spin text-blue-500 flex-shrink-0" />}
-              {isFailed && <AlertCircle className="w-3 h-3 text-red-500 flex-shrink-0" />}
+              {isProcessing && <RiLoader4Line className="w-3 h-3 animate-spin text-blue-500 flex-shrink-0" />}
+              {isFailed && <RiErrorWarningLine className="w-3 h-3 text-red-500 flex-shrink-0" />}
             </div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
               <span>{email.emailFrom || "Unknown sender"}</span>
-              <ChevronRight className="w-3 h-3" />
+              <RiArrowRightSLine className="w-3 h-3" />
               <span>{email.emailTo || "Unknown recipient"}</span>
             </div>
             {email.analysis?.summary && (
@@ -77,7 +73,7 @@ function EmailCard({ email }: { email: CallWithDetails }) {
               )}
               {email.employee && (
                 <Badge variant="secondary" className="text-xs">
-                  <Users className="w-3 h-3 mr-1" />{email.employee.name}
+                  <RiTeamLine className="w-3 h-3 mr-1" />{email.employee.name}
                 </Badge>
               )}
             </div>
@@ -139,7 +135,7 @@ function SubmitEmailForm({ onSuccess }: { onSuccess: () => void }) {
     <Card>
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
-          <Send className="w-4 h-4" />
+          <RiSendPlaneLine className="w-4 h-4" />
           Submit Email for Analysis
         </CardTitle>
         <CardDescription>Paste an email to analyze its quality, sentiment, and compliance.</CardDescription>
@@ -189,9 +185,9 @@ function SubmitEmailForm({ onSuccess }: { onSuccess: () => void }) {
           className="w-full"
         >
           {submitMutation.isPending ? (
-            <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Analyzing...</>
+            <><RiLoader4Line className="w-4 h-4 mr-2 animate-spin" /> Analyzing...</>
           ) : (
-            <><Mail className="w-4 h-4 mr-2" /> Submit for Analysis</>
+            <><RiMailLine className="w-4 h-4 mr-2" /> Submit for Analysis</>
           )}
         </Button>
       </CardContent>
@@ -221,7 +217,7 @@ function StatsOverview() {
       <Card>
         <CardContent className="p-4">
           <div className="flex items-center gap-2 text-muted-foreground mb-1">
-            <Inbox className="w-4 h-4" />
+            <RiInboxLine className="w-4 h-4" />
             <span className="text-xs font-medium">Total Emails</span>
           </div>
           <div className="text-2xl font-bold">{stats.totalEmails}</div>
@@ -233,7 +229,7 @@ function StatsOverview() {
       <Card>
         <CardContent className="p-4">
           <div className="flex items-center gap-2 text-muted-foreground mb-1">
-            <Star className="w-4 h-4" />
+            <RiStarLine className="w-4 h-4" />
             <span className="text-xs font-medium">Avg Score</span>
           </div>
           <div className={`text-2xl font-bold ${scoreColor(stats.avgPerformanceScore)}`}>
@@ -245,7 +241,7 @@ function StatsOverview() {
       <Card>
         <CardContent className="p-4">
           <div className="flex items-center gap-2 text-muted-foreground mb-1">
-            <TrendingUp className="w-4 h-4" />
+            <RiArrowRightUpLine className="w-4 h-4" />
             <span className="text-xs font-medium">Sentiment</span>
           </div>
           <div className="flex items-center gap-1">
@@ -260,7 +256,7 @@ function StatsOverview() {
       <Card>
         <CardContent className="p-4">
           <div className="flex items-center gap-2 text-muted-foreground mb-1">
-            <MessageSquare className="w-4 h-4" />
+            <RiMessage2Line className="w-4 h-4" />
             <span className="text-xs font-medium">Threads</span>
           </div>
           <div className="text-2xl font-bold">{stats.threadCount}</div>
@@ -284,7 +280,7 @@ export default function EmailsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Mail className="w-6 h-6" />
+            <RiMailLine className="w-6 h-6" />
             Email QA
           </h1>
           <p className="text-muted-foreground text-sm">
@@ -298,28 +294,28 @@ export default function EmailsPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="inbox" className="gap-1.5">
-            <Inbox className="w-4 h-4" /> Analyzed Emails ({emails.length})
+            <RiInboxLine className="w-4 h-4" /> Analyzed Emails ({emails.length})
           </TabsTrigger>
           <TabsTrigger value="submit" className="gap-1.5">
-            <Send className="w-4 h-4" /> Submit Email
+            <RiSendPlaneLine className="w-4 h-4" /> Submit Email
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="inbox" className="space-y-3 mt-4">
           {isLoading ? (
             <div className="flex items-center justify-center h-32">
-              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+              <RiLoader4Line className="w-6 h-6 animate-spin text-muted-foreground" />
             </div>
           ) : emails.length === 0 ? (
             <Card>
               <CardContent className="p-8 text-center">
-                <Mail className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                <RiMailLine className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
                 <h3 className="font-medium mb-1">No emails analyzed yet</h3>
                 <p className="text-sm text-muted-foreground mb-4">
                   Submit an email to get AI-powered quality analysis.
                 </p>
                 <Button variant="outline" onClick={() => setActiveTab("submit")}>
-                  <Send className="w-4 h-4 mr-2" /> Submit Your First Email
+                  <RiSendPlaneLine className="w-4 h-4 mr-2" /> Submit Your First Email
                 </Button>
               </CardContent>
             </Card>

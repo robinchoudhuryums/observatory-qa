@@ -1,6 +1,5 @@
 import { useState, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Eye, Play, Download, Star, Trash2, UserCheck, AlertTriangle, Award, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, CheckSquare, Square, FileAudio, ShieldQuestion, FileDown, BrainCircuit } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { HelpTip } from "@/components/ui/help-tip";
@@ -8,11 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { getSentimentBadge as getSentimentBadgeHelper, getStatusBadge as getStatusBadgeHelper } from "@/lib/badge-helpers";
 import { Link } from "wouter";
 import type { CallWithDetails, Employee, AuthUser } from "@shared/schema";
-import { AudioWaveform } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, getQueryFn } from "@/lib/queryClient";
 import { ConfirmDialog } from "@/components/lib/confirm-dialog";
+import {  RiEyeLine, RiPlayLine, RiDownloadLine, RiStarLine, RiDeleteBinLine, RiUserFollowLine, RiAlertLine, RiAwardLine, RiArrowLeftSLine, RiArrowRightSLine, RiExpandUpDownLine, RiArrowUpLine, RiArrowDownLine, RiCheckboxLine, RiCheckboxBlankLine, RiFileMusicLine, RiShieldKeyholeLine, RiFileDownloadLine, RiBrainLine, RiVoiceprintLine, RiUploadLine  } from "@remixicon/react";
 
 type SortField = "date" | "duration" | "score" | "sentiment";
 type SortDir = "asc" | "desc";
@@ -139,8 +138,8 @@ export default function CallsTable() {
   };
 
   const SortIcon = ({ field }: { field: SortField }) => {
-    if (sortField !== field) return <ArrowUpDown className="w-3 h-3 ml-1 opacity-40" />;
-    return sortDir === "asc" ? <ArrowUp className="w-3 h-3 ml-1" /> : <ArrowDown className="w-3 h-3 ml-1" />;
+    if (sortField !== field) return <RiExpandUpDownLine className="w-3 h-3 ml-1 opacity-40" />;
+    return sortDir === "asc" ? <RiArrowUpLine className="w-3 h-3 ml-1" /> : <RiArrowDownLine className="w-3 h-3 ml-1" />;
   };
 
   // Bulk selection helpers
@@ -238,8 +237,8 @@ export default function CallsTable() {
     const emptyStars = 5 - filledStars;
     return (
       <div className="flex text-yellow-400 text-xs">
-        {[...Array(filledStars)].map((_, i) => <Star key={`filled-${i}`} className="w-3 h-3 fill-current" />)}
-        {[...Array(emptyStars)].map((_, i) => <Star key={`empty-${i}`} className="w-3 h-3" />)}
+        {[...Array(filledStars)].map((_, i) => <RiStarLine key={`filled-${i}`} className="w-3 h-3 fill-current" />)}
+        {[...Array(emptyStars)].map((_, i) => <RiStarLine key={`empty-${i}`} className="w-3 h-3" />)}
       </div>
     );
   };
@@ -268,7 +267,7 @@ export default function CallsTable() {
                 link.click();
               }}
             >
-              <FileDown className="w-4 h-4 mr-1.5" />
+              <RiFileDownloadLine className="w-4 h-4 mr-1.5" />
               CSV
             </Button>
           )}
@@ -314,7 +313,7 @@ export default function CallsTable() {
             </SelectContent>
           </Select>
           <Button size="sm" variant="destructive" className="h-8 text-xs" onClick={handleBulkDelete}>
-            <Trash2 className="w-3 h-3 mr-1" /> Delete Selected
+            <RiDeleteBinLine className="w-3 h-3 mr-1" /> Delete Selected
           </Button>
           <Button size="sm" variant="ghost" className="h-8 text-xs ml-auto" onClick={() => setSelectedIds(new Set())}>
             Clear Selection
@@ -328,7 +327,7 @@ export default function CallsTable() {
             <tr className="border-b border-border">
               <th className="py-3 px-2 w-8">
                 <button onClick={toggleAll} className="text-muted-foreground hover:text-foreground" aria-label={allOnPageSelected ? "Deselect all calls" : "Select all calls"}>
-                  {allOnPageSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                  {allOnPageSelected ? <RiCheckboxLine className="w-4 h-4" /> : <RiCheckboxBlankLine className="w-4 h-4" />}
                 </button>
               </th>
               <th className="text-left py-3 px-2 font-medium text-muted-foreground">
@@ -362,7 +361,7 @@ export default function CallsTable() {
               <tr key={call.id} className={`border-b border-border hover:bg-muted transition-colors animate-row ${selectedIds.has(call.id) ? "bg-primary/5" : ""}`} style={{ animationDelay: `${rowIdx * 30}ms` }}>
                 <td className="py-3 px-2">
                   <button onClick={() => toggleOne(call.id)} className="text-muted-foreground hover:text-foreground" aria-label={selectedIds.has(call.id) ? "Deselect call" : "Select call"}>
-                    {selectedIds.has(call.id) ? <CheckSquare className="w-4 h-4 text-primary" /> : <Square className="w-4 h-4" />}
+                    {selectedIds.has(call.id) ? <RiCheckboxLine className="w-4 h-4 text-primary" /> : <RiCheckboxBlankLine className="w-4 h-4" />}
                   </button>
                 </td>
                 <td className="py-3 px-2">
@@ -381,7 +380,7 @@ export default function CallsTable() {
                         <span className="font-medium">{call.employee.name ?? 'Unknown'}</span>
                         <Select onValueChange={(empId) => assignMutation.mutate({ callId: call.id, employeeId: empId })} disabled={assignMutation.isPending}>
                           <SelectTrigger className="w-7 h-7 p-0 border-0 bg-transparent">
-                            <UserCheck className="w-3 h-3 text-muted-foreground" />
+                            <RiUserFollowLine className="w-3 h-3 text-muted-foreground" />
                           </SelectTrigger>
                           <SelectContent>
                             {employees?.filter(e => e.status === "Active").map(emp => (
@@ -422,7 +421,7 @@ export default function CallsTable() {
                           <span className={`font-bold ${scoreColor}`}>{aiCompleted ? "—" : score.toFixed(1)}</span>
                           {aiCompleted ? (
                             <span title="AI analysis unavailable — score is a default">
-                              <BrainCircuit className="w-4 h-4 text-amber-500" />
+                              <RiBrainLine className="w-4 h-4 text-amber-500" />
                             </span>
                           ) : renderStars(score)}
                         </div>
@@ -454,22 +453,22 @@ export default function CallsTable() {
                         <>
                           {hasExceptional && (
                             <span title="Exceptional Call">
-                              <Award className="w-4 h-4 text-emerald-500" />
+                              <RiAwardLine className="w-4 h-4 text-emerald-500" />
                             </span>
                           )}
                           {hasBad && (
                             <span title={flags.filter(f => f !== "exceptional_call" && f !== "medicare_call" && f !== "low_confidence").join(", ")}>
-                              <AlertTriangle className="w-4 h-4 text-red-500" />
+                              <RiAlertLine className="w-4 h-4 text-red-500" />
                             </span>
                           )}
                           {!hasExceptional && !hasBad && flags.includes("medicare_call") && (
                             <span title="Medicare Call">
-                              <AlertTriangle className="w-4 h-4 text-blue-500" />
+                              <RiAlertLine className="w-4 h-4 text-blue-500" />
                             </span>
                           )}
                           {hasLowConfidence && (
                             <span title="Low AI Confidence — may need manual review">
-                              <ShieldQuestion className="w-4 h-4 text-yellow-500" />
+                              <RiShieldKeyholeLine className="w-4 h-4 text-yellow-500" />
                             </span>
                           )}
                         </>
@@ -481,12 +480,12 @@ export default function CallsTable() {
                   <div className="flex items-center space-x-2">
                     <Link href={`/transcripts/${call.id}`}>
                       <Button size="sm" variant="ghost" disabled={call.status !== 'completed'}>
-                        <Eye className="w-4 h-4" />
+                        <RiEyeLine className="w-4 h-4" />
                       </Button>
                     </Link>
                     <Link href={`/transcripts/${call.id}`}>
                       <Button size="sm" variant="ghost" disabled={call.status !== 'completed'} title="Play audio">
-                        <Play className="w-4 h-4" />
+                        <RiPlayLine className="w-4 h-4" />
                       </Button>
                     </Link>
                     <Button
@@ -496,13 +495,13 @@ export default function CallsTable() {
                       title="Download audio"
                       onClick={() => window.open(`/api/calls/${call.id}/audio?download=true`, '_blank')}
                     >
-                      <Download className="w-4 h-4" />
+                      <RiDownloadLine className="w-4 h-4" />
                     </Button>
                     <Button
                       size="sm" variant="ghost" className="text-red-500 hover:text-red-600"
                       onClick={() => handleDelete(call.id)} disabled={deleteMutation.isPending}
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <RiDeleteBinLine className="w-4 h-4" />
                     </Button>
                   </div>
                 </td>
@@ -533,7 +532,7 @@ export default function CallsTable() {
           </div>
           <div className="flex items-center gap-1">
             <Button size="sm" variant="ghost" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
-              <ChevronLeft className="w-4 h-4" />
+              <RiArrowLeftSLine className="w-4 h-4" />
             </Button>
             {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
               const pageNum = totalPages <= 5 ? i : Math.max(0, Math.min(page - 2, totalPages - 5)) + i;
@@ -550,7 +549,7 @@ export default function CallsTable() {
               );
             })}
             <Button size="sm" variant="ghost" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>
-              <ChevronRight className="w-4 h-4" />
+              <RiArrowRightSLine className="w-4 h-4" />
             </Button>
           </div>
         </div>
@@ -571,7 +570,7 @@ export default function CallsTable() {
       {!calls?.length && (
         <div className="text-center py-16">
           <div className="mx-auto w-16 h-16 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full flex items-center justify-center mb-4">
-            <FileAudio className="w-8 h-8 text-primary/60" />
+            <RiFileMusicLine className="w-8 h-8 text-primary/60" />
           </div>
           <h4 className="font-semibold text-foreground mb-1">No call recordings yet</h4>
           <p className="text-sm text-muted-foreground mb-4 max-w-sm mx-auto">

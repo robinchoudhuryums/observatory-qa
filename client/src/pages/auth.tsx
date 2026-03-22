@@ -4,12 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { LogIn, UserPlus, Shield, Eye, Settings, Loader2, ArrowLeft } from "lucide-react";
 import { ObservatoryLogo } from "@/components/observatory-logo";
 import { apiRequest } from "@/lib/queryClient";
 import { USER_ROLES, INDUSTRY_TYPES } from "@shared/schema";
 import { useAppName } from "@/hooks/use-organization";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {  RiLoginBoxLine, RiUserAddLine, RiShieldLine, RiEyeLine, RiSettings3Line, RiLoader4Line, RiArrowLeftLine  } from "@remixicon/react";
 
 interface AuthPageProps {
   onLogin: () => void;
@@ -113,9 +113,9 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
   };
 
   const roleIcons: Record<string, React.ReactNode> = {
-    viewer: <Eye className="w-4 h-4 text-blue-500" />,
-    manager: <Settings className="w-4 h-4 text-amber-500" />,
-    admin: <Shield className="w-4 h-4 text-purple-500" />,
+    viewer: <RiEyeLine className="w-4 h-4 text-blue-500" />,
+    manager: <RiSettings3Line className="w-4 h-4 text-amber-500" />,
+    admin: <RiShieldLine className="w-4 h-4 text-purple-500" />,
   };
 
   return (
@@ -126,7 +126,7 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
             onClick={onBack}
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
-            <ArrowLeft className="w-4 h-4" />
+            <RiArrowLeftLine className="w-4 h-4" />
             Back to home
           </button>
         )}
@@ -155,7 +155,7 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                 }`}
                 onClick={() => setView("login")}
               >
-                <LogIn className="w-4 h-4 inline mr-1.5 -mt-0.5" />
+                <RiLoginBoxLine className="w-4 h-4 inline mr-1.5 -mt-0.5" />
                 Sign In
               </button>
               <button
@@ -164,7 +164,7 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                 }`}
                 onClick={() => setView("register")}
               >
-                <UserPlus className="w-4 h-4 inline mr-1.5 -mt-0.5" />
+                <RiUserAddLine className="w-4 h-4 inline mr-1.5 -mt-0.5" />
                 Register
               </button>
             </div>
@@ -204,9 +204,9 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading} data-testid="login-submit">
                   {isLoading ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    <RiLoader4Line className="w-4 h-4 mr-2 animate-spin" />
                   ) : (
-                    <LogIn className="w-4 h-4 mr-2" />
+                    <RiLoginBoxLine className="w-4 h-4 mr-2" />
                   )}
                   Sign In
                 </Button>
@@ -279,9 +279,9 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    <RiLoader4Line className="w-4 h-4 mr-2 animate-spin" />
                   ) : (
-                    <UserPlus className="w-4 h-4 mr-2" />
+                    <RiUserAddLine className="w-4 h-4 mr-2" />
                   )}
                   Create Organization
                 </Button>
@@ -351,9 +351,9 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    <RiLoader4Line className="w-4 h-4 mr-2 animate-spin" />
                   ) : (
-                    <UserPlus className="w-4 h-4 mr-2" />
+                    <RiUserAddLine className="w-4 h-4 mr-2" />
                   )}
                   Submit Request
                 </Button>
@@ -364,7 +364,7 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
             {view === "request-access" && requestSubmitted && (
               <div className="text-center py-6">
                 <div className="mx-auto w-14 h-14 bg-gradient-to-br from-green-100 to-green-50 dark:from-green-900/30 dark:to-green-900/10 rounded-full flex items-center justify-center mb-4">
-                  <UserPlus className="w-7 h-7 text-green-600" />
+                  <RiUserAddLine className="w-7 h-7 text-green-600" />
                 </div>
                 <h3 className="font-semibold text-foreground mb-1">Request Submitted</h3>
                 <p className="text-sm text-muted-foreground mb-4">
@@ -487,7 +487,7 @@ function SsoLoginSection() {
         />
         {error && (
           <p className="text-sm text-destructive flex items-center gap-1.5">
-            <Shield className="w-3.5 h-3.5 flex-shrink-0" />
+            <RiShieldLine className="w-3.5 h-3.5 flex-shrink-0" />
             {error}
           </p>
         )}
@@ -499,9 +499,9 @@ function SsoLoginSection() {
           disabled={!orgSlug.trim() || isLoading}
         >
           {isLoading ? (
-            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            <RiLoader4Line className="w-4 h-4 mr-2 animate-spin" />
           ) : (
-            <Shield className="w-4 h-4 mr-2" />
+            <RiShieldLine className="w-4 h-4 mr-2" />
           )}
           {isLoading ? "Verifying..." : "Sign in with SSO"}
         </Button>

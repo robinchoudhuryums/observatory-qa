@@ -7,10 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  MessageSquare, ThumbsUp, Bug, Lightbulb, Star, BarChart3, TrendingUp,
-} from "lucide-react";
 import { FEEDBACK_TYPES, FEEDBACK_CONTEXTS, type Feedback } from "@shared/schema";
+import {  RiMessage2Line, RiStarLine, RiBarChartBoxLine, RiArrowRightUpLine, RiUserLine, RiInputMethodLine, RiBugLine, RiLightbulbLine  } from "@remixicon/react";
 
 type FeedbackSummary = {
   totalFeedback: number;
@@ -22,12 +20,12 @@ type FeedbackSummary = {
   recentFeedback: Feedback[];
 };
 
-const typeIcons: Record<string, typeof MessageSquare> = {
-  feature_rating: Star,
-  bug_report: Bug,
-  suggestion: Lightbulb,
-  nps: BarChart3,
-  general: MessageSquare,
+const typeIcons: Record<string, typeof RiMessage2Line> = {
+  feature_rating: RiStarLine,
+  bug_report: RiBugLine,
+  suggestion: RiLightbulbLine,
+  nps: RiBarChartBoxLine,
+  general: RiMessage2Line,
 };
 
 const statusColors: Record<string, string> = {
@@ -158,7 +156,7 @@ export default function FeedbackPage() {
                 return true;
               })
               .map(f => {
-                const Icon = typeIcons[f.type] || MessageSquare;
+                const Icon = typeIcons[f.type] || RiMessage2Line;
                 return (
                   <Card key={f.id}>
                     <CardContent className="pt-4">

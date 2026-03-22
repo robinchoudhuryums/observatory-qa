@@ -11,10 +11,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import {
-  Scale, Plus, Users, CheckCircle2, Clock, AlertTriangle, BarChart3,
-} from "lucide-react";
 import type { Call, User } from "@shared/schema";
+import {  RiScales3Line, RiAddLine, RiTeamLine, RiCheckboxCircleLine, RiTimeLine, RiAlertLine, RiBarChartBoxLine, RiUserLine, RiInputMethodLine  } from "@remixicon/react";
 
 type CalibrationSessionSummary = {
   id: string;
@@ -48,10 +46,10 @@ type CalibrationDetail = CalibrationSessionSummary & {
   consensusNotes?: string;
 };
 
-const statusIcons: Record<string, typeof Clock> = {
-  scheduled: Clock,
-  in_progress: Users,
-  completed: CheckCircle2,
+const statusIcons: Record<string, typeof RiTimeLine> = {
+  scheduled: RiTimeLine,
+  in_progress: RiTeamLine,
+  completed: RiCheckboxCircleLine,
 };
 
 const statusColors: Record<string, string> = {
@@ -147,14 +145,14 @@ export default function CalibrationPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Scale className="w-6 h-6 text-primary" />
+            <RiScales3Line className="w-6 h-6 text-primary" />
             Calibration Sessions
           </h1>
           <p className="text-muted-foreground">Align QA evaluators with multi-reviewer scoring sessions</p>
         </div>
         <Dialog open={showCreate} onOpenChange={setShowCreate}>
           <DialogTrigger asChild>
-            <Button><Plus className="w-4 h-4 mr-2" /> New Session</Button>
+            <Button><RiAddLine className="w-4 h-4 mr-2" /> New Session</Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
@@ -218,7 +216,7 @@ export default function CalibrationPage() {
             </Card>
           ) : (
             sessions.map(s => {
-              const StatusIcon = statusIcons[s.status] || Clock;
+              const StatusIcon = statusIcons[s.status] || RiTimeLine;
               return (
                 <Card key={s.id}
                   className={`cursor-pointer transition-colors ${selectedId === s.id ? "ring-2 ring-primary" : ""}`}
@@ -238,11 +236,11 @@ export default function CalibrationPage() {
                         {s.scoreVariance != null && (
                           <div className="flex items-center gap-1 mt-1">
                             {s.scoreVariance > 2 ? (
-                              <AlertTriangle className="w-3 h-3 text-red-500" />
+                              <RiAlertLine className="w-3 h-3 text-red-500" />
                             ) : s.scoreVariance > 1 ? (
-                              <AlertTriangle className="w-3 h-3 text-yellow-500" />
+                              <RiAlertLine className="w-3 h-3 text-yellow-500" />
                             ) : (
-                              <CheckCircle2 className="w-3 h-3 text-green-500" />
+                              <RiCheckboxCircleLine className="w-3 h-3 text-green-500" />
                             )}
                             <span className="text-xs text-muted-foreground">
                               Variance: {s.scoreVariance.toFixed(2)} | Avg: {s.avgScore?.toFixed(1) ?? "—"}
@@ -278,7 +276,7 @@ export default function CalibrationPage() {
                         targetScore: detail.avgScore ?? undefined,
                         consensusNotes: `Agreed upon score after calibration discussion.`,
                       })}>
-                        <CheckCircle2 className="w-4 h-4 mr-1" /> Complete
+                        <RiCheckboxCircleLine className="w-4 h-4 mr-1" /> Complete
                       </Button>
                     )}
                   </div>

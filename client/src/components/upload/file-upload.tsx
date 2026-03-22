@@ -1,7 +1,6 @@
 import { useCallback, useState, useEffect } from "react";
 import { useDropzone } from "react-dropzone";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CloudUpload, FileAudio, X, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HelpTip } from "@/components/ui/help-tip";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -9,6 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { CALL_CATEGORIES } from "@shared/schema";
 import type { Employee } from "@shared/schema";
+import {  RiUploadCloud2Line, RiFileMusicLine, RiCloseLine, RiCheckboxCircleLine, RiCloseCircleLine, RiLoader4Line, RiUploadLine  } from "@remixicon/react";
 
 interface UploadFile {
   file: File;
@@ -177,7 +177,7 @@ export default function FileUpload() {
         isDragActive ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
       }`}>
         <input {...getInputProps()} data-testid="file-input" />
-        <CloudUpload className={`mx-auto h-12 w-12 ${isDragActive ? "text-primary" : "text-muted-foreground"}`} />
+        <RiUploadCloud2Line className={`mx-auto h-12 w-12 ${isDragActive ? "text-primary" : "text-muted-foreground"}`} />
         <p className="mt-2 text-sm text-muted-foreground">
           {isDragActive ? "Drop files here..." : "Drag & drop files here, or click to select files"}
         </p>
@@ -209,7 +209,7 @@ export default function FileUpload() {
           {uploadFiles.map((fileData, index) => (
             <div key={index} className="p-4 bg-muted rounded-lg space-y-3">
               <div className="flex items-center space-x-3">
-                <FileAudio className="text-primary w-8 h-8 shrink-0" />
+                <RiFileMusicLine className="text-primary w-8 h-8 shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-sm truncate">{fileData.file.name}</p>
                   <p className="text-xs text-muted-foreground">{(fileData.file.size / 1024 / 1024).toFixed(1)} MB</p>
@@ -236,23 +236,23 @@ export default function FileUpload() {
                         ))}
                       </SelectContent>
                     </Select>
-                    <Button size="sm" variant="ghost" onClick={() => removeFile(index)}><X className="w-4 h-4" /></Button>
+                    <Button size="sm" variant="ghost" onClick={() => removeFile(index)}><RiCloseLine className="w-4 h-4" /></Button>
                   </>
                 )}
 
                 {fileData.status === 'completed' && (
                   <div className="flex items-center gap-2 text-green-600">
-                    <CheckCircle2 className="w-5 h-5" />
+                    <RiCheckboxCircleLine className="w-5 h-5" />
                     <span className="text-sm font-medium">Complete</span>
-                    <Button size="sm" variant="ghost" onClick={() => removeFile(index)}><X className="w-4 h-4" /></Button>
+                    <Button size="sm" variant="ghost" onClick={() => removeFile(index)}><RiCloseLine className="w-4 h-4" /></Button>
                   </div>
                 )}
 
                 {fileData.status === 'error' && (
                   <div className="flex items-center gap-2 text-red-600">
-                    <XCircle className="w-5 h-5" />
+                    <RiCloseCircleLine className="w-5 h-5" />
                     <span className="text-sm">{fileData.error}</span>
-                    <Button size="sm" variant="ghost" onClick={() => removeFile(index)}><X className="w-4 h-4" /></Button>
+                    <Button size="sm" variant="ghost" onClick={() => removeFile(index)}><RiCloseLine className="w-4 h-4" /></Button>
                   </div>
                 )}
               </div>
@@ -261,7 +261,7 @@ export default function FileUpload() {
               {(fileData.status === 'uploading' || fileData.status === 'processing') && (
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                    <RiLoader4Line className="w-4 h-4 animate-spin text-primary" />
                     <span className="text-xs font-medium text-primary">
                       {fileData.processingStep || "Processing..."}
                     </span>

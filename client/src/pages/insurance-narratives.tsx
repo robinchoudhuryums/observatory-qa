@@ -10,10 +10,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import {
-  FileText, Plus, Copy, RefreshCw, Trash2, CheckCircle2, Clock, Send,
-} from "lucide-react";
 import { INSURANCE_LETTER_TYPES, type InsuranceNarrative } from "@shared/schema";
+import {  RiFileTextLine, RiAddLine, RiFileCopyLine, RiRefreshLine, RiDeleteBinLine, RiCheckboxCircleLine, RiTimeLine, RiSendPlaneLine, RiInputMethodLine  } from "@remixicon/react";
 
 const statusColors: Record<string, string> = {
   draft: "bg-yellow-100 text-yellow-800",
@@ -101,14 +99,14 @@ export default function InsuranceNarrativesPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <FileText className="w-6 h-6 text-primary" />
+            <RiFileTextLine className="w-6 h-6 text-primary" />
             Insurance Narratives
           </h1>
           <p className="text-muted-foreground">Generate prior authorization and appeal letters</p>
         </div>
         <Dialog open={showCreate} onOpenChange={setShowCreate}>
           <DialogTrigger asChild>
-            <Button><Plus className="w-4 h-4 mr-2" /> New Narrative</Button>
+            <Button><RiAddLine className="w-4 h-4 mr-2" /> New Narrative</Button>
           </DialogTrigger>
           <DialogContent className="max-w-lg">
             <DialogHeader>
@@ -217,26 +215,26 @@ export default function InsuranceNarrativesPage() {
                   <div className="flex gap-2">
                     <Button size="sm" variant="outline" onClick={() => regenerateMutation.mutate(selectedNarrative.id)}
                       disabled={regenerateMutation.isPending}>
-                      <RefreshCw className="w-4 h-4 mr-1" /> Regenerate
+                      <RiRefreshLine className="w-4 h-4 mr-1" /> Regenerate
                     </Button>
                     <Button size="sm" variant="outline" onClick={() => {
                       navigator.clipboard.writeText(selectedNarrative.generatedNarrative || "");
                       toast({ title: "Copied to clipboard" });
                     }}>
-                      <Copy className="w-4 h-4 mr-1" /> Copy
+                      <RiFileCopyLine className="w-4 h-4 mr-1" /> Copy
                     </Button>
                     {selectedNarrative.status === "draft" && (
                       <Button size="sm" onClick={() => updateMutation.mutate({ id: selectedNarrative.id, status: "finalized" })}>
-                        <CheckCircle2 className="w-4 h-4 mr-1" /> Finalize
+                        <RiCheckboxCircleLine className="w-4 h-4 mr-1" /> Finalize
                       </Button>
                     )}
                     {selectedNarrative.status === "finalized" && (
                       <Button size="sm" onClick={() => updateMutation.mutate({ id: selectedNarrative.id, status: "submitted" })}>
-                        <Send className="w-4 h-4 mr-1" /> Mark Submitted
+                        <RiSendPlaneLine className="w-4 h-4 mr-1" /> Mark Submitted
                       </Button>
                     )}
                     <Button size="sm" variant="destructive" onClick={() => deleteMutation.mutate(selectedNarrative.id)}>
-                      <Trash2 className="w-4 h-4" />
+                      <RiDeleteBinLine className="w-4 h-4" />
                     </Button>
                   </div>
                 </div>

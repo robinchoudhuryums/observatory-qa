@@ -6,9 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import {
-  BookTemplate, Search, ArrowLeft, FileText, Code, ChevronDown, ChevronUp,
-} from "lucide-react";
+import {  RiBookOpenLine, RiSearchLine, RiArrowLeftLine, RiFileTextLine, RiArrowDownSLine, RiArrowUpSLine, RiCodeLine  } from "@remixicon/react";
 
 interface ClinicalTemplate {
   id: string;
@@ -60,11 +58,11 @@ export default function ClinicalTemplatesPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <Button variant="ghost" size="sm" className="mb-2" onClick={() => navigate("/clinical")}>
-            <ArrowLeft className="w-4 h-4 mr-1" />
+            <RiArrowLeftLine className="w-4 h-4 mr-1" />
             Back to Dashboard
           </Button>
           <div className="flex items-center gap-3">
-            <BookTemplate className="w-6 h-6 text-primary" />
+            <RiBookOpenLine className="w-6 h-6 text-primary" />
             <h1 className="text-2xl font-bold text-foreground">Clinical Note Templates</h1>
           </div>
           <p className="text-muted-foreground mt-1">
@@ -76,7 +74,7 @@ export default function ClinicalTemplatesPage() {
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <RiSearchLine className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search templates..."
             value={search}
@@ -114,7 +112,7 @@ export default function ClinicalTemplatesPage() {
       ) : !templates || templates.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
-            <BookTemplate className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+            <RiBookOpenLine className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-semibold">No templates found</h3>
             <p className="text-muted-foreground mt-2">Try adjusting your search or filters.</p>
           </CardContent>
@@ -145,7 +143,7 @@ export default function ClinicalTemplatesPage() {
                     <Badge variant="secondary" className="text-xs capitalize shrink-0">
                       {tmpl.specialty.replace(/_/g, " ")}
                     </Badge>
-                    {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    {isExpanded ? <RiArrowUpSLine className="w-4 h-4" /> : <RiArrowDownSLine className="w-4 h-4" />}
                   </div>
                 </div>
 
@@ -155,7 +153,7 @@ export default function ClinicalTemplatesPage() {
                       {/* Template Sections */}
                       <div>
                         <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
-                          <FileText className="w-4 h-4" />
+                          <RiFileTextLine className="w-4 h-4" />
                           Template Sections
                         </h4>
                         <div className="space-y-3">
@@ -174,7 +172,7 @@ export default function ClinicalTemplatesPage() {
                       {tmpl.defaultCodes && tmpl.defaultCodes.length > 0 && (
                         <div>
                           <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
-                            <Code className="w-4 h-4" />
+                            <RiCodeLine className="w-4 h-4" />
                             Default Billing Codes
                           </h4>
                           <div className="flex flex-wrap gap-2">

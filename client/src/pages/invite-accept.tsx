@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, getQueryFn } from "@/lib/queryClient";
-import { AudioWaveform, UserPlus, AlertTriangle } from "lucide-react";
+import {  RiVoiceprintLine, RiUserAddLine, RiAlertLine  } from "@remixicon/react";
 
 interface InviteAcceptProps {
   token: string;
@@ -60,7 +60,7 @@ export default function InviteAcceptPage({ token, onComplete }: InviteAcceptProp
   if (loadingInvite) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <AudioWaveform className="w-8 h-8 animate-spin text-primary" />
+        <RiVoiceprintLine className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
   }
@@ -70,7 +70,7 @@ export default function InviteAcceptPage({ token, onComplete }: InviteAcceptProp
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
         <Card className="max-w-md w-full">
           <CardContent className="pt-6 text-center">
-            <AlertTriangle className="w-12 h-12 text-destructive mx-auto mb-4" />
+            <RiAlertLine className="w-12 h-12 text-destructive mx-auto mb-4" />
             <h2 className="text-xl font-bold text-foreground mb-2">Invalid Invitation</h2>
             <p className="text-muted-foreground mb-4">
               {invite?.status === "accepted"
@@ -94,7 +94,7 @@ export default function InviteAcceptPage({ token, onComplete }: InviteAcceptProp
         <CardHeader className="text-center">
           <div className="flex justify-center mb-4">
             <div className="w-12 h-12 bg-gradient-to-br from-primary/20 to-primary/5 rounded-lg flex items-center justify-center">
-              <UserPlus className="w-6 h-6 text-primary" />
+              <RiUserAddLine className="w-6 h-6 text-primary" />
             </div>
           </div>
           <CardTitle className="text-2xl">Join {invite.orgName}</CardTitle>
@@ -140,9 +140,9 @@ export default function InviteAcceptPage({ token, onComplete }: InviteAcceptProp
             </div>
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? (
-                <AudioWaveform className="w-4 h-4 mr-2 animate-spin" />
+                <RiVoiceprintLine className="w-4 h-4 mr-2 animate-spin" />
               ) : (
-                <UserPlus className="w-4 h-4 mr-2" />
+                <RiUserAddLine className="w-4 h-4 mr-2" />
               )}
               Create Account & Join
             </Button>

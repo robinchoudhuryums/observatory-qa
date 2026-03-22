@@ -3,9 +3,7 @@ import { getQueryFn } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  DollarSign, TrendingUp, Target, Users, ArrowUpRight, ArrowDownRight, Minus,
-} from "lucide-react";
+import {  RiMoneyDollarCircleLine, RiArrowRightUpLine, RiTeamLine, RiSubtractLine  } from "@remixicon/react";
 
 type RevenueMetrics = {
   totalEstimated: number;
@@ -67,7 +65,7 @@ export default function RevenuePage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <DollarSign className="w-6 h-6 text-green-600" />
+          <RiMoneyDollarCircleLine className="w-6 h-6 text-green-600" />
           Revenue Tracking
         </h1>
         <p className="text-muted-foreground">Track call conversion and revenue impact</p>

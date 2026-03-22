@@ -1,10 +1,10 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Smile, Frown, Minus, TrendingUp, FileDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { HelpTip } from "@/components/ui/help-tip";
 import type { CallWithDetails } from "@shared/schema";
+import {  RiEmotionLine, RiEmotionUnhappyLine, RiSubtractLine, RiArrowRightUpLine, RiFileDownloadLine  } from "@remixicon/react";
 
 interface SentimentData {
   positive: number;
@@ -113,7 +113,7 @@ export default function SentimentPage() {
               link.click();
             }}
           >
-            <FileDown className="w-4 h-4 mr-1.5" />
+            <RiFileDownloadLine className="w-4 h-4 mr-1.5" />
             Export CSV
           </Button>
         </div>
@@ -124,7 +124,7 @@ export default function SentimentPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="bg-card rounded-lg border border-border p-6 flex items-center space-x-4">
             <div className="w-12 h-12 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
-              <Smile className="w-6 h-6 text-green-600" />
+              <RiEmotionLine className="w-6 h-6 text-green-600" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Positive Calls</p>
@@ -135,7 +135,7 @@ export default function SentimentPage() {
 
           <div className="bg-card rounded-lg border border-border p-6 flex items-center space-x-4">
             <div className="w-12 h-12 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
-              <Minus className="w-6 h-6 text-gray-600" />
+              <RiSubtractLine className="w-6 h-6 text-gray-600" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Neutral Calls</p>
@@ -146,7 +146,7 @@ export default function SentimentPage() {
 
           <div className="bg-card rounded-lg border border-border p-6 flex items-center space-x-4">
             <div className="w-12 h-12 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center">
-              <Frown className="w-6 h-6 text-red-600" />
+              <RiEmotionUnhappyLine className="w-6 h-6 text-red-600" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Negative Calls</p>
@@ -182,7 +182,7 @@ export default function SentimentPage() {
           {/* Weekly Trend Chart */}
           <div className="bg-card rounded-lg border border-border p-6">
             <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
-              <TrendingUp className="w-5 h-5" /> Weekly Trend (Last 90 Days)
+              <RiArrowRightUpLine className="w-5 h-5" /> Weekly Trend (Last 90 Days)
             </h3>
             {weeklyTrend.length > 0 ? (
               <ResponsiveContainer width="100%" height={250}>

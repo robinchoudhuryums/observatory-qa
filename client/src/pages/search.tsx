@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search, Filter, Heart } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -8,10 +7,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Link } from "wouter";
 import type { CallWithDetails } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
-import { AudioWaveform } from "lucide-react";
 import { HelpTip } from "@/components/ui/help-tip";
 import { ErrorBoundary } from "@/components/lib/error-boundary";
 import { CallCard } from "@/components/search/call-card";
+import {  RiSearchLine, RiFilterLine, RiHeartLine, RiVoiceprintLine, RiUploadLine, RiInputMethodLine  } from "@remixicon/react";
 
 export default function SearchPage() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -71,11 +70,11 @@ export default function SearchPage() {
       <div className="p-6 space-y-6">
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Search className="w-5 h-5" /> Search & Filter</CardTitle>
+            <CardTitle className="flex items-center gap-2"><RiSearchLine className="w-5 h-5" /> Search & Filter</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
+              <RiSearchLine className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
               <Input type="text" placeholder="Search by keywords, transcript content..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-10"/>
               {searchQuery.length > 0 && searchQuery.length <= 2 && (
                 <p className="text-xs text-amber-500 mt-1">Type at least 3 characters to search</p>
@@ -84,7 +83,7 @@ export default function SearchPage() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               {/* Employee Filter Removed */}
               <Select value={sentimentFilter} onValueChange={setSentimentFilter}>
-                  <SelectTrigger><Heart className="w-4 h-4 mr-2" /><SelectValue placeholder="All Sentiment" /></SelectTrigger>
+                  <SelectTrigger><RiHeartLine className="w-4 h-4 mr-2" /><SelectValue placeholder="All Sentiment" /></SelectTrigger>
                   <SelectContent>
                       <SelectItem value="all">All Sentiment</SelectItem>
                       <SelectItem value="positive">Positive</SelectItem>
@@ -93,7 +92,7 @@ export default function SearchPage() {
                   </SelectContent>
               </Select>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger><Filter className="w-4 h-4 mr-2" /><SelectValue placeholder="All Status" /></SelectTrigger>
+                  <SelectTrigger><RiFilterLine className="w-4 h-4 mr-2" /><SelectValue placeholder="All Status" /></SelectTrigger>
                   <SelectContent>
                       <SelectItem value="all">All Status</SelectItem>
                       <SelectItem value="completed">Completed</SelectItem>
@@ -112,11 +111,11 @@ export default function SearchPage() {
           </CardHeader>
           <CardContent>
             {isLoading ? (
-              <div className="flex items-center justify-center h-64"><AudioWaveform className="w-8 h-8 animate-spin text-primary" /></div>
+              <div className="flex items-center justify-center h-64"><RiVoiceprintLine className="w-8 h-8 animate-spin text-primary" /></div>
             ) : !displayCalls?.length ? (
               <div className="text-center py-16">
                 <div className="mx-auto w-16 h-16 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full flex items-center justify-center mb-4">
-                  <Search className="w-8 h-8 text-primary/60" />
+                  <RiSearchLine className="w-8 h-8 text-primary/60" />
                 </div>
                 <h3 className="text-lg font-medium text-foreground mb-1">
                   {debouncedQuery.length > 0 ? 'No matching calls found' : 'Search your calls'}

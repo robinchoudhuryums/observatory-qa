@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import { Building2, TrendingDown, AlertTriangle, BarChart3, MessageCircle, ShieldAlert, FileDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -7,6 +6,7 @@ import { HelpTip } from "@/components/ui/help-tip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, Legend } from "recharts";
+import {  RiBuilding2Line, RiArrowRightDownLine, RiAlertLine, RiBarChartBoxLine, RiChat1Line, RiShieldFlashLine, RiFileDownloadLine, RiUploadLine  } from "@remixicon/react";
 
 interface InsightsData {
   totalAnalyzed: number;
@@ -54,7 +54,7 @@ export default function InsightsPage() {
         <div className="p-6">
           <div className="text-center py-16">
             <div className="mx-auto w-16 h-16 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full flex items-center justify-center mb-4">
-              <Building2 className="w-8 h-8 text-primary/60" />
+              <RiBuilding2Line className="w-8 h-8 text-primary/60" />
             </div>
             <h4 className="font-semibold text-foreground mb-1">No data yet</h4>
             <p className="text-sm text-muted-foreground max-w-md mx-auto">
@@ -89,7 +89,7 @@ export default function InsightsPage() {
               link.click();
             }}
           >
-            <FileDown className="w-4 h-4 mr-1.5" />
+            <RiFileDownloadLine className="w-4 h-4 mr-1.5" />
             Export CSV
           </Button>
         </div>
@@ -125,7 +125,7 @@ export default function InsightsPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <TrendingDown className="w-5 h-5 text-muted-foreground" />
+                <RiArrowRightDownLine className="w-5 h-5 text-muted-foreground" />
                 Customer Sentiment Over Time
               </CardTitle>
               <CardDescription>Weekly breakdown of positive, neutral, and negative calls</CardDescription>
@@ -166,7 +166,7 @@ export default function InsightsPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5 text-red-500" />
+                <RiAlertLine className="w-5 h-5 text-red-500" />
                 Top Complaint Topics
               </CardTitle>
               <CardDescription>Most frequent topics in negative-sentiment calls</CardDescription>
@@ -202,7 +202,7 @@ export default function InsightsPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <BarChart3 className="w-5 h-5 text-blue-500" />
+                <RiBarChartBoxLine className="w-5 h-5 text-blue-500" />
                 Most Common Call Topics
               </CardTitle>
               <CardDescription>Topics discussed most frequently across all calls</CardDescription>
@@ -234,7 +234,7 @@ export default function InsightsPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <ShieldAlert className="w-5 h-5 text-amber-500" />
+                <RiShieldFlashLine className="w-5 h-5 text-amber-500" />
                 Recent Escalations & Low-Score Calls
               </CardTitle>
               <CardDescription>
@@ -268,7 +268,7 @@ export default function InsightsPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <MessageCircle className="w-5 h-5 text-yellow-500" />
+                <RiChat1Line className="w-5 h-5 text-yellow-500" />
                 Low Confidence Analyses
               </CardTitle>
               <CardDescription>

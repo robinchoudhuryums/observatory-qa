@@ -9,11 +9,11 @@ import Sidebar from "@/components/layout/sidebar";
 import { FeedbackWidget } from "@/components/feedback-widget";
 import { ErrorBoundary } from "@/components/lib/error-boundary";
 import { BrandingProvider } from "@/components/branding-provider";
-import { AudioWaveform } from "lucide-react";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import type { AuthUser } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
+import { RiVoiceprintLine } from "@remixicon/react";
 
 // Role hierarchy for route protection
 const ROLE_LEVEL: Record<string, number> = { admin: 3, manager: 2, viewer: 1 };
@@ -74,7 +74,7 @@ const NotFound = lazy(() => import("@/pages/not-found"));
 function PageLoader() {
   return (
     <div className="flex items-center justify-center h-64">
-      <AudioWaveform className="w-8 h-8 animate-spin text-primary" />
+      <RiVoiceprintLine className="w-8 h-8 animate-spin text-primary" />
     </div>
   );
 }
@@ -250,7 +250,7 @@ function AuthenticatedApp() {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <AudioWaveform className="w-8 h-8 animate-spin text-primary" />
+        <RiVoiceprintLine className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
   }

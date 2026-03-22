@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Settings, Save, Bell, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { safeStorage } from "@/lib/utils";
 import type { Organization } from "@shared/schema";
+import {  RiSettings3Line, RiSaveLine, RiNotification3Line, RiLockLine, RiInformationLine, RiCheckLine  } from "@remixicon/react";
 
 export default function OrganizationTab() {
   const { toast } = useToast();
@@ -36,7 +36,7 @@ export default function OrganizationTab() {
   const [ssoEnforced, setSsoEnforced] = useState(false);
   const [initialized, setInitialized] = useState(false);
 
-  // Check plan for SSO eligibility
+  // RiCheckLine plan for SSO eligibility
   const { data: subscription } = useQuery<{ planTier?: string }>({ queryKey: ["/api/billing/subscription"] });
   const isEnterprise = subscription?.planTier === "enterprise";
 
@@ -108,7 +108,7 @@ export default function OrganizationTab() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
-            <Settings className="w-5 h-5 text-primary" />
+            <RiSettings3Line className="w-5 h-5 text-primary" />
             Organization Configuration
           </CardTitle>
           <CardDescription>
@@ -182,7 +182,7 @@ export default function OrganizationTab() {
             </div>
 
             <Button type="submit" disabled={mutation.isPending}>
-              <Save className="w-4 h-4 mr-2" />
+              <RiSaveLine className="w-4 h-4 mr-2" />
               {mutation.isPending ? "Saving..." : "Save Settings"}
             </Button>
           </form>
@@ -193,7 +193,7 @@ export default function OrganizationTab() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
-            <Bell className="w-5 h-5 text-primary" />
+            <RiNotification3Line className="w-5 h-5 text-primary" />
             Webhook Notifications
           </CardTitle>
           <CardDescription>
@@ -236,7 +236,7 @@ export default function OrganizationTab() {
               </div>
             </div>
             <Button type="submit" disabled={mutation.isPending}>
-              <Save className="w-4 h-4 mr-2" />
+              <RiSaveLine className="w-4 h-4 mr-2" />
               {mutation.isPending ? "Saving..." : "Save Webhook Settings"}
             </Button>
           </form>
@@ -247,7 +247,7 @@ export default function OrganizationTab() {
       <Card className={!isEnterprise ? "opacity-60" : ""}>
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
-            <Lock className="w-5 h-5 text-primary" />
+            <RiLockLine className="w-5 h-5 text-primary" />
             Single Sign-On (SSO)
             {!isEnterprise && <Badge variant="secondary" className="ml-2">Enterprise</Badge>}
           </CardTitle>
@@ -343,7 +343,7 @@ export default function OrganizationTab() {
               )}
 
               <Button type="submit" disabled={mutation.isPending}>
-                <Save className="w-4 h-4 mr-2" />
+                <RiSaveLine className="w-4 h-4 mr-2" />
                 {mutation.isPending ? "Saving..." : "Save SSO Settings"}
               </Button>
             </form>

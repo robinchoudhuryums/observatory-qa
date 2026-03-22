@@ -1,8 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Employee } from "@shared/schema";
-import { AlertTriangle, RefreshCw } from "lucide-react";
 import { motion } from "framer-motion";
 import { Link } from "wouter";
+import {  RiAlertLine, RiRefreshLine  } from "@remixicon/react";
 
 // Define a more robust type for a performer
 type TopPerformer = Partial<Employee> & {

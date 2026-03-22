@@ -1,8 +1,5 @@
 import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  Palette, Users, Settings, Mail, Key, CreditCard,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
@@ -12,6 +9,7 @@ import InvitationsTab from "./settings/InvitationsTab";
 import BillingTab from "./settings/BillingTab";
 import ApiKeysTab from "./settings/ApiKeysTab";
 import OrganizationTab from "./settings/OrganizationTab";
+import {  RiPaletteLine, RiTeamLine, RiSettings3Line, RiMailLine, RiKeyLine, RiBankCardLine  } from "@remixicon/react";
 
 type TabView = "branding" | "users" | "invitations" | "api-keys" | "billing" | "organization";
 
@@ -58,22 +56,22 @@ export default function SettingsPage() {
       <div className="p-6 space-y-6">
         <div className="flex gap-2 flex-wrap">
           <Button variant={tab === "branding" ? "default" : "outline"} size="sm" onClick={() => setTab("branding")}>
-            <Palette className="w-4 h-4 mr-2" />Branding
+            <RiPaletteLine className="w-4 h-4 mr-2" />Branding
           </Button>
           <Button variant={tab === "users" ? "default" : "outline"} size="sm" onClick={() => setTab("users")}>
-            <Users className="w-4 h-4 mr-2" />Users
+            <RiTeamLine className="w-4 h-4 mr-2" />Users
           </Button>
           <Button variant={tab === "invitations" ? "default" : "outline"} size="sm" onClick={() => setTab("invitations")}>
-            <Mail className="w-4 h-4 mr-2" />Invitations
+            <RiMailLine className="w-4 h-4 mr-2" />Invitations
           </Button>
           <Button variant={tab === "api-keys" ? "default" : "outline"} size="sm" onClick={() => setTab("api-keys")}>
-            <Key className="w-4 h-4 mr-2" />API Keys
+            <RiKeyLine className="w-4 h-4 mr-2" />API Keys
           </Button>
           <Button variant={tab === "billing" ? "default" : "outline"} size="sm" onClick={() => setTab("billing")}>
-            <CreditCard className="w-4 h-4 mr-2" />Billing
+            <RiBankCardLine className="w-4 h-4 mr-2" />Billing
           </Button>
           <Button variant={tab === "organization" ? "default" : "outline"} size="sm" onClick={() => setTab("organization")}>
-            <Settings className="w-4 h-4 mr-2" />Organization
+            <RiSettings3Line className="w-4 h-4 mr-2" />Organization
           </Button>
         </div>
 

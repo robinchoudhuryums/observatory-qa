@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { User } from "lucide-react";
 import type { Employee } from "@shared/schema";
+import {  RiUserLine  } from "@remixicon/react";
 
 interface EmployeeFilterProps {
   value: string;
@@ -16,7 +16,7 @@ export function EmployeeFilter({ value, onChange }: EmployeeFilterProps) {
   return (
     <Select value={value} onValueChange={onChange}>
       <SelectTrigger>
-        <User className="w-4 h-4 mr-2" />
+        <RiUserLine className="w-4 h-4 mr-2" />
         <SelectValue placeholder="All Employees" />
       </SelectTrigger>
       <SelectContent>

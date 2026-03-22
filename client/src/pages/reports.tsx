@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRef } from "react";
-import { Download, BarChart2, BarChart3, Smile, Star, User, Users, TrendingUp, Calendar, ArrowRight, AudioWaveform, ChevronUp, ChevronDown, Sparkles, Phone, AlertTriangle, Award, Play, Pause, Eye, SlidersHorizontal, Shield, MessageCircle, Headphones, CheckCircle2, Upload } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -13,6 +12,7 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, R
 import { useAppName } from "@/hooks/use-organization";
 import { HelpTip } from "@/components/ui/help-tip";
 import OwlLoading from "@/components/owl-loading";
+import {  RiDownloadLine, RiBarChartLine, RiBarChartBoxLine, RiEmotionLine, RiStarLine, RiUserLine, RiTeamLine, RiArrowRightUpLine, RiCalendarLine, RiArrowRightLine, RiVoiceprintLine, RiArrowUpSLine, RiArrowDownSLine, RiSparklingLine, RiPhoneLine, RiAlertLine, RiAwardLine, RiPlayLine, RiPauseLine, RiEyeLine, RiEqualizerLine, RiShieldLine, RiChat1Line, RiHeadphoneLine, RiCheckboxCircleLine, RiUploadLine, RiCheckLine, RiFilterLine, RiInputMethodLine  } from "@remixicon/react";
 
 // ---- Types ----
 
@@ -96,7 +96,7 @@ const PRESET_LABELS: Record<DatePreset, string> = {
 // ---- Component ----
 
 export default function ReportsPage() {
-  // Check for employee param in URL (from sidebar quick-switch)
+  // RiCheckLine for employee param in URL (from sidebar quick-switch)
   const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
   const initialEmployee = urlParams?.get("employee") || "";
 
@@ -200,7 +200,7 @@ export default function ReportsPage() {
     enabled: reportType === "employee" && !!selectedEmployee,
   });
 
-  // Download handler
+  // RiDownloadLine handler
   const handleDownloadReport = () => {
     if (!report) return;
     const lines: string[] = [];
@@ -291,11 +291,11 @@ export default function ReportsPage() {
   if (reportError) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
-        <BarChart3 className="w-12 h-12 mb-3 text-muted-foreground/50" />
+        <RiBarChartBoxLine className="w-12 h-12 mb-3 text-muted-foreground/50" />
         <p className="font-semibold text-foreground">No report data yet</p>
         <p className="text-sm mt-1">Upload and analyze some calls first, then come back to view reports.</p>
         <Button variant="outline" className="mt-4" onClick={() => window.location.href = "/upload"}>
-          <Upload className="w-4 h-4 mr-2" /> Upload Calls
+          <RiUploadLine className="w-4 h-4 mr-2" /> Upload Calls
         </Button>
       </div>
     );
@@ -326,11 +326,11 @@ export default function ReportsPage() {
               link.click();
             }}
           >
-            <Download className="w-4 h-4 mr-2" />
+            <RiDownloadLine className="w-4 h-4 mr-2" />
             Export CSV
           </Button>
           <Button onClick={handleDownloadReport} disabled={!report}>
-            <Download className="w-4 h-4 mr-2" />
+            <RiDownloadLine className="w-4 h-4 mr-2" />
             Download Report
           </Button>
         </div>
@@ -345,9 +345,9 @@ export default function ReportsPage() {
             <Select value={reportType} onValueChange={(v) => setReportType(v as ReportType)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="overall"><span className="flex items-center gap-1.5"><BarChart2 className="w-3.5 h-3.5" /> Overall</span></SelectItem>
-                <SelectItem value="employee"><span className="flex items-center gap-1.5"><User className="w-3.5 h-3.5" /> Individual Employee</span></SelectItem>
-                <SelectItem value="department"><span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> Department</span></SelectItem>
+                <SelectItem value="overall"><span className="flex items-center gap-1.5"><RiBarChartLine className="w-3.5 h-3.5" /> Overall</span></SelectItem>
+                <SelectItem value="employee"><span className="flex items-center gap-1.5"><RiUserLine className="w-3.5 h-3.5" /> Individual Employee</span></SelectItem>
+                <SelectItem value="department"><span className="flex items-center gap-1.5"><RiTeamLine className="w-3.5 h-3.5" /> Department</span></SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -388,7 +388,7 @@ export default function ReportsPage() {
             <Select value={callPartyFilter} onValueChange={setCallPartyFilter}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="all"><span className="flex items-center gap-1.5"><Phone className="w-3.5 h-3.5" /> All Parties</span></SelectItem>
+                <SelectItem value="all"><span className="flex items-center gap-1.5"><RiPhoneLine className="w-3.5 h-3.5" /> All Parties</span></SelectItem>
                 <SelectItem value="customer">Customer</SelectItem>
                 <SelectItem value="insurance">Insurance</SelectItem>
                 <SelectItem value="medical_facility">Medical Facility</SelectItem>
@@ -435,7 +435,7 @@ export default function ReportsPage() {
               size="sm"
               onClick={() => setCompareEnabled(!compareEnabled)}
             >
-              <Calendar className="w-3.5 h-3.5 mr-1.5" />
+              <RiCalendarLine className="w-3.5 h-3.5 mr-1.5" />
               {compareEnabled ? "Comparing" : "Compare Periods"}
             </Button>
           </div>
@@ -445,7 +445,7 @@ export default function ReportsPage() {
         {compareEnabled && (
           <div className="flex flex-wrap gap-4 items-end mt-3 pt-3 border-t border-border">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <ArrowRight className="w-4 h-4" />
+              <RiArrowRightLine className="w-4 h-4" />
               Compare to:
             </div>
             <div className="min-w-[160px]">
@@ -478,7 +478,7 @@ export default function ReportsPage() {
         {/* Empty state when no calls match filters */}
         {report && report.metrics.totalCalls === 0 && (
           <div className="bg-card rounded-lg border border-border p-12 text-center">
-            <BarChart2 className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
+            <RiBarChartLine className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
             <h3 className="text-lg font-semibold text-foreground mb-1">No data for this period</h3>
             <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">
               No calls match the selected filters. Try adjusting the time period{reportType === "employee" ? ", employee selection," : ""} or report type.
@@ -490,7 +490,7 @@ export default function ReportsPage() {
         {report && report.metrics.totalCalls > 0 && (<>
         <div className="bg-card rounded-lg border border-border p-6">
           <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
-            <BarChart2 className="w-5 h-5 mr-2" />
+            <RiBarChartLine className="w-5 h-5 mr-2" />
             Metrics — {PRESET_LABELS[datePreset]}
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
@@ -519,7 +519,7 @@ export default function ReportsPage() {
             />
             {compareEnabled && isCompareLoading && (
               <div className="col-span-3 text-center text-sm text-muted-foreground">
-                <AudioWaveform className="w-4 h-4 animate-spin inline mr-2" />
+                <RiVoiceprintLine className="w-4 h-4 animate-spin inline mr-2" />
                 Loading comparison data...
               </div>
             )}
@@ -531,7 +531,7 @@ export default function ReportsPage() {
           <div className="bg-card rounded-lg border border-border p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-foreground flex items-center">
-                <SlidersHorizontal className="w-5 h-5 mr-2" />
+                <RiEqualizerLine className="w-5 h-5 mr-2" />
                 Score Breakdown
               </h3>
               <Button
@@ -544,10 +544,10 @@ export default function ReportsPage() {
             </div>
             {showDetailedScores && (
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <SubScoreCard icon={Shield} label="Compliance" score={report.avgSubScores.compliance} color="text-blue-600" barColor="from-blue-500 to-blue-400" />
-                <SubScoreCard icon={Headphones} label="Customer Experience" score={report.avgSubScores.customerExperience} color="text-green-600" barColor="from-green-500 to-emerald-400" />
-                <SubScoreCard icon={MessageCircle} label="Communication" score={report.avgSubScores.communication} color="text-purple-600" barColor="from-purple-500 to-violet-400" />
-                <SubScoreCard icon={CheckCircle2} label="Resolution" score={report.avgSubScores.resolution} color="text-amber-600" barColor="from-amber-500 to-yellow-400" />
+                <SubScoreCard icon={RiShieldLine} label="Compliance" score={report.avgSubScores.compliance} color="text-blue-600" barColor="from-blue-500 to-blue-400" />
+                <SubScoreCard icon={RiHeadphoneLine} label="Customer Experience" score={report.avgSubScores.customerExperience} color="text-green-600" barColor="from-green-500 to-emerald-400" />
+                <SubScoreCard icon={RiChat1Line} label="Communication" score={report.avgSubScores.communication} color="text-purple-600" barColor="from-purple-500 to-violet-400" />
+                <SubScoreCard icon={RiCheckboxCircleLine} label="Resolution" score={report.avgSubScores.resolution} color="text-amber-600" barColor="from-amber-500 to-yellow-400" />
               </div>
             )}
             {!showDetailedScores && (
@@ -572,7 +572,7 @@ export default function ReportsPage() {
         {report?.trends && report.trends.length > 0 && (
           <div className="bg-card rounded-lg border border-border p-6">
             <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
-              <TrendingUp className="w-5 h-5 mr-2" />
+              <RiArrowRightUpLine className="w-5 h-5 mr-2" />
               Performance Trend
             </h3>
             <ResponsiveContainer width="100%" height={300}>
@@ -594,7 +594,7 @@ export default function ReportsPage() {
         {report?.trends && report.trends.length > 0 && (
           <div className="bg-card rounded-lg border border-border p-6">
             <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
-              <Smile className="w-5 h-5 mr-2" />
+              <RiEmotionLine className="w-5 h-5 mr-2" />
               Sentiment Trend
             </h3>
             <ResponsiveContainer width="100%" height={250}>
@@ -616,7 +616,7 @@ export default function ReportsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-card rounded-lg border border-border p-6">
             <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
-              <Star className="w-5 h-5 mr-2" />
+              <RiStarLine className="w-5 h-5 mr-2" />
               Top Performers
             </h3>
             {report?.performers && report.performers.length > 0 ? (
@@ -641,7 +641,7 @@ export default function ReportsPage() {
 
           <div className="bg-card rounded-lg border border-border p-6">
             <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
-              <Smile className="w-5 h-5 mr-2" />
+              <RiEmotionLine className="w-5 h-5 mr-2" />
               Sentiment Breakdown
             </h3>
             <ul className="space-y-3">
@@ -672,7 +672,7 @@ export default function ReportsPage() {
         {reportType === "employee" && selectedEmployee && agentProfile && (
           <div className="bg-card rounded-lg border border-border p-6">
             <h3 className="text-lg font-semibold text-foreground mb-1 flex items-center">
-              <User className="w-5 h-5 mr-2" />
+              <RiUserLine className="w-5 h-5 mr-2" />
               Agent Profile: {agentProfile.employee.name}
             </h3>
             <p className="text-sm text-muted-foreground mb-4">
@@ -784,7 +784,7 @@ export default function ReportsPage() {
             <div className="mt-4 pt-4 border-t border-border">
               <div className="flex items-center justify-between mb-2">
                 <h4 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4" /> AI Performance Summary
+                  <RiSparklingLine className="w-4 h-4" /> AI Performance Summary
                 </h4>
                 <Button
                   size="sm"
@@ -792,13 +792,13 @@ export default function ReportsPage() {
                   onClick={() => summaryMutation.mutate()}
                   disabled={summaryMutation.isPending}
                 >
-                  <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+                  <RiSparklingLine className="w-3.5 h-3.5 mr-1.5" />
                   {summaryMutation.isPending ? "Generating..." : aiSummary ? "Regenerate" : "Generate AI Summary"}
                 </Button>
               </div>
               {summaryMutation.isError && (
                 <p className="text-sm text-red-500 mb-2">
-                  <AlertTriangle className="w-3.5 h-3.5 inline mr-1" />
+                  <RiAlertLine className="w-3.5 h-3.5 inline mr-1" />
                   {summaryMutation.error?.message || "Failed to generate summary"}
                 </p>
               )}
@@ -849,7 +849,7 @@ function MetricCard({
       <p className={`text-3xl font-bold ${color || ""}`}>{formatted}</p>
       {d && (
         <div className={`flex items-center justify-center gap-1 mt-1 text-xs ${d.positive ? "text-green-500" : "text-red-500"}`}>
-          {d.positive ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          {d.positive ? <RiArrowUpSLine className="w-3 h-3" /> : <RiArrowDownSLine className="w-3 h-3" />}
           <span>{d.positive ? "+" : ""}{d.pct}%</span>
           {compareValue !== undefined && (
             <span className="text-muted-foreground ml-1">
@@ -882,7 +882,7 @@ function FlaggedCallCard({ call }: {
   const bgClass = isGood ? "bg-emerald-50/50 dark:bg-emerald-950/20" : "bg-red-50/50 dark:bg-red-950/20";
   const accentClass = isGood ? "text-emerald-600" : "text-red-600";
   const playerBg = isGood ? "bg-emerald-100 dark:bg-emerald-900/40" : "bg-red-100 dark:bg-red-900/40";
-  const Icon = isGood ? Award : AlertTriangle;
+  const Icon = isGood ? RiAwardLine : RiAlertLine;
 
   const togglePlay = () => {
     if (!audioRef.current) return;
@@ -910,7 +910,7 @@ function FlaggedCallCard({ call }: {
           onClick={togglePlay}
           className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${playerBg} ${accentClass} hover:opacity-80 transition-opacity`}
         >
-          {playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+          {playing ? <RiPauseLine className="w-4 h-4" /> : <RiPlayLine className="w-4 h-4 ml-0.5" />}
         </button>
 
         {/* Details */}
@@ -939,7 +939,7 @@ function FlaggedCallCard({ call }: {
             <p className="text-xs text-muted-foreground line-clamp-2">{call.summary}</p>
           )}
           <Link href={`/transcripts/${call.id}`} className="text-xs text-primary hover:underline mt-1 inline-flex items-center gap-1">
-            <Eye className="w-3 h-3" /> View Full Call
+            <RiEyeLine className="w-3 h-3" /> View Full Call
           </Link>
         </div>
       </div>

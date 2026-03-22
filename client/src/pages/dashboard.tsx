@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { Search, Plus, AlertTriangle, Award, TrendingUp, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Link, useLocation } from "wouter";
@@ -14,6 +13,7 @@ import type { CallWithDetails, PlanTier } from "@shared/schema";
 import { PLAN_DEFINITIONS } from "@shared/schema";
 import { getQueryFn } from "@/lib/queryClient";
 import OnboardingTour from "@/components/onboarding-tour";
+import {  RiSearchLine, RiAddLine, RiAlertLine, RiAwardLine, RiArrowRightUpLine, RiFlashlightLine, RiUploadLine  } from "@remixicon/react";
 
 export default function Dashboard() {
   const [, navigate] = useLocation();
@@ -117,7 +117,7 @@ export default function Dashboard() {
       <OnboardingTour />
       {callsError && (
         <div className="mx-6 mt-4 p-4 bg-muted/50 border border-border rounded-md text-muted-foreground text-sm flex items-center gap-2">
-          <Zap className="w-4 h-4 flex-shrink-0" />
+          <RiFlashlightLine className="w-4 h-4 flex-shrink-0" />
           No call data available yet. Upload your first call recording to get started!
         </div>
       )}
@@ -135,7 +135,7 @@ export default function Dashboard() {
               onClick={() => navigate("/search")}
               data-testid="search-input"
             >
-              <Search className="w-4 h-4 mr-2" />
+              <RiSearchLine className="w-4 h-4 mr-2" />
               Search calls...
             </Button>
             <Link href="/upload">
@@ -143,7 +143,7 @@ export default function Dashboard() {
                 className="text-white border-0 shadow-md rounded-lg brand-gradient-btn whitespace-nowrap"
                 data-testid="upload-call-button"
               >
-                <Plus className="w-4 h-4 mr-2" />
+                <RiAddLine className="w-4 h-4 mr-2" />
                 Upload Call
               </Button>
             </Link>
@@ -166,7 +166,7 @@ export default function Dashboard() {
           return (
             <div className={`rounded-lg border p-4 ${bgClass}`}>
               <div className="flex items-center gap-2 mb-2">
-                {anyExhausted ? <AlertTriangle className={`w-5 h-5 ${iconColor}`} /> : <Zap className={`w-5 h-5 ${iconColor}`} />}
+                {anyExhausted ? <RiAlertLine className={`w-5 h-5 ${iconColor}`} /> : <RiFlashlightLine className={`w-5 h-5 ${iconColor}`} />}
                 <h3 className={`font-semibold ${titleColor}`}>
                   {anyExhausted ? "Plan Limit Reached" : "Approaching Plan Limits"}
                 </h3>
@@ -204,7 +204,7 @@ export default function Dashboard() {
                     variant={anyExhausted ? "default" : "outline"}
                     className={anyExhausted ? "bg-red-600 hover:bg-red-700 text-white" : ""}
                   >
-                    <Zap className="w-3.5 h-3.5 mr-1.5" />
+                    <RiFlashlightLine className="w-3.5 h-3.5 mr-1.5" />
                     Upgrade Plan
                   </Button>
                 </Link>
@@ -219,7 +219,7 @@ export default function Dashboard() {
             {badCalls.length > 0 && (
               <div className="bg-red-50 dark:bg-red-950/30 rounded-lg border border-red-200 dark:border-red-900 p-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <AlertTriangle className="w-5 h-5 text-red-500" />
+                  <RiAlertLine className="w-5 h-5 text-red-500" />
                   <h3 className="font-semibold text-red-700 dark:text-red-400">
                     {badCalls.length} Call{badCalls.length > 1 ? "s" : ""} Need Attention
                   </h3>
@@ -246,7 +246,7 @@ export default function Dashboard() {
             {goodCalls.length > 0 && (
               <div className="bg-emerald-50 dark:bg-emerald-950/30 rounded-lg border border-emerald-200 dark:border-emerald-900 p-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <Award className="w-5 h-5 text-emerald-500" />
+                  <RiAwardLine className="w-5 h-5 text-emerald-500" />
                   <h3 className="font-semibold text-emerald-700 dark:text-emerald-400">
                     {goodCalls.length} Exceptional Call{goodCalls.length > 1 ? "s" : ""}
                   </h3>
@@ -258,7 +258,7 @@ export default function Dashboard() {
                   {goodCalls.slice(0, 5).map(c => (
                     <Link key={c.id} href={`/transcripts/${c.id}`}>
                       <Badge className="bg-emerald-200 text-emerald-900 text-xs cursor-pointer hover:bg-emerald-300">
-                        <Award className="w-3 h-3 mr-1" />
+                        <RiAwardLine className="w-3 h-3 mr-1" />
                         {c.employee?.name || "Unassigned"} — {Number(c.analysis?.performanceScore || 0).toFixed(1)}
                       </Badge>
                     </Link>
@@ -281,7 +281,7 @@ export default function Dashboard() {
         {trendData.length > 0 && trendData.some(d => d.calls > 0) && (
           <div className="modern-card rounded-xl p-6">
             <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
-              <TrendingUp className="w-5 h-5 mr-2" style={{ color: "hsl(var(--brand-from))" }} />
+              <RiArrowRightUpLine className="w-5 h-5 mr-2" style={{ color: "hsl(var(--brand-from))" }} />
               Sentiment &amp; Volume — Last 30 Days
             </h3>
             <ResponsiveContainer width="100%" height={250}>

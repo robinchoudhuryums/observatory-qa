@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ScrollText, Filter, ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AuditEntry } from "@shared/schema";
+import {  RiFileList3Line, RiFilterLine, RiArrowLeftSLine, RiArrowRightSLine, RiDownloadLine, RiUserLine, RiInputMethodLine  } from "@remixicon/react";
 
 interface AuditLogResponse {
   entries: AuditEntry[];
@@ -115,7 +115,7 @@ export default function AuditLogsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <ScrollText className="w-6 h-6" />
+            <RiFileList3Line className="w-6 h-6" />
             Audit Logs
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -123,7 +123,7 @@ export default function AuditLogsPage() {
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={exportCsv} disabled={!data?.entries.length}>
-          <Download className="w-4 h-4 mr-1" />
+          <RiDownloadLine className="w-4 h-4 mr-1" />
           Export CSV
         </Button>
       </div>
@@ -132,7 +132,7 @@ export default function AuditLogsPage() {
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <Filter className="w-4 h-4" />
+            <RiFilterLine className="w-4 h-4" />
             Filters
           </CardTitle>
         </CardHeader>
@@ -198,7 +198,7 @@ export default function AuditLogsPage() {
             </div>
           ) : !data?.entries.length ? (
             <div className="p-12 text-center text-muted-foreground">
-              <ScrollText className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <RiFileList3Line className="w-12 h-12 mx-auto mb-3 opacity-30" />
               <p>No audit log entries found</p>
               {hasFilters && <p className="text-sm mt-1">Try adjusting your filters</p>}
             </div>
@@ -268,7 +268,7 @@ export default function AuditLogsPage() {
                   disabled={page <= 1}
                   onClick={() => setPage(p => p - 1)}
                 >
-                  <ChevronLeft className="w-4 h-4" />
+                  <RiArrowLeftSLine className="w-4 h-4" />
                 </Button>
                 <Button
                   variant="outline"
@@ -276,7 +276,7 @@ export default function AuditLogsPage() {
                   disabled={page >= data.totalPages}
                   onClick={() => setPage(p => p + 1)}
                 >
-                  <ChevronRight className="w-4 h-4" />
+                  <RiArrowRightSLine className="w-4 h-4" />
                 </Button>
               </div>
             </div>

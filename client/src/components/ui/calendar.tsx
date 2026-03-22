@@ -1,9 +1,9 @@
 import * as React from "react"
-import { ChevronLeft, ChevronRight } from "lucide-react"
 import { DayPicker } from "react-day-picker"
 
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
+import { RiArrowLeftSLine, RiArrowRightSLine } from "@remixicon/react";
 
 export type CalendarProps = React.ComponentProps<typeof DayPicker>
 
@@ -52,11 +52,11 @@ function Calendar({
         ...classNames,
       }}
       components={{
-        IconLeft: ({ className, ...props }) => (
-          <ChevronLeft className={cn("h-4 w-4", className)} {...props} />
+        IconLeft: ({ ...props }) => (
+          <RiArrowLeftSLine className="h-4 w-4" />
         ),
-        IconRight: ({ className, ...props }) => (
-          <ChevronRight className={cn("h-4 w-4", className)} {...props} />
+        IconRight: ({ ...props }) => (
+          <RiArrowRightSLine className="h-4 w-4" />
         ),
       }}
       {...props}

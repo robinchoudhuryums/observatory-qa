@@ -11,13 +11,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
-import {
-  BookOpen, GraduationCap, Search, Plus, Sparkles, Clock, CheckCircle2,
-  FileText, HelpCircle, Loader2, BarChart3, BookMarked, Users, ArrowRight,
-  Trash2,
-} from "lucide-react";
 import { LMS_CATEGORIES, LMS_CONTENT_TYPES, type LearningModule, type LearningPath, type ReferenceDocument } from "@shared/schema";
 import { toDisplayString } from "@/lib/display-utils";
+import {  RiGraduationCapLine, RiSearchLine, RiAddLine, RiSparklingLine, RiTimeLine, RiCheckboxCircleLine, RiFileTextLine, RiQuestionLine, RiLoader4Line, RiBarChartBoxLine, RiTeamLine, RiArrowRightLine, RiDeleteBinLine, RiBookOpenLine, RiBookMarkedLine, RiUploadLine, RiInputMethodLine  } from "@remixicon/react";
 
 function difficultyColor(d?: string) {
   if (d === "beginner") return "bg-green-100 text-green-700";
@@ -27,10 +23,10 @@ function difficultyColor(d?: string) {
 
 function contentTypeIcon(type: string) {
   switch (type) {
-    case "article": return <FileText className="w-4 h-4" />;
-    case "quiz": return <HelpCircle className="w-4 h-4" />;
-    case "ai_generated": return <Sparkles className="w-4 h-4" />;
-    default: return <BookOpen className="w-4 h-4" />;
+    case "article": return <RiFileTextLine className="w-4 h-4" />;
+    case "quiz": return <RiQuestionLine className="w-4 h-4" />;
+    case "ai_generated": return <RiSparklingLine className="w-4 h-4" />;
+    default: return <RiBookOpenLine className="w-4 h-4" />;
   }
 }
 
@@ -60,7 +56,7 @@ function ModuleCard({ module, onDelete }: { module: LearningModule; onDelete?: (
               )}
               {module.estimatedMinutes && (
                 <span className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Clock className="w-3 h-3" /> {module.estimatedMinutes} min
+                  <RiTimeLine className="w-3 h-3" /> {module.estimatedMinutes} min
                 </span>
               )}
               {module.contentType === "quiz" && module.quizQuestions && (
@@ -72,7 +68,7 @@ function ModuleCard({ module, onDelete }: { module: LearningModule; onDelete?: (
           </div>
           {onDelete && (
             <Button variant="ghost" size="sm" onClick={onDelete}>
-              <Trash2 className="w-4 h-4 text-muted-foreground" />
+              <RiDeleteBinLine className="w-4 h-4 text-muted-foreground" />
             </Button>
           )}
         </div>
@@ -118,7 +114,7 @@ function CreateModuleForm({ onSuccess }: { onSuccess: () => void }) {
     <Card>
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
-          <Plus className="w-4 h-4" /> Create Learning Module
+          <RiAddLine className="w-4 h-4" /> Create Learning Module
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -163,7 +159,7 @@ function CreateModuleForm({ onSuccess }: { onSuccess: () => void }) {
           <Textarea value={content} onChange={e => setContent(e.target.value)} rows={10} placeholder="Write your training content in Markdown..." className="font-mono text-sm" />
         </div>
         <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending || !title.trim()}>
-          {createMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
+          {createMutation.isPending ? <RiLoader4Line className="w-4 h-4 mr-2 animate-spin" /> : <RiAddLine className="w-4 h-4 mr-2" />}
           Create Module
         </Button>
       </CardContent>
@@ -203,7 +199,7 @@ function AIGenerateModule({ onSuccess }: { onSuccess: () => void }) {
     <Card>
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
-          <Sparkles className="w-4 h-4" /> AI-Generate from Reference Document
+          <RiSparklingLine className="w-4 h-4" /> AI-Generate from Reference Document
         </CardTitle>
         <CardDescription>
           Transform your uploaded reference documents into structured training modules with optional quizzes.
@@ -248,9 +244,9 @@ function AIGenerateModule({ onSuccess }: { onSuccess: () => void }) {
             </div>
             <Button onClick={() => generateMutation.mutate()} disabled={generateMutation.isPending || !selectedDoc}>
               {generateMutation.isPending ? (
-                <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Generating (this may take 30-60s)...</>
+                <><RiLoader4Line className="w-4 h-4 mr-2 animate-spin" /> Generating (this may take 30-60s)...</>
               ) : (
-                <><Sparkles className="w-4 h-4 mr-2" /> Generate Training Module</>
+                <><RiSparklingLine className="w-4 h-4 mr-2" /> Generate Training Module</>
               )}
             </Button>
           </>
@@ -277,7 +273,7 @@ function KnowledgeSearch() {
     <Card>
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
-          <Search className="w-4 h-4" /> Knowledge Base Search
+          <RiSearchLine className="w-4 h-4" /> Knowledge Base Search
         </CardTitle>
         <CardDescription>Search training modules and reference documents</CardDescription>
       </CardHeader>
@@ -290,13 +286,13 @@ function KnowledgeSearch() {
             onKeyDown={e => e.key === "Enter" && setSearchQuery(query)}
           />
           <Button onClick={() => setSearchQuery(query)} disabled={query.length < 3}>
-            <Search className="w-4 h-4" />
+            <RiSearchLine className="w-4 h-4" />
           </Button>
         </div>
 
         {isLoading && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="w-4 h-4 animate-spin" /> Searching...
+            <RiLoader4Line className="w-4 h-4 animate-spin" /> Searching...
           </div>
         )}
 
@@ -305,7 +301,7 @@ function KnowledgeSearch() {
             {results.modules.length > 0 && (
               <div>
                 <h4 className="text-sm font-medium mb-2 flex items-center gap-1">
-                  <BookOpen className="w-3 h-3" /> Training Modules ({results.modules.length})
+                  <RiBookOpenLine className="w-3 h-3" /> Training Modules ({results.modules.length})
                 </h4>
                 {results.modules.map(m => <ModuleCard key={m.id} module={m} />)}
               </div>
@@ -313,7 +309,7 @@ function KnowledgeSearch() {
             {results.knowledgeBase.length > 0 && (
               <div>
                 <h4 className="text-sm font-medium mb-2 flex items-center gap-1">
-                  <FileText className="w-3 h-3" /> Knowledge Base ({results.knowledgeBase.length})
+                  <RiFileTextLine className="w-3 h-3" /> Knowledge Base ({results.knowledgeBase.length})
                 </h4>
                 {results.knowledgeBase.map((kb, i) => (
                   <Card key={i} className="mb-2">
@@ -357,7 +353,7 @@ function StatsOverview() {
       <Card>
         <CardContent className="p-4">
           <div className="flex items-center gap-2 text-muted-foreground mb-1">
-            <BookOpen className="w-4 h-4" />
+            <RiBookOpenLine className="w-4 h-4" />
             <span className="text-xs font-medium">Modules</span>
           </div>
           <div className="text-2xl font-bold">{stats.publishedModules}</div>
@@ -367,7 +363,7 @@ function StatsOverview() {
       <Card>
         <CardContent className="p-4">
           <div className="flex items-center gap-2 text-muted-foreground mb-1">
-            <Sparkles className="w-4 h-4" />
+            <RiSparklingLine className="w-4 h-4" />
             <span className="text-xs font-medium">AI-Generated</span>
           </div>
           <div className="text-2xl font-bold">{stats.aiGeneratedModules}</div>
@@ -377,7 +373,7 @@ function StatsOverview() {
       <Card>
         <CardContent className="p-4">
           <div className="flex items-center gap-2 text-muted-foreground mb-1">
-            <BookMarked className="w-4 h-4" />
+            <RiBookMarkedLine className="w-4 h-4" />
             <span className="text-xs font-medium">Paths</span>
           </div>
           <div className="text-2xl font-bold">{stats.totalPaths}</div>
@@ -387,7 +383,7 @@ function StatsOverview() {
       <Card>
         <CardContent className="p-4">
           <div className="flex items-center gap-2 text-muted-foreground mb-1">
-            <CheckCircle2 className="w-4 h-4" />
+            <RiCheckboxCircleLine className="w-4 h-4" />
             <span className="text-xs font-medium">Completions</span>
           </div>
           <div className="text-2xl font-bold text-green-600">{stats.totalCompletions}</div>
@@ -397,7 +393,7 @@ function StatsOverview() {
       <Card>
         <CardContent className="p-4">
           <div className="flex items-center gap-2 text-muted-foreground mb-1">
-            <BarChart3 className="w-4 h-4" />
+            <RiBarChartBoxLine className="w-4 h-4" />
             <span className="text-xs font-medium">Categories</span>
           </div>
           <div className="text-2xl font-bold">{Object.keys(stats.modulesByCategory).length}</div>
@@ -446,7 +442,7 @@ export default function LearningPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <GraduationCap className="w-6 h-6" />
+          <RiGraduationCapLine className="w-6 h-6" />
           Learning Center
         </h1>
         <p className="text-muted-foreground text-sm">
@@ -459,38 +455,38 @@ export default function LearningPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="modules" className="gap-1.5">
-            <BookOpen className="w-4 h-4" /> Modules ({modules.length})
+            <RiBookOpenLine className="w-4 h-4" /> Modules ({modules.length})
           </TabsTrigger>
           <TabsTrigger value="create" className="gap-1.5">
-            <Plus className="w-4 h-4" /> Create
+            <RiAddLine className="w-4 h-4" /> Create
           </TabsTrigger>
           <TabsTrigger value="ai-generate" className="gap-1.5">
-            <Sparkles className="w-4 h-4" /> AI Generate
+            <RiSparklingLine className="w-4 h-4" /> AI Generate
           </TabsTrigger>
           <TabsTrigger value="search" className="gap-1.5">
-            <Search className="w-4 h-4" /> Knowledge Search
+            <RiSearchLine className="w-4 h-4" /> Knowledge Search
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="modules" className="mt-4 space-y-3">
           {isLoading ? (
             <div className="flex items-center justify-center h-32">
-              <Loader2 className="w-6 h-6 animate-spin" />
+              <RiLoader4Line className="w-6 h-6 animate-spin" />
             </div>
           ) : modules.length === 0 ? (
             <Card>
               <CardContent className="p-8 text-center">
-                <GraduationCap className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                <RiGraduationCapLine className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
                 <h3 className="font-medium mb-1">No learning modules yet</h3>
                 <p className="text-sm text-muted-foreground mb-4">
                   Create modules manually or AI-generate them from your reference documents.
                 </p>
                 <div className="flex gap-2 justify-center">
                   <Button variant="outline" onClick={() => setActiveTab("create")}>
-                    <Plus className="w-4 h-4 mr-2" /> Create Manually
+                    <RiAddLine className="w-4 h-4 mr-2" /> Create Manually
                   </Button>
                   <Button onClick={() => setActiveTab("ai-generate")}>
-                    <Sparkles className="w-4 h-4 mr-2" /> AI Generate
+                    <RiSparklingLine className="w-4 h-4 mr-2" /> AI Generate
                   </Button>
                 </div>
               </CardContent>
