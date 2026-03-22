@@ -82,7 +82,23 @@ export function registerCallRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/calls/upload", requireAuth, injectOrgContext, requireActiveSubscription(), enforceQuota("transcription"), upload.single('audioFile'), async (req, res) => {
+  // Wrap multer to catch file-size and type errors with proper HTTP responses
+  const handleUpload = (req: any, res: any, next: any) => {
+    upload.single('audioFile')(req, res, (err: any) => {
+      if (err) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(413).json({ message: "File too large. Maximum size is 100MB." });
+        }
+        if (err.message?.includes('Invalid file type')) {
+          return res.status(400).json({ message: err.message });
+        }
+        return res.status(400).json({ message: `Upload error: ${err.message}` });
+      }
+      next();
+    });
+  };
+
+  app.post("/api/calls/upload", requireAuth, injectOrgContext, requireActiveSubscription(), enforceQuota("transcription"), handleUpload, async (req, res) => {
     const orgId = req.orgId!;
     if (!acquireUploadSlot(orgId)) {
       if (req.file) await cleanupFile(req.file.path);

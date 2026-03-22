@@ -18,6 +18,19 @@ const clientOrgMap = new WeakMap<WebSocket, string>();
 /** Maximum WebSocket connections per org to prevent resource exhaustion. */
 const MAX_CONNECTIONS_PER_ORG = 500;
 
+/** Maximum buffered bytes before closing a slow client. */
+const MAX_BUFFERED_AMOUNT = 128 * 1024; // 128 KB
+
+/** Heartbeat interval — ping every 30 seconds. */
+const HEARTBEAT_INTERVAL_MS = 30_000;
+
+/** Close connection if no pong received within this time after a ping. */
+const PONG_TIMEOUT_MS = 10_000;
+
+// Track alive status for heartbeat
+const clientAlive = new WeakMap<WebSocket, boolean>();
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
 export function setupWebSocket(server: Server) {
   wss = new WebSocketServer({ noServer: true });
 
@@ -39,19 +52,41 @@ export function setupWebSocket(server: Server) {
       orgClients.set(orgId, orgSet);
       clientOrgMap.set(ws, orgId);
     }
+
+    // Mark as alive for heartbeat
+    clientAlive.set(ws, true);
+
+    ws.on("pong", () => {
+      clientAlive.set(ws, true);
+    });
+
     ws.send(JSON.stringify({ type: "connected" }));
 
     ws.on("close", () => {
-      // Remove from per-org set on disconnect
-      if (orgId) {
-        const orgSet = orgClients.get(orgId);
-        if (orgSet) {
-          orgSet.delete(ws);
-          if (orgSet.size === 0) orgClients.delete(orgId);
-        }
-      }
+      cleanupClient(ws, orgId);
+    });
+
+    ws.on("error", () => {
+      cleanupClient(ws, orgId);
     });
   });
+
+  // Heartbeat: ping all clients every 30s, close unresponsive ones
+  heartbeatTimer = setInterval(() => {
+    if (!wss) return;
+    wss.clients.forEach((ws) => {
+      if (clientAlive.get(ws) === false) {
+        // Missed last pong — terminate
+        const orgId = clientOrgMap.get(ws);
+        cleanupClient(ws, orgId);
+        ws.terminate();
+        return;
+      }
+      clientAlive.set(ws, false);
+      ws.ping();
+    });
+  }, HEARTBEAT_INTERVAL_MS);
+  heartbeatTimer.unref();
 
   // HIPAA: Authenticate WebSocket connections using the session cookie
   server.on("upgrade", (req: IncomingMessage, socket, head) => {
@@ -86,7 +121,17 @@ export function setupWebSocket(server: Server) {
     });
   });
 
-  logger.info("WebSocket server initialized on /ws");
+  logger.info("WebSocket server initialized on /ws (heartbeat: 30s, backpressure: 128KB)");
+}
+
+function cleanupClient(ws: WebSocket, orgId: string | undefined) {
+  if (orgId) {
+    const orgSet = orgClients.get(orgId);
+    if (orgSet) {
+      orgSet.delete(ws);
+      if (orgSet.size === 0) orgClients.delete(orgId);
+    }
+  }
 }
 
 /**
@@ -101,6 +146,13 @@ export function broadcastCallUpdate(callId: string, status: string, extra: Recor
   if (!clients) return;
   clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
+      // Backpressure: skip slow clients whose send buffer is overloaded
+      if (client.bufferedAmount > MAX_BUFFERED_AMOUNT) {
+        logger.warn({ orgId, bufferedAmount: client.bufferedAmount }, "Closing slow WebSocket client (backpressure)");
+        cleanupClient(client, orgId);
+        client.terminate();
+        return;
+      }
       try {
         client.send(message);
       } catch (err) {
@@ -127,6 +179,11 @@ export function broadcastLiveTranscript(
   if (!clients) return;
   clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
+      if (client.bufferedAmount > MAX_BUFFERED_AMOUNT) {
+        cleanupClient(client, orgId);
+        client.terminate();
+        return;
+      }
       try {
         client.send(message);
       } catch (err) {
@@ -141,6 +198,10 @@ export function broadcastLiveTranscript(
  */
 export function closeWebSocket(): Promise<void> {
   return new Promise((resolve) => {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
     if (!wss) {
       resolve();
       return;

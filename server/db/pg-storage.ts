@@ -50,6 +50,7 @@ import type {
 import * as tables from "./schema";
 import { normalizeAnalysis } from "../storage";
 import { logger } from "../services/logger";
+import { encryptField, decryptField, isPhiEncryptionEnabled } from "../services/phi-encryption";
 
 /**
  * Convert a Drizzle row (with Date objects for timestamps)
@@ -497,7 +498,7 @@ export class PostgresStorage implements IStorage {
       id,
       orgId,
       callId: transcript.callId,
-      text: transcript.text,
+      text: typeof transcript.text === "string" ? encryptField(transcript.text) : transcript.text,
       confidence: transcript.confidence,
       words: transcript.words || null,
     }).returning();
@@ -506,7 +507,7 @@ export class PostgresStorage implements IStorage {
 
   async updateTranscript(orgId: string, callId: string, updates: { text: string }): Promise<Transcript | undefined> {
     const rows = await this.db.update(tables.transcripts)
-      .set({ text: updates.text })
+      .set({ text: encryptField(updates.text) })
       .where(and(eq(tables.transcripts.callId, callId), eq(tables.transcripts.orgId, orgId)))
       .returning();
     return rows[0] ? this.mapTranscript(rows[0]) : undefined;
@@ -552,7 +553,7 @@ export class PostgresStorage implements IStorage {
       responseTime: analysis.responseTime,
       keywords: analysis.keywords || null,
       topics: analysis.topics || null,
-      summary: analysis.summary,
+      summary: typeof analysis.summary === "string" ? encryptField(analysis.summary) : analysis.summary,
       actionItems: analysis.actionItems || null,
       feedback: analysis.feedback || null,
       lemurResponse: analysis.lemurResponse || null,
@@ -571,7 +572,7 @@ export class PostgresStorage implements IStorage {
   async updateCallAnalysis(orgId: string, callId: string, updates: Partial<InsertCallAnalysis>): Promise<CallAnalysis | undefined> {
     const setClause: Record<string, unknown> = {};
     if (updates.performanceScore !== undefined) setClause.performanceScore = updates.performanceScore;
-    if (updates.summary !== undefined) setClause.summary = updates.summary;
+    if (updates.summary !== undefined) setClause.summary = typeof updates.summary === "string" ? encryptField(updates.summary) : updates.summary;
     if (updates.topics !== undefined) setClause.topics = updates.topics;
     if (updates.actionItems !== undefined) setClause.actionItems = updates.actionItems;
     if (updates.feedback !== undefined) setClause.feedback = updates.feedback;
@@ -597,24 +598,19 @@ export class PostgresStorage implements IStorage {
     return row ? this.mapAnalysis(row) : undefined;
   }
 
-  // --- Dashboard metrics (efficient SQL queries!) ---
+  // --- Dashboard metrics (single consolidated query) ---
   async getDashboardMetrics(orgId: string): Promise<DashboardMetrics> {
-    const [callCount] = await this.db.select({
-      count: sql<number>`count(*)::int`,
-    }).from(tables.calls).where(eq(tables.calls.orgId, orgId));
-
-    const [sentAvg] = await this.db.select({
-      avg: sql<number>`coalesce(avg(cast(${tables.sentimentAnalyses.overallScore} as float)) * 10, 0)`,
-    }).from(tables.sentimentAnalyses).where(eq(tables.sentimentAnalyses.orgId, orgId));
-
-    const [perfAvg] = await this.db.select({
-      avg: sql<number>`coalesce(avg(cast(${tables.callAnalyses.performanceScore} as float)), 0)`,
-    }).from(tables.callAnalyses).where(eq(tables.callAnalyses.orgId, orgId));
+    const [row] = await this.db.execute(sql`
+      SELECT
+        (SELECT count(*)::int FROM ${tables.calls} WHERE ${tables.calls.orgId} = ${orgId}) AS call_count,
+        (SELECT coalesce(avg(cast(${tables.sentimentAnalyses.overallScore} as float)) * 10, 0) FROM ${tables.sentimentAnalyses} WHERE ${tables.sentimentAnalyses.orgId} = ${orgId}) AS avg_sentiment,
+        (SELECT coalesce(avg(cast(${tables.callAnalyses.performanceScore} as float)), 0) FROM ${tables.callAnalyses} WHERE ${tables.callAnalyses.orgId} = ${orgId}) AS avg_performance
+    `) as any;
 
     return {
-      totalCalls: callCount?.count || 0,
-      avgSentiment: Math.round((sentAvg?.avg || 0) * 100) / 100,
-      avgPerformanceScore: Math.round((perfAvg?.avg || 0) * 100) / 100,
+      totalCalls: row?.call_count || 0,
+      avgSentiment: Math.round((parseFloat(row?.avg_sentiment) || 0) * 100) / 100,
+      avgPerformanceScore: Math.round((parseFloat(row?.avg_performance) || 0) * 100) / 100,
       avgTranscriptionTime: 2.3,
     };
   }
@@ -1277,7 +1273,7 @@ export class PostgresStorage implements IStorage {
       id: row.id,
       orgId: row.orgId,
       callId: row.callId,
-      text: row.text,
+      text: typeof row.text === "string" ? decryptField(row.text) : row.text,
       confidence: row.confidence,
       words: row.words as any,
       createdAt: toISOString(row.createdAt),
@@ -1306,7 +1302,7 @@ export class PostgresStorage implements IStorage {
       responseTime: row.responseTime,
       keywords: row.keywords as string[],
       topics: row.topics as string[],
-      summary: row.summary,
+      summary: typeof row.summary === "string" ? decryptField(row.summary) : row.summary,
       actionItems: row.actionItems as string[],
       feedback: row.feedback as any,
       lemurResponse: row.lemurResponse,
