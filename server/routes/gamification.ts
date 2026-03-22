@@ -2,6 +2,8 @@ import type { Express } from "express";
 import { storage } from "../storage";
 import { requireAuth, injectOrgContext } from "../auth";
 import { logger } from "../services/logger";
+import { validateUUIDParam } from "./helpers";
+import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import { BADGE_DEFINITIONS, type BadgeId } from "@shared/schema";
 
 // Points awarded for various activities
@@ -141,12 +143,12 @@ export function registerGamificationRoutes(app: Express) {
       res.json(leaderboard);
     } catch (error) {
       logger.error({ err: error }, "Failed to get leaderboard");
-      res.status(500).json({ message: "Failed to get leaderboard" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get leaderboard"));
     }
   });
 
   // Get gamification profile for an employee
-  app.get("/api/gamification/profile/:employeeId", requireAuth, injectOrgContext, async (req, res) => {
+  app.get("/api/gamification/profile/:employeeId", requireAuth, injectOrgContext, validateUUIDParam("employeeId"), async (req, res) => {
     try {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
@@ -178,7 +180,7 @@ export function registerGamificationRoutes(app: Express) {
       });
     } catch (error) {
       logger.error({ err: error }, "Failed to get gamification profile");
-      res.status(500).json({ message: "Failed to get gamification profile" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get gamification profile"));
     }
   });
 

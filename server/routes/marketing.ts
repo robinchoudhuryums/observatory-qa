@@ -8,6 +8,8 @@ import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
 import { requireAuth, requireRole } from "../auth";
 import { logger } from "../services/logger";
+import { validateUUIDParam } from "./helpers";
+import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import type { MarketingSourceMetrics } from "@shared/schema";
 
 export function registerMarketingRoutes(app: Express): void {
@@ -25,7 +27,7 @@ export function registerMarketingRoutes(app: Express): void {
     res.json(campaigns);
   });
 
-  app.get("/api/marketing/campaigns/:id", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/marketing/campaigns/:id", requireAuth, validateUUIDParam(), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
     const campaign = await storage.getMarketingCampaign(orgId, req.params.id);
@@ -46,7 +48,7 @@ export function registerMarketingRoutes(app: Express): void {
     res.status(201).json(campaign);
   });
 
-  app.patch("/api/marketing/campaigns/:id", requireAuth, requireRole("manager"), async (req: Request, res: Response) => {
+  app.patch("/api/marketing/campaigns/:id", requireAuth, requireRole("manager"), validateUUIDParam(), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
     const updated = await storage.updateMarketingCampaign(orgId, req.params.id, req.body);
@@ -54,7 +56,7 @@ export function registerMarketingRoutes(app: Express): void {
     res.json(updated);
   });
 
-  app.delete("/api/marketing/campaigns/:id", requireAuth, requireRole("manager"), async (req: Request, res: Response) => {
+  app.delete("/api/marketing/campaigns/:id", requireAuth, requireRole("manager"), validateUUIDParam(), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
     await storage.deleteMarketingCampaign(orgId, req.params.id);
@@ -63,7 +65,7 @@ export function registerMarketingRoutes(app: Express): void {
 
   // --- Call Attribution ---
 
-  app.get("/api/marketing/attribution/:callId", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/marketing/attribution/:callId", requireAuth, validateUUIDParam("callId"), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
     const attr = await storage.getCallAttribution(orgId, req.params.callId);
@@ -71,7 +73,7 @@ export function registerMarketingRoutes(app: Express): void {
     res.json(attr);
   });
 
-  app.put("/api/marketing/attribution/:callId", requireAuth, async (req: Request, res: Response) => {
+  app.put("/api/marketing/attribution/:callId", requireAuth, validateUUIDParam("callId"), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
     const callId = req.params.callId;
@@ -97,7 +99,7 @@ export function registerMarketingRoutes(app: Express): void {
     res.status(201).json(attr);
   });
 
-  app.delete("/api/marketing/attribution/:callId", requireAuth, requireRole("manager"), async (req: Request, res: Response) => {
+  app.delete("/api/marketing/attribution/:callId", requireAuth, requireRole("manager"), validateUUIDParam("callId"), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
     await storage.deleteCallAttribution(orgId, req.params.callId);
@@ -192,7 +194,7 @@ export function registerMarketingRoutes(app: Express): void {
       });
     } catch (error) {
       logger.error({ err: error }, "Failed to compute marketing metrics");
-      res.status(500).json({ message: "Failed to compute marketing metrics" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to compute marketing metrics"));
     }
   });
 

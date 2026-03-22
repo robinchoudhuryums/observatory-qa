@@ -13,7 +13,8 @@ import { storage } from "../storage";
 import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { aiProvider } from "../services/ai-factory";
 import { logger } from "../services/logger";
-import { withRetry } from "./helpers";
+import { withRetry, validateUUIDParam } from "./helpers";
+import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import type { LearningModule, InsertLearningModule } from "@shared/schema";
 
 export function registerLmsRoutes(app: Express): void {
@@ -35,7 +36,7 @@ export function registerLmsRoutes(app: Express): void {
   });
 
   /** GET /api/lms/modules/:id — Get a specific module */
-  app.get("/api/lms/modules/:id", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/lms/modules/:id", requireAuth, validateUUIDParam(), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -70,7 +71,7 @@ export function registerLmsRoutes(app: Express): void {
   });
 
   /** PATCH /api/lms/modules/:id — Update a module */
-  app.patch("/api/lms/modules/:id", requireAuth, requireRole("manager"), async (req: Request, res: Response) => {
+  app.patch("/api/lms/modules/:id", requireAuth, requireRole("manager"), validateUUIDParam(), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -80,7 +81,7 @@ export function registerLmsRoutes(app: Express): void {
   });
 
   /** DELETE /api/lms/modules/:id — Delete a module */
-  app.delete("/api/lms/modules/:id", requireAuth, requireRole("manager"), async (req: Request, res: Response) => {
+  app.delete("/api/lms/modules/:id", requireAuth, requireRole("manager"), validateUUIDParam(), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -145,7 +146,7 @@ Respond with ONLY valid JSON (no markdown fences):
       // Parse AI response
       const jsonMatch = response.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
-        return res.status(500).json({ message: "AI response was not parseable" });
+        return res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "AI response was not parseable"));
       }
       const generated = JSON.parse(jsonMatch[0]);
 
@@ -169,7 +170,7 @@ Respond with ONLY valid JSON (no markdown fences):
       res.status(201).json(module);
     } catch (error) {
       logger.error({ err: error }, "Failed to generate learning module");
-      res.status(500).json({ message: "Failed to generate learning module" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to generate learning module"));
     }
   });
 
@@ -185,7 +186,7 @@ Respond with ONLY valid JSON (no markdown fences):
   });
 
   /** GET /api/lms/paths/:id — Get a learning path with modules */
-  app.get("/api/lms/paths/:id", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/lms/paths/:id", requireAuth, validateUUIDParam(), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -228,7 +229,7 @@ Respond with ONLY valid JSON (no markdown fences):
   });
 
   /** PATCH /api/lms/paths/:id — Update a learning path */
-  app.patch("/api/lms/paths/:id", requireAuth, requireRole("manager"), async (req: Request, res: Response) => {
+  app.patch("/api/lms/paths/:id", requireAuth, requireRole("manager"), validateUUIDParam(), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -238,7 +239,7 @@ Respond with ONLY valid JSON (no markdown fences):
   });
 
   /** DELETE /api/lms/paths/:id — Delete a learning path */
-  app.delete("/api/lms/paths/:id", requireAuth, requireRole("manager"), async (req: Request, res: Response) => {
+  app.delete("/api/lms/paths/:id", requireAuth, requireRole("manager"), validateUUIDParam(), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -249,7 +250,7 @@ Respond with ONLY valid JSON (no markdown fences):
   // --- Employee Progress ---
 
   /** GET /api/lms/progress/:employeeId — Get an employee's learning progress */
-  app.get("/api/lms/progress/:employeeId", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/lms/progress/:employeeId", requireAuth, validateUUIDParam("employeeId"), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -321,7 +322,7 @@ Respond with ONLY valid JSON (no markdown fences):
       });
     } catch (error) {
       logger.error({ err: error }, "Failed to get LMS stats");
-      res.status(500).json({ message: "Failed to get LMS statistics" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get LMS statistics"));
     }
   });
 
@@ -374,7 +375,7 @@ Respond with ONLY valid JSON (no markdown fences):
       });
     } catch (error) {
       logger.error({ err: error }, "Failed to search LMS knowledge base");
-      res.status(500).json({ message: "Knowledge search failed" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Knowledge search failed"));
     }
   });
 }

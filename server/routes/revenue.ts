@@ -2,6 +2,9 @@ import type { Express } from "express";
 import { storage } from "../storage";
 import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { logger } from "../services/logger";
+import { validateUUIDParam } from "./helpers";
+import { errorResponse, ERROR_CODES } from "../services/error-codes";
+import { logPhiAccess, auditContext } from "../services/audit-log";
 
 export function registerRevenueRoutes(app: Express) {
   // Get revenue metrics summary
@@ -14,7 +17,7 @@ export function registerRevenueRoutes(app: Express) {
       res.json(metrics);
     } catch (error) {
       logger.error({ err: error }, "Failed to get revenue metrics");
-      res.status(500).json({ message: "Failed to get revenue metrics" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get revenue metrics"));
     }
   });
 
@@ -45,12 +48,12 @@ export function registerRevenueRoutes(app: Express) {
       res.json(enriched);
     } catch (error) {
       logger.error({ err: error }, "Failed to list revenue records");
-      res.status(500).json({ message: "Failed to list revenue records" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to list revenue records"));
     }
   });
 
   // Get revenue for a specific call
-  app.get("/api/revenue/call/:callId", requireAuth, injectOrgContext, async (req, res) => {
+  app.get("/api/revenue/call/:callId", requireAuth, injectOrgContext, validateUUIDParam("callId"), async (req, res) => {
     try {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
@@ -60,12 +63,12 @@ export function registerRevenueRoutes(app: Express) {
       res.json(revenue);
     } catch (error) {
       logger.error({ err: error }, "Failed to get call revenue");
-      res.status(500).json({ message: "Failed to get call revenue" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get call revenue"));
     }
   });
 
   // Create or update revenue for a call
-  app.put("/api/revenue/call/:callId", requireAuth, requireRole("manager"), injectOrgContext, async (req, res) => {
+  app.put("/api/revenue/call/:callId", requireAuth, requireRole("manager"), injectOrgContext, validateUUIDParam("callId"), async (req, res) => {
     try {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
@@ -91,10 +94,11 @@ export function registerRevenueRoutes(app: Express) {
         res.json(revenue);
       }
 
+      logPhiAccess({ ...auditContext(req), event: "update_call_revenue", resourceType: "revenue", resourceId: callId });
       logger.info({ orgId, callId }, "Call revenue updated");
     } catch (error) {
       logger.error({ err: error }, "Failed to update call revenue");
-      res.status(500).json({ message: "Failed to update call revenue" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update call revenue"));
     }
   });
 
@@ -147,7 +151,7 @@ export function registerRevenueRoutes(app: Express) {
       res.json(result);
     } catch (error) {
       logger.error({ err: error }, "Failed to get revenue by employee");
-      res.status(500).json({ message: "Failed to get revenue by employee" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get revenue by employee"));
     }
   });
 }
