@@ -120,6 +120,22 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS calls_uploaded_at_idx ON calls (uploaded_at)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS calls_org_file_hash_idx ON calls (org_id, file_hash)`);
 
+    // Multi-channel support columns
+    await addColumnIfNotExists(db, "calls", "channel", "VARCHAR(20) NOT NULL DEFAULT 'voice'");
+    await addColumnIfNotExists(db, "calls", "email_subject", "VARCHAR(1000)");
+    await addColumnIfNotExists(db, "calls", "email_from", "VARCHAR(500)");
+    await addColumnIfNotExists(db, "calls", "email_to", "VARCHAR(500)");
+    await addColumnIfNotExists(db, "calls", "email_cc", "TEXT");
+    await addColumnIfNotExists(db, "calls", "email_body", "TEXT");
+    await addColumnIfNotExists(db, "calls", "email_body_html", "TEXT");
+    await addColumnIfNotExists(db, "calls", "email_message_id", "VARCHAR(500)");
+    await addColumnIfNotExists(db, "calls", "email_thread_id", "VARCHAR(500)");
+    await addColumnIfNotExists(db, "calls", "email_received_at", "TIMESTAMP");
+    await addColumnIfNotExists(db, "calls", "chat_platform", "VARCHAR(50)");
+    await addColumnIfNotExists(db, "calls", "message_count", "INTEGER");
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS calls_channel_idx ON calls (org_id, channel)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS calls_email_thread_idx ON calls (org_id, email_thread_id)`);
+
     // --- Transcripts ---
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS transcripts (
@@ -182,6 +198,12 @@ export async function syncSchema(db: Database): Promise<void> {
     await addColumnIfNotExists(db, "call_analyses", "confidence_factors", "JSONB");
     await addColumnIfNotExists(db, "call_analyses", "manual_edits", "JSONB");
     await addColumnIfNotExists(db, "call_analyses", "clinical_note", "JSONB");
+    await addColumnIfNotExists(db, "call_analyses", "speech_metrics", "JSONB");
+    await addColumnIfNotExists(db, "call_analyses", "self_review", "JSONB");
+    await addColumnIfNotExists(db, "call_analyses", "score_dispute", "JSONB");
+    await addColumnIfNotExists(db, "call_analyses", "patient_summary", "TEXT");
+    await addColumnIfNotExists(db, "call_analyses", "referral_letter", "TEXT");
+    await addColumnIfNotExists(db, "call_analyses", "suggested_billing_codes", "JSONB");
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS analyses_call_id_idx ON call_analyses (call_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS analyses_org_id_idx ON call_analyses (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS analyses_performance_idx ON call_analyses (org_id, performance_score)`);
@@ -460,6 +482,249 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS live_sessions_org_id_idx ON live_sessions (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS live_sessions_status_idx ON live_sessions (org_id, status)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS live_sessions_created_by_idx ON live_sessions (org_id, created_by)`);
+
+    // --- User Feedback ---
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS feedbacks (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL REFERENCES organizations(id),
+        user_id TEXT NOT NULL,
+        type VARCHAR(30) NOT NULL,
+        context VARCHAR(50),
+        rating INTEGER,
+        comment TEXT,
+        metadata JSONB,
+        status VARCHAR(20) NOT NULL DEFAULT 'new',
+        admin_response TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS feedbacks_org_id_idx ON feedbacks (org_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS feedbacks_type_idx ON feedbacks (org_id, type)`);
+
+    // --- Employee Badges (Gamification) ---
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS employee_badges (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL REFERENCES organizations(id),
+        employee_id TEXT NOT NULL REFERENCES employees(id),
+        badge_id VARCHAR(50) NOT NULL,
+        awarded_at TIMESTAMP DEFAULT NOW(),
+        awarded_for TEXT,
+        UNIQUE(org_id, employee_id, badge_id)
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS employee_badges_org_idx ON employee_badges (org_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS employee_badges_employee_idx ON employee_badges (org_id, employee_id)`);
+
+    // --- Gamification Profiles ---
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS gamification_profiles (
+        org_id TEXT NOT NULL REFERENCES organizations(id),
+        employee_id TEXT NOT NULL REFERENCES employees(id),
+        total_points INTEGER NOT NULL DEFAULT 0,
+        current_streak INTEGER NOT NULL DEFAULT 0,
+        longest_streak INTEGER NOT NULL DEFAULT 0,
+        last_activity_date VARCHAR(10),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(org_id, employee_id)
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS gamification_profiles_points_idx ON gamification_profiles (org_id, total_points)`);
+
+    // --- Insurance Narratives ---
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS insurance_narratives (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL REFERENCES organizations(id),
+        call_id TEXT REFERENCES calls(id),
+        patient_name VARCHAR(255) NOT NULL,
+        patient_dob VARCHAR(20),
+        member_id VARCHAR(100),
+        insurer_name VARCHAR(255) NOT NULL,
+        insurer_address TEXT,
+        letter_type VARCHAR(50) NOT NULL,
+        diagnosis_codes JSONB,
+        procedure_codes JSONB,
+        clinical_justification TEXT,
+        prior_denial_reference TEXT,
+        generated_narrative TEXT,
+        status VARCHAR(20) NOT NULL DEFAULT 'draft',
+        created_by VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS insurance_narratives_org_idx ON insurance_narratives (org_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS insurance_narratives_status_idx ON insurance_narratives (org_id, status)`);
+
+    // --- Call Revenue Tracking ---
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS call_revenues (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL REFERENCES organizations(id),
+        call_id TEXT NOT NULL REFERENCES calls(id),
+        estimated_revenue REAL,
+        actual_revenue REAL,
+        revenue_type VARCHAR(20),
+        treatment_value REAL,
+        scheduled_procedures JSONB,
+        conversion_status VARCHAR(20) NOT NULL DEFAULT 'unknown',
+        notes TEXT,
+        updated_by VARCHAR(255),
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(org_id, call_id)
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS call_revenues_org_idx ON call_revenues (org_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS call_revenues_conversion_idx ON call_revenues (org_id, conversion_status)`);
+
+    // --- Calibration Sessions ---
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS calibration_sessions (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL REFERENCES organizations(id),
+        title VARCHAR(500) NOT NULL,
+        call_id TEXT NOT NULL REFERENCES calls(id),
+        facilitator_id TEXT NOT NULL,
+        evaluator_ids JSONB NOT NULL,
+        scheduled_at TIMESTAMP,
+        status VARCHAR(20) NOT NULL DEFAULT 'scheduled',
+        target_score REAL,
+        consensus_notes TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        completed_at TIMESTAMP
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS calibration_sessions_org_idx ON calibration_sessions (org_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS calibration_sessions_status_idx ON calibration_sessions (org_id, status)`);
+
+    // --- Calibration Evaluations ---
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS calibration_evaluations (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL REFERENCES organizations(id),
+        session_id TEXT NOT NULL REFERENCES calibration_sessions(id) ON DELETE CASCADE,
+        evaluator_id TEXT NOT NULL,
+        performance_score REAL NOT NULL,
+        sub_scores JSONB,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(session_id, evaluator_id)
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS calibration_evals_session_idx ON calibration_evaluations (session_id)`);
+
+    // --- LMS: Learning Modules ---
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS learning_modules (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL REFERENCES organizations(id),
+        title VARCHAR(500) NOT NULL,
+        description TEXT,
+        content_type VARCHAR(30) NOT NULL,
+        category VARCHAR(50),
+        content TEXT,
+        quiz_questions JSONB,
+        estimated_minutes INTEGER,
+        difficulty VARCHAR(20),
+        tags JSONB,
+        source_document_id TEXT,
+        is_published BOOLEAN NOT NULL DEFAULT false,
+        is_platform_content BOOLEAN NOT NULL DEFAULT false,
+        created_by VARCHAR(255) NOT NULL,
+        sort_order INTEGER,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS learning_modules_org_idx ON learning_modules (org_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS learning_modules_category_idx ON learning_modules (org_id, category)`);
+
+    // --- LMS: Learning Paths ---
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS learning_paths (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL REFERENCES organizations(id),
+        title VARCHAR(500) NOT NULL,
+        description TEXT,
+        category VARCHAR(50),
+        module_ids JSONB NOT NULL,
+        is_required BOOLEAN NOT NULL DEFAULT false,
+        assigned_to JSONB,
+        estimated_minutes INTEGER,
+        created_by VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS learning_paths_org_idx ON learning_paths (org_id)`);
+
+    // --- LMS: Learning Progress ---
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS learning_progress (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL REFERENCES organizations(id),
+        employee_id TEXT NOT NULL REFERENCES employees(id),
+        module_id TEXT NOT NULL,
+        path_id TEXT,
+        status VARCHAR(20) NOT NULL DEFAULT 'not_started',
+        quiz_score INTEGER,
+        quiz_attempts INTEGER,
+        time_spent_minutes INTEGER,
+        completed_at TIMESTAMP,
+        notes TEXT,
+        started_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS learning_progress_org_idx ON learning_progress (org_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS learning_progress_employee_idx ON learning_progress (org_id, employee_id)`);
+
+    // --- Marketing Campaigns ---
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS marketing_campaigns (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL REFERENCES organizations(id),
+        name VARCHAR(500) NOT NULL,
+        source VARCHAR(50) NOT NULL,
+        medium VARCHAR(50),
+        start_date TIMESTAMP,
+        end_date TIMESTAMP,
+        budget REAL,
+        tracking_code VARCHAR(255),
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        notes TEXT,
+        created_by VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS marketing_campaigns_org_idx ON marketing_campaigns (org_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS marketing_campaigns_source_idx ON marketing_campaigns (org_id, source)`);
+
+    // --- Call Attribution ---
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS call_attributions (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL REFERENCES organizations(id),
+        call_id TEXT NOT NULL REFERENCES calls(id) ON DELETE CASCADE,
+        source VARCHAR(50) NOT NULL,
+        campaign_id TEXT REFERENCES marketing_campaigns(id),
+        medium VARCHAR(50),
+        is_new_patient BOOLEAN,
+        referrer_name VARCHAR(255),
+        detection_method VARCHAR(30),
+        confidence REAL,
+        notes TEXT,
+        attributed_by VARCHAR(255),
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS call_attributions_org_idx ON call_attributions (org_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS call_attributions_source_idx ON call_attributions (org_id, source)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS call_attributions_campaign_idx ON call_attributions (org_id, campaign_id)`);
 
     // --- Audit Logs (tamper-evident) ---
     await db.execute(sql`

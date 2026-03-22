@@ -1,16 +1,17 @@
 /**
  * Email service abstraction for transactional emails.
  *
- * Supports multiple backends:
- * - SMTP (via Nodemailer) — default, works with any SMTP provider
- * - AWS SES (via Nodemailer SES transport) — set SMTP_HOST=email-smtp.<region>.amazonaws.com
- * - Console/log (dev fallback when no SMTP configured)
+ * Supports multiple backends (auto-detected in priority order):
+ * 1. AWS SES API — set EMAIL_PROVIDER=ses (uses existing AWS credentials from Bedrock/S3)
+ * 2. SMTP — set SMTP_HOST + SMTP_USER + SMTP_PASS (works with any SMTP provider incl. SES SMTP)
+ * 3. Console/log — dev fallback when neither is configured
  *
  * HIPAA: Never include PHI (call content, transcripts) in emails.
  * Only send metadata: tokens, user names, org names, links.
  */
 import nodemailer from "nodemailer";
 import type { Transporter } from "nodemailer";
+import { SESClient, SendRawEmailCommand } from "@aws-sdk/client-ses";
 import { logger } from "./logger";
 
 export interface EmailOptions {
@@ -21,33 +22,61 @@ export interface EmailOptions {
 }
 
 let transporter: Transporter | null = null;
+let sesClient: SESClient | null = null;
+let emailBackend: "ses" | "smtp" | "console" = "console";
 let fromAddress: string = "noreply@observatory-qa.com";
 
 /**
  * Initialize the email transport. Call once at startup.
- * Returns true if a real SMTP transport was configured.
+ * Returns true if a real email transport was configured.
+ *
+ * Priority:
+ * 1. EMAIL_PROVIDER=ses → AWS SES API (reuses AWS_ACCESS_KEY_ID/SECRET from Bedrock/S3)
+ * 2. SMTP_HOST + SMTP_USER + SMTP_PASS → SMTP transport
+ * 3. No config → console logging (dev only)
  */
 export function initEmail(): boolean {
+  fromAddress = process.env.SMTP_FROM || process.env.SES_FROM_ADDRESS || fromAddress;
+
+  // Option 1: AWS SES API transport
+  if (process.env.EMAIL_PROVIDER === "ses") {
+    const region = process.env.SES_REGION || process.env.AWS_REGION || "us-east-1";
+
+    // SES uses the same AWS credentials already configured for Bedrock/S3
+    sesClient = new SESClient({ region });
+
+    // Create a Nodemailer transport that sends via SES API
+    transporter = nodemailer.createTransport({
+      SES: { ses: sesClient, aws: { SendRawEmailCommand } },
+    } as any);
+
+    emailBackend = "ses";
+    logger.info({ region, from: fromAddress }, "Email transport initialized (AWS SES API)");
+    return true;
+  }
+
+  // Option 2: SMTP transport (works with SES SMTP interface or any SMTP provider)
   const host = process.env.SMTP_HOST;
   const port = parseInt(process.env.SMTP_PORT || "587");
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
-  fromAddress = process.env.SMTP_FROM || fromAddress;
 
-  if (!host || !user || !pass) {
-    logger.warn("SMTP not configured — emails will be logged to console only");
-    return false;
+  if (host && user && pass) {
+    transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure: port === 465,
+      auth: { user, pass },
+    });
+
+    emailBackend = "smtp";
+    logger.info({ host, port, from: fromAddress }, "Email transport initialized (SMTP)");
+    return true;
   }
 
-  transporter = nodemailer.createTransport({
-    host,
-    port,
-    secure: port === 465,
-    auth: { user, pass },
-  });
-
-  logger.info({ host, port, from: fromAddress }, "Email transport initialized");
-  return true;
+  // Option 3: No config — console fallback
+  logger.warn("No email transport configured — emails will be logged to console only. Set EMAIL_PROVIDER=ses or SMTP_HOST/USER/PASS");
+  return false;
 }
 
 /**
@@ -75,7 +104,7 @@ export async function sendEmail(options: EmailOptions): Promise<boolean> {
       text,
       html,
     });
-    logger.info({ to, subject }, "Email sent");
+    logger.info({ to, subject, backend: emailBackend }, "Email sent");
     return true;
   } catch (error) {
     logger.error({ err: error, to, subject }, "Failed to send email");

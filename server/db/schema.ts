@@ -88,7 +88,7 @@ export const employees = pgTable("employees", {
   uniqueIndex("employees_org_email_idx").on(t.orgId, t.email),
 ]);
 
-// --- CALLS ---
+// --- CALLS (universal interaction entity: voice, email, chat, SMS) ---
 export const calls = pgTable("calls", {
   id: text("id").primaryKey(),
   orgId: text("org_id").notNull().references(() => organizations.id),
@@ -102,12 +102,29 @@ export const calls = pgTable("calls", {
   tags: jsonb("tags").$type<string[]>(),
   fileHash: varchar("file_hash", { length: 64 }),
   uploadedAt: timestamp("uploaded_at").defaultNow(),
+  // Multi-channel support
+  channel: varchar("channel", { length: 20 }).notNull().default("voice"),
+  // Email-specific fields
+  emailSubject: varchar("email_subject", { length: 1000 }),
+  emailFrom: varchar("email_from", { length: 500 }),
+  emailTo: varchar("email_to", { length: 500 }),
+  emailCc: text("email_cc"),
+  emailBody: text("email_body"),
+  emailBodyHtml: text("email_body_html"),
+  emailMessageId: varchar("email_message_id", { length: 500 }),
+  emailThreadId: varchar("email_thread_id", { length: 500 }),
+  emailReceivedAt: timestamp("email_received_at"),
+  // Chat/SMS fields (future)
+  chatPlatform: varchar("chat_platform", { length: 50 }),
+  messageCount: integer("message_count"),
 }, (t) => [
   index("calls_org_id_idx").on(t.orgId),
   index("calls_org_status_idx").on(t.orgId, t.status),
   index("calls_employee_id_idx").on(t.employeeId),
   index("calls_uploaded_at_idx").on(t.uploadedAt),
   index("calls_org_file_hash_idx").on(t.orgId, t.fileHash),
+  index("calls_channel_idx").on(t.orgId, t.channel),
+  index("calls_email_thread_idx").on(t.orgId, t.emailThreadId),
 ]);
 
 // --- TRANSCRIPTS ---
@@ -160,6 +177,12 @@ export const callAnalyses = pgTable("call_analyses", {
   subScores: jsonb("sub_scores"),
   detectedAgentName: varchar("detected_agent_name", { length: 255 }),
   clinicalNote: jsonb("clinical_note"),
+  speechMetrics: jsonb("speech_metrics"),
+  selfReview: jsonb("self_review"),
+  scoreDispute: jsonb("score_dispute"),
+  patientSummary: text("patient_summary"),
+  referralLetter: text("referral_letter"),
+  suggestedBillingCodes: jsonb("suggested_billing_codes"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (t) => [
   uniqueIndex("analyses_call_id_idx").on(t.callId),
@@ -423,6 +446,243 @@ export const liveSessions = pgTable("live_sessions", {
   index("live_sessions_org_id_idx").on(t.orgId),
   index("live_sessions_status_idx").on(t.orgId, t.status),
   index("live_sessions_created_by_idx").on(t.orgId, t.createdBy),
+]);
+
+// --- USER FEEDBACK ---
+export const feedbacks = pgTable("feedbacks", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => organizations.id),
+  userId: text("user_id").notNull(),
+  type: varchar("type", { length: 30 }).notNull(), // feature_rating, bug_report, suggestion, nps, general
+  context: varchar("context", { length: 50 }), // which page/feature
+  rating: integer("rating"), // 1-10
+  comment: text("comment"),
+  metadata: jsonb("metadata"),
+  status: varchar("status", { length: 20 }).notNull().default("new"),
+  adminResponse: text("admin_response"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("feedbacks_org_id_idx").on(t.orgId),
+  index("feedbacks_type_idx").on(t.orgId, t.type),
+  index("feedbacks_created_at_idx").on(t.orgId, t.createdAt),
+]);
+
+// --- GAMIFICATION: EMPLOYEE BADGES ---
+export const employeeBadges = pgTable("employee_badges", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => organizations.id),
+  employeeId: text("employee_id").notNull().references(() => employees.id),
+  badgeId: varchar("badge_id", { length: 50 }).notNull(),
+  awardedAt: timestamp("awarded_at").defaultNow(),
+  awardedFor: text("awarded_for"), // callId or event description
+}, (t) => [
+  index("employee_badges_org_idx").on(t.orgId),
+  index("employee_badges_employee_idx").on(t.orgId, t.employeeId),
+  uniqueIndex("employee_badges_unique_idx").on(t.orgId, t.employeeId, t.badgeId),
+]);
+
+// --- GAMIFICATION: POINTS/STREAKS ---
+export const gamificationProfiles = pgTable("gamification_profiles", {
+  orgId: text("org_id").notNull().references(() => organizations.id),
+  employeeId: text("employee_id").notNull().references(() => employees.id),
+  totalPoints: integer("total_points").notNull().default(0),
+  currentStreak: integer("current_streak").notNull().default(0),
+  longestStreak: integer("longest_streak").notNull().default(0),
+  lastActivityDate: varchar("last_activity_date", { length: 10 }), // YYYY-MM-DD
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  uniqueIndex("gamification_profiles_pk_idx").on(t.orgId, t.employeeId),
+  index("gamification_profiles_points_idx").on(t.orgId, t.totalPoints),
+]);
+
+// --- INSURANCE NARRATIVES ---
+export const insuranceNarratives = pgTable("insurance_narratives", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => organizations.id),
+  callId: text("call_id").references(() => calls.id),
+  patientName: varchar("patient_name", { length: 255 }).notNull(),
+  patientDob: varchar("patient_dob", { length: 20 }),
+  memberId: varchar("member_id", { length: 100 }),
+  insurerName: varchar("insurer_name", { length: 255 }).notNull(),
+  insurerAddress: text("insurer_address"),
+  letterType: varchar("letter_type", { length: 50 }).notNull(),
+  diagnosisCodes: jsonb("diagnosis_codes"),
+  procedureCodes: jsonb("procedure_codes"),
+  clinicalJustification: text("clinical_justification"),
+  priorDenialReference: text("prior_denial_reference"),
+  generatedNarrative: text("generated_narrative"),
+  status: varchar("status", { length: 20 }).notNull().default("draft"),
+  createdBy: varchar("created_by", { length: 255 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("insurance_narratives_org_idx").on(t.orgId),
+  index("insurance_narratives_call_idx").on(t.orgId, t.callId),
+  index("insurance_narratives_status_idx").on(t.orgId, t.status),
+]);
+
+// --- CALL REVENUE TRACKING ---
+export const callRevenues = pgTable("call_revenues", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => organizations.id),
+  callId: text("call_id").notNull().references(() => calls.id),
+  estimatedRevenue: real("estimated_revenue"),
+  actualRevenue: real("actual_revenue"),
+  revenueType: varchar("revenue_type", { length: 20 }),
+  treatmentValue: real("treatment_value"),
+  scheduledProcedures: jsonb("scheduled_procedures"),
+  conversionStatus: varchar("conversion_status", { length: 20 }).notNull().default("unknown"),
+  notes: text("notes"),
+  updatedBy: varchar("updated_by", { length: 255 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("call_revenues_org_idx").on(t.orgId),
+  uniqueIndex("call_revenues_call_idx").on(t.orgId, t.callId),
+  index("call_revenues_conversion_idx").on(t.orgId, t.conversionStatus),
+]);
+
+// --- CALIBRATION SESSIONS ---
+export const calibrationSessions = pgTable("calibration_sessions", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => organizations.id),
+  title: varchar("title", { length: 500 }).notNull(),
+  callId: text("call_id").notNull().references(() => calls.id),
+  facilitatorId: text("facilitator_id").notNull(),
+  evaluatorIds: jsonb("evaluator_ids").$type<string[]>().notNull(),
+  scheduledAt: timestamp("scheduled_at"),
+  status: varchar("status", { length: 20 }).notNull().default("scheduled"),
+  targetScore: real("target_score"),
+  consensusNotes: text("consensus_notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+}, (t) => [
+  index("calibration_sessions_org_idx").on(t.orgId),
+  index("calibration_sessions_status_idx").on(t.orgId, t.status),
+]);
+
+// --- CALIBRATION EVALUATIONS ---
+export const calibrationEvaluations = pgTable("calibration_evaluations", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => organizations.id),
+  sessionId: text("session_id").notNull().references(() => calibrationSessions.id, { onDelete: "cascade" }),
+  evaluatorId: text("evaluator_id").notNull(),
+  performanceScore: real("performance_score").notNull(),
+  subScores: jsonb("sub_scores"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("calibration_evals_session_idx").on(t.sessionId),
+  uniqueIndex("calibration_evals_unique_idx").on(t.sessionId, t.evaluatorId),
+]);
+
+// --- LMS: LEARNING MODULES ---
+export const learningModules = pgTable("learning_modules", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => organizations.id),
+  title: varchar("title", { length: 500 }).notNull(),
+  description: text("description"),
+  contentType: varchar("content_type", { length: 30 }).notNull(),
+  category: varchar("category", { length: 50 }),
+  content: text("content"), // markdown/HTML
+  quizQuestions: jsonb("quiz_questions"),
+  estimatedMinutes: integer("estimated_minutes"),
+  difficulty: varchar("difficulty", { length: 20 }),
+  tags: jsonb("tags").$type<string[]>(),
+  sourceDocumentId: text("source_document_id"),
+  isPublished: boolean("is_published").notNull().default(false),
+  isPlatformContent: boolean("is_platform_content").notNull().default(false),
+  createdBy: varchar("created_by", { length: 255 }).notNull(),
+  sortOrder: integer("sort_order"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("learning_modules_org_idx").on(t.orgId),
+  index("learning_modules_category_idx").on(t.orgId, t.category),
+  index("learning_modules_published_idx").on(t.orgId, t.isPublished),
+]);
+
+// --- LMS: LEARNING PATHS ---
+export const learningPaths = pgTable("learning_paths", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => organizations.id),
+  title: varchar("title", { length: 500 }).notNull(),
+  description: text("description"),
+  category: varchar("category", { length: 50 }),
+  moduleIds: jsonb("module_ids").$type<string[]>().notNull(),
+  isRequired: boolean("is_required").notNull().default(false),
+  assignedTo: jsonb("assigned_to").$type<string[]>(),
+  estimatedMinutes: integer("estimated_minutes"),
+  createdBy: varchar("created_by", { length: 255 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("learning_paths_org_idx").on(t.orgId),
+  index("learning_paths_category_idx").on(t.orgId, t.category),
+]);
+
+// --- LMS: EMPLOYEE LEARNING PROGRESS ---
+export const learningProgress = pgTable("learning_progress", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => organizations.id),
+  employeeId: text("employee_id").notNull().references(() => employees.id),
+  moduleId: text("module_id").notNull(),
+  pathId: text("path_id"),
+  status: varchar("status", { length: 20 }).notNull().default("not_started"),
+  quizScore: integer("quiz_score"),
+  quizAttempts: integer("quiz_attempts"),
+  timeSpentMinutes: integer("time_spent_minutes"),
+  completedAt: timestamp("completed_at"),
+  notes: text("notes"),
+  startedAt: timestamp("started_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("learning_progress_org_idx").on(t.orgId),
+  index("learning_progress_employee_idx").on(t.orgId, t.employeeId),
+  uniqueIndex("learning_progress_unique_idx").on(t.orgId, t.employeeId, t.moduleId),
+]);
+
+// --- MARKETING CAMPAIGNS ---
+export const marketingCampaigns = pgTable("marketing_campaigns", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => organizations.id),
+  name: varchar("name", { length: 500 }).notNull(),
+  source: varchar("source", { length: 50 }).notNull(),
+  medium: varchar("medium", { length: 50 }),
+  startDate: timestamp("start_date"),
+  endDate: timestamp("end_date"),
+  budget: real("budget"),
+  trackingCode: varchar("tracking_code", { length: 255 }),
+  isActive: boolean("is_active").notNull().default(true),
+  notes: text("notes"),
+  createdBy: varchar("created_by", { length: 255 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("marketing_campaigns_org_idx").on(t.orgId),
+  index("marketing_campaigns_source_idx").on(t.orgId, t.source),
+]);
+
+// --- CALL ATTRIBUTION ---
+export const callAttributions = pgTable("call_attributions", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => organizations.id),
+  callId: text("call_id").notNull().references(() => calls.id, { onDelete: "cascade" }),
+  source: varchar("source", { length: 50 }).notNull(),
+  campaignId: text("campaign_id").references(() => marketingCampaigns.id),
+  medium: varchar("medium", { length: 50 }),
+  isNewPatient: boolean("is_new_patient"),
+  referrerName: varchar("referrer_name", { length: 255 }),
+  detectionMethod: varchar("detection_method", { length: 30 }),
+  confidence: real("confidence"),
+  notes: text("notes"),
+  attributedBy: varchar("attributed_by", { length: 255 }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("call_attributions_org_idx").on(t.orgId),
+  uniqueIndex("call_attributions_call_idx").on(t.orgId, t.callId),
+  index("call_attributions_source_idx").on(t.orgId, t.source),
+  index("call_attributions_campaign_idx").on(t.orgId, t.campaignId),
 ]);
 
 // --- AUDIT LOGS (append-only, tamper-evident, HIPAA compliance) ---

@@ -37,6 +37,27 @@ import {
   type UsageRecord,
   type LiveSession,
   type InsertLiveSession,
+  type Feedback,
+  type InsertFeedback,
+  type EmployeeBadge,
+  type InsuranceNarrative,
+  type InsertInsuranceNarrative,
+  type CallRevenue,
+  type InsertCallRevenue,
+  type CalibrationSession,
+  type InsertCalibrationSession,
+  type CalibrationEvaluation,
+  type InsertCalibrationEvaluation,
+  type LearningModule,
+  type InsertLearningModule,
+  type LearningPath,
+  type InsertLearningPath,
+  type LearningProgress,
+  type InsertLearningProgress,
+  type MarketingCampaign,
+  type InsertMarketingCampaign,
+  type CallAttribution,
+  type InsertCallAttribution,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
 import { type IStorage, applyCallFilters } from "./types";
@@ -677,6 +698,374 @@ export class MemStorage implements IStorage {
     return Array.from(this.liveSessions.values())
       .filter(s => s.orgId === orgId && s.createdBy === userId)
       .sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || ""));
+  }
+
+  // --- Feedback operations ---
+  private feedbacks = new Map<string, Feedback>();
+
+  async createFeedback(orgId: string, feedback: InsertFeedback): Promise<Feedback> {
+    const id = randomUUID();
+    const f: Feedback = { ...feedback, id, orgId, status: "new", createdAt: new Date().toISOString() };
+    this.feedbacks.set(id, f);
+    return f;
+  }
+
+  async getFeedback(orgId: string, id: string): Promise<Feedback | undefined> {
+    const f = this.feedbacks.get(id);
+    return f?.orgId === orgId ? f : undefined;
+  }
+
+  async listFeedback(orgId: string, filters?: { type?: string; status?: string }): Promise<Feedback[]> {
+    let results = Array.from(this.feedbacks.values()).filter(f => f.orgId === orgId);
+    if (filters?.type) results = results.filter(f => f.type === filters.type);
+    if (filters?.status) results = results.filter(f => f.status === filters.status);
+    return results.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  }
+
+  async updateFeedback(orgId: string, id: string, updates: Partial<Feedback>): Promise<Feedback | undefined> {
+    const f = this.feedbacks.get(id);
+    if (!f || f.orgId !== orgId) return undefined;
+    const updated = { ...f, ...updates };
+    this.feedbacks.set(id, updated);
+    return updated;
+  }
+
+  // --- Gamification operations ---
+  private employeeBadgesStore = new Map<string, EmployeeBadge>();
+  private gamificationProfilesStore = new Map<string, { totalPoints: number; currentStreak: number; longestStreak: number; lastActivityDate?: string }>();
+
+  async getEmployeeBadges(orgId: string, employeeId: string): Promise<EmployeeBadge[]> {
+    return Array.from(this.employeeBadgesStore.values()).filter(b => b.orgId === orgId && b.employeeId === employeeId);
+  }
+
+  async awardBadge(orgId: string, badge: Omit<EmployeeBadge, "id">): Promise<EmployeeBadge> {
+    const existing = Array.from(this.employeeBadgesStore.values()).find(
+      b => b.orgId === orgId && b.employeeId === badge.employeeId && b.badgeId === badge.badgeId
+    );
+    if (existing) return existing;
+    const id = randomUUID();
+    const b: EmployeeBadge = { ...badge, id, orgId };
+    this.employeeBadgesStore.set(id, b);
+    return b;
+  }
+
+  async getGamificationProfile(orgId: string, employeeId: string) {
+    const key = `${orgId}:${employeeId}`;
+    return this.gamificationProfilesStore.get(key) || { totalPoints: 0, currentStreak: 0, longestStreak: 0 };
+  }
+
+  async updateGamificationProfile(orgId: string, employeeId: string, updates: { totalPoints?: number; currentStreak?: number; longestStreak?: number; lastActivityDate?: string }) {
+    const key = `${orgId}:${employeeId}`;
+    const existing = this.gamificationProfilesStore.get(key) || { totalPoints: 0, currentStreak: 0, longestStreak: 0 };
+    this.gamificationProfilesStore.set(key, { ...existing, ...updates });
+  }
+
+  async getLeaderboard(orgId: string, limit = 20) {
+    const profiles = Array.from(this.gamificationProfilesStore.entries())
+      .filter(([key]) => key.startsWith(`${orgId}:`))
+      .map(([key, profile]) => ({
+        employeeId: key.split(":")[1],
+        totalPoints: profile.totalPoints,
+        currentStreak: profile.currentStreak,
+        badgeCount: Array.from(this.employeeBadgesStore.values()).filter(b => b.orgId === orgId && b.employeeId === key.split(":")[1]).length,
+      }))
+      .sort((a, b) => b.totalPoints - a.totalPoints)
+      .slice(0, limit);
+    return profiles;
+  }
+
+  // --- Insurance narrative operations ---
+  private insuranceNarrativesStore = new Map<string, InsuranceNarrative>();
+
+  async createInsuranceNarrative(orgId: string, narrative: InsertInsuranceNarrative): Promise<InsuranceNarrative> {
+    const id = randomUUID();
+    const n: InsuranceNarrative = { ...narrative, id, orgId, createdAt: new Date().toISOString() };
+    this.insuranceNarrativesStore.set(id, n);
+    return n;
+  }
+
+  async getInsuranceNarrative(orgId: string, id: string): Promise<InsuranceNarrative | undefined> {
+    const n = this.insuranceNarrativesStore.get(id);
+    return n?.orgId === orgId ? n : undefined;
+  }
+
+  async listInsuranceNarratives(orgId: string, filters?: { callId?: string; status?: string }): Promise<InsuranceNarrative[]> {
+    let results = Array.from(this.insuranceNarrativesStore.values()).filter(n => n.orgId === orgId);
+    if (filters?.callId) results = results.filter(n => n.callId === filters.callId);
+    if (filters?.status) results = results.filter(n => n.status === filters.status);
+    return results.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  }
+
+  async updateInsuranceNarrative(orgId: string, id: string, updates: Partial<InsuranceNarrative>): Promise<InsuranceNarrative | undefined> {
+    const n = this.insuranceNarrativesStore.get(id);
+    if (!n || n.orgId !== orgId) return undefined;
+    const updated = { ...n, ...updates, updatedAt: new Date().toISOString() };
+    this.insuranceNarrativesStore.set(id, updated);
+    return updated;
+  }
+
+  async deleteInsuranceNarrative(orgId: string, id: string): Promise<void> {
+    const n = this.insuranceNarrativesStore.get(id);
+    if (n?.orgId === orgId) this.insuranceNarrativesStore.delete(id);
+  }
+
+  // --- Call revenue operations ---
+  private callRevenuesStore = new Map<string, CallRevenue>();
+
+  async createCallRevenue(orgId: string, revenue: InsertCallRevenue): Promise<CallRevenue> {
+    const id = randomUUID();
+    const r: CallRevenue = { ...revenue, id, orgId, createdAt: new Date().toISOString() };
+    this.callRevenuesStore.set(`${orgId}:${revenue.callId}`, r);
+    return r;
+  }
+
+  async getCallRevenue(orgId: string, callId: string): Promise<CallRevenue | undefined> {
+    return this.callRevenuesStore.get(`${orgId}:${callId}`);
+  }
+
+  async listCallRevenues(orgId: string, filters?: { conversionStatus?: string }): Promise<CallRevenue[]> {
+    let results = Array.from(this.callRevenuesStore.values()).filter(r => r.orgId === orgId);
+    if (filters?.conversionStatus) results = results.filter(r => r.conversionStatus === filters.conversionStatus);
+    return results.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  }
+
+  async updateCallRevenue(orgId: string, callId: string, updates: Partial<CallRevenue>): Promise<CallRevenue | undefined> {
+    const key = `${orgId}:${callId}`;
+    const r = this.callRevenuesStore.get(key);
+    if (!r) return undefined;
+    const updated = { ...r, ...updates, updatedAt: new Date().toISOString() };
+    this.callRevenuesStore.set(key, updated);
+    return updated;
+  }
+
+  async getRevenueMetrics(orgId: string) {
+    const revenues = Array.from(this.callRevenuesStore.values()).filter(r => r.orgId === orgId);
+    const totalEstimated = revenues.reduce((sum, r) => sum + (r.estimatedRevenue || 0), 0);
+    const totalActual = revenues.reduce((sum, r) => sum + (r.actualRevenue || 0), 0);
+    const converted = revenues.filter(r => r.conversionStatus === "converted").length;
+    const total = revenues.filter(r => r.conversionStatus !== "unknown").length;
+    const conversionRate = total > 0 ? converted / total : 0;
+    const avgDealValue = converted > 0 ? totalActual / converted : 0;
+    return { totalEstimated, totalActual, conversionRate, avgDealValue };
+  }
+
+  // --- Calibration session operations ---
+  private calibrationSessionsStore = new Map<string, CalibrationSession>();
+  private calibrationEvaluationsStore = new Map<string, CalibrationEvaluation>();
+
+  async createCalibrationSession(orgId: string, session: InsertCalibrationSession): Promise<CalibrationSession> {
+    const id = randomUUID();
+    const s: CalibrationSession = { ...session, id, orgId, createdAt: new Date().toISOString() };
+    this.calibrationSessionsStore.set(id, s);
+    return s;
+  }
+
+  async getCalibrationSession(orgId: string, id: string): Promise<CalibrationSession | undefined> {
+    const s = this.calibrationSessionsStore.get(id);
+    return s?.orgId === orgId ? s : undefined;
+  }
+
+  async listCalibrationSessions(orgId: string, filters?: { status?: string }): Promise<CalibrationSession[]> {
+    let results = Array.from(this.calibrationSessionsStore.values()).filter(s => s.orgId === orgId);
+    if (filters?.status) results = results.filter(s => s.status === filters.status);
+    return results.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  }
+
+  async updateCalibrationSession(orgId: string, id: string, updates: Partial<CalibrationSession>): Promise<CalibrationSession | undefined> {
+    const s = this.calibrationSessionsStore.get(id);
+    if (!s || s.orgId !== orgId) return undefined;
+    const updated = { ...s, ...updates };
+    this.calibrationSessionsStore.set(id, updated);
+    return updated;
+  }
+
+  async deleteCalibrationSession(orgId: string, id: string): Promise<void> {
+    const s = this.calibrationSessionsStore.get(id);
+    if (s?.orgId === orgId) {
+      this.calibrationSessionsStore.delete(id);
+      // Cascade delete evaluations
+      Array.from(this.calibrationEvaluationsStore.entries()).forEach(([eid, e]) => {
+        if (e.sessionId === id) this.calibrationEvaluationsStore.delete(eid);
+      });
+    }
+  }
+
+  async createCalibrationEvaluation(orgId: string, evaluation: InsertCalibrationEvaluation): Promise<CalibrationEvaluation> {
+    const id = randomUUID();
+    const e: CalibrationEvaluation = { ...evaluation, id, orgId, createdAt: new Date().toISOString() };
+    this.calibrationEvaluationsStore.set(id, e);
+    return e;
+  }
+
+  async getCalibrationEvaluations(orgId: string, sessionId: string): Promise<CalibrationEvaluation[]> {
+    return Array.from(this.calibrationEvaluationsStore.values())
+      .filter(e => e.orgId === orgId && e.sessionId === sessionId);
+  }
+
+  async updateCalibrationEvaluation(orgId: string, id: string, updates: Partial<CalibrationEvaluation>): Promise<CalibrationEvaluation | undefined> {
+    const e = this.calibrationEvaluationsStore.get(id);
+    if (!e || e.orgId !== orgId) return undefined;
+    const updated = { ...e, ...updates };
+    this.calibrationEvaluationsStore.set(id, updated);
+    return updated;
+  }
+
+  // --- Marketing Attribution ---
+  private marketingCampaignsStore = new Map<string, MarketingCampaign>();
+  private callAttributionsStore = new Map<string, CallAttribution>();
+
+  async createMarketingCampaign(orgId: string, campaign: InsertMarketingCampaign): Promise<MarketingCampaign> {
+    const id = randomUUID();
+    const c: MarketingCampaign = { ...campaign, id, orgId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    this.marketingCampaignsStore.set(id, c);
+    return c;
+  }
+  async getMarketingCampaign(orgId: string, id: string): Promise<MarketingCampaign | undefined> {
+    const c = this.marketingCampaignsStore.get(id);
+    return c?.orgId === orgId ? c : undefined;
+  }
+  async listMarketingCampaigns(orgId: string, filters?: { source?: string; isActive?: boolean }): Promise<MarketingCampaign[]> {
+    let results = Array.from(this.marketingCampaignsStore.values()).filter(c => c.orgId === orgId);
+    if (filters?.source) results = results.filter(c => c.source === filters.source);
+    if (filters?.isActive !== undefined) results = results.filter(c => c.isActive === filters.isActive);
+    return results;
+  }
+  async updateMarketingCampaign(orgId: string, id: string, updates: Partial<MarketingCampaign>): Promise<MarketingCampaign | undefined> {
+    const c = this.marketingCampaignsStore.get(id);
+    if (!c || c.orgId !== orgId) return undefined;
+    const updated = { ...c, ...updates, updatedAt: new Date().toISOString() };
+    this.marketingCampaignsStore.set(id, updated);
+    return updated;
+  }
+  async deleteMarketingCampaign(orgId: string, id: string): Promise<void> {
+    const c = this.marketingCampaignsStore.get(id);
+    if (c?.orgId === orgId) this.marketingCampaignsStore.delete(id);
+  }
+
+  async createCallAttribution(orgId: string, attribution: InsertCallAttribution): Promise<CallAttribution> {
+    const id = randomUUID();
+    const a: CallAttribution = { ...attribution, id, orgId, createdAt: new Date().toISOString() };
+    this.callAttributionsStore.set(attribution.callId, a);
+    return a;
+  }
+  async getCallAttribution(orgId: string, callId: string): Promise<CallAttribution | undefined> {
+    const a = this.callAttributionsStore.get(callId);
+    return a?.orgId === orgId ? a : undefined;
+  }
+  async listCallAttributions(orgId: string, filters?: { source?: string; campaignId?: string }): Promise<CallAttribution[]> {
+    let results = Array.from(this.callAttributionsStore.values()).filter(a => a.orgId === orgId);
+    if (filters?.source) results = results.filter(a => a.source === filters.source);
+    if (filters?.campaignId) results = results.filter(a => a.campaignId === filters.campaignId);
+    return results;
+  }
+  async updateCallAttribution(orgId: string, callId: string, updates: Partial<CallAttribution>): Promise<CallAttribution | undefined> {
+    const a = this.callAttributionsStore.get(callId);
+    if (!a || a.orgId !== orgId) return undefined;
+    const updated = { ...a, ...updates };
+    this.callAttributionsStore.set(callId, updated);
+    return updated;
+  }
+  async deleteCallAttribution(orgId: string, callId: string): Promise<void> {
+    const a = this.callAttributionsStore.get(callId);
+    if (a?.orgId === orgId) this.callAttributionsStore.delete(callId);
+  }
+
+  // --- LMS: Learning Modules ---
+  private learningModulesStore = new Map<string, LearningModule>();
+  private learningPathsStore = new Map<string, LearningPath>();
+  private learningProgressStore = new Map<string, LearningProgress>();
+
+  async createLearningModule(orgId: string, module: InsertLearningModule): Promise<LearningModule> {
+    const id = randomUUID();
+    const m: LearningModule = { ...module, id, orgId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    this.learningModulesStore.set(id, m);
+    return m;
+  }
+  async getLearningModule(orgId: string, id: string): Promise<LearningModule | undefined> {
+    const m = this.learningModulesStore.get(id);
+    return m?.orgId === orgId ? m : undefined;
+  }
+  async listLearningModules(orgId: string, filters?: { category?: string; contentType?: string; isPublished?: boolean }): Promise<LearningModule[]> {
+    let results = Array.from(this.learningModulesStore.values()).filter(m => m.orgId === orgId);
+    if (filters?.category) results = results.filter(m => m.category === filters.category);
+    if (filters?.contentType) results = results.filter(m => m.contentType === filters.contentType);
+    if (filters?.isPublished !== undefined) results = results.filter(m => m.isPublished === filters.isPublished);
+    return results.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+  }
+  async updateLearningModule(orgId: string, id: string, updates: Partial<LearningModule>): Promise<LearningModule | undefined> {
+    const m = this.learningModulesStore.get(id);
+    if (!m || m.orgId !== orgId) return undefined;
+    const updated = { ...m, ...updates, updatedAt: new Date().toISOString() };
+    this.learningModulesStore.set(id, updated);
+    return updated;
+  }
+  async deleteLearningModule(orgId: string, id: string): Promise<void> {
+    const m = this.learningModulesStore.get(id);
+    if (m?.orgId === orgId) this.learningModulesStore.delete(id);
+  }
+
+  async createLearningPath(orgId: string, path: InsertLearningPath): Promise<LearningPath> {
+    const id = randomUUID();
+    const p: LearningPath = { ...path, id, orgId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    this.learningPathsStore.set(id, p);
+    return p;
+  }
+  async getLearningPath(orgId: string, id: string): Promise<LearningPath | undefined> {
+    const p = this.learningPathsStore.get(id);
+    return p?.orgId === orgId ? p : undefined;
+  }
+  async listLearningPaths(orgId: string): Promise<LearningPath[]> {
+    return Array.from(this.learningPathsStore.values()).filter(p => p.orgId === orgId);
+  }
+  async updateLearningPath(orgId: string, id: string, updates: Partial<LearningPath>): Promise<LearningPath | undefined> {
+    const p = this.learningPathsStore.get(id);
+    if (!p || p.orgId !== orgId) return undefined;
+    const updated = { ...p, ...updates, updatedAt: new Date().toISOString() };
+    this.learningPathsStore.set(id, updated);
+    return updated;
+  }
+  async deleteLearningPath(orgId: string, id: string): Promise<void> {
+    const p = this.learningPathsStore.get(id);
+    if (p?.orgId === orgId) this.learningPathsStore.delete(id);
+  }
+
+  async upsertLearningProgress(orgId: string, progress: InsertLearningProgress): Promise<LearningProgress> {
+    const key = `${orgId}:${progress.employeeId}:${progress.moduleId}`;
+    const existing = Array.from(this.learningProgressStore.values()).find(
+      p => p.orgId === orgId && p.employeeId === progress.employeeId && p.moduleId === progress.moduleId
+    );
+    if (existing) {
+      const updated: LearningProgress = { ...existing, ...progress, updatedAt: new Date().toISOString() };
+      this.learningProgressStore.set(existing.id, updated);
+      return updated;
+    }
+    const id = randomUUID();
+    const p: LearningProgress = { ...progress, id, orgId, startedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    this.learningProgressStore.set(id, p);
+    return p;
+  }
+  async getLearningProgress(orgId: string, employeeId: string, moduleId: string): Promise<LearningProgress | undefined> {
+    return Array.from(this.learningProgressStore.values()).find(
+      p => p.orgId === orgId && p.employeeId === employeeId && p.moduleId === moduleId
+    );
+  }
+  async getEmployeeLearningProgress(orgId: string, employeeId: string): Promise<LearningProgress[]> {
+    return Array.from(this.learningProgressStore.values()).filter(
+      p => p.orgId === orgId && p.employeeId === employeeId
+    );
+  }
+  async getModuleCompletionStats(orgId: string, moduleId: string): Promise<{ total: number; completed: number; inProgress: number; avgScore: number }> {
+    const progress = Array.from(this.learningProgressStore.values()).filter(
+      p => p.orgId === orgId && p.moduleId === moduleId
+    );
+    const completed = progress.filter(p => p.status === "completed");
+    const scores = completed.filter(p => p.quizScore !== undefined && p.quizScore !== null).map(p => p.quizScore!);
+    return {
+      total: progress.length,
+      completed: completed.length,
+      inProgress: progress.filter(p => p.status === "in_progress").length,
+      avgScore: scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0,
+    };
   }
 
   // --- Data retention (org-scoped) ---

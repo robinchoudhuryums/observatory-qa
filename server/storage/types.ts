@@ -38,6 +38,27 @@ import {
   type ClinicalNote,
   type LiveSession,
   type InsertLiveSession,
+  type Feedback,
+  type InsertFeedback,
+  type EmployeeBadge,
+  type InsuranceNarrative,
+  type InsertInsuranceNarrative,
+  type CallRevenue,
+  type InsertCallRevenue,
+  type CalibrationSession,
+  type InsertCalibrationSession,
+  type CalibrationEvaluation,
+  type InsertCalibrationEvaluation,
+  type LearningModule,
+  type InsertLearningModule,
+  type LearningPath,
+  type InsertLearningPath,
+  type LearningProgress,
+  type InsertLearningProgress,
+  type MarketingCampaign,
+  type InsertMarketingCampaign,
+  type CallAttribution,
+  type InsertCallAttribution,
 } from "@shared/schema";
 
 /**
@@ -274,6 +295,77 @@ export interface IStorage {
   updateLiveSession(orgId: string, id: string, updates: Partial<LiveSession>): Promise<LiveSession | undefined>;
   getActiveLiveSessions(orgId: string): Promise<LiveSession[]>;
   getLiveSessionsByUser(orgId: string, userId: string): Promise<LiveSession[]>;
+
+  // Feedback operations (org-scoped)
+  createFeedback(orgId: string, feedback: InsertFeedback): Promise<Feedback>;
+  getFeedback(orgId: string, id: string): Promise<Feedback | undefined>;
+  listFeedback(orgId: string, filters?: { type?: string; status?: string }): Promise<Feedback[]>;
+  updateFeedback(orgId: string, id: string, updates: Partial<Feedback>): Promise<Feedback | undefined>;
+
+  // Gamification operations (org-scoped)
+  getEmployeeBadges(orgId: string, employeeId: string): Promise<EmployeeBadge[]>;
+  awardBadge(orgId: string, badge: Omit<EmployeeBadge, "id">): Promise<EmployeeBadge>;
+  getGamificationProfile(orgId: string, employeeId: string): Promise<{ totalPoints: number; currentStreak: number; longestStreak: number }>;
+  updateGamificationProfile(orgId: string, employeeId: string, updates: { totalPoints?: number; currentStreak?: number; longestStreak?: number; lastActivityDate?: string }): Promise<void>;
+  getLeaderboard(orgId: string, limit?: number): Promise<Array<{ employeeId: string; totalPoints: number; currentStreak: number; badgeCount: number }>>;
+
+  // Insurance narrative operations (org-scoped)
+  createInsuranceNarrative(orgId: string, narrative: InsertInsuranceNarrative): Promise<InsuranceNarrative>;
+  getInsuranceNarrative(orgId: string, id: string): Promise<InsuranceNarrative | undefined>;
+  listInsuranceNarratives(orgId: string, filters?: { callId?: string; status?: string }): Promise<InsuranceNarrative[]>;
+  updateInsuranceNarrative(orgId: string, id: string, updates: Partial<InsuranceNarrative>): Promise<InsuranceNarrative | undefined>;
+  deleteInsuranceNarrative(orgId: string, id: string): Promise<void>;
+
+  // Call revenue operations (org-scoped)
+  createCallRevenue(orgId: string, revenue: InsertCallRevenue): Promise<CallRevenue>;
+  getCallRevenue(orgId: string, callId: string): Promise<CallRevenue | undefined>;
+  listCallRevenues(orgId: string, filters?: { conversionStatus?: string }): Promise<CallRevenue[]>;
+  updateCallRevenue(orgId: string, callId: string, updates: Partial<CallRevenue>): Promise<CallRevenue | undefined>;
+  getRevenueMetrics(orgId: string): Promise<{ totalEstimated: number; totalActual: number; conversionRate: number; avgDealValue: number }>;
+
+  // Calibration session operations (org-scoped)
+  createCalibrationSession(orgId: string, session: InsertCalibrationSession): Promise<CalibrationSession>;
+  getCalibrationSession(orgId: string, id: string): Promise<CalibrationSession | undefined>;
+  listCalibrationSessions(orgId: string, filters?: { status?: string }): Promise<CalibrationSession[]>;
+  updateCalibrationSession(orgId: string, id: string, updates: Partial<CalibrationSession>): Promise<CalibrationSession | undefined>;
+  deleteCalibrationSession(orgId: string, id: string): Promise<void>;
+
+  // Calibration evaluation operations (org-scoped)
+  createCalibrationEvaluation(orgId: string, evaluation: InsertCalibrationEvaluation): Promise<CalibrationEvaluation>;
+  getCalibrationEvaluations(orgId: string, sessionId: string): Promise<CalibrationEvaluation[]>;
+  updateCalibrationEvaluation(orgId: string, id: string, updates: Partial<CalibrationEvaluation>): Promise<CalibrationEvaluation | undefined>;
+  // Marketing attribution operations (org-scoped)
+  createMarketingCampaign(orgId: string, campaign: InsertMarketingCampaign): Promise<MarketingCampaign>;
+  getMarketingCampaign(orgId: string, id: string): Promise<MarketingCampaign | undefined>;
+  listMarketingCampaigns(orgId: string, filters?: { source?: string; isActive?: boolean }): Promise<MarketingCampaign[]>;
+  updateMarketingCampaign(orgId: string, id: string, updates: Partial<MarketingCampaign>): Promise<MarketingCampaign | undefined>;
+  deleteMarketingCampaign(orgId: string, id: string): Promise<void>;
+
+  createCallAttribution(orgId: string, attribution: InsertCallAttribution): Promise<CallAttribution>;
+  getCallAttribution(orgId: string, callId: string): Promise<CallAttribution | undefined>;
+  listCallAttributions(orgId: string, filters?: { source?: string; campaignId?: string }): Promise<CallAttribution[]>;
+  updateCallAttribution(orgId: string, callId: string, updates: Partial<CallAttribution>): Promise<CallAttribution | undefined>;
+  deleteCallAttribution(orgId: string, callId: string): Promise<void>;
+
+  // LMS: Learning Module operations (org-scoped)
+  createLearningModule(orgId: string, module: InsertLearningModule): Promise<LearningModule>;
+  getLearningModule(orgId: string, id: string): Promise<LearningModule | undefined>;
+  listLearningModules(orgId: string, filters?: { category?: string; contentType?: string; isPublished?: boolean }): Promise<LearningModule[]>;
+  updateLearningModule(orgId: string, id: string, updates: Partial<LearningModule>): Promise<LearningModule | undefined>;
+  deleteLearningModule(orgId: string, id: string): Promise<void>;
+
+  // LMS: Learning Path operations (org-scoped)
+  createLearningPath(orgId: string, path: InsertLearningPath): Promise<LearningPath>;
+  getLearningPath(orgId: string, id: string): Promise<LearningPath | undefined>;
+  listLearningPaths(orgId: string): Promise<LearningPath[]>;
+  updateLearningPath(orgId: string, id: string, updates: Partial<LearningPath>): Promise<LearningPath | undefined>;
+  deleteLearningPath(orgId: string, id: string): Promise<void>;
+
+  // LMS: Learning Progress operations (org-scoped)
+  upsertLearningProgress(orgId: string, progress: InsertLearningProgress): Promise<LearningProgress>;
+  getLearningProgress(orgId: string, employeeId: string, moduleId: string): Promise<LearningProgress | undefined>;
+  getEmployeeLearningProgress(orgId: string, employeeId: string): Promise<LearningProgress[]>;
+  getModuleCompletionStats(orgId: string, moduleId: string): Promise<{ total: number; completed: number; inProgress: number; avgScore: number }>;
 }
 
 export interface UsageSummary {

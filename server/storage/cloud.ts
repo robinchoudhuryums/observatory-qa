@@ -37,6 +37,27 @@ import {
   type UsageRecord,
   type LiveSession,
   type InsertLiveSession,
+  type Feedback,
+  type InsertFeedback,
+  type EmployeeBadge,
+  type InsuranceNarrative,
+  type InsertInsuranceNarrative,
+  type CallRevenue,
+  type InsertCallRevenue,
+  type CalibrationSession,
+  type InsertCalibrationSession,
+  type CalibrationEvaluation,
+  type InsertCalibrationEvaluation,
+  type LearningModule,
+  type InsertLearningModule,
+  type LearningPath,
+  type InsertLearningPath,
+  type LearningProgress,
+  type InsertLearningProgress,
+  type MarketingCampaign,
+  type InsertMarketingCampaign,
+  type CallAttribution,
+  type InsertCallAttribution,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { type IStorage, type ObjectStorageClient, mapConcurrent, normalizeAnalysis, applyCallFilters } from "./types";
@@ -593,4 +614,69 @@ export class CloudStorage implements IStorage {
   async updateLiveSession(_orgId: string, _id: string, _updates: Partial<LiveSession>): Promise<LiveSession | undefined> { return undefined; }
   async getActiveLiveSessions(_orgId: string): Promise<LiveSession[]> { return []; }
   async getLiveSessionsByUser(_orgId: string, _userId: string): Promise<LiveSession[]> { return []; }
+
+  // --- Feedback (not supported in cloud storage) ---
+  async createFeedback(_orgId: string, feedback: InsertFeedback): Promise<Feedback> { return { id: "mock", ...feedback, status: "new" } as Feedback; }
+  async getFeedback(_orgId: string, _id: string): Promise<Feedback | undefined> { return undefined; }
+  async listFeedback(_orgId: string): Promise<Feedback[]> { return []; }
+  async updateFeedback(_orgId: string, _id: string, _updates: Partial<Feedback>): Promise<Feedback | undefined> { return undefined; }
+
+  // --- Gamification (not supported in cloud storage) ---
+  async getEmployeeBadges(_orgId: string, _employeeId: string): Promise<EmployeeBadge[]> { return []; }
+  async awardBadge(_orgId: string, badge: Omit<EmployeeBadge, "id">): Promise<EmployeeBadge> { return { id: "mock", ...badge } as EmployeeBadge; }
+  async getGamificationProfile(_orgId: string, _employeeId: string) { return { totalPoints: 0, currentStreak: 0, longestStreak: 0 }; }
+  async updateGamificationProfile(_orgId: string, _employeeId: string, _updates: Record<string, unknown>) {}
+  async getLeaderboard(_orgId: string, _limit?: number) { return []; }
+
+  // --- Insurance narratives (not supported in cloud storage) ---
+  async createInsuranceNarrative(_orgId: string, narrative: InsertInsuranceNarrative): Promise<InsuranceNarrative> { return { id: "mock", ...narrative } as InsuranceNarrative; }
+  async getInsuranceNarrative(_orgId: string, _id: string): Promise<InsuranceNarrative | undefined> { return undefined; }
+  async listInsuranceNarratives(_orgId: string): Promise<InsuranceNarrative[]> { return []; }
+  async updateInsuranceNarrative(_orgId: string, _id: string, _updates: Partial<InsuranceNarrative>): Promise<InsuranceNarrative | undefined> { return undefined; }
+  async deleteInsuranceNarrative(_orgId: string, _id: string): Promise<void> {}
+
+  // --- Call revenue (not supported in cloud storage) ---
+  async createCallRevenue(_orgId: string, revenue: InsertCallRevenue): Promise<CallRevenue> { return { id: "mock", ...revenue } as CallRevenue; }
+  async getCallRevenue(_orgId: string, _callId: string): Promise<CallRevenue | undefined> { return undefined; }
+  async listCallRevenues(_orgId: string): Promise<CallRevenue[]> { return []; }
+  async updateCallRevenue(_orgId: string, _callId: string, _updates: Partial<CallRevenue>): Promise<CallRevenue | undefined> { return undefined; }
+  async getRevenueMetrics(_orgId: string) { return { totalEstimated: 0, totalActual: 0, conversionRate: 0, avgDealValue: 0 }; }
+
+  // --- Calibration sessions (not supported in cloud storage) ---
+  async createCalibrationSession(_orgId: string, session: InsertCalibrationSession): Promise<CalibrationSession> { return { id: "mock", ...session } as CalibrationSession; }
+  async getCalibrationSession(_orgId: string, _id: string): Promise<CalibrationSession | undefined> { return undefined; }
+  async listCalibrationSessions(_orgId: string): Promise<CalibrationSession[]> { return []; }
+  async updateCalibrationSession(_orgId: string, _id: string, _updates: Partial<CalibrationSession>): Promise<CalibrationSession | undefined> { return undefined; }
+  async deleteCalibrationSession(_orgId: string, _id: string): Promise<void> {}
+  async createCalibrationEvaluation(_orgId: string, evaluation: InsertCalibrationEvaluation): Promise<CalibrationEvaluation> { return { id: "mock", ...evaluation } as CalibrationEvaluation; }
+  async getCalibrationEvaluations(_orgId: string, _sessionId: string): Promise<CalibrationEvaluation[]> { return []; }
+  async updateCalibrationEvaluation(_orgId: string, _id: string, _updates: Partial<CalibrationEvaluation>): Promise<CalibrationEvaluation | undefined> { return undefined; }
+
+  // --- Marketing attribution (not supported in cloud storage) ---
+  async createMarketingCampaign(_orgId: string, campaign: InsertMarketingCampaign): Promise<MarketingCampaign> { return { id: "mock", ...campaign } as MarketingCampaign; }
+  async getMarketingCampaign(_orgId: string, _id: string): Promise<MarketingCampaign | undefined> { return undefined; }
+  async listMarketingCampaigns(_orgId: string): Promise<MarketingCampaign[]> { return []; }
+  async updateMarketingCampaign(_orgId: string, _id: string, _u: Partial<MarketingCampaign>): Promise<MarketingCampaign | undefined> { return undefined; }
+  async deleteMarketingCampaign(_orgId: string, _id: string): Promise<void> {}
+  async createCallAttribution(_orgId: string, attr: InsertCallAttribution): Promise<CallAttribution> { return { id: "mock", ...attr } as CallAttribution; }
+  async getCallAttribution(_orgId: string, _callId: string): Promise<CallAttribution | undefined> { return undefined; }
+  async listCallAttributions(_orgId: string): Promise<CallAttribution[]> { return []; }
+  async updateCallAttribution(_orgId: string, _callId: string, _u: Partial<CallAttribution>): Promise<CallAttribution | undefined> { return undefined; }
+  async deleteCallAttribution(_orgId: string, _callId: string): Promise<void> {}
+
+  // --- LMS (not supported in cloud storage) ---
+  async createLearningModule(_orgId: string, module: InsertLearningModule): Promise<LearningModule> { return { id: "mock", ...module } as LearningModule; }
+  async getLearningModule(_orgId: string, _id: string): Promise<LearningModule | undefined> { return undefined; }
+  async listLearningModules(_orgId: string): Promise<LearningModule[]> { return []; }
+  async updateLearningModule(_orgId: string, _id: string, _updates: Partial<LearningModule>): Promise<LearningModule | undefined> { return undefined; }
+  async deleteLearningModule(_orgId: string, _id: string): Promise<void> {}
+  async createLearningPath(_orgId: string, path: InsertLearningPath): Promise<LearningPath> { return { id: "mock", ...path } as LearningPath; }
+  async getLearningPath(_orgId: string, _id: string): Promise<LearningPath | undefined> { return undefined; }
+  async listLearningPaths(_orgId: string): Promise<LearningPath[]> { return []; }
+  async updateLearningPath(_orgId: string, _id: string, _updates: Partial<LearningPath>): Promise<LearningPath | undefined> { return undefined; }
+  async deleteLearningPath(_orgId: string, _id: string): Promise<void> {}
+  async upsertLearningProgress(_orgId: string, progress: InsertLearningProgress): Promise<LearningProgress> { return { id: "mock", ...progress } as LearningProgress; }
+  async getLearningProgress(_orgId: string, _employeeId: string, _moduleId: string): Promise<LearningProgress | undefined> { return undefined; }
+  async getEmployeeLearningProgress(_orgId: string, _employeeId: string): Promise<LearningProgress[]> { return []; }
+  async getModuleCompletionStats(_orgId: string, _moduleId: string) { return { total: 0, completed: 0, inProgress: 0, avgScore: 0 }; }
 }
