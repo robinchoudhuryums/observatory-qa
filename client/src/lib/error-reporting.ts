@@ -1,8 +1,51 @@
 /**
- * Centralized error reporting utility.
- * Currently logs to console with structured metadata.
- * To integrate a service like Sentry, replace reportError internals.
+ * Centralized error reporting via Sentry.
+ *
+ * Initializes Sentry on the client side when VITE_SENTRY_DSN is set.
+ * Falls back to structured console logging when Sentry is not configured.
  */
+import * as Sentry from "@sentry/react";
+
+let sentryInitialized = false;
+
+/**
+ * Initialize Sentry. Call once at app startup (main.tsx).
+ */
+export function initErrorReporting(): void {
+  const dsn = import.meta.env.VITE_SENTRY_DSN;
+  if (!dsn) {
+    console.info("[ErrorReporting] VITE_SENTRY_DSN not set — errors logged to console only");
+    return;
+  }
+
+  Sentry.init({
+    dsn,
+    environment: import.meta.env.MODE || "development",
+    release: import.meta.env.VITE_APP_VERSION || "dev",
+    // Sample 100% of errors, 10% of transactions in production
+    sampleRate: 1.0,
+    tracesSampleRate: import.meta.env.MODE === "production" ? 0.1 : 1.0,
+    // Don't send PII — HIPAA compliance
+    sendDefaultPii: false,
+    // Filter out noisy browser extension errors
+    ignoreErrors: [
+      "ResizeObserver loop",
+      "Non-Error promise rejection",
+      /Loading chunk \d+ failed/,
+      /Failed to fetch dynamically imported module/,
+    ],
+    beforeSend(event) {
+      // Strip any PHI that might leak into error messages
+      if (event.message) {
+        event.message = sanitizeForHipaa(event.message);
+      }
+      return event;
+    },
+  });
+
+  sentryInitialized = true;
+  console.info("[ErrorReporting] Sentry initialized");
+}
 
 interface ErrorContext {
   component?: string;
@@ -15,7 +58,7 @@ export function reportError(error: unknown, context?: ErrorContext): void {
   const errorObj = error instanceof Error ? error : new Error(String(error));
   const timestamp = new Date().toISOString();
 
-  // Structured error log
+  // Always log locally for dev visibility
   console.error("[APP_ERROR]", {
     timestamp,
     message: errorObj.message,
@@ -23,8 +66,27 @@ export function reportError(error: unknown, context?: ErrorContext): void {
     ...context,
   });
 
-  // Integration point: uncomment to send to an external service
-  // Sentry.captureException(errorObj, { extra: context });
+  if (sentryInitialized) {
+    Sentry.withScope((scope) => {
+      if (context?.component) scope.setTag("component", context.component);
+      if (context?.action) scope.setTag("action", context.action);
+      if (context?.userId) scope.setUser({ id: context.userId });
+      if (context?.extra) scope.setExtras(context.extra);
+      Sentry.captureException(errorObj);
+    });
+  }
+}
+
+/**
+ * Set the current user context for Sentry (call after login).
+ */
+export function setErrorReportingUser(user: { id: string; orgId?: string; role?: string } | null): void {
+  if (!sentryInitialized) return;
+  if (user) {
+    Sentry.setUser({ id: user.id, orgId: user.orgId, role: user.role } as Record<string, unknown>);
+  } else {
+    Sentry.setUser(null);
+  }
 }
 
 /**
@@ -42,4 +104,15 @@ export function withErrorReporting<T extends (...args: unknown[]) => Promise<unk
       throw error;
     }
   }) as T;
+}
+
+/** Strip patterns that might contain PHI from error messages */
+function sanitizeForHipaa(message: string): string {
+  // Redact potential SSN patterns
+  message = message.replace(/\b\d{3}-\d{2}-\d{4}\b/g, "[REDACTED-SSN]");
+  // Redact potential phone numbers
+  message = message.replace(/\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/g, "[REDACTED-PHONE]");
+  // Redact email addresses
+  message = message.replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g, "[REDACTED-EMAIL]");
+  return message;
 }

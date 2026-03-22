@@ -16,7 +16,11 @@ import { initEmail, sendEmail, buildQuotaAlertEmail } from "./services/email";
 import { isPhiEncryptionEnabled } from "./services/phi-encryption";
 import { wafMiddleware } from "./middleware/waf";
 import { tracingMiddleware } from "./middleware/tracing";
+import { initSentry, sentryErrorMiddleware, flushSentry } from "./services/sentry";
 import { PLAN_DEFINITIONS, type PlanTier } from "@shared/schema";
+
+// Initialize Sentry early (before Express middleware) so it captures all errors
+initSentry();
 
 const app = express();
 
@@ -152,8 +156,14 @@ app.use((req, res, next) => {
   // inline styles (dynamically computed positions, colors, dimensions) and Framer Motion uses
   // inline transforms for animations. Removing it would break all charts and transitions.
   // script-src is properly locked down to 'self' only (no unsafe-inline for scripts).
+  // CDN_ORIGIN: Set to your CDN domain (e.g. https://cdn.observatory-qa.com) to allow assets
+  // served from CloudFront/Cloudflare. When not set, only 'self' is allowed.
+  const cdnOrigin = process.env.CDN_ORIGIN || "";
+  const cdnDirective = cdnOrigin ? ` ${cdnOrigin}` : "";
+  const sentryDsn = process.env.SENTRY_DSN || "";
+  const sentryDirective = sentryDsn ? " https://*.ingest.sentry.io" : "";
   res.setHeader('Content-Security-Policy',
-    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' wss:; frame-ancestors 'none';"
+    `default-src 'self'${cdnDirective}; script-src 'self'${cdnDirective}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com${cdnDirective}; font-src 'self' https://fonts.gstatic.com${cdnDirective}; img-src 'self' data: blob:${cdnDirective}; media-src 'self' blob:${cdnDirective}; connect-src 'self' wss:${sentryDirective}${cdnDirective}; frame-ancestors 'none';`
   );
   // Only set no-cache on API routes — static assets need caching for performance
   if (req.path.startsWith("/api")) {
@@ -320,6 +330,9 @@ app.use("/api/ehr", distributedRateLimit(60 * 1000, 30, true) as any);
   app.use(tracingMiddleware);
 
   const server = await registerRoutes(app);
+
+  // Sentry error middleware: captures unhandled errors before the final handler
+  app.use(sentryErrorMiddleware);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -538,6 +551,8 @@ app.use("/api/ehr", distributedRateLimit(60 * 1000, 30, true) as any);
       } catch (err) { logger.debug({ err }, "RAG worker pool not initialized, skipping cleanup"); }
       // Flush any pending OpenTelemetry spans/metrics
       await shutdownTelemetry();
+      // Flush pending Sentry events before exit
+      await flushSentry();
       process.exit(0);
     };
     process.on("SIGTERM", shutdown);

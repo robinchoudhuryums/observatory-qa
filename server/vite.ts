@@ -82,10 +82,27 @@ export function serveStatic(app: Express) {
     );
   }
 
-  app.use(express.static(distPath));
+  // Hashed assets (JS/CSS chunks with content hashes from Vite) — immutable, cache forever.
+  // These filenames change on every build, so aggressive caching is safe.
+  // CDN (Cloudflare/CloudFront) will respect these headers automatically.
+  app.use("/assets", express.static(path.resolve(distPath, "assets"), {
+    maxAge: "1y",
+    immutable: true,
+    etag: false,
+    lastModified: false,
+  }));
 
-  // fall through to index.html if the file doesn't exist
+  // Non-hashed static files (favicon, manifest, robots.txt) — short cache with revalidation.
+  app.use(express.static(distPath, {
+    maxAge: "1h",
+    etag: true,
+    lastModified: true,
+  }));
+
+  // SPA fallback — index.html should never be cached (or very short cache).
+  // CDNs should always revalidate this to pick up new deployments.
   app.use("*", (_req, res) => {
+    res.setHeader("Cache-Control", "no-cache, must-revalidate");
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }

@@ -624,12 +624,24 @@ LOG_LEVEL                       # Pino level: debug, info, warn, error (default:
 WEBHOOK_URL                     # Slack/Teams webhook for flagged call notifications
 WEBHOOK_EVENTS                  # Event types to notify (default: low_score,agent_misconduct,exceptional_call)
 
-# ─── Email (SMTP) ────────────────────────────────────────────────────
-SMTP_HOST                       # Email server hostname
-SMTP_PORT                       # Email server port (default: 587)
-SMTP_USER                       # Email authentication username
-SMTP_PASS                       # Email authentication password
+# ─── Email (pick one) ────────────────────────────────────────────────
+EMAIL_PROVIDER                  # "ses" for AWS SES API (uses existing AWS creds); omit for SMTP
+SES_REGION                      # SES region override (default: AWS_REGION or us-east-1)
+SES_FROM_ADDRESS                # SES sender (alternative to SMTP_FROM, must be SES-verified)
+SMTP_HOST                       # SMTP server hostname (for SMTP transport)
+SMTP_PORT                       # SMTP server port (default: 587)
+SMTP_USER                       # SMTP authentication username
+SMTP_PASS                       # SMTP authentication password
 SMTP_FROM                       # Sender email address
+
+# ─── Error Tracking (Sentry) ────────────────────────────────────────
+SENTRY_DSN                      # Server-side Sentry DSN (Node.js errors)
+VITE_SENTRY_DSN                 # Client-side Sentry DSN (browser errors, must use VITE_ prefix)
+APP_VERSION                     # Release version tag for Sentry (default: "dev")
+
+# ─── CDN ─────────────────────────────────────────────────────────────
+CDN_ORIGIN                      # CDN domain (e.g. https://cdn.observatory-qa.com)
+                                # Sets Vite base URL + CSP headers for CDN asset serving
 
 # ─── PHI Encryption ─────────────────────────────────────────────────
 PHI_ENCRYPTION_KEY              # 64-char hex for AES-256-GCM field-level encryption

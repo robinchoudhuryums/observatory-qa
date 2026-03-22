@@ -21,9 +21,15 @@ export default defineConfig({
     },
   },
   root: path.resolve(__dirname, "client"),
+  // CDN_ORIGIN: When set, Vite will prefix all asset URLs with the CDN domain.
+  // This allows assets to be served from CloudFront/Cloudflare while the API stays on origin.
+  // Example: CDN_ORIGIN=https://cdn.observatory-qa.com → <script src="https://cdn.observatory-qa.com/assets/index-abc123.js">
+  base: process.env.CDN_ORIGIN ? `${process.env.CDN_ORIGIN}/` : "/",
   build: {
     outDir: path.resolve(__dirname, "dist/public"),
     emptyOutDir: true,
+    // Generate source maps for Sentry error tracking (uploaded separately, not served to clients)
+    sourcemap: "hidden",
     rollupOptions: {
       output: {
         manualChunks: {
