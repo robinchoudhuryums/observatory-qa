@@ -1,61 +1,32 @@
 import { expect, type Page } from "@playwright/test";
 
 /**
- * Log in as a specific user. Navigates to the landing page, clicks through
- * to the login form, fills credentials, submits, and waits for the sidebar
- * to confirm a successful authenticated session.
+ * Log in via the API and set the session cookie on the page.
+ * This avoids the complexity of navigating the SPA login flow
+ * (landing page → auth page transition, lazy loading, etc.)
+ * and directly establishes an authenticated session.
  */
 export async function login(
   page: Page,
   username = "admin",
   password = "admin123",
 ) {
-  await page.goto("/");
+  // Use the page's request context so cookies are automatically shared
+  const response = await page.request.post("/api/auth/login", {
+    data: { username, password },
+  });
 
-  // Wait for either the landing page "Sign In" link or the login form input.
-  // The app first shows a loading spinner while /api/auth/me resolves, then
-  // renders the landing page (unauthenticated) or dashboard (authenticated).
-  const loginLink = page.getByText(/sign in|log in|get started/i).first();
-  const usernameInput = page.locator("[data-testid='login-username'], input[name='username']").first();
-
-  // Wait for one of the two to appear (landing page button or auth form input)
-  await Promise.race([
-    loginLink.waitFor({ timeout: 15000 }).catch(() => {}),
-    usernameInput.waitFor({ timeout: 15000 }).catch(() => {}),
-  ]);
-
-  // If on landing page, click through to login form
-  if (await loginLink.isVisible()) {
-    await loginLink.click();
-    // Wait for the auth page to load (lazy-loaded via Suspense)
-    await usernameInput.waitFor({ timeout: 10000 });
-  }
-
-  await usernameInput.fill(username);
-
-  const passwordInput = page.locator("input[type='password']").first();
-  await passwordInput.fill(password);
-
-  // Capture login API response for diagnostics
-  const loginResponsePromise = page.waitForResponse(
-    (resp) => resp.url().includes("/api/auth/login"),
-    { timeout: 15000 },
-  );
-
-  const submitBtn = page
-    .getByRole("button", { name: /sign in|log in|submit/i })
-    .first();
-  await submitBtn.click();
-
-  // Verify login API succeeded before waiting for sidebar
-  const loginResponse = await loginResponsePromise;
-  if (loginResponse.status() !== 200) {
-    const body = await loginResponse.text().catch(() => "");
+  if (response.status() !== 200) {
+    const body = await response.text().catch(() => "");
     throw new Error(
-      `Login API failed: ${loginResponse.status()} ${loginResponse.statusText()} — ${body}`,
+      `Login API failed: ${response.status()} ${response.statusText()} — ${body}`,
     );
   }
 
+  // Navigate to dashboard — session cookie is already set from the API call
+  await page.goto("/");
+
+  // Wait for authenticated app to render (sidebar indicates successful auth)
   await expect(page.locator("[data-testid='sidebar']")).toBeVisible({
     timeout: 15000,
   });
