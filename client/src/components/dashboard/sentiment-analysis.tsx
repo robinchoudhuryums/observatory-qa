@@ -12,7 +12,7 @@ export default function SentimentAnalysis() {
 
   if (error) {
     return (
-      <div className="modern-card rounded-xl p-6 text-center">
+      <div className="modern-card rounded-xl p-6 text-center" data-testid="sentiment-analysis">
         <p className="text-sm text-muted-foreground">No sentiment data yet</p>
         <p className="text-xs text-muted-foreground/70 mt-1">Sentiment analysis will appear after calls are processed.</p>
       </div>

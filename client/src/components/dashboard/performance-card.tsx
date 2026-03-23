@@ -19,7 +19,7 @@ export default function PerformanceCard() {
 
   if (error) {
     return (
-      <div className="modern-card rounded-xl p-6 text-center">
+      <div className="modern-card rounded-xl p-6 text-center" data-testid="performance-card">
         <p className="text-sm text-muted-foreground">No performer data yet</p>
         <p className="text-xs text-muted-foreground/70 mt-1">Top performers will appear after calls are analyzed.</p>
       </div>

@@ -190,7 +190,7 @@ app.use((req, res, next) => {
     res.cookie("csrf-token", token, {
       httpOnly: false, // Must be readable by JS to send in header
       sameSite: "strict",
-      secure: process.env.NODE_ENV === "production",
+      secure: process.env.NODE_ENV === "production" && !process.env.DISABLE_SECURE_COOKIE,
       path: "/",
     });
   }

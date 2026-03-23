@@ -29,7 +29,7 @@ export default function MetricsOverview() {
 
   if (error) {
     return (
-      <div className="modern-card rounded-xl p-8 text-center">
+      <div className="modern-card rounded-xl p-8 text-center" data-testid="metrics-overview">
         <div className="mx-auto w-16 h-16 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full flex items-center justify-center mb-4">
           <RiPhoneLine className="w-7 h-7 text-primary/60" />
         </div>
