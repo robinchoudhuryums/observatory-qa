@@ -15,9 +15,6 @@ export default defineConfig({
   reporter: process.env.CI ? "github" : "html",
   timeout: 30_000,
 
-  // Log in once before all tests, saving auth state to .auth/ files
-  globalSetup: "./global-setup.ts",
-
   use: {
     baseURL: process.env.BASE_URL || "http://localhost:5000",
     trace: "on-first-retry",
@@ -44,17 +41,24 @@ export default defineConfig({
     : undefined,
 
   projects: [
+    // Setup project: logs in via real browser and saves auth state
+    {
+      name: "setup",
+      testMatch: /auth\.setup\.ts/,
+    },
     {
       name: "admin",
+      dependencies: ["setup"],
       use: {
         browserName: "chromium",
         storageState: adminAuthFile,
       },
-      // Run all specs except those that need unauthenticated, viewer, or isolated access
+      // Run all specs except setup, unauthenticated, viewer, or isolated access
       testIgnore: /\b(api-health|auth|rbac|logout)\b/,
     },
     {
       name: "viewer",
+      dependencies: ["setup"],
       use: {
         browserName: "chromium",
         storageState: viewerAuthFile,
@@ -65,19 +69,16 @@ export default defineConfig({
       name: "unauthenticated",
       use: {
         browserName: "chromium",
-        // No storageState — fresh context without cookies
       },
       testMatch: /(api-health|auth)\.spec\.ts/,
     },
     {
       name: "logout",
+      dependencies: ["admin"],
       use: {
         browserName: "chromium",
-        // Fresh context — this test logs in with its own session then destroys it
       },
       testMatch: /logout\.spec\.ts/,
-      // Run after admin project so it doesn't interfere with shared sessions
-      dependencies: ["admin"],
     },
   ],
 });
