@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ChevronRight, ChevronLeft, Upload, BarChart3, Search, Users, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ObservatoryLogo } from "@/components/observatory-logo";
 import { safeStorage } from "@/lib/utils";
+import {  RiCloseLine, RiArrowRightSLine, RiArrowLeftSLine, RiUploadLine, RiBarChartBoxLine, RiSearchLine, RiTeamLine, RiFileTextLine, RiArrowLeftLine, RiArrowRightLine, RiCheckLine, RiFilterLine  } from "@remixicon/react";
 
 interface TourStep {
   title: string;
@@ -23,31 +23,31 @@ const TOUR_STEPS: TourStep[] = [
   {
     title: "Upload Call Recordings",
     description: "Head to the Upload page in the sidebar to drag and drop audio files. Each call is automatically transcribed, analyzed for sentiment, and scored. Processing takes 1-3 minutes.",
-    icon: <Upload className="w-6 h-6" />,
+    icon: <RiUploadLine className="w-6 h-6" />,
     position: "center",
   },
   {
     title: "Track Performance Metrics",
     description: "This dashboard shows real-time KPIs: total calls, average sentiment, team score, and transcription time. Metrics update automatically as calls are processed.",
-    icon: <BarChart3 className="w-6 h-6" />,
+    icon: <RiBarChartBoxLine className="w-6 h-6" />,
     position: "center",
   },
   {
     title: "Search & Filter Calls",
     description: "Use the Search page to find specific calls by keyword, agent name, or topic. Filter by sentiment, status, or employee to narrow results.",
-    icon: <Search className="w-6 h-6" />,
+    icon: <RiSearchLine className="w-6 h-6" />,
     position: "center",
   },
   {
     title: "Manage Your Team",
     description: "Visit the Employees page to add team members. The AI detects agent names from transcripts and auto-assigns calls to your roster.",
-    icon: <Users className="w-6 h-6" />,
+    icon: <RiTeamLine className="w-6 h-6" />,
     position: "center",
   },
   {
     title: "Generate Reports & Insights",
     description: "Check Reports and Insights in the sidebar for performance analytics by employee, department, or time period. Export to CSV or download AI-generated summaries.",
-    icon: <FileText className="w-6 h-6" />,
+    icon: <RiFileTextLine className="w-6 h-6" />,
     position: "center",
   },
 ];
@@ -143,7 +143,7 @@ export default function OnboardingTour() {
                   className="absolute top-4 right-4 text-muted-foreground hover:text-foreground transition-colors"
                   aria-label="Close tour"
                 >
-                  <X className="w-4 h-4" />
+                  <RiCloseLine className="w-4 h-4" />
                 </button>
 
                 {/* Icon */}
@@ -196,7 +196,7 @@ export default function OnboardingTour() {
                   <div className="flex items-center gap-2">
                     {step > 0 && (
                       <Button variant="ghost" size="sm" onClick={prev}>
-                        <ChevronLeft className="w-4 h-4 mr-1" />
+                        <RiArrowLeftSLine className="w-4 h-4 mr-1" />
                         Back
                       </Button>
                     )}
@@ -207,7 +207,7 @@ export default function OnboardingTour() {
                     )}
                     <Button size="sm" onClick={next}>
                       {isLast ? "Get Started" : "Next"}
-                      {!isLast && <ChevronRight className="w-4 h-4 ml-1" />}
+                      {!isLast && <RiArrowRightSLine className="w-4 h-4 ml-1" />}
                     </Button>
                   </div>
                 </div>

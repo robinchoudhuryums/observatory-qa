@@ -11,7 +11,7 @@
 import type { Express } from "express";
 import { randomBytes, createHash } from "crypto";
 import { storage } from "../storage";
-import { hashPassword } from "../auth";
+import { hashPassword, validatePasswordComplexity } from "../auth";
 import { sendEmail, buildPasswordResetEmail } from "../services/email";
 import { logger } from "../services/logger";
 
@@ -141,8 +141,12 @@ export function registerPasswordResetRoutes(app: Express): void {
         return res.status(400).json({ message: "Token and new password are required" });
       }
 
-      if (typeof newPassword !== "string" || newPassword.length < 8) {
-        return res.status(400).json({ message: "Password must be at least 8 characters" });
+      if (typeof newPassword !== "string") {
+        return res.status(400).json({ message: "Password is required" });
+      }
+      const complexityError = validatePasswordComplexity(newPassword);
+      if (complexityError) {
+        return res.status(400).json({ message: complexityError });
       }
 
       const tokenHash = createHash("sha256").update(token).digest("hex");

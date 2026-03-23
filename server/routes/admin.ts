@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { storage } from "../storage";
-import { requireAuth, requireRole, injectOrgContext, hashPassword } from "../auth";
+import { requireAuth, requireRole, injectOrgContext, hashPassword, validatePasswordComplexity } from "../auth";
 import { aiProvider } from "../services/ai-factory";
 import { assemblyAIService } from "../services/assemblyai";
 import { broadcastCallUpdate } from "../services/websocket";
@@ -12,6 +12,8 @@ import { enqueueReanalysis } from "../services/queue";
 import { getWafStats, blockIp, unblockIp } from "../middleware/waf";
 import { requirePlanFeature, enforceUserQuota } from "./billing";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
+import { parsePagination, paginateArray } from "./helpers";
+import { getRedis } from "../services/redis";
 import {
   declareIncident, advanceIncidentPhase, addTimelineEntry, addActionItem,
   updateActionItem, updateIncident, getIncident, listIncidents,
@@ -41,6 +43,13 @@ export function registerAdminRoutes(app: Express): void {
         ...parsed.data,
         updatedBy: req.user?.username,
       });
+      logPhiAccess({
+        ...auditContext(req),
+        event: "prompt_template_created",
+        resourceType: "prompt_template",
+        resourceId: template.id,
+        detail: `Category: ${parsed.data.callCategory || "default"}, Created by: ${req.user?.username}`,
+      });
       res.status(201).json(template);
     } catch (error) {
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to create prompt template"));
@@ -64,6 +73,13 @@ export function registerAdminRoutes(app: Express): void {
         res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Template not found"));
         return;
       }
+      logPhiAccess({
+        ...auditContext(req),
+        event: "prompt_template_updated",
+        resourceType: "prompt_template",
+        resourceId: req.params.id,
+        detail: `Fields changed: ${Object.keys(templateUpdateParsed.data).join(", ")}, Updated by: ${req.user?.username}`,
+      });
       res.json(updated);
     } catch (error) {
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update prompt template"));
@@ -72,6 +88,12 @@ export function registerAdminRoutes(app: Express): void {
 
   app.delete("/api/prompt-templates/:id", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
     try {
+      logPhiAccess({
+        ...auditContext(req),
+        event: "prompt_template_deleted",
+        resourceType: "prompt_template",
+        resourceId: req.params.id,
+      });
       await storage.deletePromptTemplate(req.orgId!, req.params.id);
       res.json({ message: "Template deleted" });
     } catch (error) {
@@ -187,19 +209,21 @@ export function registerAdminRoutes(app: Express): void {
   // USER MANAGEMENT (database-backed, admin only)
   // ============================================================
 
-  // List all users in the current organization
+  // List all users in the current organization (paginated)
   app.get("/api/users", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
     try {
+      const { limit, offset } = parsePagination(req.query);
       const users = await storage.listUsersByOrg(req.orgId!);
       // Return users without password hashes
-      res.json(users.map(u => ({
+      const sanitized = users.map(u => ({
         id: u.id,
         username: u.username,
         name: u.name,
         role: u.role,
         orgId: u.orgId,
         createdAt: u.createdAt,
-      })));
+      }));
+      res.json(sanitized);
     } catch (error) {
       logger.error({ err: error }, "Failed to list users");
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to list users"));
@@ -211,10 +235,24 @@ export function registerAdminRoutes(app: Express): void {
     try {
       const { username, password, name, role } = req.body;
       if (!username || !password || !name) {
-        return res.status(400).json({ message: "username, password, and name are required" });
+        return res.status(400).json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "username, password, and name are required"));
+      }
+      // Validate field lengths
+      if (username.length > 255 || name.length > 255) {
+        return res.status(400).json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "Field length exceeds maximum allowed"));
+      }
+      // Validate email format for username
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(username)) {
+        return res.status(400).json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "Username must be a valid email address"));
       }
       if (!["viewer", "manager", "admin"].includes(role || "viewer")) {
-        return res.status(400).json({ message: "Invalid role" });
+        return res.status(400).json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "Invalid role"));
+      }
+
+      // HIPAA: Enforce password complexity
+      const complexityError = validatePasswordComplexity(password);
+      if (complexityError) {
+        return res.status(400).json({ message: complexityError });
       }
 
       // Check if username already exists within this org
@@ -233,6 +271,13 @@ export function registerAdminRoutes(app: Express): void {
         role: role || "viewer",
       });
 
+      logPhiAccess({
+        ...auditContext(req),
+        event: "create_user",
+        resourceType: "user",
+        resourceId: user.id,
+        detail: `Created user ${username} with role ${role || "viewer"}`,
+      });
       logger.info({ userId: user.id, username, org: req.orgId }, "User created");
       res.status(201).json({ id: user.id, username: user.username, name: user.name, role: user.role });
     } catch (error) {
@@ -254,8 +299,12 @@ export function registerAdminRoutes(app: Express): void {
       if (name) updates.name = name;
       if (role) updates.role = role;
 
-      // Hash new password if provided
+      // Hash new password if provided (with HIPAA complexity enforcement)
       if (password) {
+        const complexityError = validatePasswordComplexity(password);
+        if (complexityError) {
+          return res.status(400).json({ message: complexityError });
+        }
         updates.passwordHash = await hashPassword(password);
       }
 
@@ -263,6 +312,38 @@ export function registerAdminRoutes(app: Express): void {
       if (!updated) {
         return res.status(404).json(errorResponse(ERROR_CODES.ADMIN_USER_NOT_FOUND, "User not found"));
       }
+
+      // HIPAA: If password was changed, invalidate all sessions for the target user
+      if (password) {
+        const redis = getRedis();
+        if (redis) {
+          try {
+            const sessionKeys = await redis.keys("sess:*");
+            for (const key of sessionKeys) {
+              const sessionData = await redis.get(key);
+              if (sessionData) {
+                try {
+                  const parsed = JSON.parse(sessionData);
+                  if (parsed?.passport?.user === req.params.id) {
+                    await redis.del(key);
+                  }
+                } catch { /* skip unparseable sessions */ }
+              }
+            }
+            logger.info({ targetUserId: req.params.id }, "Invalidated sessions after password change");
+          } catch (err) {
+            logger.warn({ err, targetUserId: req.params.id }, "Failed to invalidate sessions after password change");
+          }
+        }
+      }
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "update_user",
+        resourceType: "user",
+        resourceId: req.params.id,
+        detail: `Updated fields: ${Object.keys(updates).filter(k => k !== "passwordHash").join(", ")}${password ? " [password changed]" : ""}`,
+      });
 
       logger.info({ userId: req.params.id, org: req.orgId }, "User updated");
       res.json({ id: updated.id, username: updated.username, name: updated.name, role: updated.role });
@@ -286,6 +367,13 @@ export function registerAdminRoutes(app: Express): void {
       }
 
       await storage.deleteUser(req.orgId!, req.params.id);
+      logPhiAccess({
+        ...auditContext(req),
+        event: "delete_user",
+        resourceType: "user",
+        resourceId: req.params.id,
+        detail: `Deleted user ${user.username}`,
+      });
       logger.info({ userId: req.params.id, org: req.orgId }, "User deleted");
       res.json({ message: "User deleted" });
     } catch (error) {

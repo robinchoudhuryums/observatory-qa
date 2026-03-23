@@ -8,6 +8,8 @@ import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
 import { requireAuth, requireRole } from "../auth";
 import { logger } from "../services/logger";
+import { validateUUIDParam } from "./helpers";
+import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import type { MarketingSourceMetrics } from "@shared/schema";
 
 export function registerMarketingRoutes(app: Express): void {
@@ -25,7 +27,7 @@ export function registerMarketingRoutes(app: Express): void {
     res.json(campaigns);
   });
 
-  app.get("/api/marketing/campaigns/:id", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/marketing/campaigns/:id", requireAuth, validateUUIDParam(), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
     const campaign = await storage.getMarketingCampaign(orgId, req.params.id);
@@ -46,7 +48,7 @@ export function registerMarketingRoutes(app: Express): void {
     res.status(201).json(campaign);
   });
 
-  app.patch("/api/marketing/campaigns/:id", requireAuth, requireRole("manager"), async (req: Request, res: Response) => {
+  app.patch("/api/marketing/campaigns/:id", requireAuth, requireRole("manager"), validateUUIDParam(), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
     const updated = await storage.updateMarketingCampaign(orgId, req.params.id, req.body);
@@ -54,7 +56,7 @@ export function registerMarketingRoutes(app: Express): void {
     res.json(updated);
   });
 
-  app.delete("/api/marketing/campaigns/:id", requireAuth, requireRole("manager"), async (req: Request, res: Response) => {
+  app.delete("/api/marketing/campaigns/:id", requireAuth, requireRole("manager"), validateUUIDParam(), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
     await storage.deleteMarketingCampaign(orgId, req.params.id);
@@ -63,7 +65,7 @@ export function registerMarketingRoutes(app: Express): void {
 
   // --- Call Attribution ---
 
-  app.get("/api/marketing/attribution/:callId", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/marketing/attribution/:callId", requireAuth, validateUUIDParam("callId"), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
     const attr = await storage.getCallAttribution(orgId, req.params.callId);
@@ -71,7 +73,7 @@ export function registerMarketingRoutes(app: Express): void {
     res.json(attr);
   });
 
-  app.put("/api/marketing/attribution/:callId", requireAuth, async (req: Request, res: Response) => {
+  app.put("/api/marketing/attribution/:callId", requireAuth, validateUUIDParam("callId"), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
     const callId = req.params.callId;
@@ -97,7 +99,7 @@ export function registerMarketingRoutes(app: Express): void {
     res.status(201).json(attr);
   });
 
-  app.delete("/api/marketing/attribution/:callId", requireAuth, requireRole("manager"), async (req: Request, res: Response) => {
+  app.delete("/api/marketing/attribution/:callId", requireAuth, requireRole("manager"), validateUUIDParam("callId"), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
     await storage.deleteCallAttribution(orgId, req.params.callId);
@@ -112,9 +114,12 @@ export function registerMarketingRoutes(app: Express): void {
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
     try {
-      const attributions = await storage.listCallAttributions(orgId);
-      const campaigns = await storage.listMarketingCampaigns(orgId);
-      const revenues = await storage.listCallRevenues(orgId);
+      // Load all data in parallel to avoid sequential queries
+      const [attributions, campaigns, revenues] = await Promise.all([
+        storage.listCallAttributions(orgId),
+        storage.listMarketingCampaigns(orgId),
+        storage.listCallRevenues(orgId),
+      ]);
 
       // Build revenue lookup
       const revenueByCall = new Map<string, number>();
@@ -122,24 +127,26 @@ export function registerMarketingRoutes(app: Express): void {
         revenueByCall.set(rev.callId, rev.actualRevenue || rev.estimatedRevenue || 0);
       }
 
-      // Build campaign budget lookup
+      // Build campaign budget lookup (sum budgets per source for active campaigns)
       const budgetBySource = new Map<string, number>();
       for (const camp of campaigns) {
-        if (camp.budget) {
+        if (camp.budget && camp.isActive) {
           const current = budgetBySource.get(camp.source) || 0;
           budgetBySource.set(camp.source, current + camp.budget);
         }
       }
 
-      // Load call scores
+      // Batch-load call scores in parallel (replaces N+1 sequential loop)
+      const callIds = attributions.map(a => a.callId);
+      const analysisResults = await Promise.all(
+        callIds.map(cid => storage.getCallAnalysis(orgId, cid).catch(() => undefined))
+      );
       const callScores = new Map<string, number>();
-      for (const attr of attributions) {
-        try {
-          const analysis = await storage.getCallAnalysis(orgId, attr.callId);
-          if (analysis?.performanceScore) {
-            callScores.set(attr.callId, parseFloat(String(analysis.performanceScore)));
-          }
-        } catch { /* skip */ }
+      for (let i = 0; i < callIds.length; i++) {
+        const analysis = analysisResults[i];
+        if (analysis?.performanceScore) {
+          callScores.set(callIds[i], parseFloat(String(analysis.performanceScore)));
+        }
       }
 
       // Aggregate by source
@@ -192,7 +199,54 @@ export function registerMarketingRoutes(app: Express): void {
       });
     } catch (error) {
       logger.error({ err: error }, "Failed to compute marketing metrics");
-      res.status(500).json({ message: "Failed to compute marketing metrics" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to compute marketing metrics"));
+    }
+  });
+
+  /** GET /api/marketing/campaigns/:id/metrics — Metrics for a single campaign */
+  app.get("/api/marketing/campaigns/:id/metrics", requireAuth, validateUUIDParam(), async (req: Request, res: Response) => {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+
+    try {
+      const campaign = await storage.getMarketingCampaign(orgId, req.params.id);
+      if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+
+      const attributions = await storage.listCallAttributions(orgId, { campaignId: campaign.id });
+      const revenues = await storage.listCallRevenues(orgId);
+
+      const revenueByCall = new Map<string, number>();
+      for (const rev of revenues) {
+        revenueByCall.set(rev.callId, rev.actualRevenue || rev.estimatedRevenue || 0);
+      }
+
+      let totalRevenue = 0;
+      let newPatients = 0;
+      let conversions = 0;
+
+      for (const attr of attributions) {
+        if (attr.isNewPatient) newPatients++;
+        const rev = revenueByCall.get(attr.callId) || 0;
+        if (rev > 0) { conversions++; totalRevenue += rev; }
+      }
+
+      res.json({
+        campaign,
+        totalCalls: attributions.length,
+        newPatients,
+        conversions,
+        totalRevenue: Math.round(totalRevenue * 100) / 100,
+        conversionRate: attributions.length > 0 ? Math.round((conversions / attributions.length) * 100) : 0,
+        costPerLead: campaign.budget && attributions.length > 0
+          ? Math.round((campaign.budget / attributions.length) * 100) / 100
+          : null,
+        roi: campaign.budget && totalRevenue > 0
+          ? Math.round(((totalRevenue - campaign.budget) / campaign.budget) * 100) / 100
+          : null,
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to compute campaign metrics");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to compute campaign metrics"));
     }
   });
 

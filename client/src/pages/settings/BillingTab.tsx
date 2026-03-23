@@ -1,8 +1,5 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Shield, Check, CreditCard, TrendingUp, Zap, ArrowUpRight, ExternalLink,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -10,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { PLAN_DEFINITIONS, type PlanTier } from "@shared/schema";
+import {  RiShieldLine, RiCheckLine, RiArrowRightUpLine, RiFlashlightLine, RiBankCardLine, RiExternalLinkLine, RiSaveLine, RiHistoryLine  } from "@remixicon/react";
 
 interface SubscriptionInfo {
   subscription: {
@@ -111,7 +109,7 @@ export default function BillingTab() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-lg flex items-center gap-2">
-                <CreditCard className="w-5 h-5 text-primary" />
+                <RiBankCardLine className="w-5 h-5 text-primary" />
                 Current Plan: {currentPlan.name}
               </CardTitle>
               <CardDescription>{currentPlan.description}</CardDescription>
@@ -141,25 +139,25 @@ export default function BillingTab() {
               label="Calls"
               used={usage.callsThisMonth}
               limit={currentPlan.limits.callsPerMonth}
-              icon={<TrendingUp className="w-4 h-4" />}
+              icon={<RiArrowRightUpLine className="w-4 h-4" />}
             />
             <UsageMeter
               label="AI Analyses"
               used={usage.aiAnalysesThisMonth}
               limit={currentPlan.limits.aiAnalysesPerMonth}
-              icon={<Zap className="w-4 h-4" />}
+              icon={<RiFlashlightLine className="w-4 h-4" />}
             />
             <UsageMeter
               label="API Calls"
               used={usage.apiCallsThisMonth}
               limit={currentPlan.limits.apiCallsPerMonth}
-              icon={<ArrowUpRight className="w-4 h-4" />}
+              icon={<RiArrowRightUpLine className="w-4 h-4" />}
             />
             <UsageMeter
               label="Storage (MB)"
               used={Math.round(usage.storageMbUsed)}
               limit={currentPlan.limits.storageMb}
-              icon={<Shield className="w-4 h-4" />}
+              icon={<RiShieldLine className="w-4 h-4" />}
             />
           </div>
 
@@ -167,7 +165,7 @@ export default function BillingTab() {
           <div className="flex gap-2">
             {subInfo?.subscription?.stripeCustomerId && (
               <Button variant="outline" size="sm" onClick={() => portalMutation.mutate()} disabled={portalMutation.isPending}>
-                <ExternalLink className="w-4 h-4 mr-2" />
+                <RiExternalLinkLine className="w-4 h-4 mr-2" />
                 {portalMutation.isPending ? "Opening..." : "Manage in Stripe"}
               </Button>
             )}
@@ -296,7 +294,7 @@ export default function BillingTab() {
         <Card>
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-primary" />
+              <RiArrowRightUpLine className="w-5 h-5 text-primary" />
               Usage History
             </CardTitle>
           </CardHeader>
@@ -365,7 +363,7 @@ function UsageMeter({ label, used, limit, icon }: { label: string; used: number;
 function PlanFeature({ label }: { label: string }) {
   return (
     <li className="flex items-center gap-2 text-foreground">
-      <Check className="w-4 h-4 text-green-600 shrink-0" />
+      <RiCheckLine className="w-4 h-4 text-green-600 shrink-0" />
       {label}
     </li>
   );

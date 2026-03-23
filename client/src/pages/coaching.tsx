@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ClipboardCheck, Plus, User, Calendar, CheckCircle2, Clock, X, Eye, ChevronDown, ChevronUp, FileDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { HelpTip } from "@/components/ui/help-tip";
@@ -13,6 +12,7 @@ import { useBeforeUnload } from "@/hooks/use-before-unload";
 import { apiRequest } from "@/lib/queryClient";
 import type { Employee } from "@shared/schema";
 import { COACHING_CATEGORIES } from "@shared/schema";
+import {  RiClipboardLine, RiAddLine, RiUserLine, RiCalendarLine, RiCheckboxCircleLine, RiTimeLine, RiCloseLine, RiEyeLine, RiArrowDownSLine, RiArrowUpSLine, RiFileDownloadLine  } from "@remixicon/react";
 
 interface CoachingSession {
   id: string;
@@ -90,7 +90,7 @@ export default function CoachingPage() {
       <header className="bg-card border-b border-border px-6 py-4 flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <ClipboardCheck className="w-6 h-6" /> Coaching & Action Plans
+            <RiClipboardLine className="w-6 h-6" /> Coaching & Action Plans
             <HelpTip text="Create coaching sessions from flagged calls or manually. Each session tracks action items, due dates, and completion status. Sessions auto-generate from AI analysis when calls score below threshold." />
           </h2>
           <p className="text-muted-foreground">Assign coaching sessions from flagged calls and track agent improvement.</p>
@@ -106,11 +106,11 @@ export default function CoachingPage() {
               link.click();
             }}
           >
-            <FileDown className="w-4 h-4 mr-1.5" />
+            <RiFileDownloadLine className="w-4 h-4 mr-1.5" />
             Export CSV
           </Button>
           <Button onClick={() => setShowForm(!showForm)}>
-            <Plus className="w-4 h-4 mr-2" />
+            <RiAddLine className="w-4 h-4 mr-2" />
             New Session
           </Button>
         </div>
@@ -161,7 +161,7 @@ export default function CoachingPage() {
 
         {sessionsError && (
           <div className="text-center py-12 text-destructive">
-            <X className="w-8 h-8 mx-auto mb-2" />
+            <RiCloseLine className="w-8 h-8 mx-auto mb-2" />
             <p className="font-semibold">Failed to load coaching sessions</p>
             <p className="text-sm text-muted-foreground">{sessionsError.message}</p>
           </div>
@@ -169,11 +169,11 @@ export default function CoachingPage() {
 
         {!isLoading && filtered.length === 0 && (
           <div className="text-center py-16">
-            <ClipboardCheck className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
+            <RiClipboardLine className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
             <h4 className="font-semibold text-foreground mb-1">No coaching sessions</h4>
             <p className="text-sm text-muted-foreground mb-4">Create coaching sessions from flagged calls or add them manually.</p>
             <Button onClick={() => setShowForm(true)}>
-              <Plus className="w-4 h-4 mr-2" /> Create First Session
+              <RiAddLine className="w-4 h-4 mr-2" /> Create First Session
             </Button>
           </div>
         )}
@@ -200,10 +200,10 @@ export default function CoachingPage() {
                     {isOverdue && <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300 text-xs">Overdue</Badge>}
                   </div>
                   <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1"><User className="w-3 h-3" /> {session.employeeName || "Unknown"}</span>
-                    <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {session.createdAt ? new Date(session.createdAt).toLocaleDateString() : "—"}</span>
+                    <span className="flex items-center gap-1"><RiUserLine className="w-3 h-3" /> {session.employeeName || "Unknown"}</span>
+                    <span className="flex items-center gap-1"><RiCalendarLine className="w-3 h-3" /> {session.createdAt ? new Date(session.createdAt).toLocaleDateString() : "—"}</span>
                     {session.dueDate && <span>Due: {new Date(session.dueDate).toLocaleDateString()}</span>}
-                    {totalTasks > 0 && <span className="flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> {completedTasks}/{totalTasks} tasks</span>}
+                    {totalTasks > 0 && <span className="flex items-center gap-1"><RiCheckboxCircleLine className="w-3 h-3" /> {completedTasks}/{totalTasks} tasks</span>}
                     <span>Assigned by: {session.assignedBy}</span>
                   </div>
                 </div>
@@ -214,7 +214,7 @@ export default function CoachingPage() {
                     </div>
                   </div>
                 )}
-                {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+                {isExpanded ? <RiArrowUpSLine className="w-4 h-4 text-muted-foreground" /> : <RiArrowDownSLine className="w-4 h-4 text-muted-foreground" />}
               </div>
 
               {isExpanded && (
@@ -229,7 +229,7 @@ export default function CoachingPage() {
                   {session.callId && (
                     <div className="flex flex-wrap gap-2">
                       <Link href={`/transcripts/${session.callId}`} className="text-xs text-primary hover:underline inline-flex items-center gap-1 px-2 py-1 rounded bg-primary/5 border border-primary/20">
-                        <Eye className="w-3 h-3" /> View Referenced Call
+                        <RiEyeLine className="w-3 h-3" /> View Referenced Call
                       </Link>
                     </div>
                   )}
@@ -260,17 +260,17 @@ export default function CoachingPage() {
                   <div className="flex gap-2 pt-2">
                     {session.status === "pending" && (
                       <Button size="sm" variant="outline" onClick={() => updateMutation.mutate({ id: session.id, updates: { status: "in_progress" } })}>
-                        <Clock className="w-3 h-3 mr-1" /> Start
+                        <RiTimeLine className="w-3 h-3 mr-1" /> Start
                       </Button>
                     )}
                     {(session.status === "pending" || session.status === "in_progress") && (
                       <Button size="sm" onClick={() => updateMutation.mutate({ id: session.id, updates: { status: "completed" } })}>
-                        <CheckCircle2 className="w-3 h-3 mr-1" /> Complete
+                        <RiCheckboxCircleLine className="w-3 h-3 mr-1" /> Complete
                       </Button>
                     )}
                     {session.status !== "dismissed" && session.status !== "completed" && (
                       <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => updateMutation.mutate({ id: session.id, updates: { status: "dismissed" } })}>
-                        <X className="w-3 h-3 mr-1" /> Dismiss
+                        <RiCloseLine className="w-3 h-3 mr-1" /> Dismiss
                       </Button>
                     )}
                   </div>
@@ -388,13 +388,13 @@ function CoachingForm({ employees, onClose, prefillEmployeeId, prefillCallId, pr
               />
               {callIds.length > 1 && (
                 <Button size="sm" variant="ghost" onClick={() => setCallIds(callIds.filter((_, j) => j !== i))}>
-                  <X className="w-3 h-3" />
+                  <RiCloseLine className="w-3 h-3" />
                 </Button>
               )}
             </div>
           ))}
           <Button size="sm" variant="outline" onClick={() => setCallIds([...callIds, ""])}>
-            <Plus className="w-3 h-3 mr-1" /> Add Call Reference
+            <RiAddLine className="w-3 h-3 mr-1" /> Add Call Reference
           </Button>
         </div>
       </div>
@@ -424,13 +424,13 @@ function CoachingForm({ employees, onClose, prefillEmployeeId, prefillCallId, pr
               />
               {tasks.length > 1 && (
                 <Button size="sm" variant="ghost" onClick={() => setTasks(tasks.filter((_, j) => j !== i))}>
-                  <X className="w-3 h-3" />
+                  <RiCloseLine className="w-3 h-3" />
                 </Button>
               )}
             </div>
           ))}
           <Button size="sm" variant="outline" onClick={() => setTasks([...tasks, ""])}>
-            <Plus className="w-3 h-3 mr-1" /> Add Task
+            <RiAddLine className="w-3 h-3 mr-1" /> Add Task
           </Button>
         </div>
       </div>

@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Mic, Square, RotateCcw, Check, AlertCircle } from "lucide-react";
+import {  RiMicLine, RiCheckboxBlankLine, RiArrowGoBackLine, RiCheckLine, RiErrorWarningLine, RiTimerLine  } from "@remixicon/react";
 
 interface AudioRecorderProps {
   onRecordingComplete: (file: File) => void;
@@ -37,7 +37,7 @@ export default function AudioRecorder({ onRecordingComplete }: AudioRecorderProp
   const audioCtxRef = useRef<AudioContext | null>(null);
   const animFrameRef = useRef<number | null>(null);
 
-  // Check browser compatibility
+  // RiCheckLine browser compatibility
   const isSupported =
     typeof navigator !== "undefined" &&
     typeof navigator.mediaDevices !== "undefined" &&
@@ -233,7 +233,7 @@ export default function AudioRecorder({ onRecordingComplete }: AudioRecorderProp
       <Card>
         <CardContent className="p-6">
           <div className="flex items-center gap-3 text-amber-600 dark:text-amber-400">
-            <AlertCircle className="w-5 h-5 shrink-0" />
+            <RiErrorWarningLine className="w-5 h-5 shrink-0" />
             <div>
               <p className="font-medium">Browser Not Supported</p>
               <p className="text-sm text-muted-foreground mt-1">
@@ -253,7 +253,7 @@ export default function AudioRecorder({ onRecordingComplete }: AudioRecorderProp
         {/* Error display */}
         {error && (
           <div className="flex items-start gap-3 p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900">
-            <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+            <RiErrorWarningLine className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
             <div>
               <p className="text-sm text-red-800 dark:text-red-300">{error}</p>
             </div>
@@ -264,7 +264,7 @@ export default function AudioRecorder({ onRecordingComplete }: AudioRecorderProp
         {state === "idle" && (
           <div className="flex flex-col items-center py-8 space-y-4">
             <div className="w-20 h-20 rounded-full bg-red-100 dark:bg-red-950/40 flex items-center justify-center">
-              <Mic className="w-8 h-8 text-red-600 dark:text-red-400" />
+              <RiMicLine className="w-8 h-8 text-red-600 dark:text-red-400" />
             </div>
             <div className="text-center">
               <p className="text-sm text-muted-foreground">
@@ -275,7 +275,7 @@ export default function AudioRecorder({ onRecordingComplete }: AudioRecorderProp
               </p>
             </div>
             <Button onClick={startRecording} size="lg" className="gap-2">
-              <Mic className="w-4 h-4" />
+              <RiMicLine className="w-4 h-4" />
               Start Recording
             </Button>
           </div>
@@ -316,7 +316,7 @@ export default function AudioRecorder({ onRecordingComplete }: AudioRecorderProp
               size="lg"
               className="gap-2"
             >
-              <Square className="w-4 h-4" />
+              <RiCheckboxBlankLine className="w-4 h-4" />
               Stop Recording
             </Button>
           </div>
@@ -342,11 +342,11 @@ export default function AudioRecorder({ onRecordingComplete }: AudioRecorderProp
             {/* Actions */}
             <div className="flex items-center gap-3">
               <Button onClick={reRecord} variant="outline" className="gap-2">
-                <RotateCcw className="w-4 h-4" />
+                <RiArrowGoBackLine className="w-4 h-4" />
                 Re-record
               </Button>
               <Button onClick={useRecording} className="gap-2">
-                <Check className="w-4 h-4" />
+                <RiCheckLine className="w-4 h-4" />
                 Use Recording
               </Button>
             </div>

@@ -26,9 +26,10 @@ export async function initDatabase(): Promise<Database | null> {
   }
 
   try {
+    const maxConnections = parseInt(process.env.DB_POOL_MAX || "50", 10);
     pool = new pg.Pool({
       connectionString: databaseUrl,
-      max: 20,
+      max: Math.min(Math.max(maxConnections, 5), 200),
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000,
       // HIPAA: Force SSL in production
@@ -40,7 +41,7 @@ export async function initDatabase(): Promise<Database | null> {
     client.release();
 
     db = drizzle(pool, { schema });
-    logger.info("PostgreSQL database connected");
+    logger.info({ poolMax: pool.options.max }, "PostgreSQL database connected");
     return db;
   } catch (error) {
     logger.error({ err: error }, "Failed to connect to PostgreSQL");

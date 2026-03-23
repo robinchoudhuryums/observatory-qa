@@ -50,12 +50,23 @@ export interface DocumentIndexingJob {
   extractedText: string;
 }
 
+// Dead letter queue job type — captures permanently failed jobs for admin review
+export interface DeadLetterJob {
+  originalQueue: string;
+  originalJobId: string;
+  orgId: string;
+  failedAt: string;
+  error: string;
+  data: Record<string, unknown>;
+}
+
 // Queue instances
 let audioQueue: Queue<AudioProcessingJob> | null = null;
 let reanalysisQueue: Queue<BulkReanalysisJob> | null = null;
 let retentionQueue: Queue<DataRetentionJob> | null = null;
 let usageQueue: Queue<UsageMeteringJob> | null = null;
 let indexingQueue: Queue<DocumentIndexingJob> | null = null;
+let deadLetterQueue: Queue<DeadLetterJob> | null = null;
 
 // Connection config
 let connection: ConnectionOptions | null = null;
@@ -85,8 +96,8 @@ export function initQueues(): boolean {
     const defaultOpts = {
       connection,
       defaultJobOptions: {
-        removeOnComplete: { count: 1000 },
-        removeOnFail: { count: 5000 },
+        removeOnComplete: { count: 500 },    // Tighter: keep 500 (was 1000)
+        removeOnFail: { count: 1000 },       // Tighter: keep 1000 (was 5000)
       },
     };
 
@@ -134,7 +145,16 @@ export function initQueues(): boolean {
       },
     });
 
-    logger.info("BullMQ queues initialized");
+    // Dead letter queue — captures permanently failed jobs for admin review/retry
+    deadLetterQueue = new Queue<DeadLetterJob>("dead-letter", {
+      connection,
+      defaultJobOptions: {
+        removeOnComplete: { age: 7 * 24 * 3600 },  // Keep completed DLQ jobs for 7 days
+        removeOnFail: false,                          // Never auto-remove failed DLQ entries
+      },
+    });
+
+    logger.info("BullMQ queues initialized (including dead letter queue)");
     return true;
   } catch (error) {
     logger.error({ err: error }, "Failed to initialize BullMQ queues");
@@ -162,6 +182,37 @@ export function getUsageQueue(): Queue<UsageMeteringJob> | null {
 
 export function getIndexingQueue(): Queue<DocumentIndexingJob> | null {
   return indexingQueue;
+}
+
+export function getDeadLetterQueue(): Queue<DeadLetterJob> | null {
+  return deadLetterQueue;
+}
+
+/**
+ * Move a permanently failed job to the dead letter queue for admin review.
+ * Call this from worker "failed" event handlers after all retries are exhausted.
+ */
+export async function moveToDeadLetter(
+  originalQueue: string,
+  jobId: string,
+  orgId: string,
+  error: string,
+  data: Record<string, unknown>,
+): Promise<void> {
+  if (!deadLetterQueue) return;
+  try {
+    await deadLetterQueue.add("dead-letter", {
+      originalQueue,
+      originalJobId: jobId,
+      orgId,
+      failedAt: new Date().toISOString(),
+      error: error.substring(0, 1000), // Truncate long error messages
+      data,
+    });
+    logger.warn({ originalQueue, jobId, orgId }, "Job moved to dead letter queue");
+  } catch (err) {
+    logger.error({ err, originalQueue, jobId }, "Failed to enqueue to dead letter queue");
+  }
 }
 
 /**
@@ -250,12 +301,13 @@ export async function enqueueReanalysis(job: BulkReanalysisJob): Promise<boolean
  * Close all queues on shutdown.
  */
 export async function closeQueues(): Promise<void> {
-  const queues = [audioQueue, reanalysisQueue, retentionQueue, usageQueue, indexingQueue];
+  const queues = [audioQueue, reanalysisQueue, retentionQueue, usageQueue, indexingQueue, deadLetterQueue];
   await Promise.all(queues.filter(Boolean).map((q) => q!.close()));
   audioQueue = null;
   reanalysisQueue = null;
   retentionQueue = null;
   usageQueue = null;
   indexingQueue = null;
+  deadLetterQueue = null;
   logger.info("BullMQ queues closed");
 }

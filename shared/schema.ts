@@ -746,7 +746,7 @@ export const insertABTestSchema = z.object({
   callCategory: z.string().optional(),
   baselineModel: z.string(),
   testModel: z.string(),
-  status: z.enum(["processing", "analyzing", "completed", "failed"]).default("processing"),
+  status: z.enum(["processing", "analyzing", "completed", "partial", "failed"]).default("processing"),
   transcriptText: z.string().optional(),
   baselineAnalysis: z.record(z.unknown()).optional(),
   testAnalysis: z.record(z.unknown()).optional(),

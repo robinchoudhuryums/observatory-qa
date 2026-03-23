@@ -125,6 +125,8 @@ export const calls = pgTable("calls", {
   index("calls_org_file_hash_idx").on(t.orgId, t.fileHash),
   index("calls_channel_idx").on(t.orgId, t.channel),
   index("calls_email_thread_idx").on(t.orgId, t.emailThreadId),
+  index("calls_org_status_uploaded_idx").on(t.orgId, t.status, t.uploadedAt),
+  index("calls_org_employee_status_idx").on(t.orgId, t.employeeId, t.status),
 ]);
 
 // --- TRANSCRIPTS ---
@@ -153,6 +155,7 @@ export const sentimentAnalyses = pgTable("sentiment_analyses", {
 }, (t) => [
   uniqueIndex("sentiments_call_id_idx").on(t.callId),
   index("sentiments_org_id_idx").on(t.orgId),
+  index("sentiments_org_sentiment_idx").on(t.orgId, t.overallSentiment),
 ]);
 
 // --- CALL ANALYSES ---

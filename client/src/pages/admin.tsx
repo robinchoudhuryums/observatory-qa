@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Shield, UserPlus, CheckCircle2, XCircle, Clock, Eye, Settings, ChevronRight, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { HelpTip } from "@/components/ui/help-tip";
@@ -10,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { USER_ROLES } from "@shared/schema";
 import type { AccessRequest } from "@shared/schema";
+import {  RiShieldLine, RiUserAddLine, RiCheckboxCircleLine, RiCloseCircleLine, RiTimeLine, RiEyeLine, RiSettings3Line, RiArrowRightSLine, RiTeamLine, RiPlayLine, RiSearchLine, RiUploadLine, RiHistoryLine  } from "@remixicon/react";
 
 type TabView = "requests" | "roles";
 
@@ -45,19 +45,19 @@ export default function AdminPage() {
   const reviewedRequests = requests?.filter(r => r.status !== "pending") || [];
 
   const roleIcons: Record<string, React.ReactNode> = {
-    viewer: <Eye className="w-4 h-4 text-blue-500" />,
-    manager: <Settings className="w-4 h-4 text-amber-500" />,
-    admin: <Shield className="w-4 h-4 text-purple-500" />,
+    viewer: <RiEyeLine className="w-4 h-4 text-blue-500" />,
+    manager: <RiSettings3Line className="w-4 h-4 text-amber-500" />,
+    admin: <RiShieldLine className="w-4 h-4 text-purple-500" />,
   };
 
   const statusBadge = (status: string) => {
     switch (status) {
       case "pending":
-        return <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"><Clock className="w-3 h-3 mr-1" />Pending</Badge>;
+        return <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"><RiTimeLine className="w-3 h-3 mr-1" />Pending</Badge>;
       case "approved":
-        return <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"><CheckCircle2 className="w-3 h-3 mr-1" />Approved</Badge>;
+        return <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"><RiCheckboxCircleLine className="w-3 h-3 mr-1" />Approved</Badge>;
       case "denied":
-        return <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"><XCircle className="w-3 h-3 mr-1" />Denied</Badge>;
+        return <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"><RiCloseCircleLine className="w-3 h-3 mr-1" />Denied</Badge>;
       default:
         return <Badge variant="secondary">{status}</Badge>;
     }
@@ -105,7 +105,7 @@ export default function AdminPage() {
             size="sm"
             onClick={() => setTab("requests")}
           >
-            <UserPlus className="w-4 h-4 mr-2" />
+            <RiUserAddLine className="w-4 h-4 mr-2" />
             Access Requests
             {pendingRequests.length > 0 && (
               <span className="ml-2 bg-yellow-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
@@ -118,7 +118,7 @@ export default function AdminPage() {
             size="sm"
             onClick={() => setTab("roles")}
           >
-            <Shield className="w-4 h-4 mr-2" />
+            <RiShieldLine className="w-4 h-4 mr-2" />
             Role Definitions
           </Button>
         </div>
@@ -130,7 +130,7 @@ export default function AdminPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
-                  <Clock className="w-5 h-5 text-yellow-500" />
+                  <RiTimeLine className="w-5 h-5 text-yellow-500" />
                   Pending Requests ({pendingRequests.length})
                 </CardTitle>
                 <CardDescription>
@@ -140,7 +140,7 @@ export default function AdminPage() {
               <CardContent>
                 {requestsError ? (
                   <div className="text-center py-12 text-destructive">
-                    <Shield className="w-8 h-8 mx-auto mb-2" />
+                    <RiShieldLine className="w-8 h-8 mx-auto mb-2" />
                     <p className="font-semibold">Failed to load access requests</p>
                     <p className="text-sm text-muted-foreground">{requestsError.message}</p>
                   </div>
@@ -161,7 +161,7 @@ export default function AdminPage() {
                 ) : pendingRequests.length === 0 ? (
                   <div className="text-center py-12">
                     <div className="mx-auto w-14 h-14 bg-gradient-to-br from-green-100 to-green-50 dark:from-green-900/30 dark:to-green-900/10 rounded-full flex items-center justify-center mb-3">
-                      <CheckCircle2 className="w-7 h-7 text-green-500" />
+                      <RiCheckboxCircleLine className="w-7 h-7 text-green-500" />
                     </div>
                     <p className="text-sm text-muted-foreground">No pending access requests</p>
                   </div>
@@ -170,7 +170,7 @@ export default function AdminPage() {
                     {pendingRequests.map((req) => (
                       <div key={req.id} className="flex items-center gap-4 p-4 rounded-lg border border-border bg-muted/30">
                         <div className="w-10 h-10 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full flex items-center justify-center shrink-0">
-                          <Users className="w-5 h-5 text-primary" />
+                          <RiTeamLine className="w-5 h-5 text-primary" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-0.5">
@@ -191,7 +191,7 @@ export default function AdminPage() {
                             onClick={() => reviewMutation.mutate({ id: req.id, status: "approved" })}
                             disabled={reviewMutation.isPending}
                           >
-                            <CheckCircle2 className="w-4 h-4 mr-1" />
+                            <RiCheckboxCircleLine className="w-4 h-4 mr-1" />
                             Approve
                           </Button>
                           <Button
@@ -201,7 +201,7 @@ export default function AdminPage() {
                             onClick={() => reviewMutation.mutate({ id: req.id, status: "denied" })}
                             disabled={reviewMutation.isPending}
                           >
-                            <XCircle className="w-4 h-4 mr-1" />
+                            <RiCloseCircleLine className="w-4 h-4 mr-1" />
                             Deny
                           </Button>
                         </div>
@@ -283,40 +283,40 @@ export default function AdminPage() {
                       {/* Permission details per role */}
                       {role.value === "viewer" && (
                         <div className="grid grid-cols-2 gap-2 text-xs">
-                          <div className="flex items-center gap-1.5 text-green-600"><CheckCircle2 className="w-3 h-3" /> View dashboard & metrics</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><CheckCircle2 className="w-3 h-3" /> View call transcripts</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><CheckCircle2 className="w-3 h-3" /> View reports & charts</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><CheckCircle2 className="w-3 h-3" /> View employee profiles</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><CheckCircle2 className="w-3 h-3" /> Search calls</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><CheckCircle2 className="w-3 h-3" /> Play audio recordings</div>
-                          <div className="flex items-center gap-1.5 text-red-400"><XCircle className="w-3 h-3" /> Upload calls</div>
-                          <div className="flex items-center gap-1.5 text-red-400"><XCircle className="w-3 h-3" /> Edit analysis</div>
-                          <div className="flex items-center gap-1.5 text-red-400"><XCircle className="w-3 h-3" /> Delete calls</div>
-                          <div className="flex items-center gap-1.5 text-red-400"><XCircle className="w-3 h-3" /> Manage employees</div>
+                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> View dashboard & metrics</div>
+                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> View call transcripts</div>
+                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> View reports & charts</div>
+                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> View employee profiles</div>
+                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> Search calls</div>
+                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> Play audio recordings</div>
+                          <div className="flex items-center gap-1.5 text-red-400"><RiCloseCircleLine className="w-3 h-3" /> Upload calls</div>
+                          <div className="flex items-center gap-1.5 text-red-400"><RiCloseCircleLine className="w-3 h-3" /> Edit analysis</div>
+                          <div className="flex items-center gap-1.5 text-red-400"><RiCloseCircleLine className="w-3 h-3" /> Delete calls</div>
+                          <div className="flex items-center gap-1.5 text-red-400"><RiCloseCircleLine className="w-3 h-3" /> Manage employees</div>
                         </div>
                       )}
                       {role.value === "manager" && (
                         <div className="grid grid-cols-2 gap-2 text-xs">
-                          <div className="flex items-center gap-1.5 text-green-600"><CheckCircle2 className="w-3 h-3" /> All Viewer permissions</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><CheckCircle2 className="w-3 h-3" /> Upload call recordings</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><CheckCircle2 className="w-3 h-3" /> Assign calls to employees</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><CheckCircle2 className="w-3 h-3" /> Edit call analysis</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><CheckCircle2 className="w-3 h-3" /> Manage employees</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><CheckCircle2 className="w-3 h-3" /> Export reports</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><CheckCircle2 className="w-3 h-3" /> Delete calls</div>
-                          <div className="flex items-center gap-1.5 text-red-400"><XCircle className="w-3 h-3" /> Manage users</div>
-                          <div className="flex items-center gap-1.5 text-red-400"><XCircle className="w-3 h-3" /> Approve access requests</div>
-                          <div className="flex items-center gap-1.5 text-red-400"><XCircle className="w-3 h-3" /> Bulk import</div>
+                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> All Viewer permissions</div>
+                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> Upload call recordings</div>
+                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> Assign calls to employees</div>
+                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> Edit call analysis</div>
+                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> Manage employees</div>
+                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> Export reports</div>
+                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> Delete calls</div>
+                          <div className="flex items-center gap-1.5 text-red-400"><RiCloseCircleLine className="w-3 h-3" /> Manage users</div>
+                          <div className="flex items-center gap-1.5 text-red-400"><RiCloseCircleLine className="w-3 h-3" /> Approve access requests</div>
+                          <div className="flex items-center gap-1.5 text-red-400"><RiCloseCircleLine className="w-3 h-3" /> Bulk import</div>
                         </div>
                       )}
                       {role.value === "admin" && (
                         <div className="grid grid-cols-2 gap-2 text-xs">
-                          <div className="flex items-center gap-1.5 text-green-600"><CheckCircle2 className="w-3 h-3" /> All Manager permissions</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><CheckCircle2 className="w-3 h-3" /> Manage users & roles</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><CheckCircle2 className="w-3 h-3" /> Approve/deny access requests</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><CheckCircle2 className="w-3 h-3" /> Bulk CSV import</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><CheckCircle2 className="w-3 h-3" /> System configuration</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><CheckCircle2 className="w-3 h-3" /> Full API access</div>
+                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> All Manager permissions</div>
+                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> Manage users & roles</div>
+                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> Approve/deny access requests</div>
+                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> Bulk CSV import</div>
+                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> System configuration</div>
+                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> Full API access</div>
                         </div>
                       )}
                     </div>

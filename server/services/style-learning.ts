@@ -305,10 +305,25 @@ export function analyzeProviderStyle(
   }
   let preferredSpecialty: ScoredPreference<string> | null = null;
   if (specialtyCounts.size > 0) {
-    const sorted = Array.from(specialtyCounts.entries()).sort((a, b) => b[1] - a[1]);
+    const sorted = Array.from(specialtyCounts.entries()).sort((a, b) => {
+      // Primary sort: by weighted count (descending)
+      if (Math.abs(b[1] - a[1]) > 0.01) return b[1] - a[1];
+      // Tiebreaker: prefer the specialty of the most recent note (deterministic)
+      for (let i = 0; i < notes.length; i++) {
+        const sp = notes[i].specialty?.toLowerCase().trim();
+        if (sp === a[0]) return -1;
+        if (sp === b[0]) return 1;
+      }
+      // Final tiebreaker: alphabetical for absolute determinism
+      return a[0].localeCompare(b[0]);
+    });
+    const topScore = sorted[0][1];
+    const runnerUp = sorted.length > 1 ? sorted[1][1] : 0;
+    // Lower confidence when there's a near-tie (within 10% of each other)
+    const tieAdjustment = runnerUp > 0 && (topScore - runnerUp) / topScore < 0.1 ? 0.5 : 1;
     preferredSpecialty = {
       value: sorted[0][0],
-      confidence: Math.min(1, sorted[0][1] / totalWeight),
+      confidence: Math.min(1, (sorted[0][1] / totalWeight) * tieAdjustment),
     };
   }
 

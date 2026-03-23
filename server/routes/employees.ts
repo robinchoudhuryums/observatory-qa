@@ -8,9 +8,10 @@ import { insertEmployeeSchema } from "@shared/schema";
 import { z } from "zod";
 import { logger } from "../services/logger";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
+import { parsePagination, paginateArray } from "./helpers";
 
 export function registerEmployeeRoutes(app: Express): void {
-  // Get all employees
+  // Get all employees (paginated)
   app.get("/api/employees", requireAuth, injectOrgContext, async (req, res) => {
     try {
       const employees = await storage.getAllEmployees(req.orgId!);
@@ -77,10 +78,10 @@ export function registerEmployeeRoutes(app: Express): void {
       const emailDomain = org?.settings?.emailDomain || "company.com";
 
       const results: Array<{ name: string; action: string }> = [];
-      const rows: any[] = [];
+      let rowCount = 0;
       const MAX_CSV_ROWS = 10000;
 
-      // Stream CSV — handle ENOENT via error event (avoids TOCTOU race with existsSync)
+      // Stream CSV — process rows inline instead of buffering all in memory
       await new Promise<void>((resolve, reject) => {
         const stream = fs.createReadStream(csvFilePath)
           .on("error", (err: NodeJS.ErrnoException) => {
@@ -92,15 +93,50 @@ export function registerEmployeeRoutes(app: Express): void {
           })
           .pipe(csv())
           .on("data", (row: any) => {
-            if (rows.length >= MAX_CSV_ROWS) {
+            rowCount++;
+            if (rowCount > MAX_CSV_ROWS) {
               stream.destroy();
               reject(new Error(`CSV exceeds maximum of ${MAX_CSV_ROWS} rows`));
               return;
             }
-            rows.push(row);
+            // Pause the stream to apply backpressure while processing each row
+            stream.pause();
+            processRow(row).then(() => stream.resume()).catch(() => stream.resume());
           })
           .on("end", resolve)
           .on("error", reject);
+
+        async function processRow(row: any) {
+          const name = (row["Agent Name"] || "").trim();
+          const department = (row["Department"] || "").trim();
+          const extension = (row["Extension"] || "").trim();
+          const status = (row["Status"] || "Active").trim();
+
+          if (!name) return;
+
+          const isValidExtension = extension && extension !== "NA" && extension !== "N/A" && extension !== "a"
+            && /^[a-zA-Z0-9._-]+$/.test(extension);
+          const email = isValidExtension
+            ? `${extension}@${emailDomain}`
+            : `${name.toLowerCase().replace(/\s+/g, ".")}@${emailDomain}`;
+
+          const nameParts = name.split(/\s+/);
+          const initials = nameParts.length >= 2
+            ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase()
+            : name.slice(0, 2).toUpperCase();
+
+          try {
+            const existing = await storage.getEmployeeByEmail(req.orgId!, email);
+            if (existing) {
+              results.push({ name, action: "skipped (exists)" });
+            } else {
+              await storage.createEmployee(req.orgId!, { orgId: req.orgId!, name, email, role: department, initials, status });
+              results.push({ name, action: "created" });
+            }
+          } catch (err) {
+            results.push({ name, action: `error: ${(err as Error).message}` });
+          }
+        }
       }).catch((err: Error) => {
         if (err.message === "FILE_NOT_FOUND") {
           res.status(404).json(errorResponse(ERROR_CODES.EMP_IMPORT_FAILED, "employees.csv not found on server"));
@@ -109,38 +145,6 @@ export function registerEmployeeRoutes(app: Express): void {
         throw err;
       });
       if (res.headersSent) return;
-
-      for (const row of rows) {
-        const name = (row["Agent Name"] || "").trim();
-        const department = (row["Department"] || "").trim();
-        const extension = (row["Extension"] || "").trim();
-        const status = (row["Status"] || "Active").trim();
-
-        if (!name) continue;
-
-        const isValidExtension = extension && extension !== "NA" && extension !== "N/A" && extension !== "a"
-          && /^[a-zA-Z0-9._-]+$/.test(extension);
-        const email = isValidExtension
-          ? `${extension}@${emailDomain}`
-          : `${name.toLowerCase().replace(/\s+/g, ".")}@${emailDomain}`;
-
-        const nameParts = name.split(/\s+/);
-        const initials = nameParts.length >= 2
-          ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase()
-          : name.slice(0, 2).toUpperCase();
-
-        try {
-          const existing = await storage.getEmployeeByEmail(req.orgId!, email);
-          if (existing) {
-            results.push({ name, action: "skipped (exists)" });
-          } else {
-            await storage.createEmployee(req.orgId!, { orgId: req.orgId!, name, email, role: department, initials, status });
-            results.push({ name, action: "created" });
-          }
-        } catch (err) {
-          results.push({ name, action: `error: ${(err as Error).message}` });
-        }
-      }
 
       const created = results.filter(r => r.action === "created").length;
       const skipped = results.filter(r => r.action.startsWith("skipped")).length;

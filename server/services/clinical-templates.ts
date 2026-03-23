@@ -457,6 +457,48 @@ export const CLINICAL_NOTE_TEMPLATES: ClinicalNoteTemplate[] = [
     },
     tags: ["veterinary", "surgery", "procedure", "anesthesia"],
   },
+
+  // ==================== OB/GYN ====================
+  {
+    id: "prenatal-visit",
+    name: "Prenatal Visit",
+    specialty: "ob_gyn",
+    format: "soap",
+    category: "obstetric",
+    description: "Routine prenatal visit with gestational assessment, fetal monitoring, and maternal screening.",
+    sections: {
+      subjective: "{{gravida_para}} at {{gestational_age}} weeks presents for routine prenatal visit. Fetal movement: {{fetal_movement}}. Contractions: {{contractions}}. Vaginal bleeding/discharge: {{bleeding_discharge}}. Headache/visual changes: {{neuro_symptoms}}. Edema: {{edema_report}}. Current complaints: {{complaints}}. Medication compliance: {{medication_adherence}}.",
+      objective: "Vitals: BP {{bp}}, HR {{hr}}, Weight {{weight}} (gain: {{weight_change}}). Fundal height: {{fundal_height}} cm. Fetal heart tones: {{fhr}} bpm via {{doppler_or_fetoscope}}. Fetal presentation: {{presentation}}. Cervix (if checked): {{cervical_exam}}. Edema: {{edema_exam}}. Urine dip: Protein {{urine_protein}}, Glucose {{urine_glucose}}. Labs reviewed: {{labs_review}}.",
+      assessment: "{{gravida_para}} at {{gestational_age}} weeks. {{pregnancy_status}} (uncomplicated / high-risk: {{risk_factors}}). {{additional_diagnoses}}.",
+      plan: "1. Labs/screening: {{lab_orders}}\n2. Ultrasound: {{ultrasound_plan}}\n3. Medications: {{medications}}\n4. Patient education: {{education}} (nutrition, warning signs)\n5. Next visit: {{next_visit}} ({{visit_frequency}})\n6. Delivery planning: {{delivery_plan}}",
+    },
+    defaultCodes: [
+      { code: "99213", description: "Prenatal visit, established, low complexity" },
+      { code: "99214", description: "Prenatal visit, established, moderate complexity" },
+      { code: "76815", description: "Limited OB ultrasound" },
+    ],
+    tags: ["ob-gyn", "prenatal", "obstetric", "pregnancy", "maternal"],
+  },
+  {
+    id: "gyn-annual-exam",
+    name: "Gynecology Annual Exam",
+    specialty: "ob_gyn",
+    format: "soap",
+    category: "preventive",
+    description: "Annual gynecologic exam with screening, breast exam, and contraceptive counseling.",
+    sections: {
+      subjective: "Patient presents for annual gynecologic exam. LMP: {{lmp}}. Menstrual history: {{menstrual_history}} (regularity, flow, dysmenorrhea). Contraception: {{contraceptive_method}}. Sexual history: {{sexual_history}}. STI screening history: {{sti_history}}. Breast complaints: {{breast_complaints}}. Urinary symptoms: {{urinary_symptoms}}. Obstetric history: G{{gravida}}P{{para}}. Surgical history: {{surgical_history}}. Family history: {{family_history}} (breast/ovarian/cervical cancer).",
+      objective: "Vitals: BP {{bp}}, Weight {{weight}}, BMI {{bmi}}. Breast exam: {{breast_exam}}. Abdomen: {{abdominal_exam}}. External genitalia: {{external_exam}}. Speculum exam: Cervix {{cervix_appearance}}, Vaginal mucosa {{vaginal_exam}}. Bimanual: Uterus {{uterine_exam}}, Adnexa {{adnexal_exam}}. Pap smear: {{pap_collected}} (if indicated). HPV co-test: {{hpv_test}}.",
+      assessment: "{{assessment}}. Screening status: Cervical cancer screening {{cervical_screening_status}}, Breast cancer screening {{breast_screening_status}}.",
+      plan: "1. Cervical screening: {{cervical_plan}}\n2. STI screening: {{sti_orders}}\n3. Contraception: {{contraceptive_plan}}\n4. Breast health: {{breast_plan}} (mammogram if indicated)\n5. Immunizations: {{vaccines}}\n6. Follow-up: {{follow_up}}",
+    },
+    defaultCodes: [
+      { code: "99395", description: "Preventive visit, established, 18-39" },
+      { code: "99396", description: "Preventive visit, established, 40-64" },
+      { code: "Q0091", description: "Screening Pap smear" },
+    ],
+    tags: ["ob-gyn", "gynecology", "annual", "preventive", "pap-smear", "screening"],
+  },
 ];
 
 // ─── Helper Functions ─────────────────────────────────────────────────

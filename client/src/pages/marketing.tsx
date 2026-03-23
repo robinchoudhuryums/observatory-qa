@@ -10,12 +10,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
-import {
-  Megaphone, Target, DollarSign, TrendingUp, Users, Plus,
-  BarChart3, Loader2, Trash2, ArrowUpRight, ArrowDownRight,
-  PieChart, Globe, Phone, UserPlus,
-} from "lucide-react";
 import { MARKETING_SOURCES, type MarketingCampaign, type MarketingSourceMetrics } from "@shared/schema";
+import {  RiMegaphoneLine, RiMoneyDollarCircleLine, RiArrowRightUpLine, RiTeamLine, RiAddLine, RiBarChartBoxLine, RiLoader4Line, RiDeleteBinLine, RiPhoneLine, RiUserAddLine, RiArrowRightDownLine, RiTargetLine, RiInputMethodLine, RiCodeLine  } from "@remixicon/react";
 
 function formatCurrency(val: number | null | undefined) {
   if (val == null) return "—";
@@ -71,7 +67,7 @@ function SourceMetricCard({ metric }: { metric: MarketingSourceMetrics }) {
           {metric.roi !== null && (
             <span className={`font-medium ${roiColor(metric.roi)}`}>
               ROI: {(metric.roi * 100).toFixed(0)}%
-              {metric.roi > 0 ? <ArrowUpRight className="w-3 h-3 inline ml-0.5" /> : <ArrowDownRight className="w-3 h-3 inline ml-0.5" />}
+              {metric.roi > 0 ? <RiArrowRightUpLine className="w-3 h-3 inline ml-0.5" /> : <RiArrowRightDownLine className="w-3 h-3 inline ml-0.5" />}
             </span>
           )}
         </div>
@@ -114,7 +110,7 @@ function CreateCampaignForm({ onSuccess }: { onSuccess: () => void }) {
     <Card>
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
-          <Plus className="w-4 h-4" /> Create Campaign
+          <RiAddLine className="w-4 h-4" /> Create Campaign
         </CardTitle>
         <CardDescription>Track marketing campaigns to measure ROI</CardDescription>
       </CardHeader>
@@ -145,7 +141,7 @@ function CreateCampaignForm({ onSuccess }: { onSuccess: () => void }) {
           </div>
         </div>
         <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending || !name.trim()}>
-          {createMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
+          {createMutation.isPending ? <RiLoader4Line className="w-4 h-4 mr-2 animate-spin" /> : <RiAddLine className="w-4 h-4 mr-2" />}
           Create Campaign
         </Button>
       </CardContent>
@@ -177,7 +173,7 @@ function MetricsOverview() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground mb-1">
-              <Phone className="w-4 h-4" /><span className="text-xs font-medium">Attributed</span>
+              <RiPhoneLine className="w-4 h-4" /><span className="text-xs font-medium">Attributed</span>
             </div>
             <div className="text-2xl font-bold">{metrics.totalAttributed}</div>
             <div className="text-xs text-muted-foreground">calls tracked</div>
@@ -186,7 +182,7 @@ function MetricsOverview() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground mb-1">
-              <UserPlus className="w-4 h-4" /><span className="text-xs font-medium">New Patients</span>
+              <RiUserAddLine className="w-4 h-4" /><span className="text-xs font-medium">New Patients</span>
             </div>
             <div className="text-2xl font-bold text-blue-600">{metrics.totalNewPatients}</div>
             <div className="text-xs text-muted-foreground">from all sources</div>
@@ -195,7 +191,7 @@ function MetricsOverview() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground mb-1">
-              <DollarSign className="w-4 h-4" /><span className="text-xs font-medium">Revenue</span>
+              <RiMoneyDollarCircleLine className="w-4 h-4" /><span className="text-xs font-medium">Revenue</span>
             </div>
             <div className="text-2xl font-bold text-green-600">{formatCurrency(metrics.totalRevenue)}</div>
             <div className="text-xs text-muted-foreground">attributed revenue</div>
@@ -204,7 +200,7 @@ function MetricsOverview() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground mb-1">
-              <Target className="w-4 h-4" /><span className="text-xs font-medium">Spend</span>
+              <RiTargetLine className="w-4 h-4" /><span className="text-xs font-medium">Spend</span>
             </div>
             <div className="text-2xl font-bold">{formatCurrency(metrics.totalBudget)}</div>
             <div className="text-xs text-muted-foreground">{metrics.activeCampaigns} active campaigns</div>
@@ -213,7 +209,7 @@ function MetricsOverview() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground mb-1">
-              <TrendingUp className="w-4 h-4" /><span className="text-xs font-medium">ROI</span>
+              <RiArrowRightUpLine className="w-4 h-4" /><span className="text-xs font-medium">ROI</span>
             </div>
             <div className={`text-2xl font-bold ${roiColor(overallROI ? overallROI / 100 : null)}`}>
               {overallROI !== null ? `${overallROI.toFixed(0)}%` : "—"}
@@ -242,9 +238,27 @@ export default function MarketingPage() {
     queryKey: ["/api/marketing/campaigns"],
   });
 
+  const { toast } = useToast();
+
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       await fetch(`/api/marketing/campaigns/${id}`, { method: "DELETE" });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/marketing/metrics"] });
+      toast({ title: "Campaign deleted" });
+    },
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: async ({ id, isActive }: { id: string; isActive: boolean }) => {
+      const res = await fetch(`/api/marketing/campaigns/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive }),
+      });
+      if (!res.ok) throw new Error("Failed to update campaign");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns"] });
@@ -256,7 +270,7 @@ export default function MarketingPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <Megaphone className="w-6 h-6" />
+          <RiMegaphoneLine className="w-6 h-6" />
           Marketing Attribution
         </h1>
         <p className="text-muted-foreground text-sm">
@@ -267,13 +281,13 @@ export default function MarketingPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="analytics" className="gap-1.5">
-            <BarChart3 className="w-4 h-4" /> Analytics
+            <RiBarChartBoxLine className="w-4 h-4" /> Analytics
           </TabsTrigger>
           <TabsTrigger value="campaigns" className="gap-1.5">
-            <Target className="w-4 h-4" /> Campaigns ({campaigns.length})
+            <RiTargetLine className="w-4 h-4" /> Campaigns ({campaigns.length})
           </TabsTrigger>
           <TabsTrigger value="create" className="gap-1.5">
-            <Plus className="w-4 h-4" /> Create Campaign
+            <RiAddLine className="w-4 h-4" /> Create Campaign
           </TabsTrigger>
         </TabsList>
 
@@ -285,13 +299,13 @@ export default function MarketingPage() {
           {campaigns.length === 0 ? (
             <Card>
               <CardContent className="p-8 text-center">
-                <Megaphone className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                <RiMegaphoneLine className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
                 <h3 className="font-medium mb-1">No campaigns yet</h3>
                 <p className="text-sm text-muted-foreground mb-4">
                   Create campaigns to track where your calls come from and measure ROI.
                 </p>
                 <Button onClick={() => setActiveTab("create")}>
-                  <Plus className="w-4 h-4 mr-2" /> Create First Campaign
+                  <RiAddLine className="w-4 h-4 mr-2" /> Create First Campaign
                 </Button>
               </CardContent>
             </Card>
@@ -299,7 +313,7 @@ export default function MarketingPage() {
             campaigns.map(c => (
               <Card key={c.id}>
                 <CardContent className="p-4 flex items-center justify-between">
-                  <div>
+                  <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <h3 className="font-medium text-sm">{c.name}</h3>
                       <Badge variant={c.isActive ? "default" : "secondary"} className="text-xs">
@@ -310,11 +324,21 @@ export default function MarketingPage() {
                       {MARKETING_SOURCES.find(s => s.value === c.source)?.label || c.source}
                       {c.budget && ` · Budget: ${formatCurrency(c.budget)}`}
                       {c.trackingCode && ` · Code: ${c.trackingCode}`}
+                      {c.startDate && ` · Started: ${new Date(c.startDate).toLocaleDateString()}`}
                     </div>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => deleteMutation.mutate(c.id)}>
-                    <Trash2 className="w-4 h-4 text-muted-foreground" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => toggleMutation.mutate({ id: c.id, isActive: !c.isActive })}
+                    >
+                      {c.isActive ? "Pause" : "Resume"}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => deleteMutation.mutate(c.id)}>
+                      <RiDeleteBinLine className="w-4 h-4 text-muted-foreground" />
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             ))

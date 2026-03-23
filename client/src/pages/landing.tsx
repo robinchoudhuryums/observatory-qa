@@ -1,11 +1,8 @@
 import { useRef } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  BarChart3, Shield, Users, TrendingUp,
-  Mic, Brain, FileText, Zap, ArrowRight, ChevronRight,
-} from "lucide-react";
 import { ObservatoryLogo } from "@/components/observatory-logo";
 import { motion, useInView } from "framer-motion";
+import {  RiBarChartBoxLine, RiShieldLine, RiTeamLine, RiArrowRightUpLine, RiMicLine, RiFileTextLine, RiFlashlightLine, RiArrowRightLine, RiArrowRightSLine, RiUploadLine, RiBrainLine  } from "@remixicon/react";
 
 interface LandingPageProps {
   onNavigate: (view: "login" | "register") => void;
@@ -100,42 +97,42 @@ function GlowOrb({ className }: { className?: string }) {
 
 const FEATURES = [
   {
-    icon: Mic,
+    icon: RiMicLine,
     title: "Auto Transcription",
     description: "Upload recordings and get accurate transcripts powered by AssemblyAI in minutes.",
   },
   {
-    icon: Brain,
+    icon: RiBrainLine,
     title: "AI Analysis",
     description: "Claude analyzes every call for sentiment, compliance, and coaching opportunities.",
   },
   {
-    icon: BarChart3,
+    icon: RiBarChartBoxLine,
     title: "Performance Dashboards",
     description: "Real-time metrics, trend analysis, and team performance tracking.",
   },
   {
-    icon: Shield,
+    icon: RiShieldLine,
     title: "Compliance Monitoring",
     description: "Custom evaluation criteria, required phrase detection, and automated flagging.",
   },
   {
-    icon: Users,
+    icon: RiTeamLine,
     title: "Team Coaching",
     description: "AI-generated coaching plans, review queues, and effectiveness tracking.",
   },
   {
-    icon: TrendingUp,
+    icon: RiArrowRightUpLine,
     title: "Proactive Insights",
     description: "Weekly digests and trend detection that surfaces issues before they escalate.",
   },
 ];
 
 const STEPS = [
-  { step: "1", icon: Mic, title: "Upload", desc: "Upload call recordings in any audio format" },
-  { step: "2", icon: FileText, title: "Transcribe", desc: "Automatic transcription with speaker detection" },
-  { step: "3", icon: Brain, title: "Analyze", desc: "AI scores performance, compliance, and sentiment" },
-  { step: "4", icon: Zap, title: "Act", desc: "Get coaching insights and track improvements" },
+  { step: "1", icon: RiMicLine, title: "Upload", desc: "Upload call recordings in any audio format" },
+  { step: "2", icon: RiFileTextLine, title: "Transcribe", desc: "Automatic transcription with speaker detection" },
+  { step: "3", icon: RiBrainLine, title: "Analyze", desc: "AI scores performance, compliance, and sentiment" },
+  { step: "4", icon: RiFlashlightLine, title: "Act", desc: "Get coaching insights and track improvements" },
 ];
 
 const PLANS = [
@@ -251,7 +248,7 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
                   className="bg-gradient-to-r from-teal-500 to-blue-500 hover:from-teal-600 hover:to-blue-600 text-white border-0 shadow-lg shadow-teal-500/25 px-8 h-12 text-base"
                 >
                   Start Free Trial
-                  <ArrowRight className="w-4 h-4 ml-2" />
+                  <RiArrowRightLine className="w-4 h-4 ml-2" />
                 </Button>
                 <Button
                   size="lg"
@@ -391,7 +388,7 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
                     onClick={() => onNavigate("register")}
                   >
                     {plan.highlight ? "Start Free Trial" : "Get Started"}
-                    <ChevronRight className="w-4 h-4 ml-1" />
+                    <RiArrowRightSLine className="w-4 h-4 ml-1" />
                   </Button>
                 </div>
               </FadeUp>
@@ -420,7 +417,7 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
               className="bg-gradient-to-r from-teal-500 to-blue-500 hover:from-teal-600 hover:to-blue-600 text-white border-0 shadow-lg shadow-teal-500/25 px-10 h-13 text-base"
             >
               Create Your Organization
-              <ArrowRight className="w-4 h-4 ml-2" />
+              <RiArrowRightLine className="w-4 h-4 ml-2" />
             </Button>
           </div>
         </FadeUp>

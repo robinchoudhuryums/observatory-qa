@@ -1,7 +1,25 @@
 import type { Express } from "express";
+import { z } from "zod";
 import { storage } from "../storage";
 import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { logger } from "../services/logger";
+import { validateUUIDParam } from "./helpers";
+import { errorResponse, ERROR_CODES } from "../services/error-codes";
+import { logPhiAccess, auditContext } from "../services/audit-log";
+
+const updateRevenueSchema = z.object({
+  estimatedRevenue: z.number().min(0).optional(),
+  actualRevenue: z.number().min(0).optional(),
+  revenueType: z.enum(["production", "collection", "scheduled", "lost"]).optional(),
+  treatmentValue: z.number().min(0).optional(),
+  scheduledProcedures: z.array(z.object({
+    code: z.string(),
+    description: z.string(),
+    estimatedValue: z.number(),
+  })).optional(),
+  conversionStatus: z.enum(["converted", "pending", "lost", "unknown"]).optional(),
+  notes: z.string().max(2000).optional(),
+});
 
 export function registerRevenueRoutes(app: Express) {
   // Get revenue metrics summary
@@ -14,7 +32,7 @@ export function registerRevenueRoutes(app: Express) {
       res.json(metrics);
     } catch (error) {
       logger.error({ err: error }, "Failed to get revenue metrics");
-      res.status(500).json({ message: "Failed to get revenue metrics" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get revenue metrics"));
     }
   });
 
@@ -45,12 +63,12 @@ export function registerRevenueRoutes(app: Express) {
       res.json(enriched);
     } catch (error) {
       logger.error({ err: error }, "Failed to list revenue records");
-      res.status(500).json({ message: "Failed to list revenue records" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to list revenue records"));
     }
   });
 
   // Get revenue for a specific call
-  app.get("/api/revenue/call/:callId", requireAuth, injectOrgContext, async (req, res) => {
+  app.get("/api/revenue/call/:callId", requireAuth, injectOrgContext, validateUUIDParam("callId"), async (req, res) => {
     try {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
@@ -60,41 +78,46 @@ export function registerRevenueRoutes(app: Express) {
       res.json(revenue);
     } catch (error) {
       logger.error({ err: error }, "Failed to get call revenue");
-      res.status(500).json({ message: "Failed to get call revenue" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get call revenue"));
     }
   });
 
   // Create or update revenue for a call
-  app.put("/api/revenue/call/:callId", requireAuth, requireRole("manager"), injectOrgContext, async (req, res) => {
+  app.put("/api/revenue/call/:callId", requireAuth, requireRole("manager"), injectOrgContext, validateUUIDParam("callId"), async (req, res) => {
     try {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
       const { callId } = req.params;
+
+      const parsed = updateRevenueSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid revenue data", errors: parsed.error.flatten().fieldErrors });
+      }
+
       const call = await storage.getCall(orgId, callId);
       if (!call) return res.status(404).json({ message: "Call not found" });
 
+      const revenueData = { ...parsed.data, updatedBy: req.user!.name || req.user!.username };
       const existing = await storage.getCallRevenue(orgId, callId);
       if (existing) {
-        const updated = await storage.updateCallRevenue(orgId, callId, {
-          ...req.body,
-          updatedBy: req.user!.name || req.user!.username,
-        });
+        const updated = await storage.updateCallRevenue(orgId, callId, revenueData);
         res.json(updated);
       } else {
         const revenue = await storage.createCallRevenue(orgId, {
           orgId,
           callId,
-          ...req.body,
-          updatedBy: req.user!.name || req.user!.username,
+          conversionStatus: "unknown",
+          ...revenueData,
         });
         res.json(revenue);
       }
 
+      logPhiAccess({ ...auditContext(req), event: "update_call_revenue", resourceType: "revenue", resourceId: callId });
       logger.info({ orgId, callId }, "Call revenue updated");
     } catch (error) {
       logger.error({ err: error }, "Failed to update call revenue");
-      res.status(500).json({ message: "Failed to update call revenue" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update call revenue"));
     }
   });
 
@@ -147,7 +170,56 @@ export function registerRevenueRoutes(app: Express) {
       res.json(result);
     } catch (error) {
       logger.error({ err: error }, "Failed to get revenue by employee");
-      res.status(500).json({ message: "Failed to get revenue by employee" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get revenue by employee"));
+    }
+  });
+
+  // Get revenue trend data (weekly buckets for last 12 weeks)
+  app.get("/api/revenue/trend", requireAuth, injectOrgContext, async (req, res) => {
+    try {
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
+
+      const revenues = await storage.listCallRevenues(orgId);
+      const calls = await storage.getAllCalls(orgId);
+      const callDateMap = new Map(calls.map(c => [c.id, c.uploadedAt]));
+
+      // Build weekly buckets for the last 12 weeks
+      const now = new Date();
+      const weeks: Array<{ weekStart: string; estimated: number; actual: number; count: number; converted: number }> = [];
+      for (let i = 11; i >= 0; i--) {
+        const start = new Date(now);
+        start.setDate(start.getDate() - (i * 7 + now.getDay()));
+        start.setHours(0, 0, 0, 0);
+        weeks.push({
+          weekStart: start.toISOString().slice(0, 10),
+          estimated: 0,
+          actual: 0,
+          count: 0,
+          converted: 0,
+        });
+      }
+
+      for (const rev of revenues) {
+        const callDate = callDateMap.get(rev.callId);
+        if (!callDate) continue;
+        const d = new Date(callDate);
+        // Find which week bucket this falls into
+        for (let i = weeks.length - 1; i >= 0; i--) {
+          if (d >= new Date(weeks[i].weekStart)) {
+            weeks[i].estimated += rev.estimatedRevenue || 0;
+            weeks[i].actual += rev.actualRevenue || 0;
+            weeks[i].count++;
+            if (rev.conversionStatus === "converted") weeks[i].converted++;
+            break;
+          }
+        }
+      }
+
+      res.json(weeks);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to get revenue trend");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get revenue trend"));
     }
   });
 }

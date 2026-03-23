@@ -1,6 +1,5 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Star, TrendingUp, UserCheck, Calendar, ArrowUpDown, ArrowUp, ArrowDown, FileDown } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { Button } from "@/components/ui/button";
 import { HelpTip } from "@/components/ui/help-tip";
@@ -9,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import type { Employee, CallWithDetails } from "@shared/schema";
-import { AudioWaveform } from "lucide-react";
+import {  RiStarLine, RiArrowRightUpLine, RiUserFollowLine, RiCalendarLine, RiExpandUpDownLine, RiArrowUpLine, RiArrowDownLine, RiFileDownloadLine, RiVoiceprintLine, RiFilterLine  } from "@remixicon/react";
 
 interface Performer extends Employee {
   avgPerformanceScore: number;
@@ -42,7 +41,7 @@ export default function PerformancePage() {
     return Array.from(set).sort();
   }, [employees]);
 
-  // Filter and sort performers
+  // RiFilterLine and sort performers
   const filteredPerformers = useMemo(() => {
     if (!performers) return [];
     let filtered = [...performers];
@@ -85,14 +84,14 @@ export default function PerformancePage() {
   };
 
   const SortIcon = ({ field }: { field: SortKey }) => {
-    if (sortBy !== field) return <ArrowUpDown className="w-3 h-3 ml-1 opacity-40" />;
-    return sortDir === "asc" ? <ArrowUp className="w-3 h-3 ml-1" /> : <ArrowDown className="w-3 h-3 ml-1" />;
+    if (sortBy !== field) return <RiExpandUpDownLine className="w-3 h-3 ml-1 opacity-40" />;
+    return sortDir === "asc" ? <RiArrowUpLine className="w-3 h-3 ml-1" /> : <RiArrowDownLine className="w-3 h-3 ml-1" />;
   };
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <AudioWaveform className="w-8 h-8 animate-spin text-primary" />
+        <RiVoiceprintLine className="w-8 h-8 animate-spin text-primary" />
         <p className="ml-2 text-muted-foreground">Analyzing performance...</p>
       </div>
     );
@@ -127,7 +126,7 @@ export default function PerformancePage() {
                 link.click();
               }}
             >
-              <FileDown className="w-4 h-4 mr-1.5" />
+              <RiFileDownloadLine className="w-4 h-4 mr-1.5" />
               Export CSV
             </Button>
             <Select value={deptFilter} onValueChange={setDeptFilter}>
@@ -150,7 +149,7 @@ export default function PerformancePage() {
         {chartData.length > 0 && (
           <div className="bg-card rounded-lg border border-border p-6">
             <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
-              <TrendingUp className="w-5 h-5" />
+              <RiArrowRightUpLine className="w-5 h-5" />
               Score Overview — Top {chartData.length}
             </h3>
             <ResponsiveContainer width="100%" height={250}>
@@ -214,7 +213,7 @@ export default function PerformancePage() {
                     <td className="px-4 py-3 text-sm text-muted-foreground hidden sm:table-cell">{employee.role || "—"}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
-                        <Star className="w-4 h-4 fill-current" style={{ color: getScoreColor(score) }} />
+                        <RiStarLine className="w-4 h-4 fill-current" style={{ color: getScoreColor(score) }} />
                         <span className="font-bold" style={{ color: getScoreColor(score) }}>
                           {score ? score.toFixed(1) : "N/A"}
                         </span>

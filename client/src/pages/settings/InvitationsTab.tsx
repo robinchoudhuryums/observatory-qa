@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, Mail, Copy, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import type { Invitation } from "@shared/schema";
+import {  RiAddLine, RiDeleteBinLine, RiMailLine, RiFileCopyLine, RiTimeLine  } from "@remixicon/react";
 
 export default function InvitationsTab() {
   const { toast } = useToast();
@@ -78,7 +78,7 @@ export default function InvitationsTab() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
-            <Mail className="w-5 h-5 text-primary" />
+            <RiMailLine className="w-5 h-5 text-primary" />
             Team Invitations
           </CardTitle>
           <CardDescription>
@@ -111,7 +111,7 @@ export default function InvitationsTab() {
               </SelectContent>
             </Select>
             <Button type="submit" disabled={createMutation.isPending}>
-              <Plus className="w-4 h-4 mr-2" />
+              <RiAddLine className="w-4 h-4 mr-2" />
               {createMutation.isPending ? "Sending..." : "Invite"}
             </Button>
           </form>
@@ -125,7 +125,7 @@ export default function InvitationsTab() {
             </div>
           ) : !invitations || invitations.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              <Mail className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <RiMailLine className="w-8 h-8 mx-auto mb-2 opacity-50" />
               <p>No invitations sent yet.</p>
             </div>
           ) : (
@@ -133,7 +133,7 @@ export default function InvitationsTab() {
               {invitations.map((inv) => (
                 <div key={inv.id} className="flex items-center gap-4 p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors">
                   <div className="w-10 h-10 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full flex items-center justify-center shrink-0">
-                    <Mail className="w-4 h-4 text-primary" />
+                    <RiMailLine className="w-4 h-4 text-primary" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -146,7 +146,7 @@ export default function InvitationsTab() {
                       {inv.createdAt && <span>{new Date(inv.createdAt).toLocaleDateString()}</span>}
                       {inv.expiresAt && inv.status === "pending" && (
                         <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
+                          <RiTimeLine className="w-3 h-3" />
                           Expires {new Date(inv.expiresAt).toLocaleDateString()}
                         </span>
                       )}
@@ -156,7 +156,7 @@ export default function InvitationsTab() {
                     {inv.status === "pending" && (
                       <>
                         <Button variant="ghost" size="sm" onClick={() => copyInviteLink(inv.token)} title="Copy invite link">
-                          <Copy className="w-4 h-4" />
+                          <RiFileCopyLine className="w-4 h-4" />
                         </Button>
                         <Button
                           variant="ghost"
@@ -165,7 +165,7 @@ export default function InvitationsTab() {
                           onClick={() => revokeMutation.mutate(inv.id)}
                           title="Revoke invitation"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <RiDeleteBinLine className="w-4 h-4" />
                         </Button>
                       </>
                     )}

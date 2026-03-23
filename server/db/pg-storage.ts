@@ -50,6 +50,7 @@ import type {
 import * as tables from "./schema";
 import { normalizeAnalysis } from "../storage";
 import { logger } from "../services/logger";
+import { encryptField, decryptField, isPhiEncryptionEnabled } from "../services/phi-encryption";
 
 /**
  * Convert a Drizzle row (with Date objects for timestamps)
@@ -57,6 +58,29 @@ import { logger } from "../services/logger";
  */
 function toISOString(date: Date | null | undefined): string | undefined {
   return date ? date.toISOString() : undefined;
+}
+
+/**
+ * Execute an inArray query in chunks to avoid exceeding PostgreSQL's parameter limit.
+ * When arrays exceed ~5000 elements, some drivers hit issues with parameter binding.
+ */
+const IN_ARRAY_CHUNK_SIZE = 3000;
+
+async function chunkedInArray<T>(
+  db: Database,
+  queryFn: (chunk: string[]) => Promise<T[]>,
+  ids: string[],
+): Promise<T[]> {
+  if (ids.length <= IN_ARRAY_CHUNK_SIZE) {
+    return queryFn(ids);
+  }
+  const results: T[] = [];
+  for (let i = 0; i < ids.length; i += IN_ARRAY_CHUNK_SIZE) {
+    const chunk = ids.slice(i, i + IN_ARRAY_CHUNK_SIZE);
+    const chunkResults = await queryFn(chunk);
+    results.push(...chunkResults);
+  }
+  return results;
 }
 
 export class PostgresStorage implements IStorage {
@@ -215,6 +239,34 @@ export class PostgresStorage implements IStorage {
     return rows.map((r) => this.mapEmployee(r));
   }
 
+  // --- Count operations (SQL COUNT for efficiency) ---
+  async countUsersByOrg(orgId: string): Promise<number> {
+    const [result] = await this.db.select({ count: sql<number>`count(*)::int` })
+      .from(tables.users).where(eq(tables.users.orgId, orgId));
+    return result?.count || 0;
+  }
+
+  async countCallsByOrg(orgId: string): Promise<number> {
+    const [result] = await this.db.select({ count: sql<number>`count(*)::int` })
+      .from(tables.calls).where(eq(tables.calls.orgId, orgId));
+    return result?.count || 0;
+  }
+
+  async countCallsByOrgAndStatus(orgId: string): Promise<{ pending: number; processing: number; completed: number; failed: number }> {
+    const rows = await this.db.select({
+      status: tables.calls.status,
+      count: sql<number>`count(*)::int`,
+    }).from(tables.calls)
+      .where(eq(tables.calls.orgId, orgId))
+      .groupBy(tables.calls.status);
+
+    const result = { pending: 0, processing: 0, completed: 0, failed: 0 };
+    for (const row of rows) {
+      if (row.status in result) (result as any)[row.status] = row.count;
+    }
+    return result;
+  }
+
   // --- Call operations ---
   async getCall(orgId: string, id: string): Promise<Call | undefined> {
     const rows = await this.db.select().from(tables.calls)
@@ -248,6 +300,7 @@ export class PostgresStorage implements IStorage {
       emailReceivedAt: call.emailReceivedAt ? new Date(call.emailReceivedAt) : undefined,
       chatPlatform: call.chatPlatform,
       messageCount: call.messageCount,
+      fileHash: call.fileHash,
     }).returning();
     return this.mapCall(row);
   }
@@ -267,7 +320,12 @@ export class PostgresStorage implements IStorage {
     if (updates.emailFrom !== undefined) setClause.emailFrom = updates.emailFrom;
     if (updates.emailTo !== undefined) setClause.emailTo = updates.emailTo;
     if (updates.emailBody !== undefined) setClause.emailBody = updates.emailBody;
+    if (updates.emailBodyHtml !== undefined) setClause.emailBodyHtml = updates.emailBodyHtml;
+    if (updates.emailCc !== undefined) setClause.emailCc = updates.emailCc;
+    if (updates.emailMessageId !== undefined) setClause.emailMessageId = updates.emailMessageId;
     if (updates.emailThreadId !== undefined) setClause.emailThreadId = updates.emailThreadId;
+    if (updates.emailReceivedAt !== undefined) setClause.emailReceivedAt = updates.emailReceivedAt ? new Date(updates.emailReceivedAt) : null;
+    if (updates.fileHash !== undefined) setClause.fileHash = updates.fileHash;
 
     const [row] = await this.db.update(tables.calls)
       .set(setClause)
@@ -312,38 +370,71 @@ export class PostgresStorage implements IStorage {
     orgId: string,
     filters: { status?: string; sentiment?: string; employee?: string; limit?: number; offset?: number } = {},
   ): Promise<CallWithDetails[]> {
-    // Build dynamic where conditions
-    const conditions = [eq(tables.calls.orgId, orgId)];
-    if (filters.status) conditions.push(eq(tables.calls.status, filters.status));
-    if (filters.employee) conditions.push(eq(tables.calls.employeeId, filters.employee));
+    let callRows: any[];
 
-    let query = this.db.select().from(tables.calls)
-      .where(and(...conditions))
-      .orderBy(desc(tables.calls.uploadedAt));
+    if (filters.sentiment) {
+      // Use SQL-level JOIN to filter by sentiment (avoids loading all calls then filtering in-memory)
+      const conditions: any[] = [
+        eq(tables.calls.orgId, orgId),
+        eq(tables.sentimentAnalyses.overallSentiment, filters.sentiment),
+      ];
+      if (filters.status) conditions.push(eq(tables.calls.status, filters.status));
+      if (filters.employee) conditions.push(eq(tables.calls.employeeId, filters.employee));
 
-    // Apply SQL-level pagination when no sentiment filter (sentiment requires post-join filtering)
-    if (!filters.sentiment && filters.limit && filters.limit > 0) {
-      query = query.limit(filters.limit) as any;
-      if (filters.offset) query = query.offset(filters.offset) as any;
+      let query = this.db.select({ call: tables.calls })
+        .from(tables.calls)
+        .innerJoin(tables.sentimentAnalyses, eq(tables.calls.id, tables.sentimentAnalyses.callId))
+        .where(and(...conditions))
+        .orderBy(desc(tables.calls.uploadedAt));
+
+      if (filters.limit && filters.limit > 0) {
+        query = query.limit(filters.limit) as any;
+        if (filters.offset) query = query.offset(filters.offset) as any;
+      }
+
+      const joinRows = await query;
+      callRows = joinRows.map((r: any) => r.call);
+    } else {
+      // Standard query without sentiment filter
+      const conditions: any[] = [eq(tables.calls.orgId, orgId)];
+      if (filters.status) conditions.push(eq(tables.calls.status, filters.status));
+      if (filters.employee) conditions.push(eq(tables.calls.employeeId, filters.employee));
+
+      let query = this.db.select().from(tables.calls)
+        .where(and(...conditions))
+        .orderBy(desc(tables.calls.uploadedAt));
+
+      if (filters.limit && filters.limit > 0) {
+        query = query.limit(filters.limit) as any;
+        if (filters.offset) query = query.offset(filters.offset) as any;
+      }
+
+      callRows = await query;
     }
-
-    const callRows = await query;
 
     if (callRows.length === 0) return [];
 
-    const callIds = callRows.map((c) => c.id);
+    const callIds = callRows.map((c: any) => c.id);
 
     // Collect unique employee IDs to fetch only needed employees
-    const empIdsNeeded = Array.from(new Set(callRows.map((c) => c.employeeId).filter(Boolean))) as string[];
+    const empIdsNeeded = Array.from(new Set(callRows.map((c: any) => c.employeeId).filter(Boolean))) as string[];
 
-    // Batch-load related data scoped to matched call IDs (not entire org)
+    // Batch-load related data scoped to matched call IDs (chunked to avoid parameter limits)
     const [empRows, txRows, sentRows, analysisRows] = await Promise.all([
       empIdsNeeded.length > 0
-        ? this.db.select().from(tables.employees).where(inArray(tables.employees.id, empIdsNeeded))
+        ? chunkedInArray(this.db, (ids) =>
+            this.db.select().from(tables.employees).where(inArray(tables.employees.id, ids)),
+          empIdsNeeded)
         : Promise.resolve([]),
-      this.db.select().from(tables.transcripts).where(inArray(tables.transcripts.callId, callIds)),
-      this.db.select().from(tables.sentimentAnalyses).where(inArray(tables.sentimentAnalyses.callId, callIds)),
-      this.db.select().from(tables.callAnalyses).where(inArray(tables.callAnalyses.callId, callIds)),
+      chunkedInArray(this.db, (ids) =>
+        this.db.select().from(tables.transcripts).where(inArray(tables.transcripts.callId, ids)),
+      callIds),
+      chunkedInArray(this.db, (ids) =>
+        this.db.select().from(tables.sentimentAnalyses).where(inArray(tables.sentimentAnalyses.callId, ids)),
+      callIds),
+      chunkedInArray(this.db, (ids) =>
+        this.db.select().from(tables.callAnalyses).where(inArray(tables.callAnalyses.callId, ids)),
+      callIds),
     ]);
 
     const empMap = new Map(empRows.map((e) => [e.id, this.mapEmployee(e)]));
@@ -351,7 +442,7 @@ export class PostgresStorage implements IStorage {
     const sentMap = new Map(sentRows.map((s) => [s.callId, this.mapSentiment(s)]));
     const analysisMap = new Map(analysisRows.map((a) => [a.callId, this.mapAnalysis(a)]));
 
-    let results: CallWithDetails[] = callRows.map((row) => {
+    return callRows.map((row: any) => {
       const call = this.mapCall(row);
       return {
         ...call,
@@ -361,13 +452,6 @@ export class PostgresStorage implements IStorage {
         analysis: normalizeAnalysis(analysisMap.get(call.id)),
       };
     });
-
-    // Apply sentiment filter (post-query since it's in a separate table)
-    if (filters.sentiment) {
-      results = results.filter((c) => c.sentiment?.overallSentiment === filters.sentiment);
-    }
-
-    return results;
   }
 
   async getCallSummaries(
@@ -432,7 +516,7 @@ export class PostgresStorage implements IStorage {
       id,
       orgId,
       callId: transcript.callId,
-      text: transcript.text,
+      text: typeof transcript.text === "string" ? encryptField(transcript.text) : transcript.text,
       confidence: transcript.confidence,
       words: transcript.words || null,
     }).returning();
@@ -441,7 +525,7 @@ export class PostgresStorage implements IStorage {
 
   async updateTranscript(orgId: string, callId: string, updates: { text: string }): Promise<Transcript | undefined> {
     const rows = await this.db.update(tables.transcripts)
-      .set({ text: updates.text })
+      .set({ text: encryptField(updates.text) })
       .where(and(eq(tables.transcripts.callId, callId), eq(tables.transcripts.orgId, orgId)))
       .returning();
     return rows[0] ? this.mapTranscript(rows[0]) : undefined;
@@ -487,7 +571,7 @@ export class PostgresStorage implements IStorage {
       responseTime: analysis.responseTime,
       keywords: analysis.keywords || null,
       topics: analysis.topics || null,
-      summary: analysis.summary,
+      summary: typeof analysis.summary === "string" ? encryptField(analysis.summary) : analysis.summary,
       actionItems: analysis.actionItems || null,
       feedback: analysis.feedback || null,
       lemurResponse: analysis.lemurResponse || null,
@@ -503,24 +587,48 @@ export class PostgresStorage implements IStorage {
     return this.mapAnalysis(row);
   }
 
-  // --- Dashboard metrics (efficient SQL queries!) ---
+  async updateCallAnalysis(orgId: string, callId: string, updates: Partial<InsertCallAnalysis>): Promise<CallAnalysis | undefined> {
+    const setClause: Record<string, unknown> = {};
+    if (updates.performanceScore !== undefined) setClause.performanceScore = updates.performanceScore;
+    if (updates.summary !== undefined) setClause.summary = typeof updates.summary === "string" ? encryptField(updates.summary) : updates.summary;
+    if (updates.topics !== undefined) setClause.topics = updates.topics;
+    if (updates.actionItems !== undefined) setClause.actionItems = updates.actionItems;
+    if (updates.feedback !== undefined) setClause.feedback = updates.feedback;
+    if (updates.flags !== undefined) setClause.flags = updates.flags;
+    if (updates.manualEdits !== undefined) setClause.manualEdits = updates.manualEdits;
+    if (updates.subScores !== undefined) setClause.subScores = updates.subScores;
+    if (updates.confidenceScore !== undefined) setClause.confidenceScore = updates.confidenceScore;
+    if (updates.confidenceFactors !== undefined) setClause.confidenceFactors = updates.confidenceFactors;
+    if (updates.clinicalNote !== undefined) setClause.clinicalNote = updates.clinicalNote;
+    if (updates.detectedAgentName !== undefined) setClause.detectedAgentName = updates.detectedAgentName;
+    if (updates.keywords !== undefined) setClause.keywords = updates.keywords;
+    if (updates.talkTimeRatio !== undefined) setClause.talkTimeRatio = updates.talkTimeRatio;
+    if (updates.responseTime !== undefined) setClause.responseTime = updates.responseTime;
+    if (updates.lemurResponse !== undefined) setClause.lemurResponse = updates.lemurResponse;
+    if (updates.callPartyType !== undefined) setClause.callPartyType = updates.callPartyType;
+
+    if (Object.keys(setClause).length === 0) return this.getCallAnalysis(orgId, callId);
+
+    const [row] = await this.db.update(tables.callAnalyses)
+      .set(setClause)
+      .where(and(eq(tables.callAnalyses.callId, callId), eq(tables.callAnalyses.orgId, orgId)))
+      .returning();
+    return row ? this.mapAnalysis(row) : undefined;
+  }
+
+  // --- Dashboard metrics (single consolidated query) ---
   async getDashboardMetrics(orgId: string): Promise<DashboardMetrics> {
-    const [callCount] = await this.db.select({
-      count: sql<number>`count(*)::int`,
-    }).from(tables.calls).where(eq(tables.calls.orgId, orgId));
-
-    const [sentAvg] = await this.db.select({
-      avg: sql<number>`coalesce(avg(cast(${tables.sentimentAnalyses.overallScore} as float)) * 10, 0)`,
-    }).from(tables.sentimentAnalyses).where(eq(tables.sentimentAnalyses.orgId, orgId));
-
-    const [perfAvg] = await this.db.select({
-      avg: sql<number>`coalesce(avg(cast(${tables.callAnalyses.performanceScore} as float)), 0)`,
-    }).from(tables.callAnalyses).where(eq(tables.callAnalyses.orgId, orgId));
+    const [row] = await this.db.execute(sql`
+      SELECT
+        (SELECT count(*)::int FROM ${tables.calls} WHERE ${tables.calls.orgId} = ${orgId}) AS call_count,
+        (SELECT coalesce(avg(cast(${tables.sentimentAnalyses.overallScore} as float)) * 10, 0) FROM ${tables.sentimentAnalyses} WHERE ${tables.sentimentAnalyses.orgId} = ${orgId}) AS avg_sentiment,
+        (SELECT coalesce(avg(cast(${tables.callAnalyses.performanceScore} as float)), 0) FROM ${tables.callAnalyses} WHERE ${tables.callAnalyses.orgId} = ${orgId}) AS avg_performance
+    `) as any;
 
     return {
-      totalCalls: callCount?.count || 0,
-      avgSentiment: Math.round((sentAvg?.avg || 0) * 100) / 100,
-      avgPerformanceScore: Math.round((perfAvg?.avg || 0) * 100) / 100,
+      totalCalls: row?.call_count || 0,
+      avgSentiment: Math.round((parseFloat(row?.avg_sentiment) || 0) * 100) / 100,
+      avgPerformanceScore: Math.round((parseFloat(row?.avg_performance) || 0) * 100) / 100,
       avgTranscriptionTime: 2.3,
     };
   }
@@ -543,6 +651,8 @@ export class PostgresStorage implements IStorage {
 
   async getTopPerformers(orgId: string, limit = 3): Promise<TopPerformer[]> {
     // Single query: JOIN calls → analyses → employees, aggregate in SQL
+    // HAVING count(*) >= 5 prevents employees with 1-2 calls from dominating the leaderboard
+    const MIN_CALLS_FOR_RANKING = 5;
     const rows = await this.db.select({
       employeeId: tables.calls.employeeId,
       employeeName: tables.employees.name,
@@ -557,6 +667,7 @@ export class PostgresStorage implements IStorage {
         sql`${tables.calls.employeeId} is not null`,
       ))
       .groupBy(tables.calls.employeeId, tables.employees.id, tables.employees.name, tables.employees.role)
+      .having(sql`count(*) >= ${MIN_CALLS_FOR_RANKING}`)
       .orderBy(sql`avg(cast(${tables.callAnalyses.performanceScore} as float)) desc`)
       .limit(limit);
 
@@ -946,6 +1057,25 @@ export class PostgresStorage implements IStorage {
     return expiredCalls.length;
   }
 
+  /**
+   * HIPAA: Purge audit logs older than retentionDays.
+   * Default retention is 7 years (2555 days) per HIPAA requirements.
+   * Audit logs are NEVER deleted alongside PHI data.
+   */
+  async purgeExpiredAuditLogs(orgId: string, retentionDays: number): Promise<number> {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - retentionDays);
+
+    const result = await this.db.delete(tables.auditLogs)
+      .where(and(
+        eq(tables.auditLogs.orgId, orgId),
+        lt(tables.auditLogs.createdAt, cutoff),
+      ))
+      .returning({ id: tables.auditLogs.id });
+
+    return result.length;
+  }
+
   // --- Usage tracking ---
   async recordUsageEvent(event: { orgId: string; eventType: string; quantity: number; metadata?: Record<string, unknown> }): Promise<void> {
     const id = randomUUID();
@@ -1152,6 +1282,7 @@ export class PostgresStorage implements IStorage {
       emailReceivedAt: toISOString(row.emailReceivedAt),
       chatPlatform: row.chatPlatform,
       messageCount: row.messageCount,
+      fileHash: row.fileHash,
     };
   }
 
@@ -1160,7 +1291,7 @@ export class PostgresStorage implements IStorage {
       id: row.id,
       orgId: row.orgId,
       callId: row.callId,
-      text: row.text,
+      text: typeof row.text === "string" ? decryptField(row.text) : row.text,
       confidence: row.confidence,
       words: row.words as any,
       createdAt: toISOString(row.createdAt),
@@ -1189,7 +1320,7 @@ export class PostgresStorage implements IStorage {
       responseTime: row.responseTime,
       keywords: row.keywords as string[],
       topics: row.topics as string[],
-      summary: row.summary,
+      summary: typeof row.summary === "string" ? decryptField(row.summary) : row.summary,
       actionItems: row.actionItems as string[],
       feedback: row.feedback as any,
       lemurResponse: row.lemurResponse,
@@ -1927,7 +2058,9 @@ export class PostgresStorage implements IStorage {
     const tracked = rows.filter(r => r.conversionStatus !== "unknown");
     const converted = tracked.filter(r => r.conversionStatus === "converted");
     const conversionRate = tracked.length > 0 ? converted.length / tracked.length : 0;
-    const avgDealValue = converted.length > 0 ? totalActual / converted.length : 0;
+    // Only sum actualRevenue from converted calls for accurate avg deal value
+    const convertedActual = converted.reduce((sum, r) => sum + (r.actualRevenue || 0), 0);
+    const avgDealValue = converted.length > 0 ? convertedActual / converted.length : 0;
     return { totalEstimated, totalActual, conversionRate, avgDealValue };
   }
 

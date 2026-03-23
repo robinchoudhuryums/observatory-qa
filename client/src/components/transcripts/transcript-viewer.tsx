@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Play, Pause, Download, Clock, FileText, AlertTriangle, Shield, Pencil, X, Save, History, Award, Gauge, ShieldQuestion, ClipboardCheck, BrainCircuit } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -9,7 +8,7 @@ import { Link } from "wouter";
 import { useBeforeUnload } from "@/hooks/use-before-unload";
 import { toDisplayString } from "@/lib/display-utils";
 import type { CallWithDetails } from "@shared/schema";
-import { AudioWaveform } from "lucide-react";
+import {  RiPlayLine, RiPauseLine, RiDownloadLine, RiTimeLine, RiFileTextLine, RiAlertLine, RiShieldLine, RiPencilLine, RiCloseLine, RiSaveLine, RiHistoryLine, RiAwardLine, RiDashboard3Line, RiShieldKeyholeLine, RiClipboardLine, RiBrainLine, RiVoiceprintLine, RiCheckLine, RiKeyLine, RiInputMethodLine, RiRefreshLine  } from "@remixicon/react";
 
 interface TranscriptViewerProps {
   callId: string;
@@ -46,6 +45,8 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
   const [editScore, setEditScore] = useState("");
   const [editSummary, setEditSummary] = useState("");
   const [editReason, setEditReason] = useState("");
+  const [editSubScores, setEditSubScores] = useState<Record<string, string>>({});
+  const [editActionItems, setEditActionItems] = useState<string[]>([]);
 
   // Warn before navigating away with unsaved edits
   useBeforeUnload(isEditing && (editScore !== "" || editSummary !== "" || editReason !== ""));
@@ -75,10 +76,38 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
     },
   });
 
+  const reanalyzeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/calls/${callId}/reanalyze`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Failed to start reanalysis");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/calls", callId] });
+    },
+  });
+
   const startEditing = () => {
     setEditScore(call?.analysis?.performanceScore?.toString() || "");
     setEditSummary(call?.analysis?.summary?.toString() || "");
     setEditReason("");
+    const subs = call?.analysis?.subScores as Record<string, number> | undefined;
+    setEditSubScores({
+      compliance: subs?.compliance?.toString() || "",
+      customerExperience: subs?.customerExperience?.toString() || "",
+      communication: subs?.communication?.toString() || "",
+      resolution: subs?.resolution?.toString() || "",
+    });
+    const items = call?.analysis?.actionItems;
+    setEditActionItems(
+      Array.isArray(items) ? items.map((item: unknown) => typeof item === "string" ? item : typeof item === "object" && item !== null ? (item as any).text || JSON.stringify(item) : String(item || "")) : []
+    );
     setIsEditing(true);
   };
 
@@ -90,6 +119,14 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
     }
     if (editSummary !== (call?.analysis?.summary?.toString() || "")) {
       updates.summary = editSummary;
+    }
+    // Check if action items changed
+    const origItems = Array.isArray(call?.analysis?.actionItems)
+      ? (call!.analysis!.actionItems as unknown[]).map((i: unknown) => typeof i === "string" ? i : String(i))
+      : [];
+    const cleanedItems = editActionItems.filter(i => i.trim());
+    if (JSON.stringify(cleanedItems) !== JSON.stringify(origItems)) {
+      updates.actionItems = cleanedItems;
     }
     if (Object.keys(updates).length === 0) {
       setIsEditing(false);
@@ -142,7 +179,7 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <AudioWaveform className="w-8 h-8 animate-spin text-primary" />
+        <RiVoiceprintLine className="w-8 h-8 animate-spin text-primary" />
         <p className="ml-2 text-muted-foreground">Analyzing performance...</p>
       </div>
     );
@@ -334,15 +371,15 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
         </div>
         <div className="flex items-center space-x-2">
           <Button variant="outline" size="sm" onClick={handleExportTranscript} data-testid="export-transcript">
-            <FileText className="w-4 h-4 mr-1" />
+            <RiFileTextLine className="w-4 h-4 mr-1" />
             Export
           </Button>
           <Button variant="outline" size="sm" onClick={handleDownloadAudio} data-testid="download-audio">
-            <Download className="w-4 h-4 mr-1" />
+            <RiDownloadLine className="w-4 h-4 mr-1" />
             Download
           </Button>
           <Button size="sm" onClick={togglePlayPause} data-testid="play-audio">
-            {isPlaying ? <Pause className="w-4 h-4 mr-1" /> : <Play className="w-4 h-4 mr-1" />}
+            {isPlaying ? <RiPauseLine className="w-4 h-4 mr-1" /> : <RiPlayLine className="w-4 h-4 mr-1" />}
             {isPlaying ? "Pause" : "Play Audio"}
           </Button>
           <Button
@@ -352,7 +389,7 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
             title="Playback speed"
             className="w-16 text-xs font-mono"
           >
-            <Gauge className="w-3 h-3 mr-1" />
+            <RiDashboard3Line className="w-3 h-3 mr-1" />
             {playbackRate}x
           </Button>
         </div>
@@ -365,7 +402,7 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
       {call.analysis?.confidenceFactors && typeof call.analysis.confidenceFactors === "object" &&
        (call.analysis.confidenceFactors as Record<string, unknown>).aiAnalysisCompleted === false && (
         <div className="mb-4 rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/30 p-3 flex items-start gap-3">
-          <BrainCircuit className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+          <RiBrainLine className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
           <div>
             <p className="text-sm font-medium text-amber-800 dark:text-amber-300">AI analysis unavailable</p>
             <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
@@ -427,7 +464,7 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
                         className="text-xs text-muted-foreground bg-background px-2 py-1 rounded hover:bg-primary hover:text-primary-foreground"
                         onClick={() => jumpToTime(segment.start)}
                       >
-                        <Clock className="w-3 h-3 mr-1 inline" />
+                        <RiTimeLine className="w-3 h-3 mr-1 inline" />
                         {formatTimestamp(segment.start)}
                       </button>
                       <div className="flex-1">
@@ -456,7 +493,7 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
           {call.analysis?.manualEdits && Array.isArray(call.analysis.manualEdits) && (call.analysis.manualEdits as any[]).length > 0 && (
             <div className="bg-amber-50 dark:bg-amber-950/30 rounded-lg p-3 border border-amber-200 dark:border-amber-900">
               <div className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400 text-xs font-medium mb-1">
-                <History className="w-3.5 h-3.5" />
+                <RiHistoryLine className="w-3.5 h-3.5" />
                 Manually Edited ({(call.analysis.manualEdits as any[]).length} edit{(call.analysis.manualEdits as any[]).length > 1 ? "s" : ""})
               </div>
               {(call.analysis.manualEdits as any[]).map((edit: any, i: number) => (
@@ -474,9 +511,19 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
             <div className="flex items-center justify-between mb-3">
               <h4 className="font-semibold text-foreground">Call Summary</h4>
               {!isEditing && call.analysis && (
-                <Button size="sm" variant="ghost" onClick={startEditing} className="h-7 text-xs">
-                  <Pencil className="w-3 h-3 mr-1" /> Edit
-                </Button>
+                <div className="flex gap-1">
+                  <Button size="sm" variant="ghost" onClick={startEditing} className="h-7 text-xs">
+                    <RiPencilLine className="w-3 h-3 mr-1" /> Edit
+                  </Button>
+                  <Button
+                    size="sm" variant="ghost" className="h-7 text-xs"
+                    onClick={() => reanalyzeMutation.mutate()}
+                    disabled={reanalyzeMutation.isPending || call.status !== "completed"}
+                    title="Re-run AI analysis with current prompt templates"
+                  >
+                    <RiRefreshLine className="w-3 h-3 mr-1" /> {reanalyzeMutation.isPending ? "Reanalyzing..." : "Reanalyze"}
+                  </Button>
+                </div>
               )}
             </div>
 
@@ -500,6 +547,31 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
                   />
                 </div>
                 <div>
+                  <Label className="text-xs">Action Items</Label>
+                  <div className="space-y-1">
+                    {editActionItems.map((item, i) => (
+                      <div key={i} className="flex gap-1">
+                        <Input
+                          value={item}
+                          onChange={e => {
+                            const next = [...editActionItems];
+                            next[i] = e.target.value;
+                            setEditActionItems(next);
+                          }}
+                          className="h-7 text-xs"
+                          placeholder={`Action item ${i + 1}`}
+                        />
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 shrink-0" onClick={() => setEditActionItems(editActionItems.filter((_, j) => j !== i))}>
+                          <RiCloseLine className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    ))}
+                    <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => setEditActionItems([...editActionItems, ""])}>
+                      + Add Item
+                    </Button>
+                  </div>
+                </div>
+                <div>
                   <Label className="text-xs text-red-600">Reason for Edit *</Label>
                   <Input
                     value={editReason}
@@ -517,10 +589,10 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
                     disabled={!editReason.trim() || editMutation.isPending}
                     className="h-7 text-xs"
                   >
-                    <Save className="w-3 h-3 mr-1" /> {editMutation.isPending ? "Saving..." : "Save"}
+                    <RiSaveLine className="w-3 h-3 mr-1" /> {editMutation.isPending ? "Saving..." : "Save"}
                   </Button>
                   <Button size="sm" variant="ghost" onClick={() => setIsEditing(false)} className="h-7 text-xs">
-                    <X className="w-3 h-3 mr-1" /> Cancel
+                    <RiCloseLine className="w-3 h-3 mr-1" /> Cancel
                   </Button>
                 </div>
               </div>
@@ -629,7 +701,7 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
                                   jumpToTime(ms);
                                 }}
                               >
-                                <Clock className="w-3 h-3 mr-0.5 inline" />{ts}
+                                <RiTimeLine className="w-3 h-3 mr-0.5 inline" />{ts}
                               </button>
                             )}
                           </li>
@@ -658,7 +730,7 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
                                   jumpToTime(ms);
                                 }}
                               >
-                                <Clock className="w-3 h-3 mr-0.5 inline" />{ts}
+                                <RiTimeLine className="w-3 h-3 mr-0.5 inline" />{ts}
                               </button>
                             )}
                           </li>
@@ -682,7 +754,7 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
             const headerClass = hasExceptional && !hasBad
               ? "text-emerald-700 dark:text-emerald-400"
               : "text-red-700 dark:text-red-400";
-            const HeaderIcon = hasExceptional && !hasBad ? Award : AlertTriangle;
+            const HeaderIcon = hasExceptional && !hasBad ? RiAwardLine : RiAlertLine;
             return (
               <div className={`rounded-lg p-4 border ${bgClass}`}>
                 <h4 className={`font-semibold mb-2 flex items-center gap-1.5 ${headerClass}`}>
@@ -698,7 +770,7 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
                     const color = isExceptional ? "bg-emerald-200 text-emerald-900" : isMisconduct ? "bg-red-200 text-red-900" : isMedicare ? "bg-blue-200 text-blue-900" : "bg-amber-200 text-amber-900";
                     return (
                       <Badge key={i} className={`${color} text-xs`}>
-                        {isExceptional && <Award className="w-3 h-3 mr-1 inline" />}
+                        {isExceptional && <RiAwardLine className="w-3 h-3 mr-1 inline" />}
                         {label}
                       </Badge>
                     );
@@ -709,7 +781,7 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
                     href={`/coaching?newSession=true&employeeId=${call.employee.id}&callId=${callId}&category=${flags.some(f => f.startsWith("agent_misconduct")) ? "compliance" : "general"}`}
                     className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
                   >
-                    <ClipboardCheck className="w-3.5 h-3.5" /> Create Coaching Session
+                    <RiClipboardLine className="w-3.5 h-3.5" /> Create Coaching Session
                   </Link>
                 )}
               </div>
@@ -720,7 +792,7 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
           {call.analysis?.callPartyType && (
             <div className="bg-muted rounded-lg p-4">
               <h4 className="font-semibold text-foreground mb-2 flex items-center gap-1.5">
-                <Shield className="w-4 h-4" /> Call Party
+                <RiShieldLine className="w-4 h-4" /> Call Party
               </h4>
               <Badge variant="outline" className="capitalize">{toDisplayString(call.analysis.callPartyType).replace(/_/g, " ")}</Badge>
             </div>
@@ -742,7 +814,7 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
             return (
               <div className={`rounded-lg p-4 ${bgClass}`}>
                 <h4 className={`font-semibold mb-2 flex items-center gap-1.5 ${isLow ? "text-yellow-700 dark:text-yellow-400" : "text-foreground"}`}>
-                  <ShieldQuestion className="w-4 h-4" /> AI Confidence
+                  <RiShieldKeyholeLine className="w-4 h-4" /> AI Confidence
                 </h4>
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">

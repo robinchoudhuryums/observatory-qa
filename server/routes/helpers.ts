@@ -70,6 +70,73 @@ export function parseDateParam(val: unknown): Date | undefined {
   return date;
 }
 
+/**
+ * Extract pagination params from query string with safe defaults.
+ * Returns { limit, offset } clamped to reasonable bounds.
+ */
+export function parsePagination(query: Record<string, unknown>, defaults: { limit?: number; maxLimit?: number } = {}): { limit: number; offset: number } {
+  const maxLimit = defaults.maxLimit ?? 500;
+  const defaultLimit = defaults.limit ?? 100;
+  const limit = Math.min(Math.max(safeInt(query.limit, defaultLimit), 1), maxLimit);
+  const offset = Math.max(safeInt(query.offset, 0), 0);
+  return { limit, offset };
+}
+
+/**
+ * Apply pagination to an in-memory array and return paginated response shape.
+ */
+export function paginateArray<T>(items: T[], limit: number, offset: number): { data: T[]; total: number; limit: number; offset: number; hasMore: boolean } {
+  const total = items.length;
+  const data = items.slice(offset, offset + limit);
+  return { data, total, limit, offset, hasMore: offset + limit < total };
+}
+
+/**
+ * Per-org concurrent upload limiter.
+ * Prevents a single org from consuming all upload slots.
+ */
+const orgUploadCounts = new Map<string, number>();
+const MAX_CONCURRENT_UPLOADS_PER_ORG = 5;
+
+export function acquireUploadSlot(orgId: string): boolean {
+  const current = orgUploadCounts.get(orgId) || 0;
+  if (current >= MAX_CONCURRENT_UPLOADS_PER_ORG) return false;
+  orgUploadCounts.set(orgId, current + 1);
+  return true;
+}
+
+export function releaseUploadSlot(orgId: string): void {
+  const current = orgUploadCounts.get(orgId) || 0;
+  if (current <= 1) orgUploadCounts.delete(orgId);
+  else orgUploadCounts.set(orgId, current - 1);
+}
+
+/**
+ * Periodic cleanup of orphaned temp files in the uploads directory.
+ * Files older than 1 hour are removed (normal processing completes in minutes).
+ */
+const ORPHAN_FILE_AGE_MS = 60 * 60 * 1000; // 1 hour
+
+export function startUploadCleanup(): void {
+  const interval = setInterval(() => {
+    try {
+      if (!fs.existsSync(uploadsDir)) return;
+      const files = fs.readdirSync(uploadsDir);
+      const now = Date.now();
+      for (const file of files) {
+        const filePath = path.join(uploadsDir, file);
+        try {
+          const stats = fs.statSync(filePath);
+          if (now - stats.mtimeMs > ORPHAN_FILE_AGE_MS) {
+            fs.unlinkSync(filePath);
+          }
+        } catch { /* file may have been removed between readdir and stat */ }
+      }
+    } catch { /* uploads dir may not exist */ }
+  }, 30 * 60 * 1000); // Every 30 minutes
+  interval.unref();
+}
+
 // Ensure uploads directory exists
 const uploadsDir = 'uploads';
 if (!fs.existsSync(uploadsDir)) {

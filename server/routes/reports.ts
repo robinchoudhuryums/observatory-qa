@@ -6,6 +6,10 @@ import { requireAuth, injectOrgContext } from "../auth";
 import { safeFloat } from "./helpers";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
+import { errorResponse, ERROR_CODES } from "../services/error-codes";
+
+/** Maximum calls to process for report generation to prevent memory exhaustion. */
+const MAX_REPORT_CALLS = 10_000;
 
 function safeJsonParse<T>(val: unknown, fallback: T): T {
   if (typeof val !== 'string') return (val as T) ?? fallback;
@@ -14,7 +18,7 @@ function safeJsonParse<T>(val: unknown, fallback: T): T {
 
 export function registerReportRoutes(app: Express): void {
 
-  // Search calls
+  // Search calls (with optional score/date/category filters)
   app.get("/api/search", requireAuth, injectOrgContext, async (req, res) => {
     try {
       const query = req.query.q as string;
@@ -23,7 +27,44 @@ export function registerReportRoutes(app: Express): void {
         return;
       }
 
-      const results = await storage.searchCalls(req.orgId!, query);
+      // Optional server-side filters
+      const minScore = req.query.minScore ? parseFloat(req.query.minScore as string) : undefined;
+      const maxScore = req.query.maxScore ? parseFloat(req.query.maxScore as string) : undefined;
+      const from = req.query.from as string | undefined;
+      const to = req.query.to as string | undefined;
+      const category = req.query.category as string | undefined;
+
+      let results = await storage.searchCalls(req.orgId!, query);
+
+      // Apply server-side filters to search results
+      if (minScore !== undefined && !isNaN(minScore)) {
+        results = results.filter(r => {
+          const score = Number(r.analysis?.performanceScore);
+          return !isNaN(score) && score >= minScore;
+        });
+      }
+      if (maxScore !== undefined && !isNaN(maxScore)) {
+        results = results.filter(r => {
+          const score = Number(r.analysis?.performanceScore);
+          return !isNaN(score) && score <= maxScore;
+        });
+      }
+      if (from) {
+        const fromDate = new Date(from);
+        if (!isNaN(fromDate.getTime())) {
+          results = results.filter(r => new Date(r.uploadedAt || 0) >= fromDate);
+        }
+      }
+      if (to) {
+        const toDate = new Date(to);
+        if (!isNaN(toDate.getTime())) {
+          toDate.setHours(23, 59, 59, 999);
+          results = results.filter(r => new Date(r.uploadedAt || 0) <= toDate);
+        }
+      }
+      if (category) {
+        results = results.filter(r => r.callCategory === category);
+      }
       logPhiAccess({
         ...auditContext(req),
         event: "search_calls",
@@ -32,7 +73,7 @@ export function registerReportRoutes(app: Express): void {
       });
       res.json(results);
     } catch (error) {
-      res.status(500).json({ message: "Failed to search calls" });
+      res.status(500).json(errorResponse(ERROR_CODES.REPORT_SEARCH_FAILED, "Failed to search calls"));
     }
   });
 
@@ -41,10 +82,11 @@ export function registerReportRoutes(app: Express): void {
     try {
       // We can reuse the existing function to get top performers
       const performers = await storage.getTopPerformers(req.orgId!, 10); // Get top 10
+      logPhiAccess({ ...auditContext(req), event: "view_performance", resourceType: "performance" });
       res.json(performers);
     } catch (error) {
       logger.error({ err: error }, "Failed to get performance data");
-      res.status(500).json({ message: "Failed to get performance data" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get performance data"));
     }
   });
 
@@ -62,10 +104,11 @@ export function registerReportRoutes(app: Express): void {
         performers,
       };
 
+      logPhiAccess({ ...auditContext(req), event: "view_report_summary", resourceType: "report" });
       res.json(reportData);
     } catch (error) {
       logger.error({ err: error }, "Failed to generate report data");
-      res.status(500).json({ message: "Failed to generate report data" });
+      res.status(500).json(errorResponse(ERROR_CODES.REPORT_GENERATION_FAILED, "Failed to generate report data"));
     }
   });
 
@@ -84,7 +127,8 @@ export function registerReportRoutes(app: Express): void {
         return;
       }
 
-      const allCalls = await storage.getCallSummaries(req.orgId!, { status: "completed" });
+      const rawCalls = await storage.getCallSummaries(req.orgId!, { status: "completed" });
+      const allCalls = rawCalls.slice(-MAX_REPORT_CALLS);
       const employees = await storage.getAllEmployees(req.orgId!);
 
       // Build employee lookup maps
@@ -222,6 +266,7 @@ export function registerReportRoutes(app: Express): void {
       // Count auto-assigned calls
       const autoAssignedCount = filtered.filter(c => (c.analysis as any)?.detectedAgentName).length;
 
+      logPhiAccess({ ...auditContext(req), event: "view_filtered_report", resourceType: "report", detail: `${totalCalls} calls, date range: ${from || "all"} to ${to || "now"}` });
       res.json({
         metrics: {
           totalCalls,
@@ -236,7 +281,7 @@ export function registerReportRoutes(app: Express): void {
       });
     } catch (error) {
       logger.error({ err: error }, "Failed to generate filtered report");
-      res.status(500).json({ message: "Failed to generate filtered report" });
+      res.status(500).json(errorResponse(ERROR_CODES.REPORT_GENERATION_FAILED, "Failed to generate filtered report"));
     }
   });
 
@@ -296,10 +341,11 @@ export function registerReportRoutes(app: Express): void {
         flaggedCount: current.flaggedCount - previous.flaggedCount,
       };
 
+      logPhiAccess({ ...auditContext(req), event: "view_report_compare", resourceType: "report" });
       res.json({ current, previous, delta });
     } catch (error) {
       logger.error({ err: error }, "Failed to generate comparative report");
-      res.status(500).json({ message: "Failed to generate comparative report" });
+      res.status(500).json(errorResponse(ERROR_CODES.REPORT_GENERATION_FAILED, "Failed to generate comparative report"));
     }
   });
 
@@ -311,7 +357,7 @@ export function registerReportRoutes(app: Express): void {
 
       const employee = await storage.getEmployee(req.orgId!, employeeId);
       if (!employee) {
-        res.status(404).json({ message: "Employee not found" });
+        res.status(404).json(errorResponse(ERROR_CODES.EMP_NOT_FOUND, "Employee not found"));
         return;
       }
 
@@ -457,7 +503,7 @@ export function registerReportRoutes(app: Express): void {
       });
     } catch (error) {
       logger.error({ err: error }, "Failed to generate agent profile");
-      res.status(500).json({ message: "Failed to generate agent profile" });
+      res.status(500).json(errorResponse(ERROR_CODES.REPORT_GENERATION_FAILED, "Failed to generate agent profile"));
     }
   });
 
@@ -474,7 +520,7 @@ export function registerReportRoutes(app: Express): void {
 
       const employee = await storage.getEmployee(req.orgId!, employeeId);
       if (!employee) {
-        res.status(404).json({ message: "Employee not found" });
+        res.status(404).json(errorResponse(ERROR_CODES.EMP_NOT_FOUND, "Employee not found"));
         return;
       }
 
@@ -573,7 +619,7 @@ export function registerReportRoutes(app: Express): void {
       res.json({ summary });
     } catch (error) {
       logger.error({ err: error }, "Failed to generate agent summary");
-      res.status(500).json({ message: "Failed to generate AI summary" });
+      res.status(500).json(errorResponse(ERROR_CODES.REPORT_GENERATION_FAILED, "Failed to generate AI summary"));
     }
   });
 
@@ -583,7 +629,7 @@ export function registerReportRoutes(app: Express): void {
       const { employeeId } = req.params;
       const employee = await storage.getEmployee(req.orgId!, employeeId);
       if (!employee) {
-        res.status(404).json({ message: "Employee not found" });
+        res.status(404).json(errorResponse(ERROR_CODES.EMP_NOT_FOUND, "Employee not found"));
         return;
       }
 
@@ -651,7 +697,7 @@ export function registerReportRoutes(app: Express): void {
       res.send(html);
     } catch (error) {
       logger.error({ err: error }, "Failed to export agent report");
-      res.status(500).json({ message: "Failed to export agent report" });
+      res.status(500).json(errorResponse(ERROR_CODES.REPORT_GENERATION_FAILED, "Failed to export agent report"));
     }
   });
 }

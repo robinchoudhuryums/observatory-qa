@@ -1,10 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import {
-  Building2, Upload, Palette, FileText, Check, ChevronRight, ChevronLeft,
-  Image, X, Sparkles, BookOpen, AlertCircle,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useOrganization } from "@/hooks/use-organization";
 import { REFERENCE_DOC_CATEGORIES, type ReferenceDocCategory } from "@shared/schema";
+import {  RiBuilding2Line, RiUploadLine, RiPaletteLine, RiFileTextLine, RiCheckLine, RiArrowRightSLine, RiArrowLeftSLine, RiCloseLine, RiSparklingLine, RiErrorWarningLine, RiBookOpenLine, RiImageLine, RiSettings3Line  } from "@remixicon/react";
 
 const CATEGORY_LABELS: Record<string, string> = {
   employee_handbook: "Employee Handbook",
@@ -135,7 +132,7 @@ function WelcomeStep({ onNext, orgName }: { onNext: () => void; orgName?: string
     <div className="text-center space-y-8">
       <div className="space-y-3">
         <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto">
-          <Building2 className="w-8 h-8 text-primary" />
+          <RiBuilding2Line className="w-8 h-8 text-primary" />
         </div>
         <h2 className="text-2xl font-bold text-foreground">
           Welcome to Observatory{orgName ? `, ${orgName}` : ""}!
@@ -149,7 +146,7 @@ function WelcomeStep({ onNext, orgName }: { onNext: () => void; orgName?: string
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
         <Card className="border-border">
           <CardContent className="p-4 flex gap-3">
-            <Palette className="w-5 h-5 text-primary mt-0.5 shrink-0" />
+            <RiPaletteLine className="w-5 h-5 text-primary mt-0.5 shrink-0" />
             <div>
               <p className="font-medium text-foreground text-sm">Company Branding</p>
               <p className="text-xs text-muted-foreground">Upload your logo and we'll auto-extract your brand colors</p>
@@ -158,7 +155,7 @@ function WelcomeStep({ onNext, orgName }: { onNext: () => void; orgName?: string
         </Card>
         <Card className="border-border">
           <CardContent className="p-4 flex gap-3">
-            <BookOpen className="w-5 h-5 text-primary mt-0.5 shrink-0" />
+            <RiBookOpenLine className="w-5 h-5 text-primary mt-0.5 shrink-0" />
             <div>
               <p className="font-medium text-foreground text-sm">Reference Documents</p>
               <p className="text-xs text-muted-foreground">Add handbooks and guides for smarter AI analysis</p>
@@ -170,7 +167,7 @@ function WelcomeStep({ onNext, orgName }: { onNext: () => void; orgName?: string
       <div className="flex justify-center pt-2">
         <Button onClick={onNext} size="lg">
           Get Started
-          <ChevronRight className="w-4 h-4 ml-2" />
+          <RiArrowRightSLine className="w-4 h-4 ml-2" />
         </Button>
       </div>
 
@@ -182,7 +179,7 @@ function WelcomeStep({ onNext, orgName }: { onNext: () => void; orgName?: string
 }
 
 // =============================================================================
-// STEP 2: Branding (Logo Upload + Color Extraction)
+// STEP 2: Branding (Logo RiUploadLine + Color Extraction)
 // =============================================================================
 function BrandingStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
   const { toast } = useToast();
@@ -201,7 +198,7 @@ function BrandingStep({ onNext, onBack }: { onNext: () => void; onBack: () => vo
     reader.onload = (e) => setLogoPreview(e.target?.result as string);
     reader.readAsDataURL(file);
 
-    // Upload to server
+    // RiUploadLine to server
     setIsUploading(true);
     try {
       const formData = new FormData();
@@ -268,7 +265,7 @@ function BrandingStep({ onNext, onBack }: { onNext: () => void; onBack: () => vo
     <div className="space-y-6">
       <div className="space-y-2">
         <h2 className="text-xl font-bold text-foreground flex items-center gap-2">
-          <Image className="w-5 h-5 text-primary" />
+          <RiImageLine className="w-5 h-5 text-primary" />
           Company Branding
         </h2>
         <p className="text-sm text-muted-foreground">
@@ -314,7 +311,7 @@ function BrandingStep({ onNext, onBack }: { onNext: () => void; onBack: () => vo
         ) : (
           <div className="space-y-3">
             <div className="w-16 h-16 rounded-xl bg-muted flex items-center justify-center mx-auto">
-              <Upload className="w-8 h-8 text-muted-foreground" />
+              <RiUploadLine className="w-8 h-8 text-muted-foreground" />
             </div>
             <div>
               <p className="text-sm font-medium text-foreground">Drop your logo here or click to browse</p>
@@ -327,7 +324,7 @@ function BrandingStep({ onNext, onBack }: { onNext: () => void; onBack: () => vo
       {/* Extracted / editable colors */}
       <div className="space-y-4">
         <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-primary" />
+          <RiSparklingLine className="w-4 h-4 text-primary" />
           <span className="text-sm font-medium text-foreground">
             {extractedColors ? "Colors extracted from logo" : "Brand Colors"}
           </span>
@@ -392,11 +389,11 @@ function BrandingStep({ onNext, onBack }: { onNext: () => void; onBack: () => vo
       {/* Navigation */}
       <div className="flex justify-between pt-4">
         <Button variant="outline" onClick={onBack}>
-          <ChevronLeft className="w-4 h-4 mr-2" />Back
+          <RiArrowLeftSLine className="w-4 h-4 mr-2" />Back
         </Button>
         <Button onClick={() => saveBranding.mutate()} disabled={saveBranding.isPending}>
           {saveBranding.isPending ? "Saving..." : "Continue"}
-          <ChevronRight className="w-4 h-4 ml-2" />
+          <RiArrowRightSLine className="w-4 h-4 ml-2" />
         </Button>
       </div>
     </div>
@@ -460,7 +457,7 @@ function DocumentsStep({ onNext, onBack }: { onNext: () => void; onBack: () => v
     <div className="space-y-6">
       <div className="space-y-2">
         <h2 className="text-xl font-bold text-foreground flex items-center gap-2">
-          <FileText className="w-5 h-5 text-primary" />
+          <RiFileTextLine className="w-5 h-5 text-primary" />
           Company Reference Documents
         </h2>
         <p className="text-sm text-muted-foreground">
@@ -491,7 +488,7 @@ function DocumentsStep({ onNext, onBack }: { onNext: () => void; onBack: () => v
       {/* Upload area */}
       <div className="space-y-3 rounded-lg border border-border p-4">
         <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-          <Upload className="w-4 h-4" />
+          <RiUploadLine className="w-4 h-4" />
           Upload a {CATEGORY_LABELS[selectedCategory]}
         </div>
 
@@ -534,7 +531,7 @@ function DocumentsStep({ onNext, onBack }: { onNext: () => void; onBack: () => v
           {uploadedDocs.map((doc) => (
             <div key={doc.id} className="flex items-center justify-between p-3 rounded-lg border border-border bg-card">
               <div className="flex items-center gap-3 min-w-0">
-                <FileText className="w-4 h-4 text-primary shrink-0" />
+                <RiFileTextLine className="w-4 h-4 text-primary shrink-0" />
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-foreground truncate">{doc.name}</p>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -549,7 +546,7 @@ function DocumentsStep({ onNext, onBack }: { onNext: () => void; onBack: () => v
                 className="text-muted-foreground hover:text-red-600 shrink-0"
                 onClick={() => deleteMutation.mutate(doc.id)}
               >
-                <X className="w-4 h-4" />
+                <RiCloseLine className="w-4 h-4" />
               </Button>
             </div>
           ))}
@@ -558,7 +555,7 @@ function DocumentsStep({ onNext, onBack }: { onNext: () => void; onBack: () => v
 
       {uploadedDocs.length === 0 && (
         <div className="flex items-start gap-2 p-3 rounded-lg bg-muted/50 border border-border">
-          <AlertCircle className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+          <RiErrorWarningLine className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
           <p className="text-xs text-muted-foreground">
             No documents uploaded yet. This step is optional — the AI will still analyze calls,
             but having company-specific context leads to more accurate scoring and relevant feedback.
@@ -569,11 +566,11 @@ function DocumentsStep({ onNext, onBack }: { onNext: () => void; onBack: () => v
       {/* Navigation */}
       <div className="flex justify-between pt-4">
         <Button variant="outline" onClick={onBack}>
-          <ChevronLeft className="w-4 h-4 mr-2" />Back
+          <RiArrowLeftSLine className="w-4 h-4 mr-2" />Back
         </Button>
         <Button onClick={onNext}>
           {uploadedDocs.length > 0 ? "Continue" : "Skip for Now"}
-          <ChevronRight className="w-4 h-4 ml-2" />
+          <RiArrowRightSLine className="w-4 h-4 ml-2" />
         </Button>
       </div>
     </div>
@@ -596,7 +593,7 @@ function CompleteStep({ onFinish, onBack, isLoading }: { onFinish: () => void; o
     <div className="text-center space-y-6">
       <div className="space-y-3">
         <div className="w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mx-auto">
-          <Check className="w-8 h-8 text-green-600 dark:text-green-400" />
+          <RiCheckLine className="w-8 h-8 text-green-600 dark:text-green-400" />
         </div>
         <h2 className="text-2xl font-bold text-foreground">You're all set!</h2>
         <p className="text-muted-foreground max-w-md mx-auto">
@@ -605,10 +602,10 @@ function CompleteStep({ onFinish, onBack, isLoading }: { onFinish: () => void; o
       </div>
 
       <div className="grid grid-cols-1 gap-3 text-left max-w-sm mx-auto">
-        <SummaryItem icon={<Building2 className="w-4 h-4" />} label="Organization" value={org?.name || "Created"} done />
-        <SummaryItem icon={<Image className="w-4 h-4" />} label="Company Logo" value={hasLogo ? "Uploaded" : "Not uploaded"} done={hasLogo} />
-        <SummaryItem icon={<Palette className="w-4 h-4" />} label="Brand Colors" value={hasColors ? "Configured" : "Using defaults"} done={hasColors} />
-        <SummaryItem icon={<FileText className="w-4 h-4" />} label="Reference Documents" value={hasDocs ? `${docs.length} uploaded` : "None uploaded"} done={hasDocs} />
+        <SummaryItem icon={<RiBuilding2Line className="w-4 h-4" />} label="Organization" value={org?.name || "Created"} done />
+        <SummaryItem icon={<RiImageLine className="w-4 h-4" />} label="Company Logo" value={hasLogo ? "Uploaded" : "Not uploaded"} done={hasLogo} />
+        <SummaryItem icon={<RiPaletteLine className="w-4 h-4" />} label="Brand Colors" value={hasColors ? "Configured" : "Using defaults"} done={hasColors} />
+        <SummaryItem icon={<RiFileTextLine className="w-4 h-4" />} label="Reference Documents" value={hasDocs ? `${docs.length} uploaded` : "None uploaded"} done={hasDocs} />
       </div>
 
       <p className="text-xs text-muted-foreground">
@@ -617,11 +614,11 @@ function CompleteStep({ onFinish, onBack, isLoading }: { onFinish: () => void; o
 
       <div className="flex justify-between pt-4">
         <Button variant="outline" onClick={onBack}>
-          <ChevronLeft className="w-4 h-4 mr-2" />Back
+          <RiArrowLeftSLine className="w-4 h-4 mr-2" />Back
         </Button>
         <Button onClick={onFinish} disabled={isLoading} size="lg">
           {isLoading ? "Finishing..." : "Go to Dashboard"}
-          <ChevronRight className="w-4 h-4 ml-2" />
+          <RiArrowRightSLine className="w-4 h-4 ml-2" />
         </Button>
       </div>
     </div>
@@ -632,7 +629,7 @@ function SummaryItem({ icon, label, value, done }: { icon: React.ReactNode; labe
   return (
     <div className="flex items-center gap-3 p-3 rounded-lg border border-border">
       <div className={`shrink-0 ${done ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}`}>
-        {done ? <Check className="w-4 h-4" /> : icon}
+        {done ? <RiCheckLine className="w-4 h-4" /> : icon}
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-foreground">{label}</p>

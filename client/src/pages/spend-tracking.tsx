@@ -2,8 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DollarSign, TrendingUp, Calendar, Activity, FlaskConical, Phone } from "lucide-react";
 import { type UsageRecord } from "@shared/schema";
+import {  RiMoneyDollarCircleLine, RiArrowRightUpLine, RiCalendarLine, RiPulseLine, RiFlaskLine, RiPhoneLine, RiUserLine  } from "@remixicon/react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell,
 } from "recharts";
@@ -98,7 +98,7 @@ export default function SpendTrackingPage() {
     return (
       <div className="p-6">
         <div className="flex items-center justify-center h-64">
-          <Activity className="w-8 h-8 animate-spin text-primary" />
+          <RiPulseLine className="w-8 h-8 animate-spin text-primary" />
         </div>
       </div>
     );
@@ -141,9 +141,9 @@ export default function SpendTrackingPage() {
                 <div key={r.id} className="flex items-center justify-between py-2 px-3 rounded-md hover:bg-muted/50 border border-transparent hover:border-border transition-colors">
                   <div className="flex items-center gap-3">
                     {r.type === "call" ? (
-                      <Phone className="w-4 h-4 text-blue-500" />
+                      <RiPhoneLine className="w-4 h-4 text-blue-500" />
                     ) : (
-                      <FlaskConical className="w-4 h-4 text-purple-500" />
+                      <RiFlaskLine className="w-4 h-4 text-purple-500" />
                     )}
                     <div>
                       <span className="text-sm font-medium">
@@ -207,7 +207,7 @@ function PeriodView({ records, period }: { records: UsageRecord[]; period: Perio
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30">
-                <DollarSign className="w-5 h-5 text-green-600 dark:text-green-400" />
+                <RiMoneyDollarCircleLine className="w-5 h-5 text-green-600 dark:text-green-400" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Estimated Cost</p>
@@ -221,7 +221,7 @@ function PeriodView({ records, period }: { records: UsageRecord[]; period: Perio
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
-                <Phone className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                <RiPhoneLine className="w-5 h-5 text-blue-600 dark:text-blue-400" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Calls Processed</p>
@@ -238,7 +238,7 @@ function PeriodView({ records, period }: { records: UsageRecord[]; period: Perio
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-purple-100 dark:bg-purple-900/30">
-                <TrendingUp className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                <RiArrowRightUpLine className="w-5 h-5 text-purple-600 dark:text-purple-400" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Avg Cost / Call</p>
@@ -252,7 +252,7 @@ function PeriodView({ records, period }: { records: UsageRecord[]; period: Perio
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-orange-100 dark:bg-orange-900/30">
-                <Calendar className="w-5 h-5 text-orange-600 dark:text-orange-400" />
+                <RiCalendarLine className="w-5 h-5 text-orange-600 dark:text-orange-400" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Period</p>

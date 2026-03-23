@@ -1,10 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import {
-  Mic, Square, Pause, Play, FileText, Stethoscope,
-  Clock, AlertCircle, CheckCircle2, Radio, ArrowLeft, WifiOff,
-} from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { CLINICAL_SPECIALTIES, CLINICAL_NOTE_FORMATS } from "@shared/schema";
 import type { ClinicalNote, LiveSession } from "@shared/schema";
+import {  RiMicLine, RiCheckboxBlankLine, RiPauseLine, RiPlayLine, RiFileTextLine, RiStethoscopeLine, RiTimeLine, RiErrorWarningLine, RiCheckboxCircleLine, RiBroadcastLine, RiArrowLeftLine, RiWifiOffLine, RiHistoryLine, RiTimerLine, RiInputMethodLine, RiSendPlaneLine  } from "@remixicon/react";
 
 type SessionPhase = "setup" | "recording" | "completed";
 
@@ -96,7 +93,7 @@ export default function ClinicalLivePage() {
     };
   }, []);
 
-  // Timer
+  // RiTimerLine
   useEffect(() => {
     if (phase === "recording" && !isPaused) {
       timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
@@ -151,7 +148,7 @@ export default function ClinicalLivePage() {
         }
         const base64 = btoa(binary);
 
-        // Send to server (fire-and-forget)
+        // RiSendPlaneLine to server (fire-and-forget)
         fetch(`/api/live-sessions/${sessionIdRef.current}/audio`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -228,7 +225,7 @@ export default function ClinicalLivePage() {
     },
   });
 
-  // Pause/resume
+  // RiPauseLine/resume
   const pauseMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", `/api/live-sessions/${sessionIdRef.current}/pause`);
@@ -277,13 +274,13 @@ export default function ClinicalLivePage() {
     return (
       <div className="container max-w-3xl mx-auto py-8 px-4">
         <Button variant="ghost" size="sm" className="mb-4" onClick={() => navigate("/clinical")}>
-          <ArrowLeft className="w-4 h-4 mr-1" /> Back to Clinical Dashboard
+          <RiArrowLeftLine className="w-4 h-4 mr-1" /> Back to Clinical Dashboard
         </Button>
 
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Radio className="w-5 h-5 text-red-500" />
+              <RiBroadcastLine className="w-5 h-5 text-red-500" />
               Live Clinical Recording
             </CardTitle>
             <CardDescription>
@@ -332,7 +329,7 @@ export default function ClinicalLivePage() {
             <Separator />
 
             <div className="flex items-start gap-3 p-4 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30">
-              <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+              <RiErrorWarningLine className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
               <div className="space-y-2">
                 <p className="text-sm font-medium">Patient Consent Required</p>
                 <p className="text-sm text-muted-foreground">
@@ -357,7 +354,7 @@ export default function ClinicalLivePage() {
               disabled={!consentConfirmed || startMutation.isPending}
               onClick={() => startMutation.mutate()}
             >
-              <Mic className="w-5 h-5 mr-2" />
+              <RiMicLine className="w-5 h-5 mr-2" />
               {startMutation.isPending ? "Starting..." : "Start Live Recording"}
             </Button>
           </CardContent>
@@ -373,13 +370,13 @@ export default function ClinicalLivePage() {
         {/* Error banners */}
         {micError && (
           <div className="flex items-center gap-2 p-3 mb-4 rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 text-sm text-red-700 dark:text-red-400">
-            <AlertCircle className="w-4 h-4 shrink-0" />
+            <RiErrorWarningLine className="w-4 h-4 shrink-0" />
             {micError}
           </div>
         )}
         {!transcriptionConnected && (
           <div className="flex items-center gap-2 p-3 mb-4 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 text-sm text-amber-700 dark:text-amber-400">
-            <WifiOff className="w-4 h-4 shrink-0" />
+            <RiWifiOffLine className="w-4 h-4 shrink-0" />
             Transcription service disconnected. Audio is still being captured but real-time transcription is unavailable.
           </div>
         )}
@@ -394,7 +391,7 @@ export default function ClinicalLivePage() {
               </span>
             </div>
             <Badge variant="outline" className="text-lg px-3 py-1">
-              <Clock className="w-4 h-4 mr-1" />
+              <RiTimeLine className="w-4 h-4 mr-1" />
               {formatDuration(elapsed)}
             </Badge>
           </div>
@@ -405,7 +402,7 @@ export default function ClinicalLivePage() {
               onClick={() => pauseMutation.mutate()}
               disabled={pauseMutation.isPending}
             >
-              {isPaused ? <Play className="w-4 h-4 mr-1" /> : <Pause className="w-4 h-4 mr-1" />}
+              {isPaused ? <RiPlayLine className="w-4 h-4 mr-1" /> : <RiPauseLine className="w-4 h-4 mr-1" />}
               {pauseMutation.isPending ? "..." : isPaused ? "Resume" : "Pause"}
             </Button>
             <Button
@@ -414,7 +411,7 @@ export default function ClinicalLivePage() {
               onClick={() => draftNoteMutation.mutate()}
               disabled={isGeneratingDraft || finalSegments.length === 0}
             >
-              <FileText className="w-4 h-4 mr-1" />
+              <RiFileTextLine className="w-4 h-4 mr-1" />
               {isGeneratingDraft ? "Generating..." : "Generate Draft Note"}
             </Button>
             <Button
@@ -423,7 +420,7 @@ export default function ClinicalLivePage() {
               onClick={() => stopMutation.mutate()}
               disabled={stopMutation.isPending}
             >
-              <Square className="w-4 h-4 mr-1" />
+              <RiCheckboxBlankLine className="w-4 h-4 mr-1" />
               {stopMutation.isPending ? "Finalizing..." : "End Session"}
             </Button>
           </div>
@@ -434,7 +431,7 @@ export default function ClinicalLivePage() {
           <Card className="h-[calc(100vh-200px)] flex flex-col">
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
-                <Mic className="w-4 h-4" />
+                <RiMicLine className="w-4 h-4" />
                 Live Transcript
               </CardTitle>
               <CardDescription>
@@ -461,7 +458,7 @@ export default function ClinicalLivePage() {
           <Card className="h-[calc(100vh-200px)] flex flex-col">
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
-                <Stethoscope className="w-4 h-4" />
+                <RiStethoscopeLine className="w-4 h-4" />
                 Draft Clinical Note
                 {draftNote && (
                   <Badge variant="secondary" className="ml-2">
@@ -485,7 +482,7 @@ export default function ClinicalLivePage() {
               {!draftNote && !isGeneratingDraft && (
                 <div className="flex items-center justify-center h-32 text-muted-foreground">
                   <div className="text-center space-y-2">
-                    <FileText className="w-8 h-8 mx-auto opacity-50" />
+                    <RiFileTextLine className="w-8 h-8 mx-auto opacity-50" />
                     <p className="text-sm">No draft note yet</p>
                     <p className="text-xs">Record some conversation, then click Generate Draft Note</p>
                   </div>
@@ -505,7 +502,7 @@ export default function ClinicalLivePage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-green-600">
-            <CheckCircle2 className="w-5 h-5" />
+            <RiCheckboxCircleLine className="w-5 h-5" />
             Session Completed
           </CardTitle>
           <CardDescription>
@@ -533,7 +530,7 @@ export default function ClinicalLivePage() {
           <div className="flex gap-2">
             {session?.callId && (
               <Button onClick={() => navigate(`/clinical/notes/${session.callId}`)}>
-                <FileText className="w-4 h-4 mr-2" />
+                <RiFileTextLine className="w-4 h-4 mr-2" />
                 View Clinical Note
               </Button>
             )}
@@ -555,7 +552,7 @@ export default function ClinicalLivePage() {
                 sessionIdRef.current = null;
               }}
             >
-              <Radio className="w-4 h-4 mr-2" />
+              <RiBroadcastLine className="w-4 h-4 mr-2" />
               New Recording
             </Button>
           </div>

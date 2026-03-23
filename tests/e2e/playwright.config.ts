@@ -13,18 +13,23 @@ export default defineConfig({
     baseURL: process.env.BASE_URL || "http://localhost:5000",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
+    viewport: { width: 1280, height: 720 },
   },
 
   webServer: process.env.CI
     ? {
-        command: "npm run dev",
+        command: "npm run start",
         port: 5000,
         timeout: 60_000,
         reuseExistingServer: false,
         env: {
+          NODE_ENV: "production",
+          PORT: "5000",
+          DISABLE_SECURE_COOKIE: "true",
           SESSION_SECRET: "e2e-test-secret",
           ASSEMBLYAI_API_KEY: "test-key",
           AUTH_USERS: "admin:admin123:admin:Test Admin:default,viewer:viewer123:viewer:Test Viewer:default",
+          E2E_TESTING: "true",
         },
       }
     : undefined,
@@ -33,6 +38,8 @@ export default defineConfig({
     {
       name: "chromium",
       use: { browserName: "chromium" },
+      // Exclude setup file from test matching
+      testIgnore: /auth\.setup\.ts/,
     },
   ],
 });

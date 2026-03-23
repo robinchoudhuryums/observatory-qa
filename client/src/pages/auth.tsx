@@ -4,12 +4,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { LogIn, UserPlus, Shield, Eye, Settings, Loader2, ArrowLeft } from "lucide-react";
 import { ObservatoryLogo } from "@/components/observatory-logo";
 import { apiRequest } from "@/lib/queryClient";
 import { USER_ROLES, INDUSTRY_TYPES } from "@shared/schema";
 import { useAppName } from "@/hooks/use-organization";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {  RiLoginBoxLine, RiUserAddLine, RiShieldLine, RiEyeLine, RiSettings3Line, RiLoader4Line, RiArrowLeftLine  } from "@remixicon/react";
+import { cn } from "@/lib/utils";
 
 interface AuthPageProps {
   onLogin: () => void;
@@ -113,9 +114,9 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
   };
 
   const roleIcons: Record<string, React.ReactNode> = {
-    viewer: <Eye className="w-4 h-4 text-blue-500" />,
-    manager: <Settings className="w-4 h-4 text-amber-500" />,
-    admin: <Shield className="w-4 h-4 text-purple-500" />,
+    viewer: <RiEyeLine className="w-4 h-4 text-blue-500" />,
+    manager: <RiSettings3Line className="w-4 h-4 text-amber-500" />,
+    admin: <RiShieldLine className="w-4 h-4 text-purple-500" />,
   };
 
   return (
@@ -126,7 +127,7 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
             onClick={onBack}
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
-            <ArrowLeft className="w-4 h-4" />
+            <RiArrowLeftLine className="w-4 h-4" />
             Back to home
           </button>
         )}
@@ -155,7 +156,7 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                 }`}
                 onClick={() => setView("login")}
               >
-                <LogIn className="w-4 h-4 inline mr-1.5 -mt-0.5" />
+                <RiLoginBoxLine className="w-4 h-4 inline mr-1.5 -mt-0.5" />
                 Sign In
               </button>
               <button
@@ -164,7 +165,7 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                 }`}
                 onClick={() => setView("register")}
               >
-                <UserPlus className="w-4 h-4 inline mr-1.5 -mt-0.5" />
+                <RiUserAddLine className="w-4 h-4 inline mr-1.5 -mt-0.5" />
                 Register
               </button>
             </div>
@@ -184,6 +185,7 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                     onChange={(e) => setUsername(e.target.value)}
                     required
                     autoComplete="username"
+                    data-testid="login-username"
                   />
                 </div>
                 <div>
@@ -198,13 +200,14 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     autoComplete="current-password"
+                    data-testid="login-password"
                   />
                 </div>
-                <Button type="submit" className="w-full" disabled={isLoading}>
+                <Button type="submit" className="w-full" disabled={isLoading} data-testid="login-submit">
                   {isLoading ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    <RiLoader4Line className="w-4 h-4 mr-2 animate-spin" />
                   ) : (
-                    <LogIn className="w-4 h-4 mr-2" />
+                    <RiLoginBoxLine className="w-4 h-4 mr-2" />
                   )}
                   Sign In
                 </Button>
@@ -216,6 +219,7 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
             {/* REGISTER FORM */}
             {view === "register" && (
               <form onSubmit={handleRegister} className="space-y-4">
+                <div className="text-xs uppercase font-semibold text-muted-foreground tracking-wide mb-3">Organization Details</div>
                 <div>
                   <label className="text-sm font-medium text-foreground">Organization Name</label>
                   <Input
@@ -239,6 +243,7 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                     pattern="^[a-z0-9-]+$"
                   />
                   <p className="text-xs text-muted-foreground mt-1">URL-safe identifier (lowercase, hyphens)</p>
+                  <p className="text-xs text-muted-foreground mt-1">Your URL: <span className="font-mono text-foreground/70">{regOrgSlug || "your-org"}</span>.observatory-qa.com</p>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-foreground">Industry</label>
@@ -254,6 +259,7 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                   </Select>
                   <p className="text-xs text-muted-foreground mt-1">We'll set up default templates and categories for your industry</p>
                 </div>
+                <div className="text-xs uppercase font-semibold text-muted-foreground tracking-wide mb-3 mt-5">Your Account</div>
                 <div>
                   <label className="text-sm font-medium text-foreground">Your Full Name</label>
                   <Input value={regName} onChange={(e) => setRegName(e.target.value)} placeholder="Jane Doe" required />
@@ -264,6 +270,7 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                 </div>
                 <div>
                   <label className="text-sm font-medium text-foreground">Password</label>
+                  <p className="text-xs text-muted-foreground mb-1.5">Minimum 8 characters. Use a mix of letters, numbers, and symbols for a strong password.</p>
                   <Input
                     type="password"
                     value={regPassword}
@@ -273,13 +280,32 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                     minLength={8}
                     autoComplete="new-password"
                   />
-                  <p className="text-xs text-muted-foreground mt-1">Minimum 8 characters. Use a mix of letters, numbers, and symbols for a strong password.</p>
+                  {regPassword.length > 0 && (
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className={cn("h-full rounded-full transition-all duration-300",
+                            regPassword.length >= 12 ? "bg-emerald-500 w-full" :
+                            regPassword.length >= 8 ? "bg-amber-500 w-2/3" :
+                            "bg-red-500 w-1/3"
+                          )}
+                        />
+                      </div>
+                      <span className={cn("text-[10px] font-medium",
+                        regPassword.length >= 12 ? "text-emerald-600" :
+                        regPassword.length >= 8 ? "text-amber-600" :
+                        "text-red-500"
+                      )}>
+                        {regPassword.length >= 12 ? "Strong" : regPassword.length >= 8 ? "Good" : "Too short"}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    <RiLoader4Line className="w-4 h-4 mr-2 animate-spin" />
                   ) : (
-                    <UserPlus className="w-4 h-4 mr-2" />
+                    <RiUserAddLine className="w-4 h-4 mr-2" />
                   )}
                   Create Organization
                 </Button>
@@ -349,9 +375,9 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    <RiLoader4Line className="w-4 h-4 mr-2 animate-spin" />
                   ) : (
-                    <UserPlus className="w-4 h-4 mr-2" />
+                    <RiUserAddLine className="w-4 h-4 mr-2" />
                   )}
                   Submit Request
                 </Button>
@@ -362,7 +388,7 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
             {view === "request-access" && requestSubmitted && (
               <div className="text-center py-6">
                 <div className="mx-auto w-14 h-14 bg-gradient-to-br from-green-100 to-green-50 dark:from-green-900/30 dark:to-green-900/10 rounded-full flex items-center justify-center mb-4">
-                  <UserPlus className="w-7 h-7 text-green-600" />
+                  <RiUserAddLine className="w-7 h-7 text-green-600" />
                 </div>
                 <h3 className="font-semibold text-foreground mb-1">Request Submitted</h3>
                 <p className="text-sm text-muted-foreground mb-4">
@@ -485,7 +511,7 @@ function SsoLoginSection() {
         />
         {error && (
           <p className="text-sm text-destructive flex items-center gap-1.5">
-            <Shield className="w-3.5 h-3.5 flex-shrink-0" />
+            <RiShieldLine className="w-3.5 h-3.5 flex-shrink-0" />
             {error}
           </p>
         )}
@@ -497,9 +523,9 @@ function SsoLoginSection() {
           disabled={!orgSlug.trim() || isLoading}
         >
           {isLoading ? (
-            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            <RiLoader4Line className="w-4 h-4 mr-2 animate-spin" />
           ) : (
-            <Shield className="w-4 h-4 mr-2" />
+            <RiShieldLine className="w-4 h-4 mr-2" />
           )}
           {isLoading ? "Verifying..." : "Sign in with SSO"}
         </Button>

@@ -10,7 +10,9 @@ import { storage } from "./storage";
 import { createRedisSessionStore } from "./services/redis";
 import { logger } from "./services/logger";
 
-const scryptAsync = promisify(scrypt);
+const scryptAsync = promisify(scrypt) as (
+  password: string | Buffer, salt: string | Buffer, keylen: number, options?: { N?: number; r?: number; p?: number; maxmem?: number }
+) => Promise<Buffer>;
 
 // HIPAA: Login attempt tracking for account lockout
 const MAX_FAILED_ATTEMPTS = 5;
@@ -78,16 +80,36 @@ interface EnvUser {
 // In-memory store of hashed user credentials parsed from env vars
 const envUsers: EnvUser[] = [];
 
+/**
+ * Validate password complexity for HIPAA compliance.
+ * Requires: 12+ chars, uppercase, lowercase, digit, special character.
+ * Returns error message string, or null if valid.
+ */
+export function validatePasswordComplexity(password: string): string | null {
+  if (password.length < 12) return "Password must be at least 12 characters";
+  if (!/[A-Z]/.test(password)) return "Password must contain at least one uppercase letter";
+  if (!/[a-z]/.test(password)) return "Password must contain at least one lowercase letter";
+  if (!/[0-9]/.test(password)) return "Password must contain at least one digit";
+  if (!/[^A-Za-z0-9]/.test(password)) return "Password must contain at least one special character";
+  return null;
+}
+
+/**
+ * HIPAA: scrypt KDF parameters.
+ * N=32768 (2^15), r=8, p=1 — stronger than Node.js defaults for healthcare.
+ */
+const SCRYPT_PARAMS = { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
+
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16).toString("hex");
-  const buf = (await scryptAsync(password, salt, 64)) as Buffer;
+  const buf = (await scryptAsync(password, salt, 64, SCRYPT_PARAMS)) as Buffer;
   return `${buf.toString("hex")}.${salt}`;
 }
 
 export async function comparePasswords(supplied: string, stored: string): Promise<boolean> {
   const [hashedPassword, salt] = stored.split(".");
   const hashedPasswordBuf = Buffer.from(hashedPassword, "hex");
-  const suppliedPasswordBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
+  const suppliedPasswordBuf = (await scryptAsync(supplied, salt, 64, SCRYPT_PARAMS)) as Buffer;
   return timingSafeEqual(hashedPasswordBuf, suppliedPasswordBuf);
 }
 
@@ -185,6 +207,7 @@ async function resolveUserOrgIds(): Promise<void> {
         name: user.orgSlug === "default" ? "Default Organization" : user.orgSlug,
         slug: user.orgSlug,
         status: "active",
+        settings: { retentionDays: 90, branding: { appName: "Observatory", onboardingCompleted: true } },
       });
     }
 
@@ -504,6 +527,37 @@ export const injectOrgContext: RequestHandler = (req: Request, res: Response, ne
   req.orgId = req.user.orgId;
   next();
 };
+
+/**
+ * Per-request org settings cache.
+ * Avoids repeated getOrganization() DB hits within the same request lifecycle.
+ * Uses a simple LRU approach with TTL for cross-request caching.
+ */
+const orgCache = new Map<string, { org: any; expiresAt: number }>();
+const ORG_CACHE_TTL_MS = 30_000; // 30 seconds
+const ORG_CACHE_MAX_SIZE = 200;
+
+export async function getCachedOrganization(orgId: string): Promise<any | undefined> {
+  const cached = orgCache.get(orgId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.org;
+  }
+  const org = await storage.getOrganization(orgId);
+  if (org) {
+    // Evict oldest entries if at capacity
+    if (orgCache.size >= ORG_CACHE_MAX_SIZE) {
+      const firstKey = orgCache.keys().next().value;
+      if (firstKey) orgCache.delete(firstKey);
+    }
+    orgCache.set(orgId, { org, expiresAt: Date.now() + ORG_CACHE_TTL_MS });
+  }
+  return org;
+}
+
+/** Invalidate org cache entry (call after org settings are updated). */
+export function invalidateOrgCache(orgId: string): void {
+  orgCache.delete(orgId);
+}
 
 /**
  * Check if the current request user is a super admin.

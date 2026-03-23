@@ -10,15 +10,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
-import {
-  FlaskConical, Upload, Trash2, Clock, TrendingUp, TrendingDown, Minus, AlertCircle, CheckCircle2, Loader2, FileAudio,
-} from "lucide-react";
 import { BEDROCK_MODEL_PRESETS, CALL_CATEGORIES, type ABTest } from "@shared/schema";
 import { toDisplayString } from "@/lib/display-utils";
+import {  RiFlaskLine, RiUploadLine, RiDeleteBinLine, RiTimeLine, RiArrowRightUpLine, RiArrowRightDownLine, RiSubtractLine, RiErrorWarningLine, RiCheckboxCircleLine, RiLoader4Line, RiFileMusicLine, RiDownload2Line  } from "@remixicon/react";
 
 function ScoreComparison({ label, baseline, test }: { label: string; baseline?: number; test?: number }) {
   const diff = (test ?? 0) - (baseline ?? 0);
-  const DiffIcon = diff > 0.5 ? TrendingUp : diff < -0.5 ? TrendingDown : Minus;
+  const DiffIcon = diff > 0.5 ? RiArrowRightUpLine : diff < -0.5 ? RiArrowRightDownLine : RiSubtractLine;
   const diffColor = diff > 0.5 ? "text-green-600" : diff < -0.5 ? "text-red-600" : "text-muted-foreground";
 
   return (
@@ -53,7 +51,7 @@ function AnalysisPanel({ title, model, analysis, latencyMs }: {
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-2 text-red-600">
-            <AlertCircle className="w-4 h-4" />
+            <RiErrorWarningLine className="w-4 h-4" />
             <span className="text-sm">Analysis failed: {analysis.error}</span>
           </div>
         </CardContent>
@@ -79,7 +77,7 @@ function AnalysisPanel({ title, model, analysis, latencyMs }: {
             <div className="text-2xl font-bold">{analysis.performance_score?.toFixed(1) ?? "\u2014"}<span className="text-sm text-muted-foreground">/10</span></div>
             {latencyMs && (
               <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                <Clock className="w-3 h-3" />
+                <RiTimeLine className="w-3 h-3" />
                 {(latencyMs / 1000).toFixed(1)}s
               </div>
             )}
@@ -189,8 +187,8 @@ function TestResultView({ test }: { test: ABTest }) {
             {test.callCategory || "Uncategorized"} &middot; {new Date(test.createdAt || "").toLocaleString()} &middot; by {test.createdBy}
           </p>
         </div>
-        <Badge variant={test.status === "completed" ? "default" : test.status === "failed" ? "destructive" : "secondary"}>
-          {test.status}
+        <Badge variant={test.status === "completed" ? "default" : test.status === "failed" ? "destructive" : test.status === "partial" ? "secondary" : "secondary"}>
+          {test.status === "partial" ? "partial (one model failed)" : test.status}
         </Badge>
       </div>
 
@@ -321,7 +319,7 @@ export default function ABTestingPage() {
     <div className="min-h-screen" data-testid="ab-testing-page">
       <header className="bg-card border-b border-border px-6 py-4">
         <div className="flex items-center gap-3">
-          <FlaskConical className="w-6 h-6 text-primary" />
+          <RiFlaskLine className="w-6 h-6 text-primary" />
           <div>
             <h2 className="text-2xl font-bold text-foreground">Model A/B Testing</h2>
             <p className="text-muted-foreground">Compare Bedrock model analysis quality and cost &mdash; test calls are excluded from all metrics</p>
@@ -361,13 +359,13 @@ export default function ABTestingPage() {
                     />
                     {selectedFile ? (
                       <div className="flex items-center justify-center gap-2">
-                        <FileAudio className="w-5 h-5 text-primary" />
+                        <RiFileMusicLine className="w-5 h-5 text-primary" />
                         <span className="text-sm font-medium">{selectedFile.name}</span>
                         <span className="text-xs text-muted-foreground">({(selectedFile.size / 1024 / 1024).toFixed(1)} MB)</span>
                       </div>
                     ) : (
                       <div>
-                        <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                        <RiUploadLine className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
                         <p className="text-sm text-muted-foreground">Click or drag audio file here</p>
                         <p className="text-xs text-muted-foreground mt-1">MP3, WAV, M4A, MP4, FLAC, OGG</p>
                       </div>
@@ -442,12 +440,12 @@ export default function ABTestingPage() {
                   >
                     {uploadMutation.isPending ? (
                       <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        <RiLoader4Line className="w-4 h-4 mr-2 animate-spin" />
                         Uploading...
                       </>
                     ) : (
                       <>
-                        <FlaskConical className="w-4 h-4 mr-2" />
+                        <RiFlaskLine className="w-4 h-4 mr-2" />
                         Start A/B Test
                       </>
                     )}
@@ -460,12 +458,12 @@ export default function ABTestingPage() {
           <TabsContent value="results" className="space-y-4">
             {isLoading ? (
               <div className="flex items-center justify-center py-12">
-                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                <RiLoader4Line className="w-6 h-6 animate-spin text-muted-foreground" />
               </div>
             ) : tests.length === 0 ? (
               <Card>
                 <CardContent className="py-12 text-center">
-                  <FlaskConical className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+                  <RiFlaskLine className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
                   <p className="text-muted-foreground">No A/B tests yet. Upload a call to get started.</p>
                 </CardContent>
               </Card>
@@ -487,11 +485,13 @@ export default function ABTestingPage() {
                             <span className="text-sm font-medium truncate flex-1">{test.fileName}</span>
                             <div className="flex items-center gap-1">
                               {test.status === "processing" || test.status === "analyzing" ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />
+                                <RiLoader4Line className="w-3.5 h-3.5 animate-spin text-blue-500" />
                               ) : test.status === "completed" ? (
-                                <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+                                <RiCheckboxCircleLine className="w-3.5 h-3.5 text-green-500" />
+                              ) : test.status === "partial" ? (
+                                <RiErrorWarningLine className="w-3.5 h-3.5 text-amber-500" />
                               ) : (
-                                <AlertCircle className="w-3.5 h-3.5 text-red-500" />
+                                <RiErrorWarningLine className="w-3.5 h-3.5 text-red-500" />
                               )}
                             </div>
                           </div>
@@ -515,7 +515,19 @@ export default function ABTestingPage() {
                 <div className="lg:col-span-2">
                   {selectedTest ? (
                     <div className="space-y-4">
-                      <div className="flex justify-end">
+                      <div className="flex justify-end gap-2">
+                        {(selectedTest.status === "completed" || selectedTest.status === "partial") && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              window.open(`/api/ab-tests/${selectedTest.id}/export`, "_blank");
+                            }}
+                          >
+                            <RiDownload2Line className="w-3.5 h-3.5 mr-1" />
+                            Export JSON
+                          </Button>
+                        )}
                         {deleteConfirmId === selectedTest.id ? (
                           <div className="flex items-center gap-2">
                             <span className="text-xs text-red-600">Delete this test?</span>
@@ -539,15 +551,15 @@ export default function ABTestingPage() {
                             onClick={() => setDeleteConfirmId(selectedTest.id)}
                             disabled={deleteMutation.isPending}
                           >
-                            <Trash2 className="w-3.5 h-3.5 mr-1" />
+                            <RiDeleteBinLine className="w-3.5 h-3.5 mr-1" />
                             Delete Test
                           </Button>
                         )}
                       </div>
-                      {selectedTest.status === "processing" || selectedTest.status === "analyzing" ? (
+                      {(selectedTest.status === "processing" || selectedTest.status === "analyzing") ? (
                         <Card>
                           <CardContent className="py-12 text-center">
-                            <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto mb-3" />
+                            <RiLoader4Line className="w-8 h-8 animate-spin text-primary mx-auto mb-3" />
                             <p className="text-muted-foreground">
                               {selectedTest.status === "processing" ? "Transcribing audio..." : "Running analysis with both models..."}
                             </p>

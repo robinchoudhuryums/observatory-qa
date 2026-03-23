@@ -7,10 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { UserPlus, Users, Upload, Download, ChevronDown, ChevronRight, Pencil, Eye, GitCompare } from "lucide-react";
 import { Link } from "wouter";
 import { DEFAULT_SUBTEAMS } from "@shared/schema";
 import type { Employee } from "@shared/schema";
+import {  RiUserAddLine, RiTeamLine, RiUploadLine, RiDownloadLine, RiArrowDownSLine, RiArrowRightSLine, RiPencilLine, RiEyeLine, RiGitBranchLine, RiSaveLine  } from "@remixicon/react";
 
 // Departments that use sub-teams (uses shared defaults; org-specific overrides come from org settings)
 const DEPARTMENTS_WITH_SUBTEAMS: Record<string, readonly string[]> = DEFAULT_SUBTEAMS;
@@ -129,7 +129,7 @@ function CompareCard({ employee }: { employee: Employee }) {
       )}
       <Link href={`/reports?employee=${employee.id}`}>
         <Button size="sm" variant="outline" className="w-full mt-3 text-xs">
-          <Eye className="w-3 h-3 mr-1" /> Full Profile
+          <RiEyeLine className="w-3 h-3 mr-1" /> Full Profile
         </Button>
       </Link>
     </div>
@@ -315,7 +315,7 @@ export default function EmployeesPage() {
         <div className="flex items-center gap-1">
           <Link href={`/reports?employee=${emp.id}`}>
             <Button size="sm" variant="ghost" title="View Agent Profile">
-              <Eye className="w-3.5 h-3.5" />
+              <RiEyeLine className="w-3.5 h-3.5" />
             </Button>
           </Link>
           <Button
@@ -325,10 +325,10 @@ export default function EmployeesPage() {
             title="Compare"
             className="w-7 h-7 p-0"
           >
-            <GitCompare className="w-3.5 h-3.5" />
+            <RiGitBranchLine className="w-3.5 h-3.5" />
           </Button>
           <Button size="sm" variant="ghost" onClick={() => openEditDialog(emp)}>
-            <Pencil className="w-3.5 h-3.5" />
+            <RiPencilLine className="w-3.5 h-3.5" />
           </Button>
         </div>
       </td>
@@ -412,17 +412,17 @@ export default function EmployeesPage() {
               link.click();
             }}
           >
-            <Download className="w-4 h-4 mr-2" />
+            <RiDownloadLine className="w-4 h-4 mr-2" />
             Export CSV
           </Button>
           <Button variant="outline" onClick={() => importMutation.mutate()} disabled={importMutation.isPending}>
-            <Upload className="w-4 h-4 mr-2" />
+            <RiUploadLine className="w-4 h-4 mr-2" />
             {importMutation.isPending ? "Importing..." : "Import from CSV"}
           </Button>
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
               <Button>
-                <UserPlus className="w-4 h-4 mr-2" />
+                <RiUserAddLine className="w-4 h-4 mr-2" />
                 Add Employee
               </Button>
             </DialogTrigger>
@@ -497,7 +497,7 @@ export default function EmployeesPage() {
           <div className="mx-6 mt-6 bg-card rounded-lg border border-primary/30 p-5">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
-                <GitCompare className="w-5 h-5 text-primary" />
+                <RiGitBranchLine className="w-5 h-5 text-primary" />
                 Comparing Agents
               </h3>
               <Button size="sm" variant="ghost" onClick={() => setCompareIds([])}>Clear</Button>
@@ -515,22 +515,22 @@ export default function EmployeesPage() {
           <p className="text-muted-foreground">Loading employees...</p>
         ) : employeesError ? (
           <div className="text-center py-12 text-destructive">
-            <Users className="w-8 h-8 mx-auto mb-2" />
+            <RiTeamLine className="w-8 h-8 mx-auto mb-2" />
             <p className="font-semibold">Failed to load employees</p>
             <p className="text-sm text-muted-foreground">{employeesError.message}</p>
           </div>
         ) : !employees || employees.length === 0 ? (
           <div className="text-center py-12">
-            <Users className="mx-auto h-12 w-12 text-muted-foreground" />
+            <RiTeamLine className="mx-auto h-12 w-12 text-muted-foreground" />
             <h3 className="mt-4 text-lg font-medium text-foreground">No employees yet</h3>
             <p className="text-muted-foreground mt-1 mb-4">Import from CSV or add employees manually.</p>
             <div className="flex items-center justify-center gap-3">
               <Button variant="outline" onClick={() => importMutation.mutate()} disabled={importMutation.isPending}>
-                <Upload className="w-4 h-4 mr-2" />
+                <RiUploadLine className="w-4 h-4 mr-2" />
                 {importMutation.isPending ? "Importing..." : "Import from CSV"}
               </Button>
               <Button onClick={() => setAddOpen(true)}>
-                <UserPlus className="w-4 h-4 mr-2" />
+                <RiUserAddLine className="w-4 h-4 mr-2" />
                 Add Manually
               </Button>
             </div>
@@ -550,7 +550,7 @@ export default function EmployeesPage() {
                     className="w-full flex items-center justify-between px-4 py-3 bg-muted hover:bg-muted/80 transition-colors"
                   >
                     <div className="flex items-center gap-2">
-                      {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      {isCollapsed ? <RiArrowRightSLine className="w-4 h-4" /> : <RiArrowDownSLine className="w-4 h-4" />}
                       <span className="font-semibold text-sm text-foreground">{department}</span>
                     </div>
                     <span className="text-xs text-muted-foreground">

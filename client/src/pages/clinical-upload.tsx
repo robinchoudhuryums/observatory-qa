@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearch } from "wouter";
-import { Mic, Upload as UploadIcon, Stethoscope, ShieldCheck, Sparkles } from "lucide-react";
 import FileUpload from "@/components/upload/file-upload";
 import AudioRecorder from "@/components/upload/audio-recorder";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { CLINICAL_SPECIALTIES, CLINICAL_NOTE_FORMATS } from "@shared/schema";
 import type { Employee } from "@shared/schema";
+import {  RiMicLine, RiUploadLine as UploadIcon, RiStethoscopeLine, RiShieldCheckLine, RiSparklingLine, RiSettings3Line, RiInputMethodLine  } from "@remixicon/react";
 
 type UploadTab = "file" | "record";
 
@@ -125,7 +125,7 @@ export default function ClinicalUploadPage() {
     <div className="p-4 md:p-6 max-w-2xl mx-auto space-y-6">
       <div>
         <div className="flex items-center gap-3">
-          <Stethoscope className="w-6 h-6 text-primary" />
+          <RiStethoscopeLine className="w-6 h-6 text-primary" />
           <h1 className="text-2xl font-bold text-foreground">Clinical Documentation</h1>
         </div>
         <p className="text-muted-foreground mt-1">Record or upload a patient encounter to generate clinical notes.</p>
@@ -135,7 +135,7 @@ export default function ClinicalUploadPage() {
       <Card className="border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800">
         <CardContent className="pt-4 pb-3">
           <div className="flex items-start gap-3">
-            <ShieldCheck className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+            <RiShieldCheckLine className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
             <div className="text-sm">
               <p className="font-medium text-amber-800 dark:text-amber-200">HIPAA Compliance Notice</p>
               <p className="text-amber-700 dark:text-amber-300 mt-1">
@@ -153,7 +153,7 @@ export default function ClinicalUploadPage() {
         <Card className="border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-800">
           <CardContent className="pt-4 pb-3">
             <div className="flex items-center gap-3">
-              <Sparkles className="w-5 h-5 text-blue-600 shrink-0" />
+              <RiSparklingLine className="w-5 h-5 text-blue-600 shrink-0" />
               <div className="text-sm">
                 <p className="font-medium text-blue-800 dark:text-blue-200">
                   Using template: {selectedTemplate.name}
@@ -206,7 +206,7 @@ export default function ClinicalUploadPage() {
                 <Label>Note Format</Label>
                 {formatAutoSet && (
                   <Badge variant="outline" className="text-xs text-blue-600 border-blue-300 gap-1">
-                    <Sparkles className="w-3 h-3" />Auto
+                    <RiSparklingLine className="w-3 h-3" />Auto
                   </Badge>
                 )}
               </div>
@@ -287,7 +287,7 @@ export default function ClinicalUploadPage() {
                   : "bg-muted hover:bg-muted/80 text-muted-foreground"
               }`}
             >
-              <Mic className="w-4 h-4" />
+              <RiMicLine className="w-4 h-4" />
               Record
             </button>
             <button

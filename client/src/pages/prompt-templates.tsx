@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil, Trash2, FileText, Scale, ShieldCheck, MessageSquare, Save, X, Info } from "lucide-react";
 import { HelpTip } from "@/components/ui/help-tip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +12,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { ConfirmDialog } from "@/components/lib/confirm-dialog";
 import { CALL_CATEGORIES } from "@shared/schema";
 import type { PromptTemplate } from "@shared/schema";
+import {  RiAddLine, RiPencilLine, RiDeleteBinLine, RiFileTextLine, RiScales3Line, RiShieldCheckLine, RiMessage2Line, RiSaveLine, RiCloseLine, RiInformationLine  } from "@remixicon/react";
 
 interface PhraseEntry {
   phrase: string;
@@ -108,7 +108,7 @@ export default function PromptTemplatesPage() {
             <p className="text-muted-foreground">Configure AI analysis criteria per call category for tailored evaluation</p>
           </div>
           <Button onClick={() => setShowNewForm(true)} disabled={showNewForm}>
-            <Plus className="w-4 h-4 mr-2" />
+            <RiAddLine className="w-4 h-4 mr-2" />
             New Template
           </Button>
         </div>
@@ -168,7 +168,7 @@ export default function PromptTemplatesPage() {
         ) : !showNewForm ? (
           <div className="text-center py-16">
             <div className="mx-auto w-16 h-16 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full flex items-center justify-center mb-4">
-              <FileText className="w-8 h-8 text-primary/60" />
+              <RiFileTextLine className="w-8 h-8 text-primary/60" />
             </div>
             <h4 className="font-semibold text-foreground mb-1">No prompt templates configured</h4>
             <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">
@@ -176,7 +176,7 @@ export default function PromptTemplatesPage() {
               Without templates, the default evaluation criteria will be used.
             </p>
             <Button onClick={() => setShowNewForm(true)}>
-              <Plus className="w-4 h-4 mr-2" />
+              <RiAddLine className="w-4 h-4 mr-2" />
               Create Your First Template
             </Button>
           </div>
@@ -206,10 +206,10 @@ function TemplateCard({ template, onEdit, onDelete }: { template: PromptTemplate
           </div>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" onClick={onEdit}>
-              <Pencil className="w-3 h-3 mr-1" /> Edit
+              <RiPencilLine className="w-3 h-3 mr-1" /> Edit
             </Button>
             <Button size="sm" variant="outline" className="text-red-600" onClick={onDelete}>
-              <Trash2 className="w-3 h-3" />
+              <RiDeleteBinLine className="w-3 h-3" />
             </Button>
           </div>
         </div>
@@ -218,7 +218,7 @@ function TemplateCard({ template, onEdit, onDelete }: { template: PromptTemplate
         {/* Evaluation Criteria */}
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <Scale className="w-4 h-4 text-muted-foreground" />
+            <RiScales3Line className="w-4 h-4 text-muted-foreground" />
             <p className="text-sm font-medium">Evaluation Criteria</p>
           </div>
           <p className="text-sm text-muted-foreground whitespace-pre-wrap">{template.evaluationCriteria}</p>
@@ -243,7 +243,7 @@ function TemplateCard({ template, onEdit, onDelete }: { template: PromptTemplate
         {phrases.length > 0 && (
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <ShieldCheck className="w-4 h-4 text-muted-foreground" />
+              <RiShieldCheckLine className="w-4 h-4 text-muted-foreground" />
               <p className="text-sm font-medium">Required/Recommended Phrases ({phrases.length})</p>
             </div>
             <div className="space-y-1">
@@ -264,7 +264,7 @@ function TemplateCard({ template, onEdit, onDelete }: { template: PromptTemplate
         {template.additionalInstructions && (
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <MessageSquare className="w-4 h-4 text-muted-foreground" />
+              <RiMessage2Line className="w-4 h-4 text-muted-foreground" />
               <p className="text-sm font-medium">Additional Instructions</p>
             </div>
             <p className="text-sm text-muted-foreground">{template.additionalInstructions}</p>
@@ -458,7 +458,7 @@ function TemplateForm({
                 <p className="text-xs text-muted-foreground">Phrases agents must say. AI flags calls missing required phrases.</p>
               </div>
               <Button type="button" size="sm" variant="outline" onClick={addPhrase}>
-                <Plus className="w-3 h-3 mr-1" /> Add Phrase
+                <RiAddLine className="w-3 h-3 mr-1" /> Add Phrase
               </Button>
             </div>
             {phrases.length > 0 && (
@@ -485,7 +485,7 @@ function TemplateForm({
                       className="w-40 h-8 text-sm"
                     />
                     <Button type="button" size="sm" variant="ghost" onClick={() => removePhrase(i)}>
-                      <X className="w-3 h-3" />
+                      <RiCloseLine className="w-3 h-3" />
                     </Button>
                   </div>
                 ))}
@@ -512,7 +512,7 @@ function TemplateForm({
             <div className="flex gap-2">
               <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
               <Button type="submit" disabled={isPending || !name || !callCategory || !evaluationCriteria}>
-                <Save className="w-4 h-4 mr-2" />
+                <RiSaveLine className="w-4 h-4 mr-2" />
                 {initial ? "Update" : "Create"} Template
               </Button>
             </div>

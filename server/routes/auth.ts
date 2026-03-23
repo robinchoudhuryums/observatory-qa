@@ -32,16 +32,14 @@ export function registerAuthRoutes(app: Express): void {
         const org = await storage.getOrganization(user.orgId);
         if (org?.settings?.mfaRequired && !dbUser?.mfaEnabled) {
           // Allow login but flag that MFA setup is required
-          req.session.regenerate((regenErr) => {
-            if (regenErr) return next(regenErr);
-            req.login(user, (loginErr) => {
-              if (loginErr) return next(loginErr);
-              res.json({
-                id: user.id, username: user.username, name: user.name,
-                role: user.role, orgId: user.orgId, orgSlug: user.orgSlug,
-                mfaSetupRequired: true,
-                message: "Your organization requires MFA. Please set it up immediately.",
-              });
+          // Note: passport 0.7+ handles session regeneration internally in req.login()
+          req.login(user, (loginErr) => {
+            if (loginErr) return next(loginErr);
+            res.json({
+              id: user.id, username: user.username, name: user.name,
+              role: user.role, orgId: user.orgId, orgSlug: user.orgSlug,
+              mfaSetupRequired: true,
+              message: "Your organization requires MFA. Please set it up immediately.",
             });
           });
           return;
@@ -50,13 +48,11 @@ export function registerAuthRoutes(app: Express): void {
         logger.debug({ err }, "MFA check skipped — user lookup failed (e.g. env user)");
       }
 
-      // Regenerate session ID on login to prevent session fixation attacks
-      req.session.regenerate((regenErr) => {
-        if (regenErr) return next(regenErr);
-        req.login(user, (loginErr) => {
-          if (loginErr) return next(loginErr);
-          res.json({ id: user.id, username: user.username, name: user.name, role: user.role, orgId: user.orgId, orgSlug: user.orgSlug });
-        });
+      // Session fixation protection: passport 0.7+ automatically regenerates the
+      // session inside req.login(), so no manual req.session.regenerate() is needed.
+      req.login(user, (loginErr) => {
+        if (loginErr) return next(loginErr);
+        res.json({ id: user.id, username: user.username, name: user.name, role: user.role, orgId: user.orgId, orgSlug: user.orgSlug });
       });
     })(req, res, next);
   });

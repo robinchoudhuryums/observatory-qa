@@ -4,23 +4,11 @@ import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { storage } from "../storage";
-import { requireAuth, requireRole, injectOrgContext, hashPassword } from "../auth";
+import { requireAuth, requireRole, injectOrgContext, hashPassword, validatePasswordComplexity } from "../auth";
 import { logger } from "../services/logger";
+import { logPhiAccess, auditContext } from "../services/audit-log";
 import { randomUUID } from "crypto";
 import { enforceUserQuota } from "./billing";
-
-/**
- * Validate password complexity for HIPAA compliance.
- * Requires: 12+ chars, uppercase, lowercase, digit, special character.
- */
-function validatePasswordComplexity(password: string): string | null {
-  if (password.length < 12) return "Password must be at least 12 characters";
-  if (!/[A-Z]/.test(password)) return "Password must contain at least one uppercase letter";
-  if (!/[a-z]/.test(password)) return "Password must contain at least one lowercase letter";
-  if (!/[0-9]/.test(password)) return "Password must contain at least one digit";
-  if (!/[^A-Za-z0-9]/.test(password)) return "Password must contain at least one special character";
-  return null;
-}
 
 export function registerRegistrationRoutes(app: Express): void {
   // ==================== SELF-SERVICE REGISTRATION ====================
@@ -40,10 +28,29 @@ export function registerRegistrationRoutes(app: Express): void {
         });
       }
 
+      // Validate field lengths to prevent DoS via huge payloads
+      if (orgName.length > 200 || orgSlug.length > 100 || username.length > 255 || name.length > 255) {
+        return res.status(400).json({ message: "Field length exceeds maximum allowed" });
+      }
+
+      // Validate email format for username (used as email in invitations)
+      const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!EMAIL_REGEX.test(username)) {
+        return res.status(400).json({ message: "Username must be a valid email address" });
+      }
+
       // Validate slug format
       if (!/^[a-z0-9-]+$/.test(orgSlug)) {
         return res.status(400).json({
           message: "Organization slug must be lowercase alphanumeric with hyphens only",
+        });
+      }
+
+      // Validate industryType against allowed values
+      const VALID_INDUSTRIES = ["general", "dental", "medical", "behavioral_health", "veterinary"];
+      if (industryType && !VALID_INDUSTRIES.includes(industryType)) {
+        return res.status(400).json({
+          message: `Invalid industry type. Must be one of: ${VALID_INDUSTRIES.join(", ")}`,
         });
       }
 
@@ -193,6 +200,13 @@ export function registerRegistrationRoutes(app: Express): void {
         invitedBy: req.user!.username,
       });
 
+      logPhiAccess({
+        ...auditContext(req),
+        event: "invitation_sent",
+        resourceType: "invitation",
+        resourceId: invitation.id,
+        detail: `Email: ${email}, Role: ${role || "viewer"}, Invited by: ${req.user!.username}`,
+      });
       logger.info({ orgId: req.orgId, email, role: role || "viewer" }, "Invitation created");
       res.status(201).json(invitation);
     } catch (error) {
@@ -252,6 +266,19 @@ export function registerRegistrationRoutes(app: Express): void {
         acceptedAt: new Date().toISOString(),
       });
 
+      logPhiAccess({
+        orgId: invitation.orgId,
+        userId: user.id,
+        username,
+        role: invitation.role,
+        ip: req.ip || "unknown",
+        userAgent: req.get("user-agent") || "unknown",
+        event: "invitation_accepted",
+        resourceType: "invitation",
+        resourceId: invitation.id,
+        detail: `New user: ${username} (${name}), Role: ${invitation.role}, Invited email: ${invitation.email}`,
+      });
+
       // Resolve org for session
       const org = await storage.getOrganization(invitation.orgId);
 
@@ -285,6 +312,12 @@ export function registerRegistrationRoutes(app: Express): void {
   // Revoke invitation (admin/manager only)
   app.delete("/api/invitations/:id", requireAuth, requireRole("manager"), injectOrgContext, async (req, res) => {
     try {
+      logPhiAccess({
+        ...auditContext(req),
+        event: "invitation_revoked",
+        resourceType: "invitation",
+        resourceId: req.params.id,
+      });
       await storage.deleteInvitation(req.orgId!, req.params.id);
       res.json({ message: "Invitation revoked" });
     } catch (error) {

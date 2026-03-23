@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { storage } from "../storage";
 import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { logger } from "../services/logger";
+import { parsePagination, paginateArray } from "./helpers";
 
 export function registerFeedbackRoutes(app: Express) {
   // Submit feedback (any authenticated user)
@@ -38,6 +39,7 @@ export function registerFeedbackRoutes(app: Express) {
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
       const { type, status } = req.query;
+      const { limit, offset } = parsePagination(req.query);
       const feedback = await storage.listFeedback(orgId, {
         type: type as string | undefined,
         status: status as string | undefined,

@@ -54,9 +54,9 @@ const BRAND_VARS = [
  *   --brand-from / --brand-to                  → gradient endpoints (HSL)
  *   --brand-from-rgb / --brand-to-rgb          → gradient endpoints (RGB, for box-shadow alpha)
  *
- * Defaults (when no branding set):
- *   --brand-from: teal-500 (#14b8a6)
- *   --brand-to:   blue-500 (#3b82f6)
+ * Defaults (when no branding set — Aurora theme):
+ *   --brand-from: violet-600 (#7c3aed)
+ *   --brand-to:   cyan-500 (#06b6d4)
  */
 export function BrandingProvider() {
   const { data: org } = useOrganization();
@@ -67,8 +67,8 @@ export function BrandingProvider() {
     const root = document.documentElement;
 
     // Always set brand gradient vars (use defaults if no branding configured)
-    const fromHex = primaryColor || "#14b8a6";   // teal-500 default
-    const toHex = secondaryColor || "#3b82f6";   // blue-500 default
+    const fromHex = primaryColor || "#7c3aed";   // violet-600 aurora default
+    const toHex = secondaryColor || "#06b6d4";   // cyan-500 aurora default
 
     const fromHsl = hexToHsl(fromHex);
     const toHsl = hexToHsl(toHex);

@@ -1,6 +1,5 @@
 import { useState, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Eye, Play, Download, Star, Trash2, UserCheck, AlertTriangle, Award, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, CheckSquare, Square, FileAudio, ShieldQuestion, FileDown, BrainCircuit } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { HelpTip } from "@/components/ui/help-tip";
@@ -8,11 +7,12 @@ import { Badge } from "@/components/ui/badge";
 import { getSentimentBadge as getSentimentBadgeHelper, getStatusBadge as getStatusBadgeHelper } from "@/lib/badge-helpers";
 import { Link } from "wouter";
 import type { CallWithDetails, Employee, AuthUser } from "@shared/schema";
-import { AudioWaveform } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, getQueryFn } from "@/lib/queryClient";
 import { ConfirmDialog } from "@/components/lib/confirm-dialog";
+import {  RiEyeLine, RiPlayLine, RiDownloadLine, RiDeleteBinLine, RiUserFollowLine, RiAlertLine, RiAwardLine, RiArrowLeftSLine, RiArrowRightSLine, RiExpandUpDownLine, RiArrowUpLine, RiArrowDownLine, RiCheckboxLine, RiCheckboxBlankLine, RiFileMusicLine, RiShieldKeyholeLine, RiFileDownloadLine, RiVoiceprintLine, RiUploadLine, RiPhoneLine, RiSearchLine, RiCloseLine, RiBrainLine  } from "@remixicon/react";
+import { EmptyState } from "@/components/ui/empty-state";
 
 type SortField = "date" | "duration" | "score" | "sentiment";
 type SortDir = "asc" | "desc";
@@ -23,6 +23,9 @@ export default function CallsTable() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [sentimentFilter, setSentimentFilter] = useState<string>("all");
   const [employeeFilter, setEmployeeFilter] = useState<string>("all");
+  const [scoreFilter, setScoreFilter] = useState<string>("all");
+  const [flagFilter, setFlagFilter] = useState<string>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
   // Pagination
   const [page, setPage] = useState(0);
@@ -92,10 +95,39 @@ export default function CallsTable() {
     },
   });
 
+  // Client-side filters (score range, flags, category) applied before sort
+  const filteredCalls = useMemo(() => {
+    if (!calls) return [];
+    return calls.filter(call => {
+      // Score range filter
+      if (scoreFilter !== "all" && call.analysis?.performanceScore) {
+        const score = Number(call.analysis.performanceScore);
+        if (scoreFilter === "high" && score < 8) return false;
+        if (scoreFilter === "mid" && (score < 4 || score >= 8)) return false;
+        if (scoreFilter === "low" && score >= 4) return false;
+      }
+      // Flag filter
+      if (flagFilter !== "all") {
+        const flags = Array.isArray(call.analysis?.flags) ? call.analysis.flags as string[] : [];
+        if (flagFilter === "flagged" && flags.length === 0) return false;
+        if (flagFilter === "unflagged" && flags.length > 0) return false;
+        if (flagFilter === "exceptional" && !flags.includes("exceptional_call")) return false;
+        if (flagFilter === "low_score" && !flags.includes("low_score")) return false;
+        if (flagFilter === "low_confidence" && !flags.includes("low_confidence")) return false;
+      }
+      // Category filter
+      if (categoryFilter !== "all") {
+        const category = call.callCategory || (call as any).call_category;
+        if (!category || category !== categoryFilter) return false;
+      }
+      return true;
+    });
+  }, [calls, scoreFilter, flagFilter, categoryFilter]);
+
   // Sorted and paginated data
   const sortedCalls = useMemo(() => {
-    if (!calls) return [];
-    const sorted = [...calls].sort((a, b) => {
+    if (!filteredCalls) return [];
+    const sorted = [...filteredCalls].sort((a, b) => {
       let cmp = 0;
       switch (sortField) {
         case "date":
@@ -116,7 +148,7 @@ export default function CallsTable() {
       return sortDir === "desc" ? -cmp : cmp;
     });
     return sorted;
-  }, [calls, sortField, sortDir]);
+  }, [filteredCalls, sortField, sortDir]);
 
   const totalPages = Math.max(1, Math.ceil(sortedCalls.length / pageSize));
   const pagedCalls = sortedCalls.slice(page * pageSize, (page + 1) * pageSize);
@@ -139,8 +171,8 @@ export default function CallsTable() {
   };
 
   const SortIcon = ({ field }: { field: SortField }) => {
-    if (sortField !== field) return <ArrowUpDown className="w-3 h-3 ml-1 opacity-40" />;
-    return sortDir === "asc" ? <ArrowUp className="w-3 h-3 ml-1" /> : <ArrowDown className="w-3 h-3 ml-1" />;
+    if (sortField !== field) return <RiExpandUpDownLine className="w-3 h-3 ml-1 opacity-40" />;
+    return sortDir === "asc" ? <RiArrowUpLine className="w-3 h-3 ml-1" /> : <RiArrowDownLine className="w-3 h-3 ml-1" />;
   };
 
   // Bulk selection helpers
@@ -233,17 +265,6 @@ export default function CallsTable() {
   const getSentimentBadge = getSentimentBadgeHelper;
   const getStatusBadge = getStatusBadgeHelper;
 
-  const renderStars = (score: number) => {
-    const filledStars = Math.floor(score / 2);
-    const emptyStars = 5 - filledStars;
-    return (
-      <div className="flex text-yellow-400 text-xs">
-        {[...Array(filledStars)].map((_, i) => <Star key={`filled-${i}`} className="w-3 h-3 fill-current" />)}
-        {[...Array(emptyStars)].map((_, i) => <Star key={`empty-${i}`} className="w-3 h-3" />)}
-      </div>
-    );
-  };
-
   return (
     <div className="bg-card rounded-lg border border-border p-6" data-testid="calls-table">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
@@ -251,6 +272,9 @@ export default function CallsTable() {
           <h3 className="text-lg font-semibold text-foreground flex items-center gap-1">
             Recent Calls
             <HelpTip text="All uploaded call recordings sorted by date. Use filters to narrow by employee, sentiment, or status. Click a row to view the full transcript and AI analysis." />
+            {[statusFilter, sentimentFilter, employeeFilter, scoreFilter, flagFilter, categoryFilter].filter(v => v !== "all").length > 0 && (
+              <Badge variant="secondary" className="text-xs ml-2">{[statusFilter, sentimentFilter, employeeFilter, scoreFilter, flagFilter, categoryFilter].filter(v => v !== "all").length} active</Badge>
+            )}
           </h3>
           <span className="text-xs text-muted-foreground">
             {sortedCalls.length} total
@@ -268,10 +292,21 @@ export default function CallsTable() {
                 link.click();
               }}
             >
-              <FileDown className="w-4 h-4 mr-1.5" />
+              <RiFileDownloadLine className="w-4 h-4 mr-1.5" />
               CSV
             </Button>
           )}
+          <Select value={statusFilter} onValueChange={handleFilterChange(setStatusFilter)}>
+            <SelectTrigger className="w-40" data-testid="status-filter">
+              <SelectValue placeholder="All Statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Statuses</SelectItem>
+              <SelectItem value="completed">Completed</SelectItem>
+              <SelectItem value="processing">Processing</SelectItem>
+              <SelectItem value="failed">Failed</SelectItem>
+            </SelectContent>
+          </Select>
           <Select value={employeeFilter} onValueChange={handleFilterChange(setEmployeeFilter)}>
             <SelectTrigger className="w-40" data-testid="employee-filter">
               <SelectValue placeholder="All Employees" />
@@ -296,6 +331,50 @@ export default function CallsTable() {
               <SelectItem value="negative">Negative</SelectItem>
             </SelectContent>
           </Select>
+          <Select value={scoreFilter} onValueChange={handleFilterChange(setScoreFilter)}>
+            <SelectTrigger className="w-40" data-testid="score-filter">
+              <SelectValue placeholder="All Scores" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Scores</SelectItem>
+              <SelectItem value="high">High (8-10)</SelectItem>
+              <SelectItem value="mid">Mid (4-7.9)</SelectItem>
+              <SelectItem value="low">Low (0-3.9)</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={flagFilter} onValueChange={handleFilterChange(setFlagFilter)}>
+            <SelectTrigger className="w-40" data-testid="flag-filter">
+              <SelectValue placeholder="All Flags" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Flags</SelectItem>
+              <SelectItem value="flagged">Flagged</SelectItem>
+              <SelectItem value="unflagged">Unflagged</SelectItem>
+              <SelectItem value="exceptional">Exceptional</SelectItem>
+              <SelectItem value="low_score">Low Score</SelectItem>
+              <SelectItem value="low_confidence">Low Confidence</SelectItem>
+            </SelectContent>
+          </Select>
+          {(statusFilter !== "all" || sentimentFilter !== "all" || employeeFilter !== "all" || scoreFilter !== "all" || flagFilter !== "all" || categoryFilter !== "all") && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setStatusFilter("all");
+                setSentimentFilter("all");
+                setEmployeeFilter("all");
+                setScoreFilter("all");
+                setFlagFilter("all");
+                setCategoryFilter("all");
+                setPage(0);
+                setSelectedIds(new Set());
+              }}
+              className="text-xs text-muted-foreground hover:text-foreground"
+            >
+              <RiCloseLine className="w-3.5 h-3.5 mr-1" />
+              Clear filters
+            </Button>
+          )}
         </div>
       </div>
 
@@ -314,7 +393,7 @@ export default function CallsTable() {
             </SelectContent>
           </Select>
           <Button size="sm" variant="destructive" className="h-8 text-xs" onClick={handleBulkDelete}>
-            <Trash2 className="w-3 h-3 mr-1" /> Delete Selected
+            <RiDeleteBinLine className="w-3 h-3 mr-1" /> Delete Selected
           </Button>
           <Button size="sm" variant="ghost" className="h-8 text-xs ml-auto" onClick={() => setSelectedIds(new Set())}>
             Clear Selection
@@ -328,7 +407,7 @@ export default function CallsTable() {
             <tr className="border-b border-border">
               <th className="py-3 px-2 w-8">
                 <button onClick={toggleAll} className="text-muted-foreground hover:text-foreground" aria-label={allOnPageSelected ? "Deselect all calls" : "Select all calls"}>
-                  {allOnPageSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                  {allOnPageSelected ? <RiCheckboxLine className="w-4 h-4" /> : <RiCheckboxBlankLine className="w-4 h-4" />}
                 </button>
               </th>
               <th className="text-left py-3 px-2 font-medium text-muted-foreground">
@@ -362,7 +441,7 @@ export default function CallsTable() {
               <tr key={call.id} className={`border-b border-border hover:bg-muted transition-colors animate-row ${selectedIds.has(call.id) ? "bg-primary/5" : ""}`} style={{ animationDelay: `${rowIdx * 30}ms` }}>
                 <td className="py-3 px-2">
                   <button onClick={() => toggleOne(call.id)} className="text-muted-foreground hover:text-foreground" aria-label={selectedIds.has(call.id) ? "Deselect call" : "Select call"}>
-                    {selectedIds.has(call.id) ? <CheckSquare className="w-4 h-4 text-primary" /> : <Square className="w-4 h-4" />}
+                    {selectedIds.has(call.id) ? <RiCheckboxLine className="w-4 h-4 text-primary" /> : <RiCheckboxBlankLine className="w-4 h-4" />}
                   </button>
                 </td>
                 <td className="py-3 px-2">
@@ -381,7 +460,7 @@ export default function CallsTable() {
                         <span className="font-medium">{call.employee.name ?? 'Unknown'}</span>
                         <Select onValueChange={(empId) => assignMutation.mutate({ callId: call.id, employeeId: empId })} disabled={assignMutation.isPending}>
                           <SelectTrigger className="w-7 h-7 p-0 border-0 bg-transparent">
-                            <UserCheck className="w-3 h-3 text-muted-foreground" />
+                            <RiUserFollowLine className="w-3 h-3 text-muted-foreground" />
                           </SelectTrigger>
                           <SelectContent>
                             {employees?.filter(e => e.status === "Active").map(emp => (
@@ -408,30 +487,28 @@ export default function CallsTable() {
                   {call.duration ? `${Math.floor(call.duration / 60)}m ${call.duration % 60}s` : '-'}
                 </td>
                 <td className="py-3 px-2">{getSentimentBadge(call.sentiment?.overallSentiment)}</td>
-                <td className="py-3 px-2">
+                <td className="px-4 py-3">
                   {call.analysis?.performanceScore && (() => {
                     const score = Number(call.analysis.performanceScore);
-                    const aiCompleted = call.analysis.confidenceFactors &&
+                    const aiCompleted = !(call.analysis.confidenceFactors &&
                       typeof call.analysis.confidenceFactors === "object" &&
-                      (call.analysis.confidenceFactors as Record<string, unknown>).aiAnalysisCompleted === false;
-                    const scoreColor = aiCompleted ? "text-muted-foreground" : score >= 8 ? "text-green-600" : score >= 6 ? "text-blue-600" : score >= 4 ? "text-yellow-600" : "text-red-600";
-                    const barColor = aiCompleted ? "from-gray-400 to-gray-300" : score >= 8 ? "from-green-500 to-emerald-400" : score >= 6 ? "from-blue-500 to-cyan-400" : score >= 4 ? "from-yellow-500 to-amber-400" : "from-red-500 to-orange-400";
+                      (call.analysis.confidenceFactors as Record<string, unknown>).aiAnalysisCompleted === false);
+                    const scoreColor = score >= 9 ? "text-emerald-600" : score >= 7 ? "text-green-600" : score >= 4 ? "text-amber-600" : "text-red-600";
+                    const scoreBarColor = score >= 9 ? "bg-emerald-500" : score >= 7 ? "bg-green-500" : score >= 4 ? "bg-amber-500" : "bg-red-500";
                     return (
-                      <div className="space-y-1">
-                        <div className="flex items-center space-x-2">
-                          <span className={`font-bold ${scoreColor}`}>{aiCompleted ? "—" : score.toFixed(1)}</span>
-                          {aiCompleted ? (
-                            <span title="AI analysis unavailable — score is a default">
-                              <BrainCircuit className="w-4 h-4 text-amber-500" />
-                            </span>
-                          ) : renderStars(score)}
+                      <>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-sm font-bold tabular-nums ${scoreColor}`}>
+                            {score.toFixed(1)}
+                          </span>
+                          {!aiCompleted && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" title="AI analysis incomplete — scores may be approximate" />
+                          )}
                         </div>
-                        {!aiCompleted && (
-                          <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
-                            <div className={`h-full rounded-full bg-gradient-to-r ${barColor}`} style={{ width: `${score * 10}%` }} />
-                          </div>
-                        )}
-                      </div>
+                        <div className="w-full h-1 bg-muted rounded-full mt-1 overflow-hidden">
+                          <div className={`h-full rounded-full ${scoreBarColor}`} style={{ width: `${score * 10}%` }} />
+                        </div>
+                      </>
                     );
                   })()}
                 </td>
@@ -454,22 +531,22 @@ export default function CallsTable() {
                         <>
                           {hasExceptional && (
                             <span title="Exceptional Call">
-                              <Award className="w-4 h-4 text-emerald-500" />
+                              <RiAwardLine className="w-4 h-4 text-emerald-500" />
                             </span>
                           )}
                           {hasBad && (
                             <span title={flags.filter(f => f !== "exceptional_call" && f !== "medicare_call" && f !== "low_confidence").join(", ")}>
-                              <AlertTriangle className="w-4 h-4 text-red-500" />
+                              <RiAlertLine className="w-4 h-4 text-red-500" />
                             </span>
                           )}
                           {!hasExceptional && !hasBad && flags.includes("medicare_call") && (
                             <span title="Medicare Call">
-                              <AlertTriangle className="w-4 h-4 text-blue-500" />
+                              <RiAlertLine className="w-4 h-4 text-blue-500" />
                             </span>
                           )}
                           {hasLowConfidence && (
                             <span title="Low AI Confidence — may need manual review">
-                              <ShieldQuestion className="w-4 h-4 text-yellow-500" />
+                              <RiShieldKeyholeLine className="w-4 h-4 text-yellow-500" />
                             </span>
                           )}
                         </>
@@ -481,12 +558,12 @@ export default function CallsTable() {
                   <div className="flex items-center space-x-2">
                     <Link href={`/transcripts/${call.id}`}>
                       <Button size="sm" variant="ghost" disabled={call.status !== 'completed'}>
-                        <Eye className="w-4 h-4" />
+                        <RiEyeLine className="w-4 h-4" />
                       </Button>
                     </Link>
                     <Link href={`/transcripts/${call.id}`}>
                       <Button size="sm" variant="ghost" disabled={call.status !== 'completed'} title="Play audio">
-                        <Play className="w-4 h-4" />
+                        <RiPlayLine className="w-4 h-4" />
                       </Button>
                     </Link>
                     <Button
@@ -496,13 +573,13 @@ export default function CallsTable() {
                       title="Download audio"
                       onClick={() => window.open(`/api/calls/${call.id}/audio?download=true`, '_blank')}
                     >
-                      <Download className="w-4 h-4" />
+                      <RiDownloadLine className="w-4 h-4" />
                     </Button>
                     <Button
                       size="sm" variant="ghost" className="text-red-500 hover:text-red-600"
                       onClick={() => handleDelete(call.id)} disabled={deleteMutation.isPending}
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <RiDeleteBinLine className="w-4 h-4" />
                     </Button>
                   </div>
                 </td>
@@ -533,7 +610,7 @@ export default function CallsTable() {
           </div>
           <div className="flex items-center gap-1">
             <Button size="sm" variant="ghost" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
-              <ChevronLeft className="w-4 h-4" />
+              <RiArrowLeftSLine className="w-4 h-4" />
             </Button>
             {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
               const pageNum = totalPages <= 5 ? i : Math.max(0, Math.min(page - 2, totalPages - 5)) + i;
@@ -550,7 +627,7 @@ export default function CallsTable() {
               );
             })}
             <Button size="sm" variant="ghost" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>
-              <ChevronRight className="w-4 h-4" />
+              <RiArrowRightSLine className="w-4 h-4" />
             </Button>
           </div>
         </div>
@@ -568,17 +645,23 @@ export default function CallsTable() {
         onConfirm={deleteConfirm.bulk ? confirmBulkDelete : confirmDelete}
       />
 
-      {!calls?.length && (
-        <div className="text-center py-16">
-          <div className="mx-auto w-16 h-16 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full flex items-center justify-center mb-4">
-            <FileAudio className="w-8 h-8 text-primary/60" />
-          </div>
-          <h4 className="font-semibold text-foreground mb-1">No call recordings yet</h4>
-          <p className="text-sm text-muted-foreground mb-4 max-w-sm mx-auto">
-            Upload your first audio file to get started with AI-powered call analysis.
-          </p>
-          <Link href="/upload"><Button>Upload Your First Call</Button></Link>
-        </div>
+      {sortedCalls.length === 0 && (statusFilter !== "all" || sentimentFilter !== "all" || employeeFilter !== "all" || scoreFilter !== "all" || flagFilter !== "all" || categoryFilter !== "all") && (
+        <EmptyState
+          compact
+          icon={RiSearchLine}
+          title="No matching calls"
+          description="Try adjusting your filters or search criteria."
+          action={{ label: "Clear Filters", onClick: () => { setStatusFilter("all"); setSentimentFilter("all"); setEmployeeFilter("all"); setScoreFilter("all"); setFlagFilter("all"); setCategoryFilter("all"); setPage(0); } }}
+        />
+      )}
+
+      {!calls?.length && statusFilter === "all" && sentimentFilter === "all" && employeeFilter === "all" && (
+        <EmptyState
+          icon={RiPhoneLine}
+          title="No calls analyzed yet"
+          description="Upload your first call recording to see performance metrics, sentiment analysis, and AI-powered coaching insights."
+          action={{ label: "Upload Your First Call", href: "/upload", icon: RiUploadLine }}
+        />
       )}
     </div>
   );

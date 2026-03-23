@@ -1,7 +1,6 @@
 import { useCallback, useState, useEffect } from "react";
 import { useDropzone } from "react-dropzone";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CloudUpload, FileAudio, X, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HelpTip } from "@/components/ui/help-tip";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -9,6 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { CALL_CATEGORIES } from "@shared/schema";
 import type { Employee } from "@shared/schema";
+import {  RiUploadCloud2Line, RiFileMusicLine, RiCloseLine, RiCheckboxCircleLine, RiCloseCircleLine, RiLoader4Line, RiUploadLine, RiCheckLine  } from "@remixicon/react";
 
 interface UploadFile {
   file: File;
@@ -173,15 +173,26 @@ export default function FileUpload() {
         Upload Call Recordings
         <HelpTip text="Upload audio files to automatically transcribe, analyze sentiment, score performance, and generate coaching insights. Processing takes 1-3 minutes per call." />
       </h3>
-      <div {...getRootProps()} className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+      <div {...getRootProps()} data-testid="file-upload-dropzone" className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
         isDragActive ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
       }`}>
-        <input {...getInputProps()} />
-        <CloudUpload className={`mx-auto h-12 w-12 ${isDragActive ? "text-primary" : "text-muted-foreground"}`} />
-        <p className="mt-2 text-sm text-muted-foreground">
-          {isDragActive ? "Drop files here..." : "Drag & drop files here, or click to select files"}
-        </p>
-        <p className="text-xs text-muted-foreground mt-1">MP3, WAV, M4A, MP4, FLAC, OGG — up to 100MB per file, {MAX_BATCH_SIZE} files max</p>
+        <input {...getInputProps()} data-testid="file-input" />
+        <RiUploadCloud2Line className={`mx-auto h-12 w-12 ${isDragActive ? "text-primary" : "text-muted-foreground"}`} />
+        {uploadFiles.length >= MAX_BATCH_SIZE ? (
+          <>
+            <p className="mt-2 text-sm font-medium text-amber-600 dark:text-amber-400">
+              Maximum {MAX_BATCH_SIZE} files reached
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">Remove existing files to add more</p>
+          </>
+        ) : (
+          <>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {isDragActive ? "Drop files here..." : "Drag & drop files here, or click to select files"}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">MP3, WAV, M4A, MP4, FLAC, OGG — up to 100MB per file, {MAX_BATCH_SIZE} files max</p>
+          </>
+        )}
       </div>
 
       {uploadFiles.length > 0 && (
@@ -199,8 +210,17 @@ export default function FileUpload() {
                   {uploadFiles.filter(f => f.status === 'uploading' || f.status === 'processing').length} in progress
                 </span>
               )}
+              {(() => {
+                const pendingCount = uploadFiles.filter(f => f.status === 'pending' || f.status === 'uploading' || f.status === 'processing').length;
+                const estimatedMinutes = Math.ceil(pendingCount * 2.5);
+                return pendingCount > 0 && uploadFiles.some(f => f.status === 'uploading' || f.status === 'processing') ? (
+                  <span className="text-xs text-muted-foreground italic">
+                    ~{estimatedMinutes} min remaining
+                  </span>
+                ) : null;
+              })()}
               {uploadFiles.some(f => f.status === 'pending') && (
-                <Button type="button" onClick={uploadAll} disabled={uploadMutation.isPending}>
+                <Button type="button" onClick={uploadAll} disabled={uploadMutation.isPending} data-testid="upload-all-button">
                   Upload All ({uploadFiles.filter(f => f.status === 'pending').length})
                 </Button>
               )}
@@ -209,7 +229,7 @@ export default function FileUpload() {
           {uploadFiles.map((fileData, index) => (
             <div key={index} className="p-4 bg-muted rounded-lg space-y-3">
               <div className="flex items-center space-x-3">
-                <FileAudio className="text-primary w-8 h-8 shrink-0" />
+                <RiFileMusicLine className="text-primary w-8 h-8 shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-sm truncate">{fileData.file.name}</p>
                   <p className="text-xs text-muted-foreground">{(fileData.file.size / 1024 / 1024).toFixed(1)} MB</p>
@@ -236,23 +256,23 @@ export default function FileUpload() {
                         ))}
                       </SelectContent>
                     </Select>
-                    <Button size="sm" variant="ghost" onClick={() => removeFile(index)}><X className="w-4 h-4" /></Button>
+                    <Button size="sm" variant="ghost" onClick={() => removeFile(index)}><RiCloseLine className="w-4 h-4" /></Button>
                   </>
                 )}
 
                 {fileData.status === 'completed' && (
                   <div className="flex items-center gap-2 text-green-600">
-                    <CheckCircle2 className="w-5 h-5" />
+                    <RiCheckboxCircleLine className="w-5 h-5" />
                     <span className="text-sm font-medium">Complete</span>
-                    <Button size="sm" variant="ghost" onClick={() => removeFile(index)}><X className="w-4 h-4" /></Button>
+                    <Button size="sm" variant="ghost" onClick={() => removeFile(index)}><RiCloseLine className="w-4 h-4" /></Button>
                   </div>
                 )}
 
                 {fileData.status === 'error' && (
                   <div className="flex items-center gap-2 text-red-600">
-                    <XCircle className="w-5 h-5" />
+                    <RiCloseCircleLine className="w-5 h-5" />
                     <span className="text-sm">{fileData.error}</span>
-                    <Button size="sm" variant="ghost" onClick={() => removeFile(index)}><X className="w-4 h-4" /></Button>
+                    <Button size="sm" variant="ghost" onClick={() => removeFile(index)}><RiCloseLine className="w-4 h-4" /></Button>
                   </div>
                 )}
               </div>
@@ -261,21 +281,47 @@ export default function FileUpload() {
               {(fileData.status === 'uploading' || fileData.status === 'processing') && (
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                    <span className="text-xs font-medium text-primary">
+                    <RiLoader4Line className={`w-4 h-4 animate-spin ${
+                      fileData.status === 'uploading' ? 'text-blue-500' : 'text-violet-500'
+                    }`} />
+                    <span className={`text-xs font-medium ${
+                      fileData.status === 'uploading' ? 'text-blue-600 dark:text-blue-400' : 'text-violet-600 dark:text-violet-400'
+                    }`}>
                       {fileData.processingStep || "Processing..."}
                     </span>
                   </div>
-                  <Progress value={fileData.processingProgress || 0} className="h-2" />
-                  <div className="flex justify-between text-[10px] text-muted-foreground px-0.5">
+                  <div className="relative">
+                    <Progress
+                      value={fileData.processingProgress || 0}
+                      className={`h-2 ${
+                        fileData.status === 'uploading'
+                          ? '[&>div]:bg-blue-500'
+                          : '[&>div]:bg-violet-500'
+                      }`}
+                    />
+                  </div>
+                  <div className="flex justify-between text-xs px-0.5">
                     {PROCESSING_STEPS.map((step, i) => {
                       const currentIdx = PROCESSING_STEPS.findIndex(s =>
                         fileData.processingStep?.toLowerCase().includes(s.key)
                       );
-                      const isDone = i <= currentIdx;
+                      const isDone = i < currentIdx;
                       const isCurrent = i === currentIdx;
                       return (
-                        <span key={step.key} className={`${isDone ? "text-primary" : ""} ${isCurrent ? "font-semibold" : ""}`}>
+                        <span key={step.key} className={`inline-flex items-center gap-0.5 ${
+                          isDone
+                            ? "text-green-600 dark:text-green-400"
+                            : isCurrent
+                              ? "font-bold text-primary"
+                              : "text-muted-foreground"
+                        }`}>
+                          {isDone && <RiCheckLine className="w-3 h-3" />}
+                          {isCurrent && (
+                            <span className="relative flex h-2 w-2 mr-0.5">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+                            </span>
+                          )}
                           {step.label}
                         </span>
                       );

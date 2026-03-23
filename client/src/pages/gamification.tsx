@@ -4,12 +4,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import {
-  Trophy, Medal, Flame, Star, Target, TrendingUp, Award, Zap, BookOpen,
-  Phone, PhoneForwarded, RefreshCw, ClipboardCheck,
-} from "lucide-react";
 import { useState } from "react";
 import { BADGE_DEFINITIONS, type BadgeDefinition, type Employee } from "@shared/schema";
+import {  RiTrophyLine, RiStarLine, RiArrowRightUpLine, RiAwardLine, RiFlashlightLine, RiPhoneLine, RiRefreshLine, RiClipboardLine, RiMedalLine, RiFireLine, RiTargetLine, RiBookOpenLine  } from "@remixicon/react";
 
 type LeaderboardEntry = {
   employeeId: string;
@@ -32,14 +29,14 @@ type GamificationProfile = {
   availableBadges: BadgeDefinition[];
 };
 
-const iconMap: Record<string, typeof Trophy> = {
-  phone: Phone, "phone-forwarded": PhoneForwarded, trophy: Trophy, star: Star,
-  award: Award, target: Target, "trending-up": TrendingUp, "refresh-cw": RefreshCw,
-  "clipboard-check": ClipboardCheck, "book-open": BookOpen, flame: Flame, zap: Zap,
+const iconMap: Record<string, typeof RiTrophyLine> = {
+  phone: RiPhoneLine, "phone-forwarded": RiPhoneLine, trophy: RiTrophyLine, star: RiStarLine,
+  award: RiAwardLine, target: RiTargetLine, "trending-up": RiArrowRightUpLine, "refresh-cw": RiRefreshLine,
+  "clipboard-check": RiClipboardLine, "book-open": RiBookOpenLine, flame: RiFireLine, zap: RiFlashlightLine,
 };
 
 function BadgeDisplay({ badge, earned = true }: { badge: BadgeDefinition & { awardedAt?: string }; earned?: boolean }) {
-  const Icon = iconMap[badge.icon] || Award;
+  const Icon = iconMap[badge.icon] || RiAwardLine;
   return (
     <div className={`flex flex-col items-center gap-1 p-3 rounded-lg border text-center ${earned ? "bg-background" : "bg-muted/50 opacity-50"}`}>
       <div className={`p-2 rounded-full ${earned ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
@@ -55,9 +52,9 @@ function BadgeDisplay({ badge, earned = true }: { badge: BadgeDefinition & { awa
 }
 
 function RankMedal({ rank }: { rank: number }) {
-  if (rank === 1) return <Medal className="w-5 h-5 text-yellow-500" />;
-  if (rank === 2) return <Medal className="w-5 h-5 text-gray-400" />;
-  if (rank === 3) return <Medal className="w-5 h-5 text-amber-700" />;
+  if (rank === 1) return <RiMedalLine className="w-5 h-5 text-yellow-500" />;
+  if (rank === 2) return <RiMedalLine className="w-5 h-5 text-gray-400" />;
+  if (rank === 3) return <RiMedalLine className="w-5 h-5 text-amber-700" />;
   return <span className="text-sm font-medium text-muted-foreground w-5 text-center">{rank}</span>;
 }
 
@@ -84,7 +81,7 @@ export default function GamificationPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <Trophy className="w-6 h-6 text-primary" />
+          <RiTrophyLine className="w-6 h-6 text-primary" />
           Leaderboard & Achievements
         </h1>
         <p className="text-muted-foreground">Track performance, earn badges, and compete on the leaderboard</p>
@@ -122,11 +119,11 @@ export default function GamificationPage() {
                         <div className="flex items-center gap-3 text-xs text-muted-foreground">
                           <span>Level {entry.level}</span>
                           <span className="flex items-center gap-1">
-                            <Award className="w-3 h-3" /> {entry.badgeCount} badges
+                            <RiAwardLine className="w-3 h-3" /> {entry.badgeCount} badges
                           </span>
                           {entry.currentStreak > 0 && (
                             <span className="flex items-center gap-1 text-orange-500">
-                              <Flame className="w-3 h-3" /> {entry.currentStreak} day streak
+                              <RiFireLine className="w-3 h-3" /> {entry.currentStreak} day streak
                             </span>
                           )}
                         </div>
@@ -199,7 +196,7 @@ export default function GamificationPage() {
                     <CardDescription>Current Streak</CardDescription>
                     <CardTitle className="text-3xl flex items-center gap-2">
                       {profile.currentStreak}
-                      {profile.currentStreak > 0 && <Flame className="w-6 h-6 text-orange-500" />}
+                      {profile.currentStreak > 0 && <RiFireLine className="w-6 h-6 text-orange-500" />}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>

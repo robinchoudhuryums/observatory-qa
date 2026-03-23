@@ -4,47 +4,54 @@
 @tailwind utilities;
 
 :root {
-  --background: hsl(220, 15%, 97%);
-  --foreground: hsl(220, 25%, 15%);
+  /* ── Aurora Gradient Theme: Light Mode ────────────────── */
+  --background: hsl(245, 20%, 96%);
+  --foreground: hsl(245, 30%, 15%);
   --card: hsl(0, 0%, 100%);
-  --card-foreground: hsl(220, 25%, 15%);
+  --card-foreground: hsl(245, 30%, 15%);
   --popover: hsl(0, 0%, 100%);
-  --popover-foreground: hsl(220, 25%, 15%);
-  --primary: hsl(217, 91%, 60%);
+  --popover-foreground: hsl(245, 30%, 15%);
+  --primary: hsl(262, 83%, 58%);
   --primary-foreground: hsl(0, 0%, 100%);
-  --secondary: hsl(220, 15%, 95%);
-  --secondary-foreground: hsl(220, 25%, 25%);
-  --muted: hsl(220, 15%, 95%);
-  --muted-foreground: hsl(220, 10%, 45%);
-  --accent: hsl(217, 91%, 60%);
+  --secondary: hsl(245, 20%, 94%);
+  --secondary-foreground: hsl(245, 25%, 25%);
+  --muted: hsl(245, 15%, 93%);
+  --muted-foreground: hsl(245, 10%, 45%);
+  --accent: hsl(262, 83%, 58%);
   --accent-foreground: hsl(0, 0%, 100%);
-  --destructive: hsl(0, 84%, 60%);
+  --destructive: hsl(350, 89%, 60%);
   --destructive-foreground: hsl(0, 0%, 100%);
-  --border: hsl(220, 15%, 90%);
-  --input: hsl(220, 15%, 95%);
-  --ring: hsl(217, 91%, 60%);
-  --chart-1: hsl(217, 91%, 60%);
-  --chart-2: hsl(158, 64%, 52%);
-  --chart-3: hsl(45, 93%, 58%);
-  --chart-4: hsl(316, 65%, 65%);
-  --chart-5: hsl(28, 80%, 52%);
-  --sidebar: hsl(180, 6.6667%, 97.0588%);
-  --sidebar-foreground: hsl(210, 25%, 7.8431%);
-  --sidebar-primary: hsl(203.8863, 88.2845%, 53.1373%);
+  --border: hsl(245, 15%, 88%);
+  --input: hsl(245, 15%, 93%);
+  --ring: hsl(262, 83%, 58%);
+  /* Aurora-inspired chart palette */
+  --chart-1: hsl(262, 83%, 58%);
+  --chart-2: hsl(187, 85%, 53%);
+  --chart-3: hsl(292, 84%, 61%);
+  --chart-4: hsl(43, 96%, 56%);
+  --chart-5: hsl(350, 89%, 60%);
+  --sidebar: hsl(250, 25%, 97%);
+  --sidebar-foreground: hsl(250, 25%, 15%);
+  --sidebar-primary: hsl(262, 83%, 58%);
   --sidebar-primary-foreground: hsl(0, 0%, 100%);
-  --sidebar-accent: hsl(211.5789, 51.3514%, 92.7451%);
-  --sidebar-accent-foreground: hsl(203.8863, 88.2845%, 53.1373%);
-  --sidebar-border: hsl(205.0000, 25.0000%, 90.5882%);
-  --sidebar-ring: hsl(202.8169, 89.1213%, 53.1373%);
+  --sidebar-accent: hsl(260, 40%, 93%);
+  --sidebar-accent-foreground: hsl(262, 83%, 58%);
+  --sidebar-border: hsl(250, 15%, 88%);
+  --sidebar-ring: hsl(262, 83%, 58%);
   --font-sans: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: Menlo, monospace;
-  /* Brand gradient defaults (overridden by BrandingProvider per-org) */
-  --brand-from: 174, 58%, 39%;
-  --brand-to: 217, 91%, 60%;
-  --brand-from-rgb: 20, 184, 166;
-  --brand-to-rgb: 59, 130, 246;
-  --radius: 0.5rem;
+  /* Aurora brand gradient defaults (overridden by BrandingProvider per-org) */
+  --brand-from: 262, 83%, 58%;
+  --brand-to: 187, 85%, 53%;
+  --brand-from-rgb: 124, 58, 237;
+  --brand-to-rgb: 6, 182, 212;
+  /* Aurora accent colors for glows */
+  --aurora-violet: 262, 83%, 58%;
+  --aurora-cyan: 187, 85%, 53%;
+  --aurora-magenta: 292, 84%, 61%;
+  --aurora-amber: 43, 96%, 56%;
+  --radius: 0.625rem;
   --shadow-2xs: 0px 2px 0px 0px hsl(202.8169, 89.1213%, 53.1373%, 0.00);
   --shadow-xs: 0px 2px 0px 0px hsl(202.8169, 89.1213%, 53.1373%, 0.00);
   --shadow-sm: 0px 2px 0px 0px hsl(202.8169, 89.1213%, 53.1373%, 0.00), 0px 1px 2px -1px hsl(202.8169, 89.1213%, 53.1373%, 0.00);
@@ -58,33 +65,34 @@
 }
 
 .dark {
-  --background: hsl(220, 30%, 7%);
-  --foreground: hsl(220, 15%, 95%);
-  --card: hsl(220, 30%, 9%);
-  --card-foreground: hsl(220, 15%, 95%);
-  --popover: hsl(220, 30%, 9%);
-  --popover-foreground: hsl(220, 15%, 95%);
-  --primary: hsl(217, 91%, 60%);
+  /* ── Aurora Gradient Theme: Dark Mode (Deep Indigo/Violet) ── */
+  --background: hsl(255, 35%, 7%);
+  --foreground: hsl(250, 15%, 93%);
+  --card: hsl(255, 30%, 10%);
+  --card-foreground: hsl(250, 15%, 93%);
+  --popover: hsl(255, 30%, 10%);
+  --popover-foreground: hsl(250, 15%, 93%);
+  --primary: hsl(262, 83%, 62%);
   --primary-foreground: hsl(0, 0%, 100%);
-  --secondary: hsl(220, 30%, 12%);
-  --secondary-foreground: hsl(220, 15%, 75%);
-  --muted: hsl(220, 30%, 12%);
-  --muted-foreground: hsl(220, 15%, 55%);
-  --accent: hsl(217, 91%, 60%);
+  --secondary: hsl(255, 30%, 13%);
+  --secondary-foreground: hsl(250, 15%, 75%);
+  --muted: hsl(255, 25%, 14%);
+  --muted-foreground: hsl(250, 15%, 55%);
+  --accent: hsl(262, 83%, 62%);
   --accent-foreground: hsl(0, 0%, 100%);
-  --destructive: hsl(0, 84%, 60%);
+  --destructive: hsl(350, 89%, 60%);
   --destructive-foreground: hsl(0, 0%, 100%);
-  --border: hsl(220, 30%, 18%);
-  --input: hsl(220, 30%, 12%);
-  --ring: hsl(217, 91%, 60%);
-  --sidebar: hsl(228, 9.8039%, 10%);
-  --sidebar-foreground: hsl(0, 0%, 85.0980%);
-  --sidebar-primary: hsl(202.8169, 89.1213%, 53.1373%);
+  --border: hsl(255, 25%, 18%);
+  --input: hsl(255, 25%, 14%);
+  --ring: hsl(262, 83%, 62%);
+  --sidebar: hsl(260, 35%, 8%);
+  --sidebar-foreground: hsl(250, 15%, 85%);
+  --sidebar-primary: hsl(262, 83%, 62%);
   --sidebar-primary-foreground: hsl(0, 0%, 100%);
-  --sidebar-accent: hsl(205.7143, 70%, 7.8431%);
-  --sidebar-accent-foreground: hsl(203.7736, 87.6033%, 52.5490%);
-  --sidebar-border: hsl(205.7143, 15.7895%, 26.0784%);
-  --sidebar-ring: hsl(202.8169, 89.1213%, 53.1373%);
+  --sidebar-accent: hsl(260, 40%, 12%);
+  --sidebar-accent-foreground: hsl(262, 83%, 70%);
+  --sidebar-border: hsl(255, 25%, 16%);
+  --sidebar-ring: hsl(262, 83%, 62%);
 }
 
 @layer base {
@@ -99,8 +107,80 @@
 }
 
 @layer utilities {
+  /* ── Aurora Animated Gradient Background ────────────── */
+  @keyframes aurora-shift {
+    0%, 100% { background-position: 0% 50%; }
+    25% { background-position: 100% 25%; }
+    50% { background-position: 50% 100%; }
+    75% { background-position: 25% 50%; }
+  }
+
+  @keyframes aurora-shimmer {
+    0% { opacity: 0.4; }
+    50% { opacity: 0.7; }
+    100% { opacity: 0.4; }
+  }
+
+  .aurora-bg {
+    background: linear-gradient(135deg,
+      hsl(262, 83%, 58%) 0%,
+      hsl(292, 84%, 61%) 25%,
+      hsl(187, 85%, 53%) 50%,
+      hsl(262, 83%, 58%) 75%,
+      hsl(292, 84%, 61%) 100%
+    );
+    background-size: 300% 300%;
+    animation: aurora-shift 15s ease-in-out infinite;
+  }
+
+  .aurora-bg-subtle {
+    background: linear-gradient(135deg,
+      hsla(262, 83%, 58%, 0.08) 0%,
+      hsla(292, 84%, 61%, 0.05) 25%,
+      hsla(187, 85%, 53%, 0.08) 50%,
+      hsla(262, 83%, 58%, 0.05) 75%
+    );
+    background-size: 300% 300%;
+    animation: aurora-shift 20s ease-in-out infinite;
+  }
+
+  .dark .aurora-bg-subtle {
+    background: linear-gradient(135deg,
+      hsla(262, 83%, 58%, 0.12) 0%,
+      hsla(292, 84%, 61%, 0.08) 25%,
+      hsla(187, 85%, 53%, 0.12) 50%,
+      hsla(262, 83%, 58%, 0.08) 75%
+    );
+    background-size: 300% 300%;
+    animation: aurora-shift 20s ease-in-out infinite;
+  }
+
+  /* ── Glassmorphism ─────────────────────────────────── */
+  .glass-card {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    transition: border-color 0.3s, box-shadow 0.3s;
+  }
+
+  .dark .glass-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .glass-card:hover {
+    border-color: rgba(124, 58, 237, 0.3);
+    box-shadow: 0 8px 32px rgba(124, 58, 237, 0.08);
+  }
+
+  .dark .glass-card:hover {
+    border-color: rgba(124, 58, 237, 0.25);
+    box-shadow: 0 8px 32px rgba(124, 58, 237, 0.15);
+  }
+
   .gradient-border {
-    background: linear-gradient(135deg, #3b82f6, #8b5cf6, #06b6d4);
+    background: linear-gradient(135deg, #7c3aed, #d946ef, #06b6d4);
     border-radius: 0.75rem;
     padding: 2px;
   }
@@ -111,23 +191,23 @@
   }
 
   .dark .gradient-border-inner {
-    background: hsl(220, 30%, 9%);
+    background: hsl(255, 30%, 10%);
   }
 
   .drop-zone-active {
-    border-color: var(--primary);
-    background-color: hsl(217, 91%, 95%);
+    border-color: hsl(262, 83%, 58%);
+    background-color: hsl(262, 83%, 96%);
   }
 
   .dark .drop-zone-active {
-    background-color: hsl(217, 91%, 15%);
+    background-color: hsl(262, 60%, 15%);
   }
 
   .chart-container {
     position: relative;
     height: 300px;
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.05), rgba(139, 92, 246, 0.05));
-    border-radius: 0.5rem;
+    background: linear-gradient(135deg, rgba(124, 58, 237, 0.04), rgba(6, 182, 212, 0.04));
+    border-radius: 0.625rem;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -143,137 +223,147 @@
   }
 
   .sentiment-positive {
-    color: hsl(158, 64%, 52%);
-    background-color: hsl(158, 64%, 95%);
+    color: hsl(187, 85%, 42%);
+    background-color: hsl(187, 70%, 94%);
   }
 
   .sentiment-negative {
-    color: hsl(0, 84%, 60%);
-    background-color: hsl(0, 84%, 95%);
+    color: hsl(350, 89%, 55%);
+    background-color: hsl(350, 80%, 95%);
   }
 
   .sentiment-neutral {
-    color: hsl(45, 93%, 58%);
-    background-color: hsl(45, 93%, 95%);
+    color: hsl(43, 96%, 45%);
+    background-color: hsl(43, 80%, 94%);
   }
 
   .dark .sentiment-positive {
-    background-color: hsl(158, 64%, 15%);
+    color: hsl(187, 85%, 60%);
+    background-color: hsl(187, 60%, 12%);
   }
 
   .dark .sentiment-negative {
-    background-color: hsl(0, 84%, 15%);
+    color: hsl(350, 89%, 65%);
+    background-color: hsl(350, 60%, 12%);
   }
 
   .dark .sentiment-neutral {
-    background-color: hsl(45, 93%, 15%);
+    color: hsl(43, 96%, 60%);
+    background-color: hsl(43, 60%, 12%);
   }
 
-  /* ── Modern Cards ──────────────────────────────────── */
+  /* ── Modern Cards (Aurora Glassmorphism) ──────────── */
   .modern-card {
-    background: hsl(0, 0%, 100%);
-    border: 1px solid hsl(220, 15%, 90%);
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(124, 58, 237, 0.08);
     transition: border-color 0.3s, box-shadow 0.3s;
   }
 
   .dark .modern-card {
-    background: hsl(220, 30%, 9%);
-    border: 1px solid hsl(220, 30%, 16%);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(124, 58, 237, 0.12);
   }
 
   .modern-card:hover {
-    border-color: hsl(220, 15%, 82%);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+    border-color: rgba(124, 58, 237, 0.2);
+    box-shadow: 0 4px 24px rgba(124, 58, 237, 0.06);
   }
 
   .dark .modern-card:hover {
-    border-color: hsl(220, 30%, 22%);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    border-color: rgba(124, 58, 237, 0.25);
+    box-shadow: 0 4px 24px rgba(124, 58, 237, 0.12);
   }
 
-  /* ── Metric Cards ────────────────────────────────────  */
+  /* ── Metric Cards (Aurora Glow) ─────────────────────  */
   .metric-card {
-    background: hsl(0, 0%, 100%);
-    border: 1px solid hsl(220, 15%, 90%);
-    transition: border-color 0.3s, box-shadow 0.3s, transform 0.2s;
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(124, 58, 237, 0.1);
+    transition: border-color 0.3s, box-shadow 0.3s, transform 0.25s;
   }
 
   .dark .metric-card {
-    background: hsl(220, 30%, 9%);
-    border: 1px solid hsl(220, 30%, 16%);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(124, 58, 237, 0.12);
   }
 
   .metric-card:hover {
-    transform: translateY(-2px);
+    transform: translateY(-3px);
   }
 
-  /* Metric glow — brand-driven primary glow for the hero metric */
+  /* Aurora glow — violet primary */
   .metric-glow-brand:hover {
-    border-color: hsl(var(--brand-from));
-    box-shadow: 0 4px 20px rgba(var(--brand-from-rgb), 0.12);
+    border-color: hsl(var(--aurora-violet) / 0.4);
+    box-shadow: 0 4px 24px rgba(var(--brand-from-rgb), 0.15), 0 0 40px rgba(var(--brand-from-rgb), 0.05);
   }
   .dark .metric-glow-brand:hover {
-    box-shadow: 0 4px 25px rgba(var(--brand-from-rgb), 0.18);
+    box-shadow: 0 4px 24px rgba(var(--brand-from-rgb), 0.25), 0 0 60px rgba(var(--brand-from-rgb), 0.08);
   }
 
-  /* Secondary brand glow */
+  /* Aurora glow — cyan secondary */
   .metric-glow-brand-alt:hover {
-    border-color: hsl(var(--brand-to));
-    box-shadow: 0 4px 20px rgba(var(--brand-to-rgb), 0.12);
+    border-color: hsl(var(--aurora-cyan) / 0.4);
+    box-shadow: 0 4px 24px rgba(var(--brand-to-rgb), 0.15), 0 0 40px rgba(var(--brand-to-rgb), 0.05);
   }
   .dark .metric-glow-brand-alt:hover {
-    box-shadow: 0 4px 25px rgba(var(--brand-to-rgb), 0.18);
+    box-shadow: 0 4px 24px rgba(var(--brand-to-rgb), 0.25), 0 0 60px rgba(var(--brand-to-rgb), 0.08);
   }
 
-  /* Semantic metric glows — these stay fixed-color (green for sentiment, purple for score) */
+  /* Aurora glow — cyan for sentiment */
   .metric-glow-green:hover {
-    border-color: hsl(158, 50%, 70%);
-    box-shadow: 0 4px 20px rgba(16, 185, 129, 0.1);
+    border-color: hsl(187, 85%, 55% / 0.4);
+    box-shadow: 0 4px 24px rgba(6, 182, 212, 0.12), 0 0 40px rgba(6, 182, 212, 0.04);
   }
   .dark .metric-glow-green:hover {
-    border-color: hsl(158, 50%, 30%);
-    box-shadow: 0 4px 25px rgba(16, 185, 129, 0.15);
+    border-color: hsl(187, 85%, 45% / 0.4);
+    box-shadow: 0 4px 24px rgba(6, 182, 212, 0.2), 0 0 60px rgba(6, 182, 212, 0.06);
   }
 
+  /* Aurora glow — magenta for score */
   .metric-glow-purple:hover {
-    border-color: hsl(270, 50%, 70%);
-    box-shadow: 0 4px 20px rgba(168, 85, 247, 0.1);
+    border-color: hsl(292, 84%, 61% / 0.4);
+    box-shadow: 0 4px 24px rgba(217, 70, 239, 0.12), 0 0 40px rgba(217, 70, 239, 0.04);
   }
   .dark .metric-glow-purple:hover {
-    border-color: hsl(270, 50%, 30%);
-    box-shadow: 0 4px 25px rgba(168, 85, 247, 0.15);
+    border-color: hsl(292, 84%, 55% / 0.4);
+    box-shadow: 0 4px 24px rgba(217, 70, 239, 0.2), 0 0 60px rgba(217, 70, 239, 0.06);
   }
 
-  /* ── Sidebar ─────────────────────────────────────────  */
+  /* ── Sidebar (Aurora) ──────────────────────────────────  */
   .sidebar-container {
-    background: hsl(0, 0%, 100%);
-    border-right: 1px solid hsl(220, 15%, 90%);
+    background: rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-right: 1px solid rgba(124, 58, 237, 0.08);
   }
 
   .dark .sidebar-container {
-    background: hsl(220, 30%, 7%);
-    border-right: 1px solid hsl(220, 30%, 14%);
+    background: rgba(15, 10, 40, 0.85);
+    border-right: 1px solid rgba(124, 58, 237, 0.12);
   }
 
   .sidebar-header {
-    border-bottom: 1px solid hsl(220, 15%, 92%);
+    border-bottom: 1px solid rgba(124, 58, 237, 0.08);
   }
 
   .dark .sidebar-header {
-    border-bottom: 1px solid hsl(220, 30%, 14%);
+    border-bottom: 1px solid rgba(124, 58, 237, 0.12);
   }
 
   .sidebar-footer {
-    border-top: 1px solid hsl(220, 15%, 92%);
+    border-top: 1px solid rgba(124, 58, 237, 0.08);
   }
 
   .dark .sidebar-footer {
-    border-top: 1px solid hsl(220, 30%, 14%);
+    border-top: 1px solid rgba(124, 58, 237, 0.12);
   }
 
   .sidebar-active-link {
     background: linear-gradient(135deg, hsl(var(--brand-from)), hsl(var(--brand-to)));
-    box-shadow: 0 2px 10px rgba(var(--brand-from-rgb), 0.25);
+    box-shadow: 0 2px 12px rgba(var(--brand-from-rgb), 0.3), 0 0 20px rgba(var(--brand-from-rgb), 0.08);
   }
 
   /* Sidebar nav hover micro-interaction */
@@ -294,41 +384,117 @@
   /* ── Brand Gradient Button ─────────────────────────────  */
   .brand-gradient-btn {
     background: linear-gradient(135deg, hsl(var(--brand-from)), hsl(var(--brand-to)));
-    box-shadow: 0 4px 12px rgba(var(--brand-from-rgb), 0.15);
+    box-shadow: 0 4px 14px rgba(var(--brand-from-rgb), 0.2), 0 0 20px rgba(var(--brand-from-rgb), 0.06);
+    transition: filter 0.2s, box-shadow 0.3s;
   }
   .brand-gradient-btn:hover {
-    filter: brightness(0.9);
-    box-shadow: 0 4px 16px rgba(var(--brand-from-rgb), 0.25);
+    filter: brightness(1.1);
+    box-shadow: 0 4px 20px rgba(var(--brand-from-rgb), 0.35), 0 0 30px rgba(var(--brand-from-rgb), 0.1);
   }
 
-  /* ── Dashboard Header ────────────────────────────────  */
+  /* ── Dashboard Header (Aurora) ──────────────────────  */
   .dashboard-header {
-    background: hsl(0, 0%, 100%);
-    border-bottom: 1px solid hsl(220, 15%, 90%);
+    background: rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(124, 58, 237, 0.08);
   }
 
   .dark .dashboard-header {
-    background: hsl(220, 30%, 7%);
-    border-bottom: 1px solid hsl(220, 30%, 14%);
+    background: rgba(15, 10, 40, 0.6);
+    border-bottom: 1px solid rgba(124, 58, 237, 0.12);
   }
 
-  /* Recharts dark mode text fix — ensure all chart labels/text are visible */
+  /* Recharts dark mode text fix — aurora theme */
   .dark .recharts-cartesian-axis-tick text,
   .dark .recharts-legend-item-text,
   .dark .recharts-label,
   .dark .recharts-text {
-    fill: hsl(220, 15%, 70%) !important;
+    fill: hsl(250, 15%, 65%) !important;
   }
 
   .dark .recharts-default-tooltip {
-    background-color: hsl(220, 30%, 12%) !important;
-    border-color: hsl(220, 30%, 22%) !important;
-    color: hsl(220, 15%, 85%) !important;
+    background-color: hsl(255, 30%, 12%) !important;
+    border-color: rgba(124, 58, 237, 0.2) !important;
+    color: hsl(250, 15%, 85%) !important;
   }
 
   .dark .recharts-tooltip-label,
   .dark .recharts-tooltip-item {
-    color: hsl(220, 15%, 85%) !important;
+    color: hsl(250, 15%, 85%) !important;
+  }
+
+  /* Aurora focus ring glow */
+  *:focus-visible {
+    outline: 2px solid hsl(262, 83%, 58%);
+    outline-offset: 2px;
+    box-shadow: 0 0 12px rgba(124, 58, 237, 0.2);
+  }
+
+  /* ── Enhanced Interactive States ──────────────────── */
+
+  /* Button press effect */
+  button:active:not(:disabled),
+  [role="button"]:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  /* Table row hover — subtle lift + left accent */
+  .table-row-interactive {
+    transition: background-color 0.15s, box-shadow 0.2s;
+  }
+
+  .table-row-interactive:hover {
+    background-color: rgba(124, 58, 237, 0.03);
+    box-shadow: inset 3px 0 0 hsl(262, 83%, 58%);
+  }
+
+  .dark .table-row-interactive:hover {
+    background-color: rgba(124, 58, 237, 0.06);
+  }
+
+  /* Badge hover glow */
+  .badge-interactive {
+    transition: box-shadow 0.2s, transform 0.15s;
+  }
+
+  .badge-interactive:hover {
+    box-shadow: 0 2px 8px rgba(124, 58, 237, 0.12);
+    transform: translateY(-1px);
+  }
+
+  /* Input focus enhancement */
+  input:focus,
+  textarea:focus,
+  select:focus {
+    border-color: hsl(262, 83%, 58%) !important;
+    box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.1) !important;
+  }
+
+  /* Card clickable variant */
+  .card-clickable {
+    cursor: pointer;
+    transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+  }
+
+  .card-clickable:hover {
+    border-color: rgba(124, 58, 237, 0.25);
+    box-shadow: 0 4px 20px rgba(124, 58, 237, 0.08);
+    transform: translateY(-1px);
+  }
+
+  .dark .card-clickable:hover {
+    box-shadow: 0 4px 20px rgba(124, 58, 237, 0.15);
+  }
+
+  /* Smooth skeleton pulse — aurora tinted */
+  @keyframes aurora-pulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+  }
+
+  .animate-pulse {
+    animation: aurora-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
 }
 
@@ -356,18 +522,18 @@
   letter-spacing: -0.025em;
 }
 
-/* Landing hero: dark by default, light override */
+/* Landing hero: aurora gradient by default, light override */
 .landing-hero {
-  background: linear-gradient(135deg, hsl(220, 35%, 6%) 0%, hsl(220, 30%, 10%) 40%, hsl(240, 20%, 12%) 100%);
+  background: linear-gradient(135deg, hsl(260, 40%, 6%) 0%, hsl(255, 35%, 10%) 30%, hsl(270, 25%, 12%) 60%, hsl(240, 30%, 8%) 100%);
 }
 
 .dark .landing-hero,
 .landing-hero {
-  background: linear-gradient(135deg, hsl(220, 35%, 6%) 0%, hsl(220, 30%, 10%) 40%, hsl(240, 20%, 12%) 100%);
+  background: linear-gradient(135deg, hsl(260, 40%, 6%) 0%, hsl(255, 35%, 10%) 30%, hsl(270, 25%, 12%) 60%, hsl(240, 30%, 8%) 100%);
 }
 
 :root .landing-hero {
-  background: linear-gradient(135deg, hsl(220, 15%, 97%) 0%, hsl(220, 20%, 94%) 40%, hsl(230, 20%, 95%) 100%);
+  background: linear-gradient(135deg, hsl(250, 25%, 97%) 0%, hsl(260, 20%, 95%) 40%, hsl(245, 22%, 96%) 100%);
 }
 
 /* Landing text colors */
@@ -397,7 +563,7 @@
 
 /* Landing sections */
 .landing-section {
-  background: hsl(220, 35%, 6%);
+  background: hsl(260, 40%, 6%);
 }
 
 :root .landing-section {
@@ -405,88 +571,89 @@
 }
 
 .dark .landing-section {
-  background: hsl(220, 35%, 6%);
+  background: hsl(260, 40%, 6%);
 }
 
 .landing-section-alt {
-  background: hsl(220, 30%, 8%);
+  background: hsl(255, 35%, 8%);
 }
 
 :root .landing-section-alt {
-  background: hsl(220, 15%, 97%);
+  background: hsl(250, 20%, 97%);
 }
 
 .dark .landing-section-alt {
-  background: hsl(220, 30%, 8%);
+  background: hsl(255, 35%, 8%);
 }
 
-/* Landing cards */
+/* Landing cards (aurora glass) */
 .landing-card {
-  background: hsl(220, 30%, 10%);
-  border: 1px solid hsl(220, 30%, 16%);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(124, 58, 237, 0.15);
+  backdrop-filter: blur(8px);
 }
 
 :root .landing-card {
-  background: hsl(0, 0%, 100%);
-  border: 1px solid hsl(220, 15%, 90%);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(124, 58, 237, 0.1);
+  box-shadow: 0 1px 3px rgba(124, 58, 237, 0.04);
 }
 
 .dark .landing-card {
-  background: hsl(220, 30%, 10%);
-  border: 1px solid hsl(220, 30%, 16%);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(124, 58, 237, 0.15);
 }
 
 .landing-card:hover {
-  border-color: hsl(220, 30%, 22%);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+  border-color: rgba(124, 58, 237, 0.3);
+  box-shadow: 0 8px 30px rgba(124, 58, 237, 0.15);
 }
 
 :root .landing-card:hover {
-  border-color: hsl(220, 15%, 82%);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+  border-color: rgba(124, 58, 237, 0.2);
+  box-shadow: 0 8px 30px rgba(124, 58, 237, 0.08);
 }
 
 /* Landing outline button */
 .landing-outline-btn {
-  border-color: hsl(220, 30%, 25%);
-  color: hsl(220, 15%, 80%);
+  border-color: rgba(124, 58, 237, 0.3);
+  color: hsl(250, 15%, 80%);
 }
 
 :root .landing-outline-btn {
-  border-color: hsl(220, 15%, 85%);
-  color: hsl(220, 25%, 25%);
+  border-color: rgba(124, 58, 237, 0.2);
+  color: hsl(250, 25%, 25%);
 }
 
 .dark .landing-outline-btn {
-  border-color: hsl(220, 30%, 25%);
-  color: hsl(220, 15%, 80%);
+  border-color: rgba(124, 58, 237, 0.3);
+  color: hsl(250, 15%, 80%);
 }
 
 .landing-outline-btn:hover {
-  background: hsl(220, 30%, 12%);
-  border-color: hsl(220, 30%, 35%);
+  background: rgba(124, 58, 237, 0.1);
+  border-color: rgba(124, 58, 237, 0.5);
 }
 
 :root .landing-outline-btn:hover {
-  background: hsl(220, 15%, 95%);
-  border-color: hsl(220, 15%, 75%);
+  background: rgba(124, 58, 237, 0.06);
+  border-color: rgba(124, 58, 237, 0.3);
 }
 
 /* Landing footer */
 .landing-footer {
-  background: hsl(220, 35%, 5%);
-  border-top: 1px solid hsl(220, 30%, 12%);
+  background: hsl(260, 40%, 5%);
+  border-top: 1px solid rgba(124, 58, 237, 0.12);
 }
 
 :root .landing-footer {
-  background: hsl(220, 15%, 97%);
-  border-top: 1px solid hsl(220, 15%, 90%);
+  background: hsl(250, 20%, 97%);
+  border-top: 1px solid rgba(124, 58, 237, 0.1);
 }
 
 .dark .landing-footer {
-  background: hsl(220, 35%, 5%);
-  border-top: 1px solid hsl(220, 30%, 12%);
+  background: hsl(260, 40%, 5%);
+  border-top: 1px solid rgba(124, 58, 237, 0.12);
 }
 
 /* Landing page — force wave visibility in light mode */

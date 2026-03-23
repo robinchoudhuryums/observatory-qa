@@ -4,6 +4,7 @@ import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { insertAccessRequestSchema } from "@shared/schema";
 import { z } from "zod";
 import { logger } from "../services/logger";
+import { parsePagination, paginateArray } from "./helpers";
 
 export function registerAccessRoutes(app: Express): void {
   // ==================== ACCESS REQUEST ROUTES (unauthenticated) ====================
@@ -34,7 +35,7 @@ export function registerAccessRoutes(app: Express): void {
 
   // ==================== ACCESS REQUEST ADMIN ROUTES (admin only) ====================
 
-  // List all access requests
+  // List all access requests (paginated)
   app.get("/api/access-requests", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
     try {
       const requests = await storage.getAllAccessRequests(req.orgId!);

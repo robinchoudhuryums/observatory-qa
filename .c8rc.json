@@ -1,0 +1,13 @@
+{
+  "all": false,
+  "src": ["server", "shared"],
+  "exclude": [
+    "server/db/migrate.ts",
+    "server/workers/**",
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "dist/**"
+  ],
+  "reporter": ["text", "lcov"],
+  "report-dir": "coverage"
+}

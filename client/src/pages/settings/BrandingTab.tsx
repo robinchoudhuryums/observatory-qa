@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Palette, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -8,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import type { Organization } from "@shared/schema";
+import {  RiPaletteLine, RiSaveLine, RiCheckboxBlankLine  } from "@remixicon/react";
 
 export default function BrandingTab() {
   const { toast } = useToast();
@@ -67,7 +67,7 @@ export default function BrandingTab() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
-            <Palette className="w-5 h-5 text-primary" />
+            <RiPaletteLine className="w-5 h-5 text-primary" />
             White-Label Branding
           </CardTitle>
           <CardDescription>
@@ -151,7 +151,7 @@ export default function BrandingTab() {
             </div>
 
             <Button type="submit" disabled={mutation.isPending}>
-              <Save className="w-4 h-4 mr-2" />
+              <RiSaveLine className="w-4 h-4 mr-2" />
               {mutation.isPending ? "Saving..." : "Save Branding"}
             </Button>
           </form>

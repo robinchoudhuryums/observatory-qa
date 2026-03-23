@@ -1,8 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Employee } from "@shared/schema";
-import { AlertTriangle, RefreshCw } from "lucide-react";
 import { motion } from "framer-motion";
 import { Link } from "wouter";
+import {  RiAlertLine, RiRefreshLine  } from "@remixicon/react";
 
 // Define a more robust type for a performer
 type TopPerformer = Partial<Employee> & {
@@ -19,7 +19,7 @@ export default function PerformanceCard() {
 
   if (error) {
     return (
-      <div className="modern-card rounded-xl p-6 text-center">
+      <div className="modern-card rounded-xl p-6 text-center" data-testid="performance-card">
         <p className="text-sm text-muted-foreground">No performer data yet</p>
         <p className="text-xs text-muted-foreground/70 mt-1">Top performers will appear after calls are analyzed.</p>
       </div>

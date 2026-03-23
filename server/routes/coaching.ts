@@ -9,6 +9,7 @@ import { sendDigestNotification } from "../services/notifications";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
+import { parsePagination, paginateArray } from "./helpers";
 
 export function registerCoachingRoutes(app: Express): void {
   // ==================== COACHING ROUTES ====================
@@ -16,11 +17,15 @@ export function registerCoachingRoutes(app: Express): void {
   // List all coaching sessions (managers and admins)
   app.get("/api/coaching", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
     try {
+      const { limit, offset } = parsePagination(req.query);
       const sessions = await storage.getAllCoachingSessions(req.orgId!);
-      // Enrich with employee names
-      const enriched = await Promise.all(sessions.map(async s => {
-        const emp = await storage.getEmployee(req.orgId!, s.employeeId);
-        return { ...s, employeeName: emp?.name || "Unknown" };
+      // Batch-load employee names instead of N+1
+      const empIds = Array.from(new Set(sessions.map(s => s.employeeId).filter(Boolean)));
+      const employees = await storage.getAllEmployees(req.orgId!);
+      const empMap = new Map(employees.map(e => [e.id, e.name]));
+      const enriched = sessions.map(s => ({
+        ...s,
+        employeeName: empMap.get(s.employeeId) || "Unknown",
       }));
       logPhiAccess({
         ...auditContext(req),
@@ -28,7 +33,8 @@ export function registerCoachingRoutes(app: Express): void {
         resourceType: "coaching",
         detail: `Listed ${enriched.length} coaching sessions`,
       });
-      res.json(enriched.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()));
+      const sorted = enriched.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      res.json(sorted);
     } catch (error) {
       logger.error({ err: error }, "Failed to fetch coaching sessions");
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to fetch coaching sessions"));
@@ -65,6 +71,13 @@ export function registerCoachingRoutes(app: Express): void {
         return;
       }
       const session = await storage.createCoachingSession(req.orgId!, parsed.data);
+      logPhiAccess({
+        ...auditContext(req),
+        event: "create_coaching_session",
+        resourceType: "coaching",
+        resourceId: session.id,
+        detail: `Created coaching session for employee ${session.employeeId}`,
+      });
       res.status(201).json(session);
     } catch (error) {
       logger.error({ err: error }, "Failed to create coaching session");
@@ -98,6 +111,24 @@ export function registerCoachingRoutes(app: Express): void {
         res.status(404).json(errorResponse(ERROR_CODES.COACHING_NOT_FOUND, "Coaching session not found"));
         return;
       }
+      logPhiAccess({
+        ...auditContext(req),
+        event: "update_coaching_session",
+        resourceType: "coaching",
+        resourceId: req.params.id,
+        detail: `Updated fields: ${Object.keys(parsed.data).join(", ")}`,
+      });
+
+      // Gamification: award points when coaching session completed
+      if (updates.status === "completed" && updated.employeeId) {
+        try {
+          const { recordActivity } = await import("./gamification");
+          await recordActivity(req.orgId!, updated.employeeId, "coaching_completed");
+        } catch (err) {
+          logger.warn({ err, sessionId: req.params.id }, "Failed to update gamification for coaching completion");
+        }
+      }
+
       res.json(updated);
     } catch (error) {
       logger.error({ err: error }, "Failed to update coaching session");

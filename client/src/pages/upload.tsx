@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Upload as UploadIcon, Mic } from "lucide-react";
 import FileUpload from "@/components/upload/file-upload";
 import AudioRecorder from "@/components/upload/audio-recorder";
 import { HelpTip } from "@/components/ui/help-tip";
@@ -8,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { CALL_CATEGORIES } from "@shared/schema";
 import type { Employee } from "@shared/schema";
+import {  RiUploadLine as UploadIcon, RiMicLine  } from "@remixicon/react";
 
 type UploadTab = "file" | "record";
 
@@ -87,7 +87,7 @@ export default function Upload() {
             }`}
             onClick={() => setTab("record")}
           >
-            <Mic className="w-4 h-4 inline mr-1.5 -mt-0.5" />
+            <RiMicLine className="w-4 h-4 inline mr-1.5 -mt-0.5" />
             Record Live
           </button>
         </div>

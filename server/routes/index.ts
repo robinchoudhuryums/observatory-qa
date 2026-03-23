@@ -7,6 +7,7 @@ import { registerAdminRoutes } from "./admin";
 import { registerDashboardRoutes } from "./dashboard";
 import { registerEmployeeRoutes } from "./employees";
 import { registerCallRoutes } from "./calls";
+import { startUploadCleanup } from "./helpers";
 import { registerReportRoutes } from "./reports";
 import { registerCoachingRoutes } from "./coaching";
 import { registerInsightRoutes } from "./insights";
@@ -93,6 +94,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerEmailRoutes(app);
   registerLmsRoutes(app);
   registerMarketingRoutes(app);
+
+  // Start periodic cleanup of orphaned upload temp files
+  startUploadCleanup();
 
   const httpServer = createServer(app);
   return httpServer;

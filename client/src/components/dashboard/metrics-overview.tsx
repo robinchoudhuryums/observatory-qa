@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import { Phone, Heart, Clock, Star, AlertTriangle, Upload } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
@@ -7,6 +6,7 @@ import { motion } from "framer-motion";
 import { useCountUp } from "@/hooks/use-count-up";
 import { HelpTip } from "@/components/ui/help-tip";
 import type { DashboardMetrics } from "@shared/schema";
+import {  RiPhoneLine, RiHeartLine, RiTimeLine, RiStarLine, RiAlertLine, RiUploadLine  } from "@remixicon/react";
 
 const cardVariants = {
   hidden: { opacity: 0, y: 16 },
@@ -29,15 +29,15 @@ export default function MetricsOverview() {
 
   if (error) {
     return (
-      <div className="modern-card rounded-xl p-8 text-center">
+      <div className="modern-card rounded-xl p-8 text-center" data-testid="metrics-overview">
         <div className="mx-auto w-16 h-16 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full flex items-center justify-center mb-4">
-          <Phone className="w-7 h-7 text-primary/60" />
+          <RiPhoneLine className="w-7 h-7 text-primary/60" />
         </div>
         <h3 className="text-lg font-semibold text-foreground mb-1">No calls analyzed yet</h3>
         <p className="text-sm text-muted-foreground max-w-md mx-auto">Upload your first call recording to see performance metrics here.</p>
         <Link href="/upload">
           <Button variant="outline" className="mt-4">
-            <Upload className="w-4 h-4 mr-2" /> Upload a Call
+            <RiUploadLine className="w-4 h-4 mr-2" /> Upload a Call
           </Button>
         </Link>
       </div>
@@ -46,7 +46,7 @@ export default function MetricsOverview() {
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" data-testid="metrics-overview">
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="metric-card rounded-lg p-6">
             <div className="flex items-center justify-between">
@@ -72,7 +72,7 @@ export default function MetricsOverview() {
     return (
       <div className="modern-card rounded-xl p-8 text-center">
         <div className="mx-auto w-16 h-16 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full flex items-center justify-center mb-4">
-          <Phone className="w-7 h-7 text-primary/60" />
+          <RiPhoneLine className="w-7 h-7 text-primary/60" />
         </div>
         <h3 className="text-lg font-semibold text-foreground mb-1">No calls analyzed yet</h3>
         <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">
@@ -80,7 +80,7 @@ export default function MetricsOverview() {
         </p>
         <Link href="/upload">
           <Button>
-            <Upload className="w-4 h-4 mr-2" />
+            <RiUploadLine className="w-4 h-4 mr-2" />
             Upload Your First Call
           </Button>
         </Link>
@@ -94,7 +94,7 @@ export default function MetricsOverview() {
       help: "Total number of call recordings that have been uploaded and analyzed.",
       renderValue: () => <CountUpValue value={totalCalls} decimals={0} />,
       change: `${totalCalls} analyzed`,
-      icon: Phone,
+      icon: RiPhoneLine,
       iconStyle: { background: "linear-gradient(135deg, hsla(var(--brand-from), 0.2), hsla(var(--brand-to), 0.1))" },
       iconColorStyle: { color: "hsl(var(--brand-from))" },
       glowClass: "metric-glow-brand",
@@ -104,7 +104,7 @@ export default function MetricsOverview() {
       help: "Average customer sentiment score (0-10) across all analyzed calls. Higher is more positive.",
       renderValue: () => <><CountUpValue value={avgSentiment} />/10</>,
       change: "Avg across calls",
-      icon: Heart,
+      icon: RiHeartLine,
       iconStyle: { background: "linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(34, 197, 94, 0.1))" },
       iconColorStyle: { color: "rgb(16, 185, 129)" },
       glowClass: "metric-glow-green",
@@ -114,7 +114,7 @@ export default function MetricsOverview() {
       help: "Average time to transcribe and analyze each call recording.",
       renderValue: () => <><CountUpValue value={avgTranscription} decimals={0} />min</>,
       change: "Avg per call",
-      icon: Clock,
+      icon: RiTimeLine,
       iconStyle: { background: "linear-gradient(135deg, hsla(var(--brand-to), 0.2), hsla(var(--brand-to), 0.1))" },
       iconColorStyle: { color: "hsl(var(--brand-to))" },
       glowClass: "metric-glow-brand-alt",
@@ -124,7 +124,7 @@ export default function MetricsOverview() {
       help: "Average AI-generated performance score (0-10) across all agents. Based on compliance, communication, and resolution.",
       renderValue: () => <><CountUpValue value={avgPerformance} />/10</>,
       change: "Avg performance",
-      icon: Star,
+      icon: RiStarLine,
       iconStyle: { background: "linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(236, 72, 153, 0.1))" },
       iconColorStyle: { color: "rgb(168, 85, 247)" },
       glowClass: "metric-glow-purple",

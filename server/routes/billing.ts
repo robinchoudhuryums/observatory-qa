@@ -5,6 +5,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { storage } from "../storage";
 import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { logger } from "../services/logger";
+import { logPhiAccess, auditContext } from "../services/audit-log";
 import {
   getStripe, isStripeConfigured, getPriceId,
   getOrCreateCustomer, createCheckoutSession, createPortalSession,
@@ -319,6 +320,13 @@ export function registerBillingRoutes(app: Express): void {
         `${baseUrl}/settings?tab=billing&checkout=canceled`,
       );
 
+      logPhiAccess({
+        ...auditContext(req),
+        event: "billing_checkout_initiated",
+        resourceType: "subscription",
+        resourceId: req.orgId!,
+        detail: `Plan: ${tier}, Interval: ${interval}`,
+      });
       logger.info({ orgId: req.orgId, tier, interval }, "Checkout session created");
       res.json({ url: checkoutUrl });
     } catch (error) {
@@ -382,6 +390,13 @@ export function registerBillingRoutes(app: Express): void {
         stripeCustomerId: sub?.stripeCustomerId,
       });
 
+      logPhiAccess({
+        ...auditContext(req),
+        event: "billing_plan_downgraded",
+        resourceType: "subscription",
+        resourceId: req.orgId!,
+        detail: `From: ${sub?.planTier || "unknown"}, To: free`,
+      });
       logger.info({ orgId: req.orgId }, "Downgraded to free plan");
       res.json({ message: "Downgraded to free plan" });
     } catch (error) {

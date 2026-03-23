@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Users, Plus, Trash2, Edit2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import {  RiTeamLine, RiAddLine, RiDeleteBinLine, RiEditLine, RiUserLine, RiSaveLine  } from "@remixicon/react";
 
 interface UserRecord {
   id: string;
@@ -116,13 +116,13 @@ export default function UsersTab() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-lg flex items-center gap-2">
-                <Users className="w-5 h-5 text-primary" />
+                <RiTeamLine className="w-5 h-5 text-primary" />
                 User Management
               </CardTitle>
               <CardDescription>Create, edit, and manage user accounts for your organization.</CardDescription>
             </div>
             <Button size="sm" onClick={() => setShowCreate(!showCreate)}>
-              <Plus className="w-4 h-4 mr-2" />Add User
+              <RiAddLine className="w-4 h-4 mr-2" />Add User
             </Button>
           </div>
         </CardHeader>
@@ -193,7 +193,7 @@ export default function UsersTab() {
             </div>
           ) : !users || users.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
-              <Users className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <RiTeamLine className="w-8 h-8 mx-auto mb-2 opacity-50" />
               <p>No users found. Create one above.</p>
             </div>
           ) : (
@@ -241,7 +241,7 @@ export default function UsersTab() {
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         <Button variant="ghost" size="sm" onClick={() => startEdit(user)} title="Edit user">
-                          <Edit2 className="w-4 h-4" />
+                          <RiEditLine className="w-4 h-4" />
                         </Button>
                         <Button
                           variant="ghost"
@@ -254,7 +254,7 @@ export default function UsersTab() {
                           }}
                           title="Delete user"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <RiDeleteBinLine className="w-4 h-4" />
                         </Button>
                       </div>
                     </>

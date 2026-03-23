@@ -703,7 +703,18 @@ export function parseJsonResponse(text: string, callId: string): CallAnalysis {
   };
 
   const toStringArray = (v: unknown): string[] => {
-    if (Array.isArray(v)) return v.filter(x => typeof x === "string" || typeof x === "object").map(x => typeof x === "string" ? x : String(x));
+    if (Array.isArray(v)) return v.map(x => {
+      if (typeof x === "string") return x;
+      // AI may return objects like {text: "...", timestamp: "MM:SS"} — extract text
+      if (x && typeof x === "object") {
+        const obj = x as Record<string, unknown>;
+        return typeof obj.text === "string" ? obj.text
+          : typeof obj.message === "string" ? obj.message
+          : typeof obj.value === "string" ? obj.value
+          : JSON.stringify(x);
+      }
+      return String(x);
+    }).filter(s => s.length > 0);
     if (typeof v === "string") return [v];
     return [];
   };
@@ -730,11 +741,20 @@ export function parseJsonResponse(text: string, callId: string): CallAnalysis {
     },
     action_items: toStringArray(raw.action_items),
     feedback: {
-      strengths: Array.isArray(rawFeedback.strengths) ? rawFeedback.strengths : [],
-      suggestions: Array.isArray(rawFeedback.suggestions) ? rawFeedback.suggestions : [],
+      strengths: toStringArray(rawFeedback.strengths),
+      suggestions: toStringArray(rawFeedback.suggestions),
     },
     call_party_type: typeof raw.call_party_type === "string" ? raw.call_party_type : "other",
-    flags: toStringArray(raw.flags),
+    flags: toStringArray(raw.flags).filter(f => {
+      // Validate flag format: known flags or missing_required_phrase:<label>
+      const validFlags = ["low_score", "exceptional_call", "agent_misconduct", "compliance_risk",
+        "empty_transcript", "audio_missing", "low_confidence", "transcript_edited"];
+      if (validFlags.includes(f)) return true;
+      if (f.startsWith("missing_required_phrase:")) return true;
+      // Allow custom flags but log unknown ones
+      if (f.length > 0 && f.length < 100) return true;
+      return false;
+    }),
     detected_agent_name: typeof raw.detected_agent_name === "string" ? raw.detected_agent_name : null,
   };
 

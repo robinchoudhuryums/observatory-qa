@@ -120,6 +120,50 @@ export function registerABTestRoutes(app: Express): void {
     }
   });
 
+  // Export A/B test result as JSON
+  app.get("/api/ab-tests/:id/export", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      const test = await storage.getABTest(req.orgId!, req.params.id);
+      if (!test) {
+        res.status(404).json({ message: "A/B test not found" });
+        return;
+      }
+      if (test.status !== "completed" && test.status !== "partial") {
+        res.status(400).json({ message: "Test must be completed before export" });
+        return;
+      }
+      const baselineLabel = BEDROCK_MODEL_PRESETS.find(m => m.value === test.baselineModel)?.label || test.baselineModel;
+      const testLabel = BEDROCK_MODEL_PRESETS.find(m => m.value === test.testModel)?.label || test.testModel;
+      const exportData = {
+        testId: test.id,
+        fileName: test.fileName,
+        callCategory: test.callCategory,
+        createdAt: test.createdAt,
+        createdBy: test.createdBy,
+        status: test.status,
+        baseline: {
+          model: test.baselineModel,
+          modelLabel: baselineLabel,
+          latencyMs: test.baselineLatencyMs,
+          analysis: test.baselineAnalysis,
+        },
+        test: {
+          model: test.testModel,
+          modelLabel: testLabel,
+          latencyMs: test.testLatencyMs,
+          analysis: test.testAnalysis,
+        },
+      };
+      const safeName = (test.fileName || "ab-test").replace(/[^a-zA-Z0-9._-]/g, "_");
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Content-Disposition", `attachment; filename="ab-test-${safeName}-${test.id.slice(0, 8)}.json"`);
+      res.json(exportData);
+    } catch (error) {
+      logger.error({ err: error }, "Error exporting A/B test");
+      res.status(500).json({ message: "Failed to export A/B test" });
+    }
+  });
+
   // Delete an A/B test
   app.delete("/api/ab-tests/:id", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
     try {
@@ -161,6 +205,18 @@ async function processABTest(orgId: string, testId: string, filePath: string, ca
     await storage.updateABTest(orgId, testId, { transcriptText, status: "analyzing" });
     logger.info({ testId, chars: transcriptText.length }, "Transcription complete");
 
+    // Guard: skip AI analysis for empty/noise transcripts
+    if (transcriptText.trim().length < 10) {
+      await storage.updateABTest(orgId, testId, {
+        status: "completed",
+        baselineAnalysis: { error: "Transcript too short for analysis (silence or noise detected)" },
+        testAnalysis: { error: "Transcript too short for analysis (silence or noise detected)" },
+      });
+      await cleanupFile(filePath);
+      broadcastCallUpdate(testId, "ab-test-completed", { label: "A/B test complete (empty transcript)" }, orgId);
+      return;
+    }
+
     // Load prompt template if applicable
     let promptTemplate = undefined;
     if (callCategory) {
@@ -199,34 +255,55 @@ async function processABTest(orgId: string, testId: string, filePath: string, ca
 
     const updates: Record<string, any> = { status: "completed" };
 
+    // Helper to sanitize error messages — strip internal details, API keys, paths
+    const sanitizeError = (err: any): string => {
+      const raw = err?.message || "Analysis failed";
+      // Strip potential API keys, file paths, and stack traces
+      if (raw.includes("credentials") || raw.includes("AccessDenied") || raw.includes("UnrecognizedClient")) {
+        return "Model access error — check AWS credentials and model availability in your region";
+      }
+      if (raw.includes("ValidationException") || raw.includes("model identifier")) {
+        return "Invalid model ID — this model may not be available in your AWS region";
+      }
+      if (raw.length > 200) return raw.slice(0, 200) + "...";
+      return raw;
+    };
+
     if (baselineResult.status === "fulfilled") {
       updates.baselineAnalysis = baselineResult.value.analysis;
       updates.baselineLatencyMs = baselineResult.value.latencyMs;
     } else {
-      updates.baselineAnalysis = { error: (baselineResult as PromiseRejectedResult).reason?.message || "Analysis failed" };
+      updates.baselineAnalysis = { error: sanitizeError((baselineResult as PromiseRejectedResult).reason) };
     }
 
     if (testResult.status === "fulfilled") {
       updates.testAnalysis = testResult.value.analysis;
       updates.testLatencyMs = testResult.value.latencyMs;
     } else {
-      updates.testAnalysis = { error: (testResult as PromiseRejectedResult).reason?.message || "Analysis failed" };
+      updates.testAnalysis = { error: sanitizeError((testResult as PromiseRejectedResult).reason) };
     }
 
+    // Determine final status
     if (baselineResult.status === "rejected" && testResult.status === "rejected") {
       updates.status = "failed";
+    } else if (baselineResult.status === "rejected" || testResult.status === "rejected") {
+      updates.status = "partial";
     }
 
     await storage.updateABTest(orgId, testId, updates);
 
     // Track usage/cost
     try {
-      const audioDuration = transcriptText.length > 0
-        ? Math.max(30, Math.ceil(transcriptText.length / 20))
+      // Estimate audio duration from transcript word count (~150 words/min conversational speech)
+      const wordCount = transcriptText.split(/\s+/).length;
+      const audioDuration = wordCount > 0
+        ? Math.max(30, Math.ceil((wordCount / 150) * 60))
         : 60;
       const assemblyaiCost = estimateAssemblyAICost(audioDuration);
-      const estimatedInputTokens = Math.ceil(transcriptText.length / 4) + 500;
-      const estimatedOutputTokens = 800;
+      // Token estimation: ~1.3 tokens per word for English text, plus system prompt overhead (~500 tokens)
+      const estimatedInputTokens = Math.ceil(wordCount * 1.3) + 500;
+      // Output is structured JSON analysis — typically 600-1200 tokens
+      const estimatedOutputTokens = 900;
 
       let baselineCost = 0;
       let testCost = 0;
@@ -270,9 +347,12 @@ async function processABTest(orgId: string, testId: string, filePath: string, ca
       logger.warn({ testId, err: usageErr }, "Failed to record A/B test usage (non-blocking)");
     }
 
-    // Also track in standard usage events for quota enforcement
+    // Track in standard usage events for quota enforcement — only count successful invocations
     trackUsage({ orgId, eventType: "transcription", quantity: 1, metadata: { callId: testId, type: "ab-test" } });
-    trackUsage({ orgId, eventType: "ai_analysis", quantity: 2, metadata: { callId: testId, type: "ab-test" } });
+    const successfulModels = [baselineResult, testResult].filter(r => r.status === "fulfilled").length;
+    if (successfulModels > 0) {
+      trackUsage({ orgId, eventType: "ai_analysis", quantity: successfulModels, metadata: { callId: testId, type: "ab-test" } });
+    }
 
     await cleanupFile(filePath);
     broadcastCallUpdate(testId, "ab-test-completed", { label: "A/B test complete" }, orgId);

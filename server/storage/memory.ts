@@ -66,6 +66,10 @@ import { type IStorage, applyCallFilters } from "./types";
  * In-memory storage fallback for when cloud credentials are not configured.
  * Data lives only for the lifetime of the process.
  */
+/** Maximum items to keep in unbounded in-memory collections. */
+const MEM_USAGE_EVENTS_MAX = 10_000;
+const MEM_CLEANUP_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+
 export class MemStorage implements IStorage {
   private organizations = new Map<string, Organization>();
   private employees = new Map<string, Employee>();
@@ -77,6 +81,27 @@ export class MemStorage implements IStorage {
   private accessRequests = new Map<string, AccessRequest>();
   private promptTemplates = new Map<string, PromptTemplate>();
   private coachingSessions = new Map<string, CoachingSession>();
+  private cleanupTimer: ReturnType<typeof setInterval>;
+
+  constructor() {
+    // Periodic cleanup of stale/expired data to prevent unbounded memory growth
+    this.cleanupTimer = setInterval(() => this.cleanup(), MEM_CLEANUP_INTERVAL_MS);
+    this.cleanupTimer.unref(); // Don't block process exit
+  }
+
+  private cleanup(): void {
+    const now = Date.now();
+    // Purge expired invitations (older than 30 days regardless of status)
+    const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+    Array.from(this.invitations.entries()).forEach(([id, inv]) => {
+      const created = inv.createdAt ? new Date(inv.createdAt).getTime() : 0;
+      if (created < thirtyDaysAgo) this.invitations.delete(id);
+    });
+    // Cap usage events to prevent unbounded growth
+    if (this.usageEvents.length > MEM_USAGE_EVENTS_MAX) {
+      this.usageEvents = this.usageEvents.slice(-MEM_USAGE_EVENTS_MAX);
+    }
+  }
 
   // --- Organization operations ---
   async getOrganization(orgId: string): Promise<Organization | undefined> {
@@ -157,6 +182,23 @@ export class MemStorage implements IStorage {
   }
   async getAllEmployees(orgId: string): Promise<Employee[]> {
     return Array.from(this.employees.values()).filter(e => e.orgId === orgId);
+  }
+
+  // --- Count operations (in-memory fallback) ---
+  async countUsersByOrg(orgId: string): Promise<number> {
+    return Array.from(this.users.values()).filter(u => u.orgId === orgId).length;
+  }
+  async countCallsByOrg(orgId: string): Promise<number> {
+    return Array.from(this.calls.values()).filter(c => c.orgId === orgId).length;
+  }
+  async countCallsByOrgAndStatus(orgId: string): Promise<{ pending: number; processing: number; completed: number; failed: number }> {
+    const calls = Array.from(this.calls.values()).filter(c => c.orgId === orgId);
+    return {
+      pending: calls.filter(c => c.status === "pending").length,
+      processing: calls.filter(c => c.status === "processing").length,
+      completed: calls.filter(c => c.status === "completed").length,
+      failed: calls.filter(c => c.status === "failed").length,
+    };
   }
 
   // --- Call operations (org-scoped) ---
@@ -274,6 +316,13 @@ export class MemStorage implements IStorage {
     const newAnalysis: CallAnalysis = { ...analysis, id, orgId, createdAt: new Date().toISOString() };
     this.analyses.set(analysis.callId, newAnalysis);
     return newAnalysis;
+  }
+  async updateCallAnalysis(orgId: string, callId: string, updates: Partial<InsertCallAnalysis>): Promise<CallAnalysis | undefined> {
+    const existing = this.analyses.get(callId);
+    if (!existing || existing.orgId !== orgId) return undefined;
+    const updated: CallAnalysis = { ...existing, ...updates, id: existing.id, orgId, callId };
+    this.analyses.set(callId, updated);
+    return updated;
   }
 
   // --- Audio operations (org-scoped) ---
@@ -842,10 +891,12 @@ export class MemStorage implements IStorage {
     const revenues = Array.from(this.callRevenuesStore.values()).filter(r => r.orgId === orgId);
     const totalEstimated = revenues.reduce((sum, r) => sum + (r.estimatedRevenue || 0), 0);
     const totalActual = revenues.reduce((sum, r) => sum + (r.actualRevenue || 0), 0);
-    const converted = revenues.filter(r => r.conversionStatus === "converted").length;
+    const convertedRevs = revenues.filter(r => r.conversionStatus === "converted");
     const total = revenues.filter(r => r.conversionStatus !== "unknown").length;
-    const conversionRate = total > 0 ? converted / total : 0;
-    const avgDealValue = converted > 0 ? totalActual / converted : 0;
+    const conversionRate = total > 0 ? convertedRevs.length / total : 0;
+    // Only sum actualRevenue from converted calls for accurate avg deal value
+    const convertedActual = convertedRevs.reduce((sum, r) => sum + (r.actualRevenue || 0), 0);
+    const avgDealValue = convertedRevs.length > 0 ? convertedActual / convertedRevs.length : 0;
     return { totalEstimated, totalActual, conversionRate, avgDealValue };
   }
 

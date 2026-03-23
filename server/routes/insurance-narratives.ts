@@ -1,32 +1,87 @@
 import type { Express } from "express";
 import { storage } from "../storage";
 import { requireAuth, requireRole, injectOrgContext } from "../auth";
+import { aiProvider } from "../services/ai-factory";
 import { logger } from "../services/logger";
+import { validateUUIDParam, withRetry } from "./helpers";
+import { errorResponse, ERROR_CODES } from "../services/error-codes";
+import { logPhiAccess, auditContext } from "../services/audit-log";
 import { requirePlanFeature } from "./billing";
 import { INSURANCE_LETTER_TYPES } from "@shared/schema";
 
 /**
- * Generate an AI-powered insurance narrative letter.
- * Uses the call's clinical note and diagnosis/procedure codes to create
- * a professionally formatted letter for insurers.
+ * Generate an insurance narrative letter.
+ * When AI (Bedrock) is available, generates a professional letter via LLM.
+ * Falls back to template-based generation when AI is unavailable.
  */
 async function generateNarrative(params: {
   letterType: string;
   patientName: string;
   insurerName: string;
+  patientDob?: string;
+  memberId?: string;
   diagnosisCodes?: Array<{ code: string; description: string }>;
   procedureCodes?: Array<{ code: string; description: string }>;
   clinicalJustification?: string;
   priorDenialReference?: string;
 }): Promise<string> {
-  // For now, generate a template-based narrative
-  // In production, this would call Bedrock with a specialized prompt
-  const { letterType, patientName, insurerName, diagnosisCodes, procedureCodes, clinicalJustification, priorDenialReference } = params;
-  const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
-
+  const { letterType, patientName, insurerName, patientDob, memberId, diagnosisCodes, procedureCodes, clinicalJustification, priorDenialReference } = params;
   const letterTypeLabel = INSURANCE_LETTER_TYPES.find(t => t.value === letterType)?.label || letterType;
 
-  let narrative = `${today}\n\nRe: ${letterTypeLabel}\nPatient: ${patientName}\n\nDear ${insurerName} Medical Review Team,\n\n`;
+  // Try AI generation first
+  if (aiProvider.isAvailable && aiProvider.generateText) {
+    try {
+      const diagnosisStr = diagnosisCodes?.map(c => `${c.code}: ${c.description}`).join("\n") || "None provided";
+      const procedureStr = procedureCodes?.map(c => `${c.code}: ${c.description}`).join("\n") || "None provided";
+
+      const prompt = `You are a dental/medical insurance specialist writing a "${letterTypeLabel}" letter. Generate a professional, compelling insurance letter.
+
+PATIENT: ${patientName}${patientDob ? ` (DOB: ${patientDob})` : ""}${memberId ? ` (Member ID: ${memberId})` : ""}
+INSURANCE COMPANY: ${insurerName}
+LETTER TYPE: ${letterTypeLabel}
+${priorDenialReference ? `PRIOR DENIAL REFERENCE: ${priorDenialReference}` : ""}
+
+DIAGNOSIS CODES:
+${diagnosisStr}
+
+PROCEDURE CODES:
+${procedureStr}
+
+CLINICAL JUSTIFICATION:
+${clinicalJustification || "Not provided — use the diagnosis and procedure codes to construct justification."}
+
+Write a complete, professionally formatted letter that:
+1. Opens with today's date and proper salutation
+2. Clearly states the purpose (${letterType === "appeal" ? "appeal of denial" : letterType === "prior_auth" ? "prior authorization request" : letterType === "medical_necessity" ? "medical necessity justification" : letterType === "predetermination" ? "predetermination request" : "peer-to-peer review summary"})
+3. Includes patient demographics and insurance details
+4. Presents a strong clinical justification citing the diagnosis codes
+5. Lists the specific procedures requested with CDT/CPT codes
+6. References evidence-based guidelines where applicable
+7. Closes with a professional request for approval
+8. Ends with signature block placeholders
+
+Output ONLY the letter text (no JSON, no markdown fences).`;
+
+      const response = await withRetry(
+        () => aiProvider.generateText!(prompt),
+        { retries: 1, baseDelay: 2000, label: "insurance narrative generation" }
+      );
+
+      if (response && response.length > 100) {
+        return response;
+      }
+    } catch (err) {
+      logger.warn({ err }, "AI narrative generation failed, falling back to template");
+    }
+  }
+
+  // Fallback: template-based generation
+  const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+
+  let narrative = `${today}\n\nRe: ${letterTypeLabel}\nPatient: ${patientName}`;
+  if (patientDob) narrative += `\nDate of Birth: ${patientDob}`;
+  if (memberId) narrative += `\nMember ID: ${memberId}`;
+  narrative += `\n\nDear ${insurerName} Medical Review Team,\n\n`;
 
   if (letterType === "prior_auth") {
     narrative += `I am writing to request prior authorization for the following treatment plan for the above-referenced patient.\n\n`;
@@ -106,9 +161,9 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
         }
       }
 
-      // Generate the narrative
+      // Generate the narrative (passes patient demographics for richer AI output)
       const generatedNarrative = await generateNarrative({
-        letterType, patientName, insurerName,
+        letterType, patientName, insurerName, patientDob, memberId,
         diagnosisCodes: enrichedDiagnosisCodes, procedureCodes: enrichedProcedureCodes,
         clinicalJustification: enrichedJustification, priorDenialReference,
       });
@@ -125,7 +180,7 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
       res.json(narrative);
     } catch (error) {
       logger.error({ err: error }, "Failed to create insurance narrative");
-      res.status(500).json({ message: "Failed to create insurance narrative" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to create insurance narrative"));
     }
   });
 
@@ -143,12 +198,12 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
       res.json(narratives);
     } catch (error) {
       logger.error({ err: error }, "Failed to list insurance narratives");
-      res.status(500).json({ message: "Failed to list insurance narratives" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to list insurance narratives"));
     }
   });
 
   // Get a specific narrative
-  app.get("/api/insurance-narratives/:id", requireAuth, injectOrgContext, async (req, res) => {
+  app.get("/api/insurance-narratives/:id", requireAuth, injectOrgContext, validateUUIDParam(), async (req, res) => {
     try {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
@@ -158,12 +213,12 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
       res.json(narrative);
     } catch (error) {
       logger.error({ err: error }, "Failed to get insurance narrative");
-      res.status(500).json({ message: "Failed to get insurance narrative" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get insurance narrative"));
     }
   });
 
   // Update narrative (edit content, change status)
-  app.patch("/api/insurance-narratives/:id", requireAuth, requireRole("manager"), injectOrgContext, async (req, res) => {
+  app.patch("/api/insurance-narratives/:id", requireAuth, requireRole("manager"), injectOrgContext, validateUUIDParam(), async (req, res) => {
     try {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
@@ -173,12 +228,12 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
       res.json(updated);
     } catch (error) {
       logger.error({ err: error }, "Failed to update insurance narrative");
-      res.status(500).json({ message: "Failed to update insurance narrative" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update insurance narrative"));
     }
   });
 
   // Delete a narrative
-  app.delete("/api/insurance-narratives/:id", requireAuth, requireRole("manager"), injectOrgContext, async (req, res) => {
+  app.delete("/api/insurance-narratives/:id", requireAuth, requireRole("manager"), injectOrgContext, validateUUIDParam(), async (req, res) => {
     try {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
@@ -187,12 +242,12 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
       res.json({ success: true });
     } catch (error) {
       logger.error({ err: error }, "Failed to delete insurance narrative");
-      res.status(500).json({ message: "Failed to delete insurance narrative" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to delete insurance narrative"));
     }
   });
 
   // Regenerate narrative text with updated params
-  app.post("/api/insurance-narratives/:id/regenerate", requireAuth, requireRole("manager"), injectOrgContext, async (req, res) => {
+  app.post("/api/insurance-narratives/:id/regenerate", requireAuth, requireRole("manager"), injectOrgContext, validateUUIDParam(), async (req, res) => {
     try {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
@@ -204,6 +259,8 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
         letterType: narrative.letterType,
         patientName: narrative.patientName,
         insurerName: narrative.insurerName,
+        patientDob: narrative.patientDob,
+        memberId: narrative.memberId,
         diagnosisCodes: narrative.diagnosisCodes,
         procedureCodes: narrative.procedureCodes,
         clinicalJustification: narrative.clinicalJustification,
@@ -214,7 +271,7 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
       res.json(updated);
     } catch (error) {
       logger.error({ err: error }, "Failed to regenerate insurance narrative");
-      res.status(500).json({ message: "Failed to regenerate narrative" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to regenerate narrative"));
     }
   });
 }

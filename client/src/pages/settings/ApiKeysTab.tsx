@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, Copy, Clock, Key, Ban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import {  RiAddLine, RiDeleteBinLine, RiFileCopyLine, RiTimeLine, RiKeyLine, RiForbidLine, RiTeamLine  } from "@remixicon/react";
 
 interface ApiKeyRecord {
   id: string;
@@ -94,7 +94,7 @@ export default function ApiKeysTab() {
         <Card className="border-green-300 dark:border-green-800 bg-green-50 dark:bg-green-950/30">
           <CardContent className="pt-6">
             <h4 className="text-sm font-semibold text-green-800 dark:text-green-400 mb-2">
-              API Key Created — Copy it now!
+              API RiKeyLine Created — Copy it now!
             </h4>
             <p className="text-xs text-green-700 dark:text-green-500 mb-3">
               This key will not be shown again. Store it securely.
@@ -104,7 +104,7 @@ export default function ApiKeysTab() {
                 {newlyCreatedKey}
               </code>
               <Button size="sm" variant="outline" onClick={() => copyKey(newlyCreatedKey)}>
-                <Copy className="w-4 h-4" />
+                <RiFileCopyLine className="w-4 h-4" />
               </Button>
             </div>
             <Button
@@ -124,7 +124,7 @@ export default function ApiKeysTab() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-lg flex items-center gap-2">
-                <Key className="w-5 h-5 text-primary" />
+                <RiKeyLine className="w-5 h-5 text-primary" />
                 API Keys
               </CardTitle>
               <CardDescription>
@@ -132,7 +132,7 @@ export default function ApiKeysTab() {
               </CardDescription>
             </div>
             <Button size="sm" onClick={() => { setShowCreate(!showCreate); setNewlyCreatedKey(null); }}>
-              <Plus className="w-4 h-4 mr-2" />New Key
+              <RiAddLine className="w-4 h-4 mr-2" />New Key
             </Button>
           </div>
         </CardHeader>
@@ -203,7 +203,7 @@ export default function ApiKeysTab() {
             </div>
           ) : !keys || keys.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              <Key className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <RiKeyLine className="w-8 h-8 mx-auto mb-2 opacity-50" />
               <p>No API keys created yet.</p>
             </div>
           ) : (
@@ -211,7 +211,7 @@ export default function ApiKeysTab() {
               {keys.map((k) => (
                 <div key={k.id} className="flex items-center gap-4 p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors">
                   <div className="w-10 h-10 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full flex items-center justify-center shrink-0">
-                    <Key className="w-4 h-4 text-primary" />
+                    <RiKeyLine className="w-4 h-4 text-primary" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -230,7 +230,7 @@ export default function ApiKeysTab() {
                       {k.lastUsedAt && <span>Last used: {new Date(k.lastUsedAt).toLocaleDateString()}</span>}
                       {k.expiresAt && (
                         <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
+                          <RiTimeLine className="w-3 h-3" />
                           Expires {new Date(k.expiresAt).toLocaleDateString()}
                         </span>
                       )}
@@ -245,7 +245,7 @@ export default function ApiKeysTab() {
                         onClick={() => revokeMutation.mutate(k.id)}
                         title="Revoke key"
                       >
-                        <Ban className="w-4 h-4" />
+                        <RiForbidLine className="w-4 h-4" />
                       </Button>
                     )}
                     <Button
@@ -257,7 +257,7 @@ export default function ApiKeysTab() {
                       }}
                       title="Delete key"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <RiDeleteBinLine className="w-4 h-4" />
                     </Button>
                   </div>
                 </div>

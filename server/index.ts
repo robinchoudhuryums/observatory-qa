@@ -190,7 +190,7 @@ app.use((req, res, next) => {
     res.cookie("csrf-token", token, {
       httpOnly: false, // Must be readable by JS to send in header
       sameSite: "strict",
-      secure: process.env.NODE_ENV === "production",
+      secure: process.env.NODE_ENV === "production" && !process.env.DISABLE_SECURE_COOKIE,
       path: "/",
     });
   }
@@ -248,7 +248,10 @@ app.use((req, res, next) => {
 });
 
 // HIPAA: Rate limiting on login endpoint (5 attempts per 15 minutes per IP)
-app.post("/api/auth/login", distributedRateLimit(15 * 60 * 1000, 5) as any);
+// In E2E testing, relax limits to avoid 429s from repeated test logins
+const isE2E = process.env.E2E_TESTING === "true";
+const loginRateLimit = isE2E ? 500 : 5;
+app.post("/api/auth/login", distributedRateLimit(15 * 60 * 1000, loginRateLimit) as any);
 // Rate limit registration: 3 per hour per IP
 app.post("/api/auth/register", distributedRateLimit(60 * 60 * 1000, 3) as any);
 // Rate limit password reset: 5 per 15 minutes per IP (prevent token brute-force & enumeration)
@@ -260,10 +263,17 @@ app.get("/api/calls", distributedRateLimit(60 * 1000, 100, true) as any);
 app.post("/api/calls/upload", distributedRateLimit(60 * 1000, 30, true) as any);
 app.use("/api/export", distributedRateLimit(60 * 1000, 10, true) as any);
 app.post("/api/onboarding/rag/search", distributedRateLimit(60 * 1000, 20, true) as any);
+// Tighter limits on individual PHI detail reads (transcript, analysis, sentiment)
+app.get("/api/calls/:id/transcript", distributedRateLimit(60 * 1000, 30, true) as any);
+app.get("/api/calls/:id/analysis", distributedRateLimit(60 * 1000, 30, true) as any);
+app.get("/api/calls/:id/sentiment", distributedRateLimit(60 * 1000, 30, true) as any);
 app.use("/api/calls", distributedRateLimit(60 * 1000, 60, true) as any);
 app.use("/api/employees", distributedRateLimit(60 * 1000, 60, true) as any);
-app.use("/api/clinical", distributedRateLimit(60 * 1000, 60, true) as any);
-app.use("/api/ehr", distributedRateLimit(60 * 1000, 30, true) as any);
+// Tighter limits on clinical/EHR (PHI-heavy endpoints)
+app.use("/api/clinical", distributedRateLimit(60 * 1000, 40, true) as any);
+app.use("/api/ehr", distributedRateLimit(60 * 1000, 20, true) as any);
+// Style learning is computationally expensive — stricter limit
+app.post("/api/clinical/style-learning/analyze", distributedRateLimit(60 * 1000, 3, true) as any);
 
 (async () => {
   // --- Infrastructure initialization ---
@@ -388,6 +398,18 @@ app.use("/api/ehr", distributedRateLimit(60 * 1000, 30, true) as any);
             // Fallback: run inline
             const purged = await currentStorage.purgeExpiredCalls(org.id, orgRetention);
             if (purged > 0) {
+              const { logPhiAccess } = await import("./services/audit-log");
+              logPhiAccess({
+                orgId: org.id,
+                userId: "system",
+                username: "system:retention",
+                role: "admin",
+                ip: "localhost",
+                userAgent: "retention-scheduler",
+                event: "data_retention_purge",
+                resourceType: "call",
+                detail: `Purged ${purged} calls older than ${orgRetention} days`,
+              });
               logger.info({ org: org.slug, purged, retentionDays: orgRetention }, "Retention purge completed");
               totalPurged += purged;
             }
@@ -423,6 +445,18 @@ app.use("/api/ehr", distributedRateLimit(60 * 1000, 30, true) as any);
                 status: "active",
                 billingInterval: "monthly",
                 cancelAtPeriodEnd: false,
+              });
+              const { logPhiAccess } = await import("./services/audit-log");
+              logPhiAccess({
+                orgId: org.id,
+                userId: "system",
+                username: "system:trial-downgrade",
+                role: "admin",
+                ip: "localhost",
+                userAgent: "trial-scheduler",
+                event: "subscription_auto_downgraded",
+                resourceType: "subscription",
+                detail: `Trial expired — From: ${sub.planTier}, To: free`,
               });
               logger.info({ orgId: org.id, orgSlug: org.slug, previousTier: sub.planTier }, "Trial expired — downgraded to free");
               downgraded++;
@@ -512,6 +546,41 @@ app.use("/api/ehr", distributedRateLimit(60 * 1000, 30, true) as any);
       }
     };
 
+    // Weekly digest — sends coaching/performance digest to org webhook
+    const runWeeklyDigest = async () => {
+      try {
+        const webhookUrl = process.env.WEBHOOK_DIGEST_URL;
+        if (!webhookUrl) return;
+
+        const { generateWeeklyDigest } = await import("./services/proactive-alerts");
+        const { sendSlackNotification } = await import("./services/notifications");
+        const orgs = await storage.listOrganizations();
+
+        for (const org of orgs) {
+          try {
+            const digest = await generateWeeklyDigest(org.id);
+            if (digest.totalCalls === 0) continue;
+
+            const text = [
+              `*Weekly Digest: ${org.name}*`,
+              `Calls: ${digest.totalCalls} | Avg Score: ${digest.avgScore} | Flagged: ${digest.flaggedCalls}`,
+              `Sentiment: +${digest.sentiment.positive} / ~${digest.sentiment.neutral} / -${digest.sentiment.negative}`,
+              digest.agentsNeedingAttention.length > 0
+                ? `Agents needing attention: ${digest.agentsNeedingAttention.map(a => a.name).join(", ")}`
+                : "No agents flagged for review",
+            ].join("\n");
+
+            await sendSlackNotification({ channel: "digest", text, blocks: [] });
+            logger.info({ orgId: org.id, totalCalls: digest.totalCalls }, "Weekly digest sent");
+          } catch (orgErr) {
+            logger.warn({ err: orgErr, orgId: org.id }, "Failed to send weekly digest for org");
+          }
+        }
+      } catch (error) {
+        logger.error({ err: error }, "Error during weekly digest generation");
+      }
+    };
+
     // Run once on startup (after 30s delay to let auth settle)
     const retentionStartupTimer = setTimeout(() => {
       runRetention();
@@ -523,40 +592,70 @@ app.use("/api/ehr", distributedRateLimit(60 * 1000, 30, true) as any);
     const retentionDailyTimer = setInterval(runRetention, 24 * 60 * 60 * 1000);
     const trialDowngradeTimer = setInterval(runTrialDowngrade, 24 * 60 * 60 * 1000);
     const quotaAlertDailyTimer = setInterval(runQuotaAlerts, 24 * 60 * 60 * 1000);
+    // Weekly digest (every 7 days)
+    const weeklyDigestTimer = setInterval(runWeeklyDigest, 7 * 24 * 60 * 60 * 1000);
 
-    // Graceful shutdown
-    const shutdown = async () => {
-      logger.info("Shutting down...");
+    // Graceful shutdown with HTTP connection draining
+    let isShuttingDown = false;
+    const DRAIN_TIMEOUT_MS = parseInt(process.env.SHUTDOWN_DRAIN_TIMEOUT || "15000", 10);
+
+    const shutdown = async (signal: string) => {
+      if (isShuttingDown) return;
+      isShuttingDown = true;
+      logger.info({ signal, drainTimeoutMs: DRAIN_TIMEOUT_MS }, "Graceful shutdown initiated");
+
+      // Clear all background timers
       clearInterval(rateLimitCleanupTimer);
       clearTimeout(retentionStartupTimer);
       clearTimeout(quotaAlertStartupTimer);
       clearInterval(retentionDailyTimer);
       clearInterval(trialDowngradeTimer);
       clearInterval(quotaAlertDailyTimer);
+      clearInterval(weeklyDigestTimer);
+
+      // Stop accepting new connections and drain existing ones
+      server.close(() => {
+        logger.info("HTTP server closed — all connections drained");
+      });
+
+      // Force-close after drain timeout to prevent hanging
+      const forceTimer = setTimeout(() => {
+        logger.warn("Drain timeout reached — forcing shutdown");
+        process.exit(1);
+      }, DRAIN_TIMEOUT_MS);
+      forceTimer.unref();
+
+      // Close infrastructure in parallel
       const { closeWebSocket } = await import("./services/websocket");
       await Promise.all([
         closeQueues(),
         closeRedis(),
         closeWebSocket(),
       ]);
+
       // Close DB if PostgreSQL was initialized
       if (pgInitialized) {
         const { closeDatabase } = await import("./db/index");
         await closeDatabase();
       }
+
       // Close RAG worker pool if active
       try {
         const { closeRagWorkerPool } = await import("./services/rag-worker");
         await closeRagWorkerPool();
       } catch (err) { logger.debug({ err }, "RAG worker pool not initialized, skipping cleanup"); }
+
       // Flush any pending OpenTelemetry spans/metrics
       await shutdownTelemetry();
       // Flush pending Sentry events before exit
       await flushSentry();
+
+      clearTimeout(forceTimer);
+      logger.info("Shutdown complete");
       process.exit(0);
     };
-    process.on("SIGTERM", shutdown);
-    process.on("SIGINT", shutdown);
+    process.on("SIGTERM", () => shutdown("SIGTERM"));
+    process.on("SIGINT", () => shutdown("SIGINT"));
   });
 
   // Global safety nets — catch promises and exceptions that slip through

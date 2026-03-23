@@ -119,6 +119,10 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS calls_employee_id_idx ON calls (employee_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS calls_uploaded_at_idx ON calls (uploaded_at)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS calls_org_file_hash_idx ON calls (org_id, file_hash)`);
+    // Composite index for time-scoped filtered reports (org + status + date)
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS calls_org_status_uploaded_idx ON calls (org_id, status, uploaded_at DESC)`);
+    // Composite index for employee + status queries (coaching, gamification)
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS calls_org_employee_status_idx ON calls (org_id, employee_id, status)`);
 
     // Multi-channel support columns
     await addColumnIfNotExists(db, "calls", "channel", "VARCHAR(20) NOT NULL DEFAULT 'voice'");
@@ -150,6 +154,10 @@ export async function syncSchema(db: Database): Promise<void> {
     `);
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS transcripts_call_id_idx ON transcripts (call_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS transcripts_org_id_idx ON transcripts (org_id)`);
+    // Full-text search index for transcript search (GIN tsvector)
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS transcripts_text_search_idx ON transcripts USING GIN (to_tsvector('english', coalesce(text, '')))`).catch(() => {
+      logger.warn("Failed to create transcript full-text search index (may already exist or text is encrypted)");
+    });
 
     // --- Sentiment Analyses ---
     await db.execute(sql`
@@ -165,6 +173,8 @@ export async function syncSchema(db: Database): Promise<void> {
     `);
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS sentiments_call_id_idx ON sentiment_analyses (call_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS sentiments_org_id_idx ON sentiment_analyses (org_id)`);
+    // Index for sentiment filtering in insights/reports
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS sentiments_org_sentiment_idx ON sentiment_analyses (org_id, overall_sentiment)`);
 
     // --- Call Analyses ---
     await db.execute(sql`
@@ -207,6 +217,14 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS analyses_call_id_idx ON call_analyses (call_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS analyses_org_id_idx ON call_analyses (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS analyses_performance_idx ON call_analyses (org_id, performance_score)`);
+    // Full-text search index for analysis summaries
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS analyses_summary_search_idx ON call_analyses USING GIN (to_tsvector('english', coalesce(summary, '')))`).catch(() => {
+      logger.warn("Failed to create analysis summary full-text search index");
+    });
+    // GIN index for JSONB topics search
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS analyses_topics_gin_idx ON call_analyses USING GIN (topics jsonb_path_ops)`).catch(() => {
+      logger.warn("Failed to create topics GIN index");
+    });
 
     // --- Access Requests ---
     await db.execute(sql`
@@ -557,6 +575,8 @@ export async function syncSchema(db: Database): Promise<void> {
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS insurance_narratives_org_idx ON insurance_narratives (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS insurance_narratives_status_idx ON insurance_narratives (org_id, status)`);
+    // Index for call-linked narrative lookups (matches schema.ts definition)
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS insurance_narratives_call_idx ON insurance_narratives (org_id, call_id)`);
 
     // --- Call Revenue Tracking ---
     await db.execute(sql`
@@ -725,6 +745,8 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS call_attributions_org_idx ON call_attributions (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS call_attributions_source_idx ON call_attributions (org_id, source)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS call_attributions_campaign_idx ON call_attributions (org_id, campaign_id)`);
+    // UNIQUE: one attribution per call per org (matches schema.ts definition)
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS call_attributions_call_idx ON call_attributions (org_id, call_id)`);
 
     // --- Audit Logs (tamper-evident) ---
     await db.execute(sql`
@@ -754,6 +776,10 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS audit_logs_event_idx ON audit_logs (org_id, event)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS audit_logs_user_idx ON audit_logs (org_id, user_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS audit_logs_sequence_idx ON audit_logs (org_id, sequence_num)`);
+    // BRIN index on created_at for efficient time-range archival queries (audit logs grow fast)
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS audit_logs_created_at_brin_idx ON audit_logs USING BRIN (created_at)`).catch(() => {
+      logger.warn("Failed to create audit_logs BRIN index");
+    });
 
     logger.info("Schema sync complete");
   } catch (error) {

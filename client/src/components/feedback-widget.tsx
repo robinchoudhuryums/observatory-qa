@@ -5,9 +5,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
-import { MessageSquarePlus, Star } from "lucide-react";
 import { useLocation } from "wouter";
 import { FEEDBACK_TYPES, FEEDBACK_CONTEXTS } from "@shared/schema";
+import {  RiChatNewLine, RiStarLine, RiInputMethodLine  } from "@remixicon/react";
 
 /**
  * Floating feedback widget accessible from any page.
@@ -69,7 +69,7 @@ export function FeedbackWidget() {
           variant="outline"
           className="fixed bottom-4 right-4 z-50 rounded-full shadow-lg gap-1.5"
         >
-          <MessageSquarePlus className="w-4 h-4" />
+          <RiChatNewLine className="w-4 h-4" />
           Feedback
         </Button>
       </PopoverTrigger>

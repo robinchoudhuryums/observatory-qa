@@ -2,6 +2,8 @@ import type { Express } from "express";
 import { storage } from "../storage";
 import { requireAuth, injectOrgContext } from "../auth";
 import { logger } from "../services/logger";
+import { validateUUIDParam } from "./helpers";
+import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import { BADGE_DEFINITIONS, type BadgeId } from "@shared/schema";
 
 // Points awarded for various activities
@@ -20,8 +22,9 @@ const POINT_VALUES = {
  */
 export async function checkAndAwardBadges(orgId: string, employeeId: string): Promise<void> {
   try {
-    const calls = await storage.getAllCalls(orgId);
-    const employeeCalls = calls.filter(c => c.employeeId === employeeId && c.status === "completed");
+    // Use getCallSummaries which includes analysis data, avoiding N+1 queries
+    const allCalls = await storage.getCallSummaries(orgId, { status: "completed" });
+    const employeeCalls = allCalls.filter(c => c.employeeId === employeeId);
     const existingBadges = await storage.getEmployeeBadges(orgId, employeeId);
     const hasBadge = (id: string) => existingBadges.some(b => b.badgeId === id);
 
@@ -38,12 +41,11 @@ export async function checkAndAwardBadges(orgId: string, employeeId: string): Pr
       await storage.awardBadge(orgId, { orgId, employeeId, badgeId: "hundred_calls", awardedAt: now });
     }
 
-    // Performance badges — need analysis data
-    const analyses = [];
-    for (const call of employeeCalls.slice(-20)) { // Check last 20 calls
-      const analysis = await storage.getCallAnalysis(orgId, call.id);
-      if (analysis) analyses.push({ callId: call.id, score: parseFloat(String(analysis.performanceScore || "0")) });
-    }
+    // Performance badges — analysis data is already in call summaries
+    const recentCalls = employeeCalls.slice(-20);
+    const analyses = recentCalls
+      .filter(c => c.analysis)
+      .map(c => ({ callId: c.id, score: parseFloat(String(c.analysis?.performanceScore || "0")) }));
 
     const highScoreCalls = analyses.filter(a => a.score >= 9.0);
     if (highScoreCalls.length >= 5 && !hasBadge("high_performer")) {
@@ -53,6 +55,36 @@ export async function checkAndAwardBadges(orgId: string, employeeId: string): Pr
     const perfectCall = analyses.find(a => a.score === 10.0);
     if (perfectCall && !hasBadge("perfect_score")) {
       await storage.awardBadge(orgId, { orgId, employeeId, badgeId: "perfect_score", awardedAt: now, awardedFor: perfectCall.callId });
+    }
+
+    // Consistency King: 10 consecutive calls with score >= 8.0
+    if (!hasBadge("consistency_king") && analyses.length >= 10) {
+      const last10 = analyses.slice(-10);
+      if (last10.every(a => a.score >= 8.0)) {
+        await storage.awardBadge(orgId, { orgId, employeeId, badgeId: "consistency_king", awardedAt: now });
+      }
+    }
+
+    // Most Improved: average improved by 2+ points comparing first half to second half of recent calls
+    if (!hasBadge("most_improved") && analyses.length >= 6) {
+      const half = Math.floor(analyses.length / 2);
+      const firstHalf = analyses.slice(0, half);
+      const secondHalf = analyses.slice(half);
+      const avgFirst = firstHalf.reduce((s, a) => s + a.score, 0) / firstHalf.length;
+      const avgSecond = secondHalf.reduce((s, a) => s + a.score, 0) / secondHalf.length;
+      if (avgSecond - avgFirst >= 2.0) {
+        await storage.awardBadge(orgId, { orgId, employeeId, badgeId: "most_improved", awardedAt: now });
+      }
+    }
+
+    // Comeback Kid: had calls with score < 5.0, then recent calls all >= 8.0
+    if (!hasBadge("comeback_kid") && analyses.length >= 5) {
+      const hadLowScores = analyses.some(a => a.score < 5.0);
+      const recent5 = analyses.slice(-5);
+      const recentAllHigh = recent5.every(a => a.score >= 8.0);
+      if (hadLowScores && recentAllHigh) {
+        await storage.awardBadge(orgId, { orgId, employeeId, badgeId: "comeback_kid", awardedAt: now });
+      }
     }
 
     // Streak badges
@@ -119,9 +151,14 @@ export function registerGamificationRoutes(app: Express) {
       const limit = parseInt(req.query.limit as string) || 20;
       const leaderboardData = await storage.getLeaderboard(orgId, limit);
 
-      // Enrich with employee names and avg performance scores
-      const employees = await storage.getAllEmployees(orgId);
-      const employeeMap = new Map(employees.map(e => [e.id, e]));
+      // Only fetch employees that appear in the leaderboard (not all org employees)
+      const neededIds = leaderboardData.map(e => e.employeeId);
+      const employeeResults = await Promise.all(
+        neededIds.map(id => storage.getEmployee(orgId, id))
+      );
+      const employeeMap = new Map(
+        employeeResults.filter(Boolean).map(e => [e!.id, e!])
+      );
 
       const leaderboard = leaderboardData.map((entry, idx) => {
         const employee = employeeMap.get(entry.employeeId);
@@ -136,12 +173,12 @@ export function registerGamificationRoutes(app: Express) {
       res.json(leaderboard);
     } catch (error) {
       logger.error({ err: error }, "Failed to get leaderboard");
-      res.status(500).json({ message: "Failed to get leaderboard" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get leaderboard"));
     }
   });
 
   // Get gamification profile for an employee
-  app.get("/api/gamification/profile/:employeeId", requireAuth, injectOrgContext, async (req, res) => {
+  app.get("/api/gamification/profile/:employeeId", requireAuth, injectOrgContext, validateUUIDParam("employeeId"), async (req, res) => {
     try {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
@@ -173,7 +210,7 @@ export function registerGamificationRoutes(app: Express) {
       });
     } catch (error) {
       logger.error({ err: error }, "Failed to get gamification profile");
-      res.status(500).json({ message: "Failed to get gamification profile" });
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get gamification profile"));
     }
   });
 
