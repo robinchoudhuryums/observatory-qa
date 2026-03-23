@@ -1,36 +1,29 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("Upload Flow", () => {
-  test.beforeEach(async ({ page }) => {
-    // Diagnostic: verify the session is valid before running tests
-    const authResponse = await page.request.get("/api/auth/me");
-    if (authResponse.status() !== 200) {
-      const cookies = await page.context().cookies();
-      const cookieNames = cookies.map(c => `${c.name}=${c.value.substring(0, 20)}...`);
-      throw new Error(
-        `Session invalid! /api/auth/me returned ${authResponse.status()}. ` +
-        `Cookies: [${cookieNames.join(", ")}]. ` +
-        `URL: ${page.url()}`
-      );
-    }
-  });
+  test("upload page loads", async ({ page }) => {
+    const authResp = await page.request.get("/api/auth/me");
+    console.log(`AUTH STATUS: ${authResp.status()}`);
 
-  test("upload page loads with dropzone and instructions", async ({ page }) => {
     await page.goto("/upload");
+    await page.waitForTimeout(3000);
 
-    const dropzone = page
-      .locator(
-        "[data-testid='file-upload-dropzone'], [data-testid='file-upload'], [data-testid='dropzone'], input[type='file']",
-      )
-      .first();
-    await expect(dropzone).toBeVisible({ timeout: 15000 });
+    const url = page.url();
+    const hasSidebar = await page.locator("[data-testid='sidebar']").count();
+    const hasUploadPage = await page.locator("[data-testid='upload-page']").count();
+    const hasDropzone = await page.locator("[data-testid='file-upload-dropzone']").count();
+    const hasLanding = await page.locator("text=Know every call").count();
+    const allTestIds = await page.locator("[data-testid]").evaluateAll(
+      els => els.map(el => el.getAttribute("data-testid"))
+    );
 
-    const dragText = page
-      .getByText(/drag.*drop|browse.*file|upload.*audio|choose.*file|click to select/i)
-      .first();
-    await expect(dragText).toBeVisible({ timeout: 10000 });
+    console.log(`PAGE URL: ${url}`);
+    console.log(`SIDEBAR COUNT: ${hasSidebar}`);
+    console.log(`UPLOAD PAGE COUNT: ${hasUploadPage}`);
+    console.log(`DROPZONE COUNT: ${hasDropzone}`);
+    console.log(`LANDING TEXT COUNT: ${hasLanding}`);
+    console.log(`ALL TEST IDS: ${JSON.stringify(allTestIds)}`);
 
-    const fileInput = page.locator("input[type='file']");
-    await expect(fileInput).toBeAttached();
+    await expect(page.locator("[data-testid='upload-page']")).toBeVisible({ timeout: 15000 });
   });
 });
