@@ -33,14 +33,9 @@ export function registerCallRoutes(app: Express): void {
         offset: parsedOffset,
       });
 
-      // Consistent pagination shape matching paginateArray() used by other endpoints
-      res.json({
-        data: calls,
-        total: calls.length,
-        limit: parsedLimit,
-        offset: parsedOffset,
-        hasMore: calls.length === parsedLimit,
-      });
+      // Return raw array — all frontend consumers (Dashboard, Sidebar, CallsTable,
+      // SentimentPage, SearchPage, etc.) expect CallWithDetails[] directly.
+      res.json(calls);
     } catch (error) {
       logger.error({ err: error }, "Failed to get calls");
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get calls"));
