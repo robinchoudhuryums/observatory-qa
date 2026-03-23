@@ -36,10 +36,25 @@ export async function login(
   const passwordInput = page.locator("input[type='password']").first();
   await passwordInput.fill(password);
 
+  // Capture login API response for diagnostics
+  const loginResponsePromise = page.waitForResponse(
+    (resp) => resp.url().includes("/api/auth/login"),
+    { timeout: 15000 },
+  );
+
   const submitBtn = page
     .getByRole("button", { name: /sign in|log in|submit/i })
     .first();
   await submitBtn.click();
+
+  // Verify login API succeeded before waiting for sidebar
+  const loginResponse = await loginResponsePromise;
+  if (loginResponse.status() !== 200) {
+    const body = await loginResponse.text().catch(() => "");
+    throw new Error(
+      `Login API failed: ${loginResponse.status()} ${loginResponse.statusText()} — ${body}`,
+    );
+  }
 
   await expect(page.locator("[data-testid='sidebar']")).toBeVisible({
     timeout: 15000,
