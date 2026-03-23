@@ -13,6 +13,7 @@ export default defineConfig({
     baseURL: process.env.BASE_URL || "http://localhost:5000",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
+    viewport: { width: 1280, height: 720 },
   },
 
   webServer: process.env.CI

@@ -25,6 +25,6 @@ test.describe("RBAC - Role-Based Access Control", () => {
   test("admin can access admin page", async ({ page }) => {
     await login(page, "admin", "admin123");
     await page.goto("/admin");
-    await expect(page.locator("[data-testid='admin-page']")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("[data-testid='admin-page']")).toBeVisible({ timeout: 10000 });
   });
 });

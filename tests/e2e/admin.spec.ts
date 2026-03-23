@@ -53,8 +53,9 @@ test.describe("Admin API Access Control", () => {
     });
 
     try {
+      // Use actual API routes (not /api/admin/users which doesn't exist)
       const endpoints = [
-        "/api/admin/users",
+        "/api/users",
         "/api/prompt-templates",
         "/api/api-keys",
         "/api/billing/subscription",
@@ -82,7 +83,7 @@ test.describe("Admin API Access Control", () => {
       expect(loginResponse.status()).toBe(200);
 
       // Admin endpoints should be forbidden
-      const response = await apiContext.get("/api/admin/users");
+      const response = await apiContext.get("/api/users");
       expect([401, 403]).toContain(response.status());
     } finally {
       await apiContext.dispose();

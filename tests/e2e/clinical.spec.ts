@@ -53,7 +53,9 @@ test.describe("Clinical API Access Control", () => {
       baseURL: process.env.BASE_URL || "http://localhost:5000",
     });
     try {
-      const response = await apiContext.get("/api/clinical/notes/some-call-id");
+      // Use valid UUID format to avoid 400 from UUID validation middleware
+      const response = await apiContext.get("/api/clinical/notes/00000000-0000-0000-0000-000000000000");
+      // Should be 401 (unauthenticated) not 400 (bad format)
       expect(response.status()).toBe(401);
     } finally {
       await apiContext.dispose();
