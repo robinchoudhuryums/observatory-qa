@@ -1,18 +1,21 @@
 import { expect, type Page } from "@playwright/test";
 
 /**
- * Log in via the API and set the session cookie on the page.
- * This avoids the complexity of navigating the SPA login flow
- * (landing page → auth page transition, lazy loading, etc.)
- * and directly establishes an authenticated session.
+ * Log in via the API and explicitly set the session cookie on the browser context.
+ * Uses cookie extraction rather than relying on implicit page.request cookie sharing,
+ * which is unreliable in CI (intermittent failures where the sidebar never appears
+ * because the session cookie wasn't sent with page.goto).
  */
 export async function login(
   page: Page,
   username = "admin",
   password = "admin123",
 ) {
-  // Use the page's request context so cookies are automatically shared
-  const response = await page.request.post("/api/auth/login", {
+  const baseURL = (process.env.BASE_URL || "http://localhost:5000").replace(/\/$/, "");
+
+  // Use a standalone fetch-like approach via context request to get session cookie
+  const apiContext = page.context().request;
+  const response = await apiContext.post(`${baseURL}/api/auth/login`, {
     data: { username, password },
   });
 
@@ -23,8 +26,25 @@ export async function login(
     );
   }
 
-  // Navigate to dashboard — session cookie is already set from the API call.
-  // Do NOT use waitUntil:"networkidle" — WebSocket connections prevent it from resolving.
+  // Extract session cookie from response and explicitly add to browser context.
+  // This is more reliable than relying on implicit cookie sharing between
+  // page.request and the browser, which fails intermittently in CI.
+  const setCookieHeaders = response.headersArray().filter(
+    (h) => h.name.toLowerCase() === "set-cookie",
+  );
+
+  for (const header of setCookieHeaders) {
+    const parts = header.value.split(";")[0]; // "connect.sid=s%3A..."
+    const [name, ...valueParts] = parts.split("=");
+    const value = valueParts.join("="); // rejoin in case value contains =
+    await page.context().addCookies([{
+      name: name.trim(),
+      value,
+      url: baseURL,
+    }]);
+  }
+
+  // Navigate to dashboard with session cookie set
   await page.goto("/");
 
   // Wait for authenticated app to render (sidebar indicates successful auth)
@@ -32,8 +52,6 @@ export async function login(
     timeout: 15000,
   });
 
-  // Wait for React to stabilize after initial data queries (calls, employees,
-  // access-requests). These useQuery hooks in the sidebar trigger re-renders
-  // that detach/recreate DOM elements. A brief wait lets them settle.
+  // Brief wait for sidebar data queries to settle (prevents DOM detachment)
   await page.waitForTimeout(1500);
 }
