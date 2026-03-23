@@ -1,8 +1,22 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("Search Flow", () => {
+  test.beforeEach(async ({ page }) => {
+    // Diagnostic: verify the session is valid before running tests
+    const authResponse = await page.request.get("/api/auth/me");
+    if (authResponse.status() !== 200) {
+      const cookies = await page.context().cookies();
+      const cookieNames = cookies.map(c => `${c.name}=${c.value.substring(0, 20)}...`);
+      throw new Error(
+        `Session invalid! /api/auth/me returned ${authResponse.status()}. ` +
+        `Cookies: [${cookieNames.join(", ")}]. ` +
+        `URL: ${page.url()}`
+      );
+    }
+  });
+
   test("search page loads with input and content", async ({ page }) => {
-    await page.goto("/search", { waitUntil: "networkidle" });
+    await page.goto("/search");
 
     await expect(page.locator("[data-testid='search-page']")).toBeVisible({ timeout: 15000 });
 
@@ -18,7 +32,7 @@ test.describe("Search Flow", () => {
   });
 
   test("results area is visible", async ({ page }) => {
-    await page.goto("/search", { waitUntil: "networkidle" });
+    await page.goto("/search");
 
     await expect(page.locator("[data-testid='search-page']")).toBeVisible({ timeout: 15000 });
 

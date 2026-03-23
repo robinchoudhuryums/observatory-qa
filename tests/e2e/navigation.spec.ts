@@ -1,8 +1,22 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("Navigation", () => {
+  test.beforeEach(async ({ page }) => {
+    // Diagnostic: verify the session is valid before running tests
+    const authResponse = await page.request.get("/api/auth/me");
+    if (authResponse.status() !== 200) {
+      const cookies = await page.context().cookies();
+      const cookieNames = cookies.map(c => `${c.name}=${c.value.substring(0, 20)}...`);
+      throw new Error(
+        `Session invalid! /api/auth/me returned ${authResponse.status()}. ` +
+        `Cookies: [${cookieNames.join(", ")}]. ` +
+        `URL: ${page.url()}`
+      );
+    }
+  });
+
   test("sidebar renders with navigation links", async ({ page }) => {
-    await page.goto("/", { waitUntil: "networkidle" });
+    await page.goto("/");
     await expect(page.locator("[data-testid='sidebar']")).toBeVisible({ timeout: 15000 });
 
     // Core nav items
@@ -18,13 +32,13 @@ test.describe("Navigation", () => {
   });
 
   test("pages load via direct navigation", async ({ page }) => {
-    await page.goto("/upload", { waitUntil: "networkidle" });
+    await page.goto("/upload");
     await expect(page.locator("[data-testid='upload-page']")).toBeVisible({ timeout: 15000 });
 
-    await page.goto("/admin", { waitUntil: "networkidle" });
+    await page.goto("/admin");
     await expect(page.locator("[data-testid='admin-page']")).toBeVisible({ timeout: 15000 });
 
-    await page.goto("/admin/audit-logs", { waitUntil: "networkidle" });
+    await page.goto("/admin/audit-logs");
     await expect(page.locator("[data-testid='audit-logs-page']")).toBeVisible({ timeout: 15000 });
   });
 });
