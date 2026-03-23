@@ -1,4 +1,8 @@
 import { defineConfig } from "@playwright/test";
+import path from "path";
+
+const adminAuthFile = path.resolve(__dirname, ".auth", "admin.json");
+const viewerAuthFile = path.resolve(__dirname, ".auth", "viewer.json");
 
 export default defineConfig({
   testDir: ".",
@@ -8,6 +12,9 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? "github" : "html",
   timeout: 30_000,
+
+  // Log in once before all tests, saving auth state to .auth/ files
+  globalSetup: "./global-setup.ts",
 
   use: {
     baseURL: process.env.BASE_URL || "http://localhost:5000",
@@ -36,8 +43,29 @@ export default defineConfig({
 
   projects: [
     {
-      name: "chromium",
-      use: { browserName: "chromium" },
+      name: "admin",
+      use: {
+        browserName: "chromium",
+        storageState: adminAuthFile,
+      },
+      // Run all specs except those that need unauthenticated or viewer access
+      testIgnore: /\b(api-health|auth|rbac)\b/,
+    },
+    {
+      name: "viewer",
+      use: {
+        browserName: "chromium",
+        storageState: viewerAuthFile,
+      },
+      testMatch: /rbac\.spec\.ts/,
+    },
+    {
+      name: "unauthenticated",
+      use: {
+        browserName: "chromium",
+        // No storageState — fresh context without cookies
+      },
+      testMatch: /(api-health|auth)\.spec\.ts/,
     },
   ],
 });
