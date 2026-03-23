@@ -24,8 +24,15 @@ test.describe("Coaching", () => {
 });
 
 test.describe("Coaching API", () => {
-  test("coaching endpoints require authentication", async ({ request }) => {
-    const response = await request.get("/api/coaching");
-    expect(response.status()).toBe(401);
+  test("coaching endpoints require authentication", async ({ playwright }) => {
+    const apiContext = await playwright.request.newContext({
+      baseURL: process.env.BASE_URL || "http://localhost:5000",
+    });
+    try {
+      const response = await apiContext.get("/api/coaching");
+      expect(response.status()).toBe(401);
+    } finally {
+      await apiContext.dispose();
+    }
   });
 });

@@ -36,26 +36,47 @@ test.describe("Clinical Documentation", () => {
 });
 
 test.describe("Clinical API Access Control", () => {
-  test("clinical endpoints require authentication", async ({ request }) => {
-    const response = await request.get("/api/clinical/metrics");
-    expect(response.status()).toBe(401);
-  });
-
-  test("clinical notes endpoint requires auth", async ({ request }) => {
-    const response = await request.get("/api/clinical/notes/some-call-id");
-    expect(response.status()).toBe(401);
-  });
-
-  test("clinical templates are accessible when authenticated", async ({ request }) => {
-    // Login first
-    const loginResponse = await request.post("/api/auth/login", {
-      data: { username: "admin", password: "admin123" },
+  test("clinical endpoints require authentication", async ({ playwright }) => {
+    const apiContext = await playwright.request.newContext({
+      baseURL: process.env.BASE_URL || "http://localhost:5000",
     });
-    expect(loginResponse.status()).toBe(200);
+    try {
+      const response = await apiContext.get("/api/clinical/metrics");
+      expect(response.status()).toBe(401);
+    } finally {
+      await apiContext.dispose();
+    }
+  });
 
-    // Templates should be accessible (even if plan doesn't allow, the route exists)
-    const templatesResponse = await request.get("/api/clinical/templates");
-    // Will be 200 or 403 depending on plan, but not 500
-    expect([200, 403]).toContain(templatesResponse.status());
+  test("clinical notes endpoint requires auth", async ({ playwright }) => {
+    const apiContext = await playwright.request.newContext({
+      baseURL: process.env.BASE_URL || "http://localhost:5000",
+    });
+    try {
+      const response = await apiContext.get("/api/clinical/notes/some-call-id");
+      expect(response.status()).toBe(401);
+    } finally {
+      await apiContext.dispose();
+    }
+  });
+
+  test("clinical templates are accessible when authenticated", async ({ playwright }) => {
+    const apiContext = await playwright.request.newContext({
+      baseURL: process.env.BASE_URL || "http://localhost:5000",
+    });
+    try {
+      // Login first
+      const loginResponse = await apiContext.post("/api/auth/login", {
+        data: { username: "admin", password: "admin123" },
+      });
+      expect(loginResponse.status()).toBe(200);
+
+      // Templates should be accessible (even if plan doesn't allow, the route exists)
+      const templatesResponse = await apiContext.get("/api/clinical/templates");
+      // Will be 200 or 403 depending on plan, but not 500
+      expect([200, 403]).toContain(templatesResponse.status());
+    } finally {
+      await apiContext.dispose();
+    }
   });
 });

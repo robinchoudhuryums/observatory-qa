@@ -46,29 +46,46 @@ test.describe("Admin Settings", () => {
 });
 
 test.describe("Admin API Access Control", () => {
-  test("admin endpoints reject unauthenticated requests", async ({ request }) => {
-    const endpoints = [
-      "/api/admin/users",
-      "/api/prompt-templates",
-      "/api/api-keys",
-      "/api/billing/subscription",
-    ];
+  test("admin endpoints reject unauthenticated requests", async ({ playwright }) => {
+    // Create a fresh request context with NO cookies to ensure unauthenticated
+    const apiContext = await playwright.request.newContext({
+      baseURL: process.env.BASE_URL || "http://localhost:5000",
+    });
 
-    for (const endpoint of endpoints) {
-      const response = await request.get(endpoint);
-      expect(response.status()).toBe(401);
+    try {
+      const endpoints = [
+        "/api/admin/users",
+        "/api/prompt-templates",
+        "/api/api-keys",
+        "/api/billing/subscription",
+      ];
+
+      for (const endpoint of endpoints) {
+        const response = await apiContext.get(endpoint);
+        expect(response.status()).toBe(401);
+      }
+    } finally {
+      await apiContext.dispose();
     }
   });
 
-  test("viewer cannot access admin endpoints", async ({ request }) => {
-    // Login as viewer
-    const loginResponse = await request.post("/api/auth/login", {
-      data: { username: "viewer", password: "viewer123" },
+  test("viewer cannot access admin endpoints", async ({ playwright }) => {
+    const apiContext = await playwright.request.newContext({
+      baseURL: process.env.BASE_URL || "http://localhost:5000",
     });
-    expect(loginResponse.status()).toBe(200);
 
-    // Admin endpoints should be forbidden
-    const response = await request.get("/api/admin/users");
-    expect([401, 403]).toContain(response.status());
+    try {
+      // Login as viewer
+      const loginResponse = await apiContext.post("/api/auth/login", {
+        data: { username: "viewer", password: "viewer123" },
+      });
+      expect(loginResponse.status()).toBe(200);
+
+      // Admin endpoints should be forbidden
+      const response = await apiContext.get("/api/admin/users");
+      expect([401, 403]).toContain(response.status());
+    } finally {
+      await apiContext.dispose();
+    }
   });
 });
