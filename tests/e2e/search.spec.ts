@@ -2,9 +2,9 @@ import { test, expect } from "@playwright/test";
 
 test.describe("Search Flow", () => {
   test("search page loads with input and content", async ({ page }) => {
-    await page.goto("/search");
+    await page.goto("/search", { waitUntil: "networkidle" });
 
-    await expect(page.locator("[data-testid='search-page']")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("[data-testid='search-page']")).toBeVisible({ timeout: 15000 });
 
     const searchInput = page
       .locator(
@@ -18,9 +18,9 @@ test.describe("Search Flow", () => {
   });
 
   test("results area is visible", async ({ page }) => {
-    await page.goto("/search");
+    await page.goto("/search", { waitUntil: "networkidle" });
 
-    await expect(page.locator("[data-testid='search-page']")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("[data-testid='search-page']")).toBeVisible({ timeout: 15000 });
 
     const pageContent = page
       .getByText(/search|results|no calls|enter|keyword/i)

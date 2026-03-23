@@ -50,8 +50,8 @@ export default defineConfig({
         browserName: "chromium",
         storageState: adminAuthFile,
       },
-      // Run all specs except those that need unauthenticated or viewer access
-      testIgnore: /\b(api-health|auth|rbac)\b/,
+      // Run all specs except those that need unauthenticated, viewer, or isolated access
+      testIgnore: /\b(api-health|auth|rbac|logout)\b/,
     },
     {
       name: "viewer",
@@ -68,6 +68,16 @@ export default defineConfig({
         // No storageState — fresh context without cookies
       },
       testMatch: /(api-health|auth)\.spec\.ts/,
+    },
+    {
+      name: "logout",
+      use: {
+        browserName: "chromium",
+        // Fresh context — this test logs in with its own session then destroys it
+      },
+      testMatch: /logout\.spec\.ts/,
+      // Run after admin project so it doesn't interfere with shared sessions
+      dependencies: ["admin"],
     },
   ],
 });
