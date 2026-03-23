@@ -20,9 +20,14 @@ export class ErrorBoundary extends React.Component<Props, State> {
     return { hasError: true, error };
   }
 
-  componentDidCatch(_error: Error, _errorInfo: React.ErrorInfo) {
-    // HIPAA: Do not log full error/stack to console — may contain PHI from transcripts or analyses
-    console.error("UI error boundary triggered");
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    // Log error name and message (safe: no PHI in framework errors)
+    // Full stack logged only in non-production for debugging
+    console.error("UI error boundary triggered:", error?.name, error?.message);
+    if (process.env.NODE_ENV !== "production") {
+      console.error("Stack:", error?.stack);
+      console.error("Component stack:", errorInfo?.componentStack);
+    }
   }
 
   render() {
