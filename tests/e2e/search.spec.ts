@@ -7,12 +7,12 @@ test.describe("Search Flow", () => {
   });
 
   test("search page loads", async ({ page }) => {
-    await page.goto("/search", { waitUntil: "networkidle" });
+    await page.goto("/search");
     await expect(page.locator("[data-testid='search-page']")).toBeVisible({ timeout: 10000 });
   });
 
   test("search input is visible", async ({ page }) => {
-    await page.goto("/search", { waitUntil: "networkidle" });
+    await page.goto("/search");
 
     const searchInput = page
       .locator(
@@ -23,7 +23,7 @@ test.describe("Search Flow", () => {
   });
 
   test("can type a search query", async ({ page }) => {
-    await page.goto("/search", { waitUntil: "networkidle" });
+    await page.goto("/search");
 
     const searchInput = page
       .locator(
@@ -36,12 +36,10 @@ test.describe("Search Flow", () => {
   });
 
   test("results area is visible", async ({ page }) => {
-    await page.goto("/search", { waitUntil: "networkidle" });
+    await page.goto("/search");
 
-    // Wait for the page to load
     await expect(page.locator("[data-testid='search-page']")).toBeVisible({ timeout: 10000 });
 
-    // The page should show some content (results, empty state, or instructions)
     const pageContent = page
       .getByText(/search|results|no calls|enter|keyword/i)
       .first();

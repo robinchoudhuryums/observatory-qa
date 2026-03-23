@@ -7,9 +7,8 @@ test.describe("Settings Page", () => {
   });
 
   test("settings page loads", async ({ page }) => {
-    await page.goto("/admin/settings", { waitUntil: "networkidle" });
+    await page.goto("/admin/settings");
 
-    // Page should show settings-related content
     const settingsContent = page
       .locator("[data-testid='settings-page']")
       .first();
@@ -24,15 +23,13 @@ test.describe("Settings Page", () => {
   });
 
   test("dark mode toggle exists in sidebar", async ({ page }) => {
-    // Dark mode toggle is in the sidebar header, not on the settings page
-    // The sidebar has a sun/moon icon button for theme toggle — just verify sidebar renders
+    // Dark mode toggle is in the sidebar header — just verify sidebar renders
     await expect(page.locator("[data-testid='sidebar']")).toBeVisible({ timeout: 5000 });
   });
 
   test("user info is displayed", async ({ page }) => {
-    await page.goto("/admin/settings", { waitUntil: "networkidle" });
+    await page.goto("/admin/settings");
 
-    // Should show the logged-in user's name or username
     const userInfo = page
       .getByText(/test admin|admin/i)
       .first();
