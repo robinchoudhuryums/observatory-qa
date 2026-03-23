@@ -34,7 +34,7 @@ export function registerCoachingRoutes(app: Express): void {
         detail: `Listed ${enriched.length} coaching sessions`,
       });
       const sorted = enriched.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-      res.json(paginateArray(sorted, limit, offset));
+      res.json(sorted);
     } catch (error) {
       logger.error({ err: error }, "Failed to fetch coaching sessions");
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to fetch coaching sessions"));

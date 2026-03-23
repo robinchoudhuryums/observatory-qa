@@ -38,9 +38,8 @@ export function registerAccessRoutes(app: Express): void {
   // List all access requests (paginated)
   app.get("/api/access-requests", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
     try {
-      const { limit, offset } = parsePagination(req.query);
       const requests = await storage.getAllAccessRequests(req.orgId!);
-      res.json(paginateArray(requests, limit, offset));
+      res.json(requests);
     } catch (error) {
       logger.error({ err: error }, "Failed to fetch access requests");
       res.status(500).json({ message: "Failed to fetch access requests" });

@@ -44,7 +44,7 @@ export function registerFeedbackRoutes(app: Express) {
         type: type as string | undefined,
         status: status as string | undefined,
       });
-      res.json(paginateArray(feedback, limit, offset));
+      res.json(feedback);
     } catch (error) {
       logger.error({ err: error }, "Failed to list feedback");
       res.status(500).json({ message: "Failed to list feedback" });

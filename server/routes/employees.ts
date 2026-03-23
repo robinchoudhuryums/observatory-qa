@@ -14,9 +14,8 @@ export function registerEmployeeRoutes(app: Express): void {
   // Get all employees (paginated)
   app.get("/api/employees", requireAuth, injectOrgContext, async (req, res) => {
     try {
-      const { limit, offset } = parsePagination(req.query);
       const employees = await storage.getAllEmployees(req.orgId!);
-      res.json(paginateArray(employees, limit, offset));
+      res.json(employees);
     } catch (error) {
       logger.error({ err: error }, "Failed to get employees");
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get employees"));

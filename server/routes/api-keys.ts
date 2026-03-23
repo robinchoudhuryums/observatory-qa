@@ -103,7 +103,7 @@ export function registerApiKeyRoutes(app: Express): void {
         lastUsedAt: k.lastUsedAt,
         createdAt: k.createdAt,
       }));
-      res.json(paginateArray(sanitized, limit, offset));
+      res.json(sanitized);
     } catch (error) {
       res.status(500).json({ message: "Failed to list API keys" });
     }

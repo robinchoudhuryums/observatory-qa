@@ -25,9 +25,8 @@ export function registerAdminRoutes(app: Express): void {
 
   app.get("/api/prompt-templates", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
     try {
-      const { limit, offset } = parsePagination(req.query);
       const templates = await storage.getAllPromptTemplates(req.orgId!);
-      res.json(paginateArray(templates, limit, offset));
+      res.json(templates);
     } catch (error) {
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to fetch prompt templates"));
     }
@@ -224,7 +223,7 @@ export function registerAdminRoutes(app: Express): void {
         orgId: u.orgId,
         createdAt: u.createdAt,
       }));
-      res.json(paginateArray(sanitized, limit, offset));
+      res.json(sanitized);
     } catch (error) {
       logger.error({ err: error }, "Failed to list users");
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to list users"));
