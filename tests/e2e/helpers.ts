@@ -24,10 +24,15 @@ export async function login(
   }
 
   // Navigate to dashboard — session cookie is already set from the API call
-  await page.goto("/");
+  await page.goto("/", { waitUntil: "networkidle" });
 
   // Wait for authenticated app to render (sidebar indicates successful auth)
   await expect(page.locator("[data-testid='sidebar']")).toBeVisible({
     timeout: 15000,
   });
+
+  // Wait for sidebar's data queries to settle (calls, employees, access-requests).
+  // Without this, React re-renders from query responses detach sidebar DOM elements,
+  // causing "element was detached from the DOM" errors when tests click nav links.
+  await page.waitForLoadState("networkidle");
 }

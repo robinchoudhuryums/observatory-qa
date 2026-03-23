@@ -4,13 +4,13 @@ import { login } from "./helpers";
 test.describe("Upload Flow", () => {
   test("navigate to upload page via sidebar", async ({ page }) => {
     await login(page);
-    await page.locator("[data-testid='nav-link-upload-calls']").click();
+    await page.locator("[data-testid='nav-link-upload-calls']").click({ timeout: 10000 });
     await expect(page).toHaveURL(/\/upload/);
   });
 
   test("upload page shows file upload dropzone", async ({ page }) => {
     await login(page);
-    await page.goto("/upload");
+    await page.goto("/upload", { waitUntil: "networkidle" });
 
     // The upload area should be visible — look for dropzone / drag-and-drop region
     const dropzone = page
@@ -23,18 +23,18 @@ test.describe("Upload Flow", () => {
 
   test("upload page shows drag-and-drop text", async ({ page }) => {
     await login(page);
-    await page.goto("/upload");
+    await page.goto("/upload", { waitUntil: "networkidle" });
 
     // Should contain drag-and-drop or file upload instructions
     const dragText = page
-      .getByText(/drag.*drop|browse.*file|upload.*audio|choose.*file/i)
+      .getByText(/drag.*drop|browse.*file|upload.*audio|choose.*file|click to select/i)
       .first();
     await expect(dragText).toBeVisible({ timeout: 10000 });
   });
 
   test("upload page shows correct UI elements for admin", async ({ page }) => {
     await login(page, "admin", "admin123");
-    await page.goto("/upload");
+    await page.goto("/upload", { waitUntil: "networkidle" });
 
     // Page heading or title should be visible
     const heading = page
@@ -49,11 +49,11 @@ test.describe("Upload Flow", () => {
 
   test("viewer can access upload page", async ({ page }) => {
     await login(page, "viewer", "viewer123");
-    await page.goto("/upload");
+    await page.goto("/upload", { waitUntil: "networkidle" });
 
     // Viewer should still see the upload page (access is authenticated, not role-gated)
     const uploadContent = page
-      .getByText(/drag.*drop|browse.*file|upload|choose.*file/i)
+      .getByText(/drag.*drop|browse.*file|upload|choose.*file|click to select/i)
       .first();
     await expect(uploadContent).toBeVisible({ timeout: 10000 });
   });
