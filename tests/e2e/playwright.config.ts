@@ -1,10 +1,4 @@
 import { defineConfig } from "@playwright/test";
-import path from "path";
-import { fileURLToPath } from "url";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const adminAuthFile = path.resolve(__dirname, ".auth", "admin.json");
-const viewerAuthFile = path.resolve(__dirname, ".auth", "viewer.json");
 
 export default defineConfig({
   testDir: ".",
@@ -41,44 +35,11 @@ export default defineConfig({
     : undefined,
 
   projects: [
-    // Setup project: logs in via real browser and saves auth state
     {
-      name: "setup",
-      testMatch: /auth\.setup\.ts/,
-    },
-    {
-      name: "admin",
-      dependencies: ["setup"],
-      use: {
-        browserName: "chromium",
-        storageState: adminAuthFile,
-      },
-      // Run all specs except setup, unauthenticated, viewer, or isolated access
-      testIgnore: /\b(api-health|auth|rbac|logout)\b/,
-    },
-    {
-      name: "viewer",
-      dependencies: ["setup"],
-      use: {
-        browserName: "chromium",
-        storageState: viewerAuthFile,
-      },
-      testMatch: /rbac\.spec\.ts/,
-    },
-    {
-      name: "unauthenticated",
-      use: {
-        browserName: "chromium",
-      },
-      testMatch: /(api-health|auth)\.spec\.ts/,
-    },
-    {
-      name: "logout",
-      dependencies: ["admin"],
-      use: {
-        browserName: "chromium",
-      },
-      testMatch: /logout\.spec\.ts/,
+      name: "chromium",
+      use: { browserName: "chromium" },
+      // Exclude setup file from test matching
+      testIgnore: /auth\.setup\.ts/,
     },
   ],
 });

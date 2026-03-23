@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { adminTest as test, expect } from "./fixtures";
 
 test.describe("Navigation", () => {
   test("sidebar renders with navigation links", async ({ page }) => {

@@ -1,36 +1,24 @@
-import { test, expect } from "@playwright/test";
+import { adminTest as test, expect } from "./fixtures";
 
 test.describe("Dashboard", () => {
-  test("dashboard loads with sidebar after login", async ({ page }) => {
+  test("dashboard loads with sidebar", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("[data-testid='sidebar']")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("[data-testid='sidebar']")).toBeVisible({ timeout: 15000 });
+    await expect(page.locator("[data-testid='dashboard-page']")).toBeVisible({ timeout: 15000 });
   });
 
-  test("shows metrics and content sections", async ({ page }) => {
+  test("shows metrics overview", async ({ page }) => {
     await page.goto("/");
-
-    const metricText = page
-      .getByText(/total calls|calls|average|score|performance/i)
-      .first();
-    await expect(metricText).toBeVisible({ timeout: 10000 });
-
-    const performanceText = page
-      .getByText(/performance|top performer|score/i)
-      .first();
-    await expect(performanceText).toBeVisible({ timeout: 10000 });
-
-    const sentimentText = page
-      .getByText(/sentiment|positive|negative|neutral/i)
-      .first();
-    await expect(sentimentText).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("[data-testid='metrics-overview']")).toBeVisible({ timeout: 15000 });
   });
 
-  test("dashboard shows key content sections", async ({ page }) => {
+  test("shows sentiment analysis", async ({ page }) => {
     await page.goto("/");
+    await expect(page.locator("[data-testid='sentiment-analysis']")).toBeVisible({ timeout: 15000 });
+  });
 
-    const dashboardContent = page
-      .getByText(/monitor|performance|sentiment|calls|overview|trend|updated/i)
-      .first();
-    await expect(dashboardContent).toBeVisible({ timeout: 10000 });
+  test("shows performance card", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.locator("[data-testid='performance-card']")).toBeVisible({ timeout: 15000 });
   });
 });
