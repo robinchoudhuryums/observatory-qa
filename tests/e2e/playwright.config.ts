@@ -1,6 +1,8 @@
 import { defineConfig } from "@playwright/test";
 import path from "path";
+import { fileURLToPath } from "url";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const adminAuthFile = path.resolve(__dirname, ".auth", "admin.json");
 const viewerAuthFile = path.resolve(__dirname, ".auth", "viewer.json");
 

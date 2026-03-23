@@ -1,5 +1,8 @@
 import { request } from "@playwright/test";
 import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const baseURL = process.env.BASE_URL || "http://localhost:5000";
 
