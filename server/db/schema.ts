@@ -315,6 +315,7 @@ export const subscriptions = pgTable("subscriptions", {
   stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
   stripeSubscriptionId: varchar("stripe_subscription_id", { length: 255 }),
   stripePriceId: varchar("stripe_price_id", { length: 255 }),
+  stripeSeatsItemId: varchar("stripe_seats_item_id", { length: 255 }),
   billingInterval: varchar("billing_interval", { length: 10 }).notNull().default("monthly"),
   currentPeriodStart: timestamp("current_period_start"),
   currentPeriodEnd: timestamp("current_period_end"),

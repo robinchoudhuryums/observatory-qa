@@ -1473,6 +1473,7 @@ export class PostgresStorage implements IStorage {
         stripeCustomerId: sub.stripeCustomerId,
         stripeSubscriptionId: sub.stripeSubscriptionId,
         stripePriceId: sub.stripePriceId,
+        stripeSeatsItemId: sub.stripeSeatsItemId,
         billingInterval: sub.billingInterval,
         currentPeriodStart: sub.currentPeriodStart ? new Date(sub.currentPeriodStart) : undefined,
         currentPeriodEnd: sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd) : undefined,
@@ -1490,6 +1491,7 @@ export class PostgresStorage implements IStorage {
       stripeCustomerId: sub.stripeCustomerId || null,
       stripeSubscriptionId: sub.stripeSubscriptionId || null,
       stripePriceId: sub.stripePriceId || null,
+      stripeSeatsItemId: sub.stripeSeatsItemId || null,
       billingInterval: sub.billingInterval || "monthly",
       currentPeriodStart: sub.currentPeriodStart ? new Date(sub.currentPeriodStart) : null,
       currentPeriodEnd: sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd) : null,
@@ -1505,6 +1507,7 @@ export class PostgresStorage implements IStorage {
     if (updates.stripeCustomerId) setValues.stripeCustomerId = updates.stripeCustomerId;
     if (updates.stripeSubscriptionId) setValues.stripeSubscriptionId = updates.stripeSubscriptionId;
     if (updates.stripePriceId) setValues.stripePriceId = updates.stripePriceId;
+    if (updates.stripeSeatsItemId !== undefined) setValues.stripeSeatsItemId = updates.stripeSeatsItemId || null;
     if (updates.billingInterval) setValues.billingInterval = updates.billingInterval;
     if (updates.currentPeriodStart) setValues.currentPeriodStart = new Date(updates.currentPeriodStart);
     if (updates.currentPeriodEnd) setValues.currentPeriodEnd = new Date(updates.currentPeriodEnd);
@@ -1524,6 +1527,7 @@ export class PostgresStorage implements IStorage {
       stripeCustomerId: row.stripeCustomerId || undefined,
       stripeSubscriptionId: row.stripeSubscriptionId || undefined,
       stripePriceId: row.stripePriceId || undefined,
+      stripeSeatsItemId: row.stripeSeatsItemId || undefined,
       billingInterval: row.billingInterval,
       currentPeriodStart: toISOString(row.currentPeriodStart),
       currentPeriodEnd: toISOString(row.currentPeriodEnd),

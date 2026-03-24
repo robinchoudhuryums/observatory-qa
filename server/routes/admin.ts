@@ -10,7 +10,7 @@ import { queryAuditLogs, verifyAuditChain, logPhiAccess, auditContext } from "..
 import { safeInt, withRetry } from "./helpers";
 import { enqueueReanalysis } from "../services/queue";
 import { getWafStats, blockIp, unblockIp } from "../middleware/waf";
-import { requirePlanFeature, enforceUserQuota } from "./billing";
+import { requirePlanFeature, enforceUserQuota, syncSeatUsage } from "./billing";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import { parsePagination, paginateArray } from "./helpers";
 import { getRedis } from "../services/redis";
@@ -279,6 +279,7 @@ export function registerAdminRoutes(app: Express): void {
         detail: `Created user ${username} with role ${role || "viewer"}`,
       });
       logger.info({ userId: user.id, username, org: req.orgId }, "User created");
+      syncSeatUsage(req.orgId!); // non-blocking: update metered seat count in Stripe
       res.status(201).json({ id: user.id, username: user.username, name: user.name, role: user.role });
     } catch (error) {
       logger.error({ err: error }, "Failed to create user");
@@ -375,6 +376,7 @@ export function registerAdminRoutes(app: Express): void {
         detail: `Deleted user ${user.username}`,
       });
       logger.info({ userId: req.params.id, org: req.orgId }, "User deleted");
+      syncSeatUsage(req.orgId!); // non-blocking: update metered seat count in Stripe
       res.json({ message: "User deleted" });
     } catch (error) {
       logger.error({ err: error }, "Failed to delete user");

@@ -234,14 +234,16 @@ export default function BillingTab() {
                     {isCurrent && <Badge>Current</Badge>}
                   </div>
                   <p className="text-2xl font-bold text-foreground mb-1">
-                    {price === 0 ? "Free" : `$${price}`}
-                    {price > 0 && <span className="text-sm font-normal text-muted-foreground">/mo</span>}
+                    {plan.tier === "enterprise" ? "Custom" : price === 0 ? "Free" : `$${price}`}
+                    {plan.tier !== "enterprise" && price > 0 && <span className="text-sm font-normal text-muted-foreground">/mo</span>}
                   </p>
-                  {billingInterval === "yearly" && price > 0 && (
+                  {plan.tier === "enterprise" ? (
+                    <p className="text-xs text-muted-foreground mb-3">Pricing based on your needs</p>
+                  ) : (billingInterval === "yearly" && price > 0 && (
                     <p className="text-xs text-muted-foreground mb-3">
                       ${plan.yearlyPriceUsd}/yr billed annually
                     </p>
-                  )}
+                  ))}
                   <p className="text-sm text-muted-foreground mb-4">{plan.description}</p>
 
                   <ul className="space-y-2 text-sm mb-4">
@@ -265,7 +267,14 @@ export default function BillingTab() {
                     )}
                   </ul>
 
-                  {!isCurrent && plan.tier !== "free" && (
+                  {!isCurrent && plan.tier === "enterprise" && (
+                    <Button className="w-full" size="sm" variant="outline" asChild>
+                      <a href="mailto:sales@observatory-qa.com">
+                        Contact Sales
+                      </a>
+                    </Button>
+                  )}
+                  {!isCurrent && plan.tier !== "free" && plan.tier !== "enterprise" && (
                     <Button
                       className="w-full"
                       size="sm"
@@ -287,7 +296,7 @@ export default function BillingTab() {
                       Downgrade
                     </Button>
                   )}
-                  {!subInfo?.stripeConfigured && plan.tier !== "free" && !isCurrent && (
+                  {!subInfo?.stripeConfigured && !["free", "enterprise"].includes(plan.tier) && !isCurrent && (
                     <p className="text-xs text-muted-foreground mt-2 text-center">
                       Stripe not configured
                     </p>

@@ -136,10 +136,10 @@ const STEPS = [
 ];
 
 const PLANS = [
-  { name: "Free", price: "$0", period: "/mo", calls: "50 calls/mo · 3 seats", highlight: false },
-  { name: "Starter", price: "$79", period: "/mo", calls: "300 calls/mo · 5 seats included", highlight: false },
-  { name: "Professional", price: "$149", period: "/mo", calls: "1,000 calls/mo · Clinical docs included", highlight: true },
-  { name: "Enterprise", price: "$999", period: "/mo", calls: "Unlimited calls · SSO · Dedicated support", highlight: false },
+  { name: "Free", price: "$0", period: "/mo", calls: "50 calls/mo · 3 seats", highlight: false, contactSales: false },
+  { name: "Starter", price: "$79", period: "/mo", calls: "300 calls/mo · 5 seats included", highlight: false, contactSales: false },
+  { name: "Professional", price: "$149", period: "/mo", calls: "1,000 calls/mo · Clinical docs included", highlight: true, contactSales: false },
+  { name: "Enterprise", price: "Custom", period: "", calls: "Unlimited calls · SSO · Dedicated support", highlight: false, contactSales: true },
 ];
 
 /** Fade-up animation wrapper — triggers when element enters viewport */
@@ -376,21 +376,34 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
                   <h3 className="font-semibold text-lg landing-text mb-2">{plan.name}</h3>
                   <div className="mb-4">
                     <span className="text-4xl font-bold landing-text">{plan.price}</span>
-                    <span className="landing-text-muted">{plan.period}</span>
+                    {plan.period && <span className="landing-text-muted">{plan.period}</span>}
                   </div>
                   <p className="text-sm landing-text-muted mb-6">{plan.calls}</p>
-                  <Button
-                    className={`w-full ${
-                      plan.highlight
-                        ? "bg-gradient-to-r from-teal-500 to-blue-500 hover:from-teal-600 hover:to-blue-600 text-white border-0"
-                        : "landing-outline-btn"
-                    }`}
-                    variant={plan.highlight ? "default" : "outline"}
-                    onClick={() => onNavigate("register")}
-                  >
-                    {plan.highlight ? "Start Free Trial" : "Get Started"}
-                    <RiArrowRightSLine className="w-4 h-4 ml-1" />
-                  </Button>
+                  {plan.contactSales ? (
+                    <Button
+                      className="w-full landing-outline-btn"
+                      variant="outline"
+                      asChild
+                    >
+                      <a href="mailto:sales@observatory-qa.com">
+                        Contact Sales
+                        <RiArrowRightSLine className="w-4 h-4 ml-1" />
+                      </a>
+                    </Button>
+                  ) : (
+                    <Button
+                      className={`w-full ${
+                        plan.highlight
+                          ? "bg-gradient-to-r from-teal-500 to-blue-500 hover:from-teal-600 hover:to-blue-600 text-white border-0"
+                          : "landing-outline-btn"
+                      }`}
+                      variant={plan.highlight ? "default" : "outline"}
+                      onClick={() => onNavigate("register")}
+                    >
+                      {plan.highlight ? "Start Free Trial" : "Get Started"}
+                      <RiArrowRightSLine className="w-4 h-4 ml-1" />
+                    </Button>
+                  )}
                 </div>
               </FadeUp>
             ))}

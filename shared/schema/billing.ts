@@ -90,7 +90,7 @@ export const planLimitsSchema = z.object({
 export type PlanLimits = z.infer<typeof planLimitsSchema>;
 
 /** Static plan definitions — no DB needed for these */
-export const PLAN_DEFINITIONS: Record<PlanTier, { name: string; description: string; monthlyPriceUsd: number; yearlyPriceUsd: number; limits: PlanLimits }> = {
+export const PLAN_DEFINITIONS: Record<PlanTier, { name: string; description: string; monthlyPriceUsd: number; yearlyPriceUsd: number; limits: PlanLimits; contactSales?: boolean }> = {
   free: {
     name: "Free",
     description: "Get started with 50 calls/month — no credit card required",
@@ -162,6 +162,7 @@ export const PLAN_DEFINITIONS: Record<PlanTier, { name: string; description: str
     description: "Unlimited scale, SSO, and dedicated support for large organizations",
     monthlyPriceUsd: 999,
     yearlyPriceUsd: 9588, // $799/mo billed yearly
+    contactSales: true,
     limits: {
       callsPerMonth: -1,
       storageMb: 512000,
@@ -189,6 +190,8 @@ export const subscriptionSchema = z.object({
   stripeCustomerId: z.string().optional(),
   stripeSubscriptionId: z.string().optional(),
   stripePriceId: z.string().optional(),
+  /** Stripe subscription item ID for the metered seat add-on line item */
+  stripeSeatsItemId: z.string().optional(),
   billingInterval: z.enum(["monthly", "yearly"]).default("monthly"),
   currentPeriodStart: z.string().optional(),
   currentPeriodEnd: z.string().optional(),
