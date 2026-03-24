@@ -529,6 +529,29 @@ export const injectOrgContext: RequestHandler = (req: Request, res: Response, ne
 };
 
 /**
+ * Runtime guard that asserts req.orgId is present and non-empty.
+ *
+ * Use this AFTER injectOrgContext on routes that store or retrieve data.
+ * It provides defense-in-depth: if injectOrgContext is ever accidentally
+ * omitted from a route chain, this guard prevents cross-tenant data access
+ * rather than silently querying with an undefined orgId.
+ *
+ * Prefer `const orgId = req.orgId!` only in handlers where requireOrgContext
+ * already appears in the middleware chain — the non-null assertion is then
+ * backed by a runtime check rather than relying purely on TypeScript.
+ */
+export const requireOrgContext: RequestHandler = (req: Request, res: Response, next: NextFunction) => {
+  if (!req.orgId) {
+    logger.error(
+      { path: req.path, method: req.method, userId: req.user?.id },
+      "requireOrgContext: orgId missing — possible middleware ordering bug",
+    );
+    return res.status(403).json({ message: "Organization context required", errorCode: "OBS-AUTH-007" });
+  }
+  next();
+};
+
+/**
  * Per-request org settings cache.
  * Avoids repeated getOrganization() DB hits within the same request lifecycle.
  * Uses a simple LRU approach with TTL for cross-request caching.

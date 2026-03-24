@@ -1,8 +1,9 @@
 import type { Express } from "express";
 import { createHash } from "crypto";
 import fs from "fs";
+import { pipeline } from "stream/promises";
 import { storage, normalizeAnalysis } from "../storage";
-import { requireAuth, requireRole, injectOrgContext } from "../auth";
+import { requireAuth, requireRole, injectOrgContext, requireOrgContext } from "../auth";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { upload, safeFloat, validateUUIDParam, acquireUploadSlot, releaseUploadSlot } from "./helpers";
 import { enforceQuota, requireActiveSubscription } from "./billing";
@@ -97,7 +98,7 @@ export function registerCallRoutes(app: Express): void {
     });
   };
 
-  app.post("/api/calls/upload", requireAuth, injectOrgContext, requireActiveSubscription(), enforceQuota("transcription"), handleUpload, async (req, res) => {
+  app.post("/api/calls/upload", requireAuth, injectOrgContext, requireOrgContext, requireActiveSubscription(), enforceQuota("transcription"), handleUpload, async (req, res) => {
     const orgId = req.orgId!;
     if (!acquireUploadSlot(orgId)) {
       if (req.file) await cleanupFile(req.file.path);
@@ -130,8 +131,17 @@ export function registerCallRoutes(app: Express): void {
         }
       }
 
-      const audioBuffer = fs.readFileSync(req.file.path);
-      const fileHash = createHash("sha256").update(audioBuffer).digest("hex");
+      // Hash the file with a read stream to avoid blocking the event loop
+      // (sync reads of 100MB files stall all other requests).
+      const fileHash = await new Promise<string>((resolve, reject) => {
+        const hash = createHash("sha256");
+        const stream = fs.createReadStream(req.file!.path);
+        stream.on("data", (chunk) => hash.update(chunk));
+        stream.on("end", () => resolve(hash.digest("hex")));
+        stream.on("error", reject);
+      });
+      // Read the buffer after hashing — still needed for AssemblyAI + S3 upload.
+      const audioBuffer = await fs.promises.readFile(req.file.path);
       const duplicate = await storage.getCallByFileHash(req.orgId!, fileHash);
       if (duplicate) {
         await cleanupFile(req.file.path);
