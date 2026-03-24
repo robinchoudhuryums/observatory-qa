@@ -102,10 +102,11 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/phi-encryption.test.ts` — PHI field encryption
   - `tests/sso.test.ts` — SAML SSO
   - `tests/validation.test.ts` — Input validation
-- **E2E test files** (11 specs):
+- **E2E test files** (14 specs):
+  - `tests/e2e/fixtures.ts` — **Shared auth fixtures** (`adminTest`, `viewerTest`) — per-test login via `page.request.post()`
   - `tests/e2e/auth.spec.ts` — Login, landing page
   - `tests/e2e/navigation.spec.ts` — Navigation flows
-  - `tests/e2e/rbac.spec.ts` — Role-based access
+  - `tests/e2e/rbac.spec.ts` — Role-based access (uses `viewerTest` fixture)
   - `tests/e2e/dashboard.spec.ts` — Dashboard metrics
   - `tests/e2e/upload.spec.ts` — File upload
   - `tests/e2e/coaching.spec.ts` — Coaching sessions
@@ -113,7 +114,9 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/e2e/clinical.spec.ts` — Clinical notes
   - `tests/e2e/settings.spec.ts` — User settings
   - `tests/e2e/admin.spec.ts` — Admin panel
+  - `tests/e2e/logout.spec.ts` — Logout flow
   - `tests/e2e/api-health.spec.ts` — Health endpoint
+- **E2E auth pattern**: Import `{ adminTest as test, expect } from "./fixtures"` (or `viewerTest`) for authenticated tests. Each test gets a fresh login — no shared storageState. Tests use `data-testid` selectors for stability.
 
 ## Architecture
 
@@ -906,6 +909,9 @@ Server serves both API and static frontend from the same process.
 10. Register graceful shutdown handlers (close queues, Redis, DB)
 
 ## Common Gotchas
+- **API list endpoints return raw arrays**: All GET endpoints that return collections (`/api/calls`, `/api/employees`, `/api/access-requests`, `/api/coaching`, `/api/prompt-templates`, `/api/admin/users`, `/api/api-keys`, `/api/feedback`) return raw `T[]` arrays. Do NOT wrap responses in pagination objects (`{ data, total, limit, offset, hasMore }`) — all frontend consumers expect raw arrays and will crash if they receive wrapper objects (`.filter()` / `.map()` on non-arrays causes ErrorBoundary). The `paginateArray()` helper in `server/routes/helpers.ts` exists but is currently unused
+- **CSRF cookie respects `DISABLE_SECURE_COOKIE`**: Both the session cookie and CSRF cookie check `process.env.DISABLE_SECURE_COOKIE` before setting `secure: true`. Without this, the CSRF cookie won't be sent over HTTP in development/testing
+- **ErrorBoundary logs error name+message**: `componentDidCatch` logs `error.name` and `error.message` to console (safe for HIPAA — framework errors don't contain PHI). Full stack traces only logged in non-production. Check browser console for "UI error boundary triggered:" when debugging render crashes
 - AI responses may contain objects where strings are expected — always use `toDisplayString()` on frontend and `normalizeStringArray()` in `server/storage/types.ts` when rendering/storing AI data
 - **AI analysis failure is graceful**: When Bedrock is unavailable (bad credentials, region, permissions), calls still complete with default scores (5.0, neutral sentiment). The `confidenceFactors.aiAnalysisCompleted` flag tracks this. The UI shows an amber banner and hides fake scores when this happens
 - **`AI_PROVIDER` env var is NOT used** — the code always uses Bedrock exclusively. Don't be confused by legacy comments referencing multiple providers
