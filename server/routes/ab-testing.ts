@@ -38,7 +38,7 @@ export { estimateBedrockCost, estimateAssemblyAICost };
 
 async function cleanupFile(filePath: string) {
   try {
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    await fs.promises.unlink(filePath);
   } catch (err) { logger.debug({ err }, "Failed to clean up temporary file"); }
 }
 

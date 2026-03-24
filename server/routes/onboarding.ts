@@ -57,9 +57,9 @@ const docUpload = multer({
   },
 });
 
-function cleanupFile(filePath: string) {
+async function cleanupFile(filePath: string) {
   try {
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    await fs.promises.unlink(filePath);
   } catch (err) { logger.debug({ err }, "Failed to clean up temporary file"); }
 }
 
@@ -225,7 +225,7 @@ export function registerOnboardingRoutes(app: Express): void {
 
       const filePath = req.file.path;
       try {
-        const buffer = fs.readFileSync(filePath);
+        const buffer = await fs.promises.readFile(filePath);
         const orgId = req.orgId!;
         const ext = path.extname(req.file.originalname).toLowerCase() || ".png";
         const storagePath = `orgs/${orgId}/branding/logo${ext}`;
@@ -331,7 +331,7 @@ export function registerOnboardingRoutes(app: Express): void {
 
       const filePath = req.file.path;
       try {
-        const buffer = fs.readFileSync(filePath);
+        const buffer = await fs.promises.readFile(filePath);
         const orgId = req.orgId!;
         const docId = randomUUID();
         const ext = path.extname(req.file.originalname).toLowerCase();

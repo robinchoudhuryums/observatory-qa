@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import passport from "passport";
-import { readFileSync } from "fs";
+import { readFile } from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { storage } from "../storage";
@@ -138,7 +138,7 @@ export function registerRegistrationRoutes(app: Express): void {
       if (industryType === "dental") {
         try {
           const templatesPath = join(process.cwd(), "data", "dental", "default-prompt-templates.json");
-          const rawTemplates = readFileSync(templatesPath, "utf-8");
+          const rawTemplates = await readFile(templatesPath, "utf-8");
           const templates = JSON.parse(rawTemplates) as Array<{
             callCategory: string; name: string; evaluationCriteria: string;
             requiredPhrases?: unknown; scoringWeights?: unknown; additionalInstructions?: string;

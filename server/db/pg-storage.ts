@@ -2146,10 +2146,13 @@ export class PostgresStorage implements IStorage {
   }
 
   async deleteCalibrationSession(orgId: string, id: string): Promise<void> {
-    // Cascade delete evaluations first
-    await this.db.delete(tables.calibrationEvaluations).where(eq(tables.calibrationEvaluations.sessionId, id));
-    await this.db.delete(tables.calibrationSessions)
-      .where(and(eq(tables.calibrationSessions.orgId, orgId), eq(tables.calibrationSessions.id, id)));
+    // Both deletes run in a single transaction so evaluations are never
+    // left orphaned if the session delete fails (or vice versa).
+    await this.db.transaction(async (tx) => {
+      await tx.delete(tables.calibrationEvaluations).where(eq(tables.calibrationEvaluations.sessionId, id));
+      await tx.delete(tables.calibrationSessions)
+        .where(and(eq(tables.calibrationSessions.orgId, orgId), eq(tables.calibrationSessions.id, id)));
+    });
   }
 
   async createCalibrationEvaluation(orgId: string, evaluation: InsertCalibrationEvaluation): Promise<CalibrationEvaluation> {
