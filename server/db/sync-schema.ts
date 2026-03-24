@@ -366,6 +366,7 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS subscriptions_org_id_idx ON subscriptions (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS subscriptions_stripe_customer_idx ON subscriptions (stripe_customer_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS subscriptions_stripe_sub_idx ON subscriptions (stripe_subscription_id)`);
+    await db.execute(sql`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS stripe_seats_item_id VARCHAR(255)`);
 
     // --- Reference Documents ---
     await db.execute(sql`

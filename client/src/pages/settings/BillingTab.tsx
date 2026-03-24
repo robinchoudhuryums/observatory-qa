@@ -216,9 +216,10 @@ export default function BillingTab() {
               <Badge className="ml-2 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 text-xs">Save 20%</Badge>
             </Button>
           </div>
+          <p className="text-xs text-muted-foreground mt-2">Annual plans billed at full year price upfront</p>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {(plans || Object.entries(PLAN_DEFINITIONS).map(([tier, def]) => ({ tier: tier as PlanTier, ...def, stripeConfigured: false }))).map((plan) => {
               const isCurrent = plan.tier === currentTier;
               const price = billingInterval === "monthly" ? plan.monthlyPriceUsd : Math.round(plan.yearlyPriceUsd / 12);
@@ -233,14 +234,16 @@ export default function BillingTab() {
                     {isCurrent && <Badge>Current</Badge>}
                   </div>
                   <p className="text-2xl font-bold text-foreground mb-1">
-                    {price === 0 ? "Free" : `$${price}`}
-                    {price > 0 && <span className="text-sm font-normal text-muted-foreground">/mo</span>}
+                    {plan.tier === "enterprise" ? "Custom" : price === 0 ? "Free" : `$${price}`}
+                    {plan.tier !== "enterprise" && price > 0 && <span className="text-sm font-normal text-muted-foreground">/mo</span>}
                   </p>
-                  {billingInterval === "yearly" && price > 0 && (
+                  {plan.tier === "enterprise" ? (
+                    <p className="text-xs text-muted-foreground mb-3">Pricing based on your needs</p>
+                  ) : (billingInterval === "yearly" && price > 0 && (
                     <p className="text-xs text-muted-foreground mb-3">
                       ${plan.yearlyPriceUsd}/yr billed annually
                     </p>
-                  )}
+                  ))}
                   <p className="text-sm text-muted-foreground mb-4">{plan.description}</p>
 
                   <ul className="space-y-2 text-sm mb-4">
@@ -253,9 +256,25 @@ export default function BillingTab() {
                     {plan.limits.clinicalDocumentationEnabled && <PlanFeature label="Clinical documentation" />}
                     {plan.limits.ssoEnabled && <PlanFeature label="SSO / SAML" />}
                     {plan.limits.prioritySupport && <PlanFeature label="Priority support" />}
+                    {(plan.limits.baseSeats as number) > 0 && (
+                      <PlanFeature label={`${plan.limits.baseSeats} seats included`} />
+                    )}
+                    {(plan.limits.pricePerAdditionalSeatUsd as number) > 0 && (
+                      <PlanFeature label={`+$${plan.limits.pricePerAdditionalSeatUsd}/seat/mo`} />
+                    )}
+                    {(plan.limits.overagePricePerCallUsd as number) > 0 && (
+                      <PlanFeature label={`$${plan.limits.overagePricePerCallUsd}/call over quota`} />
+                    )}
                   </ul>
 
-                  {!isCurrent && plan.tier !== "free" && (
+                  {!isCurrent && plan.tier === "enterprise" && (
+                    <Button className="w-full" size="sm" variant="outline" asChild>
+                      <a href="mailto:sales@observatory-qa.com">
+                        Contact Sales
+                      </a>
+                    </Button>
+                  )}
+                  {!isCurrent && plan.tier !== "free" && plan.tier !== "enterprise" && (
                     <Button
                       className="w-full"
                       size="sm"
@@ -277,7 +296,7 @@ export default function BillingTab() {
                       Downgrade
                     </Button>
                   )}
-                  {!subInfo?.stripeConfigured && plan.tier !== "free" && !isCurrent && (
+                  {!subInfo?.stripeConfigured && !["free", "enterprise"].includes(plan.tier) && !isCurrent && (
                     <p className="text-xs text-muted-foreground mt-2 text-center">
                       Stripe not configured
                     </p>

@@ -4,12 +4,12 @@ import { PLAN_DEFINITIONS, subscriptionSchema, type PlanTier } from "../shared/s
 
 describe("Stripe Webhook Logic", () => {
   describe("Price ID to tier resolution", () => {
-    it("maps Pro monthly price ID to pro tier", () => {
-      process.env.STRIPE_PRICE_PRO_MONTHLY = "price_pro_monthly_test";
+    it("maps Starter monthly price ID to starter tier", () => {
+      process.env.STRIPE_PRICE_STARTER_MONTHLY = "price_starter_monthly_test";
       const priceMap: Record<string, PlanTier> = {};
-      if (process.env.STRIPE_PRICE_PRO_MONTHLY) priceMap[process.env.STRIPE_PRICE_PRO_MONTHLY] = "pro";
-      assert.equal(priceMap["price_pro_monthly_test"], "pro");
-      delete process.env.STRIPE_PRICE_PRO_MONTHLY;
+      if (process.env.STRIPE_PRICE_STARTER_MONTHLY) priceMap[process.env.STRIPE_PRICE_STARTER_MONTHLY] = "starter";
+      assert.equal(priceMap["price_starter_monthly_test"], "starter");
+      delete process.env.STRIPE_PRICE_STARTER_MONTHLY;
     });
 
     it("maps Enterprise yearly price ID to enterprise tier", () => {
@@ -32,7 +32,7 @@ describe("Stripe Webhook Logic", () => {
       const result = subscriptionSchema.safeParse({
         id: "sub_1",
         orgId: "org_1",
-        planTier: "pro",
+        planTier: "starter",
         status: "active",
         stripeCustomerId: "cus_test",
         stripeSubscriptionId: "sub_test",
@@ -45,7 +45,7 @@ describe("Stripe Webhook Logic", () => {
       const result = subscriptionSchema.safeParse({
         id: "sub_2",
         orgId: "org_1",
-        planTier: "pro",
+        planTier: "professional",
         status: "past_due",
         stripeCustomerId: "cus_test",
       });
@@ -89,10 +89,10 @@ describe("Stripe Webhook Logic", () => {
 
     it("free tier has most restrictive limits", () => {
       const free = PLAN_DEFINITIONS.free.limits;
-      const pro = PLAN_DEFINITIONS.pro.limits;
-      assert.ok(free.callsPerMonth < pro.callsPerMonth);
-      assert.ok(free.storageMb < pro.storageMb);
-      assert.ok(free.maxUsers < pro.maxUsers);
+      const starter = PLAN_DEFINITIONS.starter.limits;
+      assert.ok(free.callsPerMonth < starter.callsPerMonth);
+      assert.ok(free.storageMb < starter.storageMb);
+      assert.ok(free.maxUsers < starter.maxUsers);
     });
 
     it("enterprise has all core features enabled", () => {
@@ -101,8 +101,7 @@ describe("Stripe Webhook Logic", () => {
       assert.equal(ent.ragEnabled, true);
       assert.equal(ent.customPromptTemplates, true);
       assert.equal(ent.prioritySupport, true);
-      // Clinical documentation is a separate plan, not included in enterprise
-      assert.equal(ent.clinicalDocumentationEnabled, false);
+      assert.equal(ent.clinicalDocumentationEnabled, true);
     });
 
     it("free tier has no advanced features", () => {
@@ -121,18 +120,18 @@ describe("Stripe Webhook Logic", () => {
       const org = await storage.createOrganization({ name: "Test", slug: "test", status: "active" });
 
       const sub = await storage.upsertSubscription(org.id, {
-        planTier: "pro",
+        planTier: "starter",
         status: "active",
         stripeCustomerId: "cus_123",
         stripeSubscriptionId: "sub_456",
         billingInterval: "monthly",
       });
-      assert.equal(sub.planTier, "pro");
+      assert.equal(sub.planTier, "starter");
       assert.equal(sub.status, "active");
 
       const retrieved = await storage.getSubscription(org.id);
       assert.ok(retrieved);
-      assert.equal(retrieved.planTier, "pro");
+      assert.equal(retrieved.planTier, "starter");
     });
 
     it("upserts subscription (update existing)", async () => {
@@ -140,7 +139,7 @@ describe("Stripe Webhook Logic", () => {
       const storage = new MemStorage();
       const org = await storage.createOrganization({ name: "Test", slug: "test", status: "active" });
 
-      await storage.upsertSubscription(org.id, { planTier: "pro", status: "active" });
+      await storage.upsertSubscription(org.id, { planTier: "starter", status: "active" });
       await storage.upsertSubscription(org.id, { planTier: "enterprise", status: "active" });
 
       const sub = await storage.getSubscription(org.id);
@@ -153,7 +152,7 @@ describe("Stripe Webhook Logic", () => {
       const storage = new MemStorage();
       const org = await storage.createOrganization({ name: "Test", slug: "test", status: "active" });
 
-      await storage.upsertSubscription(org.id, { planTier: "pro", status: "active" });
+      await storage.upsertSubscription(org.id, { planTier: "professional", status: "active" });
       await storage.upsertSubscription(org.id, { planTier: "free", status: "canceled" });
 
       const sub = await storage.getSubscription(org.id);

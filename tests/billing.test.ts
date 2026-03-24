@@ -25,18 +25,18 @@ describe("PLAN_DEFINITIONS", () => {
     assert.strictEqual(PLAN_DEFINITIONS.free.yearlyPriceUsd, 0);
   });
 
-  it("pro plan costs more than free", () => {
-    assert.ok(PLAN_DEFINITIONS.pro.monthlyPriceUsd > 0);
-    assert.ok(PLAN_DEFINITIONS.pro.yearlyPriceUsd > 0);
+  it("starter plan costs more than free", () => {
+    assert.ok(PLAN_DEFINITIONS.starter.monthlyPriceUsd > 0);
+    assert.ok(PLAN_DEFINITIONS.starter.yearlyPriceUsd > 0);
   });
 
-  it("enterprise plan costs more than pro", () => {
-    assert.ok(PLAN_DEFINITIONS.enterprise.monthlyPriceUsd > PLAN_DEFINITIONS.pro.monthlyPriceUsd);
+  it("enterprise plan costs more than professional", () => {
+    assert.ok(PLAN_DEFINITIONS.enterprise.monthlyPriceUsd > PLAN_DEFINITIONS.professional.monthlyPriceUsd);
   });
 
   it("yearly pricing offers a discount over monthly", () => {
-    const proMonthlyAnnual = PLAN_DEFINITIONS.pro.monthlyPriceUsd * 12;
-    assert.ok(PLAN_DEFINITIONS.pro.yearlyPriceUsd < proMonthlyAnnual);
+    const starterMonthlyAnnual = PLAN_DEFINITIONS.starter.monthlyPriceUsd * 12;
+    assert.ok(PLAN_DEFINITIONS.starter.yearlyPriceUsd < starterMonthlyAnnual);
 
     const entMonthlyAnnual = PLAN_DEFINITIONS.enterprise.monthlyPriceUsd * 12;
     assert.ok(PLAN_DEFINITIONS.enterprise.yearlyPriceUsd < entMonthlyAnnual);
@@ -51,10 +51,10 @@ describe("PLAN_DEFINITIONS", () => {
     assert.ok(PLAN_DEFINITIONS.free.limits.callsPerMonth < 100);
   });
 
-  it("pro plan has more limits than free", () => {
-    assert.ok(PLAN_DEFINITIONS.pro.limits.callsPerMonth > PLAN_DEFINITIONS.free.limits.callsPerMonth);
-    assert.ok(PLAN_DEFINITIONS.pro.limits.maxUsers > PLAN_DEFINITIONS.free.limits.maxUsers);
-    assert.ok(PLAN_DEFINITIONS.pro.limits.storageMb > PLAN_DEFINITIONS.free.limits.storageMb);
+  it("starter plan has more limits than free", () => {
+    assert.ok(PLAN_DEFINITIONS.starter.limits.callsPerMonth > PLAN_DEFINITIONS.free.limits.callsPerMonth);
+    assert.ok(PLAN_DEFINITIONS.starter.limits.maxUsers > PLAN_DEFINITIONS.free.limits.maxUsers);
+    assert.ok(PLAN_DEFINITIONS.starter.limits.storageMb > PLAN_DEFINITIONS.free.limits.storageMb);
   });
 
   it("enterprise has SSO enabled, free does not", () => {
@@ -122,7 +122,7 @@ describe("subscriptionSchema", () => {
     const result = subscriptionSchema.safeParse({
       id: "sub-123",
       orgId: "org-456",
-      planTier: "pro",
+      planTier: "starter",
       status: "active",
       stripeCustomerId: "cus_abc",
       stripeSubscriptionId: "sub_def",
@@ -132,7 +132,7 @@ describe("subscriptionSchema", () => {
       cancelAtPeriodEnd: false,
     });
     assert.ok(result.success);
-    assert.strictEqual(result.data.planTier, "pro");
+    assert.strictEqual(result.data.planTier, "starter");
   });
 
   it("validates all plan tiers", () => {
@@ -184,7 +184,7 @@ describe("subscriptionSchema", () => {
     const result = subscriptionSchema.safeParse({
       id: "sub-1",
       orgId: "org-1",
-      planTier: "pro",
+      planTier: "starter",
       status: "active",
     });
     assert.ok(result.success);
@@ -195,7 +195,7 @@ describe("subscriptionSchema", () => {
     const result = subscriptionSchema.safeParse({
       id: "sub-1",
       orgId: "org-1",
-      planTier: "pro",
+      planTier: "starter",
       status: "active",
     });
     assert.ok(result.success);
@@ -207,7 +207,7 @@ describe("insertSubscriptionSchema", () => {
   it("does not require id, createdAt, updatedAt", () => {
     const result = insertSubscriptionSchema.safeParse({
       orgId: "org-1",
-      planTier: "pro",
+      planTier: "professional",
       status: "active",
       billingInterval: "yearly",
     });
@@ -215,39 +215,39 @@ describe("insertSubscriptionSchema", () => {
   });
 });
 
-describe("Clinical plan", () => {
-  it("clinical plan tier exists in PLAN_TIERS", () => {
-    assert.ok(PLAN_TIERS.includes("clinical"));
+describe("Professional plan", () => {
+  it("professional plan tier exists in PLAN_TIERS", () => {
+    assert.ok(PLAN_TIERS.includes("professional"));
   });
 
-  it("clinical plan has clinical documentation enabled", () => {
-    assert.strictEqual(PLAN_DEFINITIONS.clinical.limits.clinicalDocumentationEnabled, true);
+  it("professional plan has clinical documentation enabled", () => {
+    assert.strictEqual(PLAN_DEFINITIONS.professional.limits.clinicalDocumentationEnabled, true);
   });
 
-  it("clinical plan has RAG enabled", () => {
-    assert.strictEqual(PLAN_DEFINITIONS.clinical.limits.ragEnabled, true);
+  it("professional plan has RAG enabled", () => {
+    assert.strictEqual(PLAN_DEFINITIONS.professional.limits.ragEnabled, true);
   });
 
-  it("clinical plan has reasonable pricing", () => {
-    assert.ok(PLAN_DEFINITIONS.clinical.monthlyPriceUsd > 0);
-    assert.ok(PLAN_DEFINITIONS.clinical.yearlyPriceUsd < PLAN_DEFINITIONS.clinical.monthlyPriceUsd * 12);
+  it("professional plan has reasonable pricing", () => {
+    assert.ok(PLAN_DEFINITIONS.professional.monthlyPriceUsd > 0);
+    assert.ok(PLAN_DEFINITIONS.professional.yearlyPriceUsd < PLAN_DEFINITIONS.professional.monthlyPriceUsd * 12);
   });
 
   it("non-clinical paid plans do NOT have clinical documentation", () => {
     assert.strictEqual(PLAN_DEFINITIONS.free.limits.clinicalDocumentationEnabled, false);
-    assert.strictEqual(PLAN_DEFINITIONS.pro.limits.clinicalDocumentationEnabled, false);
+    assert.strictEqual(PLAN_DEFINITIONS.starter.limits.clinicalDocumentationEnabled, false);
   });
 
-  it("clinical plan subscription validates correctly", () => {
+  it("professional plan subscription validates correctly", () => {
     const result = subscriptionSchema.safeParse({
-      id: "sub-clinical",
+      id: "sub-professional",
       orgId: "org-1",
-      planTier: "clinical",
+      planTier: "professional",
       status: "active",
       billingInterval: "monthly",
     });
     assert.ok(result.success);
-    assert.strictEqual(result.data.planTier, "clinical");
+    assert.strictEqual(result.data.planTier, "professional");
   });
 });
 
@@ -262,9 +262,9 @@ describe("getPriceId", () => {
   it("returns null when env vars not set for a tier", async () => {
     const { getPriceId } = await import("../server/services/stripe.js");
     // Without env vars set, all should return null
-    const result = getPriceId("clinical", "monthly");
+    const result = getPriceId("professional", "monthly");
     // If env var not set, returns null
-    if (!process.env.STRIPE_PRICE_CLINICAL_MONTHLY) {
+    if (!process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY) {
       assert.strictEqual(result, null);
     }
   });
@@ -302,19 +302,20 @@ describe("Quota enforcement logic", () => {
 
 describe("Price ID resolution", () => {
   it("maps tier + interval to lookup key", () => {
-    const tier: PlanTier = "pro";
+    const tier: PlanTier = "starter";
     const interval = "monthly";
     const key = `${tier}_${interval}`;
-    assert.strictEqual(key, "pro_monthly");
+    assert.strictEqual(key, "starter_monthly");
   });
 
   it("generates correct keys for all combinations", () => {
     const expected = [
-      "pro_monthly", "pro_yearly",
+      "starter_monthly", "starter_yearly",
+      "professional_monthly", "professional_yearly",
       "enterprise_monthly", "enterprise_yearly",
     ];
     const actual: string[] = [];
-    for (const tier of ["pro", "enterprise"] as PlanTier[]) {
+    for (const tier of ["starter", "professional", "enterprise"] as PlanTier[]) {
       for (const interval of ["monthly", "yearly"]) {
         actual.push(`${tier}_${interval}`);
       }

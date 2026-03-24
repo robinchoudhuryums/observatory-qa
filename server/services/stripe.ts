@@ -1,13 +1,20 @@
 /**
  * Stripe integration for subscription billing.
  *
- * Requires environment variables:
+ * Required environment variables:
  * - STRIPE_SECRET_KEY: Stripe API secret key
  * - STRIPE_WEBHOOK_SECRET: Webhook signing secret for verifying events
- * - STRIPE_PRICE_PRO_MONTHLY: Price ID for Pro monthly plan
- * - STRIPE_PRICE_PRO_YEARLY: Price ID for Pro yearly plan
- * - STRIPE_PRICE_ENTERPRISE_MONTHLY: Price ID for Enterprise monthly plan
- * - STRIPE_PRICE_ENTERPRISE_YEARLY: Price ID for Enterprise yearly plan
+ *
+ * Flat-rate subscription prices (one per plan × billing interval):
+ * - STRIPE_PRICE_STARTER_MONTHLY / STRIPE_PRICE_STARTER_YEARLY
+ * - STRIPE_PRICE_PROFESSIONAL_MONTHLY / STRIPE_PRICE_PROFESSIONAL_YEARLY
+ * - STRIPE_PRICE_ENTERPRISE_MONTHLY / STRIPE_PRICE_ENTERPRISE_YEARLY
+ *
+ * Metered seat add-on prices (usage_type=metered, billed for seats above base):
+ * - STRIPE_PRICE_STARTER_SEATS    ($12/seat/mo above 5 base seats)
+ * - STRIPE_PRICE_PROFESSIONAL_SEATS ($18/seat/mo above 10 base seats)
+ *
+ * Enterprise seats are negotiated per contract — no metered price configured here.
  */
 import Stripe from "stripe";
 import { logger } from "./logger";
@@ -33,17 +40,48 @@ export function isStripeConfigured(): boolean {
   return !!process.env.STRIPE_SECRET_KEY;
 }
 
-/** Map plan tier + interval to a Stripe Price ID */
+/** Map plan tier + interval to a flat-rate Stripe Price ID */
 export function getPriceId(tier: PlanTier, interval: "monthly" | "yearly"): string | null {
   const priceMap: Record<string, string | undefined> = {
-    "pro_monthly": process.env.STRIPE_PRICE_PRO_MONTHLY,
-    "pro_yearly": process.env.STRIPE_PRICE_PRO_YEARLY,
+    "starter_monthly": process.env.STRIPE_PRICE_STARTER_MONTHLY,
+    "starter_yearly": process.env.STRIPE_PRICE_STARTER_YEARLY,
+    "professional_monthly": process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY,
+    "professional_yearly": process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY,
     "enterprise_monthly": process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY,
     "enterprise_yearly": process.env.STRIPE_PRICE_ENTERPRISE_YEARLY,
-    "clinical_monthly": process.env.STRIPE_PRICE_CLINICAL_MONTHLY,
-    "clinical_yearly": process.env.STRIPE_PRICE_CLINICAL_YEARLY,
   };
   return priceMap[`${tier}_${interval}`] || null;
+}
+
+/**
+ * Map plan tier to its metered seat add-on Price ID.
+ * These prices must be configured in Stripe as usage_type=metered.
+ * Returns null for tiers without a seat add-on (free, enterprise).
+ */
+export function getSeatPriceId(tier: PlanTier): string | null {
+  const seatPriceMap: Record<string, string | undefined> = {
+    "starter": process.env.STRIPE_PRICE_STARTER_SEATS,
+    "professional": process.env.STRIPE_PRICE_PROFESSIONAL_SEATS,
+  };
+  return seatPriceMap[tier] || null;
+}
+
+/**
+ * Report the current count of additional seats to Stripe for metered billing.
+ * Uses action="set" to replace any prior usage record for this period.
+ * @param subscriptionItemId  The Stripe subscription item ID for the seat add-on line
+ * @param additionalSeats     Seats above the plan's base seat count (clamped to ≥0)
+ */
+export async function reportSeatUsage(
+  stripe: Stripe,
+  subscriptionItemId: string,
+  additionalSeats: number,
+): Promise<void> {
+  await stripe.subscriptionItems.createUsageRecord(subscriptionItemId, {
+    quantity: Math.max(0, additionalSeats),
+    timestamp: Math.floor(Date.now() / 1000),
+    action: "set",
+  });
 }
 
 /** Create or retrieve a Stripe customer for an org */
@@ -72,7 +110,12 @@ export async function getOrCreateCustomer(
   return customer.id;
 }
 
-/** Create a Stripe Checkout session for subscription */
+/**
+ * Create a Stripe Checkout session for subscription.
+ * @param seatPriceId  Optional metered price ID for additional seats.
+ *                     When provided, it is added as a second line item with no
+ *                     up-front quantity — seat usage is reported via reportSeatUsage().
+ */
 export async function createCheckoutSession(
   stripe: Stripe,
   customerId: string,
@@ -80,11 +123,21 @@ export async function createCheckoutSession(
   orgId: string,
   successUrl: string,
   cancelUrl: string,
+  seatPriceId?: string,
 ): Promise<string> {
+  const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [
+    { price: priceId, quantity: 1 },
+  ];
+
+  if (seatPriceId) {
+    // Metered item — Stripe manages quantity via usage records; no quantity here
+    lineItems.push({ price: seatPriceId });
+  }
+
   const session = await stripe.checkout.sessions.create({
     customer: customerId,
     mode: "subscription",
-    line_items: [{ price: priceId, quantity: 1 }],
+    line_items: lineItems,
     success_url: successUrl,
     cancel_url: cancelUrl,
     metadata: { orgId },

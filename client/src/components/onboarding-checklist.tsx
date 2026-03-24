@@ -17,7 +17,7 @@ interface ChecklistStep {
   label: string;
   description: string;
   href: string;
-  plans: Array<"free" | "pro" | "enterprise" | "clinical" | "all">;
+  plans: Array<"free" | "starter" | "professional" | "enterprise" | "all">;
 }
 
 const ALL_STEPS: ChecklistStep[] = [
@@ -54,28 +54,28 @@ const ALL_STEPS: ChecklistStep[] = [
     label: "Upload a reference document",
     description: "Ground AI analysis in your own SOPs, scripts, and guidelines.",
     href: "/onboarding",
-    plans: ["pro", "enterprise", "clinical"],
+    plans: ["starter", "professional", "enterprise"],
   },
   {
     id: "customize_template",
     label: "Customize a prompt template",
     description: "Tailor evaluation criteria for each call category your team handles.",
     href: "/admin/templates",
-    plans: ["pro", "enterprise"],
+    plans: ["starter", "professional", "enterprise"],
   },
   {
     id: "upload_clinical_encounter",
     label: "Upload a clinical encounter",
     description: "Process a patient encounter recording to generate a structured clinical note.",
     href: "/clinical/upload",
-    plans: ["clinical", "enterprise"],
+    plans: ["professional", "enterprise"],
   },
   {
     id: "attest_clinical_note",
     label: "Attest a clinical note",
     description: "Review and sign off on an AI-generated SOAP or procedure note.",
     href: "/clinical",
-    plans: ["clinical", "enterprise"],
+    plans: ["professional", "enterprise"],
   },
   {
     id: "configure_sso",

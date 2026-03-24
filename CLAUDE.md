@@ -327,12 +327,12 @@ Every data entity has an `orgId` field. All storage methods take `orgId` as the 
 **Industry types** (set at registration): `general`, `dental`, `medical`, `behavioral_health`, `veterinary`
 
 **Plan tiers** (defined statically in `shared/schema.ts`):
-| Plan | Price | Calls/mo | Storage | RAG | Custom Templates | Clinical Docs | SSO |
-|------|-------|----------|---------|-----|-----------------|---------------|-----|
-| Free | $0 | 50 | 500 MB | No | No | No | No |
-| Clinical Documentation | $49/mo | 200 | 2 GB | Yes | No | Yes | No |
-| Pro | $99/mo | 1,000 | 10 GB | Yes | Yes | No | No |
-| Enterprise | $499/mo | Unlimited | 100 GB | Yes | Yes | Yes | Yes |
+| Plan | Price | Calls/mo | Storage | Base Seats | RAG | Custom Templates | Clinical Docs | SSO |
+|------|-------|----------|---------|------------|-----|-----------------|---------------|-----|
+| Free | $0 | 50 | 500 MB | 3 | No | No | No | No |
+| Starter | $79/mo | 300 | 5 GB | 5 (+$12/seat) | Yes | Yes | No | No |
+| Professional | $149/mo | 1,000 | 20 GB | 10 (+$18/seat) | Yes | Yes | Yes | No |
+| Enterprise | $999/mo | Unlimited | 500 GB | 25 (+$25/seat) | Yes | Yes | Yes | Yes |
 
 ### Audio Processing Pipeline (server/routes/calls.ts)
 1. Upload audio file (multer) — requires active subscription
@@ -716,10 +716,10 @@ BEDROCK_MODEL                   # Default: us.anthropic.claude-sonnet-4-6
 # ─── Billing ─────────────────────────────────────────────────────────
 STRIPE_SECRET_KEY               # Stripe API secret
 STRIPE_WEBHOOK_SECRET           # Stripe webhook signing secret
-STRIPE_PRICE_PRO_MONTHLY        # Price ID for Pro monthly
-STRIPE_PRICE_PRO_YEARLY         # Price ID for Pro yearly
-STRIPE_PRICE_CLINICAL_MONTHLY   # Price ID for Clinical Documentation monthly
-STRIPE_PRICE_CLINICAL_YEARLY    # Price ID for Clinical Documentation yearly
+STRIPE_PRICE_STARTER_MONTHLY    # Price ID for Starter monthly
+STRIPE_PRICE_STARTER_YEARLY     # Price ID for Starter yearly
+STRIPE_PRICE_PROFESSIONAL_MONTHLY # Price ID for Professional monthly
+STRIPE_PRICE_PROFESSIONAL_YEARLY  # Price ID for Professional yearly
 STRIPE_PRICE_ENTERPRISE_MONTHLY # Price ID for Enterprise monthly
 STRIPE_PRICE_ENTERPRISE_YEARLY  # Price ID for Enterprise yearly
 
@@ -950,7 +950,7 @@ See `HEALTHCARE_EXPANSION_PLAN.md` for the full 4-phase healthcare expansion roa
 - **Phase 2 (in progress)**: Clinical documentation add-on — AI scribe, style learning, multi-format notes (SOAP/DAP/BIRP), provider attestation workflow
 - **Phase 3 (planned)**: EHR integration — Open Dental (bidirectional), Eaglesoft (read-focused), Dentrix (future). Routes and adapters are scaffolded
 - **Phase 4 (planned)**: Expand verticals — urgent care, behavioral health, dermatology, ophthalmology, veterinary
-- **QA + Docs bundle pricing**: $129/mo combined (vs $99 QA-only + $49 Docs-only separately)
+- **QA + Docs bundle pricing**: The Professional plan now bundles QA + Clinical Documentation at $149/mo (previously split as $99 QA-only + $49 Docs-only separately)
 - **Super-admin role**: Platform-level admin (not org-scoped) for managing all organizations — `SUPER_ADMIN_USERS` env var
 - **PostgreSQL migration**: Move remaining S3-only deployments to PostgreSQL for better query performance and transactional integrity
 - **Spanish language support**: Multilingual clinical note generation

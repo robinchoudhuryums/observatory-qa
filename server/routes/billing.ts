@@ -7,9 +7,9 @@ import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import {
-  getStripe, isStripeConfigured, getPriceId,
+  getStripe, isStripeConfigured, getPriceId, getSeatPriceId,
   getOrCreateCustomer, createCheckoutSession, createPortalSession,
-  constructWebhookEvent,
+  constructWebhookEvent, reportSeatUsage,
 } from "../services/stripe";
 import {
   PLAN_DEFINITIONS, PLAN_TIERS,
@@ -54,6 +54,14 @@ export function enforceQuota(eventType: "transcription" | "ai_analysis" | "api_c
       const used = usage.find(u => u.eventType === eventType)?.totalQuantity || 0;
 
       if (used >= limit) {
+        const overagePrice = plan.limits.overagePricePerCallUsd;
+        if (overagePrice > 0) {
+          // Paid plan: allow overage, flag for usage-based billing
+          res.setHeader("X-Quota-Overage", "true");
+          res.setHeader("X-Overage-Price-Per-Call", overagePrice.toString());
+          (req as any).isOverQuota = true;
+          return next();
+        }
         return res.status(429).json({
           message: `Plan limit reached: ${used}/${limit} ${eventType} this month`,
           code: "QUOTA_EXCEEDED",
@@ -185,6 +193,38 @@ export function requireActiveSubscription() {
 }
 
 // ============================================================================
+// Seat Billing Sync
+// ============================================================================
+
+/**
+ * Sync metered seat usage to Stripe. Called whenever users are added or removed.
+ * Calculates seats above the plan's base allotment and reports to Stripe with
+ * action="set" so only the current count is billed (not additive).
+ * Non-blocking — failures are logged but do not surface to the caller.
+ */
+export async function syncSeatUsage(orgId: string): Promise<void> {
+  const stripe = getStripe();
+  if (!stripe) return;
+
+  try {
+    const sub = await storage.getSubscription(orgId);
+    if (!sub?.stripeSeatsItemId) return; // no metered seat add-on on this subscription
+
+    const tier = (sub.planTier as PlanTier) || "free";
+    const plan = PLAN_DEFINITIONS[tier];
+    if (!plan) return;
+
+    const users = await storage.listUsersByOrg(orgId);
+    const additionalSeats = Math.max(0, users.length - plan.limits.baseSeats);
+
+    await reportSeatUsage(stripe, sub.stripeSeatsItemId, additionalSeats);
+    logger.info({ orgId, additionalSeats, totalUsers: users.length }, "Seat usage synced");
+  } catch (err) {
+    logger.warn({ err, orgId }, "Seat usage sync failed (non-fatal)");
+  }
+}
+
+// ============================================================================
 // Billing Routes
 // ============================================================================
 
@@ -281,6 +321,13 @@ export function registerBillingRoutes(app: Express): void {
       if (tier === "free") {
         return res.status(400).json({ message: "Cannot checkout for free plan" });
       }
+      if (tier === "enterprise") {
+        return res.status(400).json({
+          message: "Enterprise plan requires contacting sales",
+          code: "CONTACT_SALES_REQUIRED",
+          contactUrl: "mailto:sales@observatory-qa.com",
+        });
+      }
 
       const priceId = getPriceId(tier as PlanTier, interval);
       if (!priceId) {
@@ -311,6 +358,7 @@ export function registerBillingRoutes(app: Express): void {
       }
 
       const baseUrl = `${req.protocol}://${req.get("host")}`;
+      const seatPriceId = getSeatPriceId(tier as PlanTier) ?? undefined;
       const checkoutUrl = await createCheckoutSession(
         stripe,
         customerId,
@@ -318,6 +366,7 @@ export function registerBillingRoutes(app: Express): void {
         req.orgId!,
         `${baseUrl}/settings?tab=billing&checkout=success`,
         `${baseUrl}/settings?tab=billing&checkout=canceled`,
+        seatPriceId,
       );
 
       logPhiAccess({
@@ -404,6 +453,41 @@ export function registerBillingRoutes(app: Express): void {
     }
   });
 
+  // --- Seat usage sync (admin only) ---
+  app.post("/api/billing/seats/sync", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    const stripe = getStripe();
+    if (!stripe) {
+      return res.status(503).json({ message: "Stripe not configured" });
+    }
+
+    try {
+      const sub = await storage.getSubscription(req.orgId!);
+      if (!sub?.stripeSeatsItemId) {
+        return res.status(400).json({
+          message: "No metered seat add-on found on this subscription. Ensure STRIPE_PRICE_<TIER>_SEATS is configured and subscription was created with a seat price.",
+        });
+      }
+
+      const tier = (sub.planTier as PlanTier) || "free";
+      const plan = PLAN_DEFINITIONS[tier];
+      const users = await storage.listUsersByOrg(req.orgId!);
+      const additionalSeats = Math.max(0, users.length - plan.limits.baseSeats);
+
+      await reportSeatUsage(stripe, sub.stripeSeatsItemId, additionalSeats);
+      logger.info({ orgId: req.orgId, additionalSeats, totalUsers: users.length }, "Seat usage manually synced");
+
+      res.json({
+        totalUsers: users.length,
+        baseSeats: plan.limits.baseSeats,
+        additionalSeats,
+        reportedToStripe: true,
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to sync seat usage");
+      res.status(500).json({ message: "Failed to sync seat usage" });
+    }
+  });
+
   // --- Stripe Webhook (unauthenticated — verified by signature) ---
   // NOTE: This route must use raw body parsing. The caller must configure
   // express.raw() for this path BEFORE express.json() middleware.
@@ -437,9 +521,16 @@ export function registerBillingRoutes(app: Express): void {
           if (session.subscription) {
             const stripeSub = await stripe.subscriptions.retrieve(session.subscription as string);
             const subData = stripeSub as any;
-            const priceId = subData.items?.data?.[0]?.price?.id;
+            const items: any[] = subData.items?.data || [];
+
+            // The flat-rate item is the one whose price is NOT metered
+            const flatItem = items.find((i: any) => i.price?.recurring?.usage_type !== "metered") || items[0];
+            const seatsItem = items.find((i: any) => i.price?.recurring?.usage_type === "metered");
+
+            const priceId = flatItem?.price?.id;
             const tier = resolveTierFromPriceId(priceId);
-            const interval = subData.items?.data?.[0]?.price?.recurring?.interval === "year" ? "yearly" : "monthly";
+            const interval = flatItem?.price?.recurring?.interval === "year" ? "yearly" : "monthly";
+            const stripeSeatsItemId = seatsItem?.id;
 
             await storage.upsertSubscription(orgId, {
               orgId,
@@ -448,12 +539,26 @@ export function registerBillingRoutes(app: Express): void {
               stripeCustomerId: session.customer as string,
               stripeSubscriptionId: stripeSub.id,
               stripePriceId: priceId,
+              stripeSeatsItemId,
               billingInterval: interval,
               currentPeriodStart: new Date(subData.current_period_start * 1000).toISOString(),
               currentPeriodEnd: new Date(subData.current_period_end * 1000).toISOString(),
               cancelAtPeriodEnd: false,
             });
-            logger.info({ orgId, tier, interval }, "Subscription activated via checkout");
+            logger.info({ orgId, tier, interval, hasSeatMeter: !!stripeSeatsItemId }, "Subscription activated via checkout");
+
+            // Report initial seat count for metered billing
+            if (stripeSeatsItemId) {
+              try {
+                const plan = PLAN_DEFINITIONS[tier];
+                const users = await storage.listUsersByOrg(orgId);
+                const additionalSeats = Math.max(0, users.length - plan.limits.baseSeats);
+                await reportSeatUsage(stripe, stripeSeatsItemId, additionalSeats);
+                logger.info({ orgId, additionalSeats }, "Initial seat usage reported");
+              } catch (err) {
+                logger.warn({ err, orgId }, "Failed to report initial seat usage (non-fatal)");
+              }
+            }
           }
           break;
         }
@@ -557,19 +662,19 @@ function resolveTierFromPriceId(priceId?: string): PlanTier {
   if (!priceId) return "free";
 
   const priceMap: Record<string, PlanTier> = {};
-  const proM = process.env.STRIPE_PRICE_PRO_MONTHLY;
-  const proY = process.env.STRIPE_PRICE_PRO_YEARLY;
+  const starterM = process.env.STRIPE_PRICE_STARTER_MONTHLY;
+  const starterY = process.env.STRIPE_PRICE_STARTER_YEARLY;
+  const proM = process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY;
+  const proY = process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY;
   const entM = process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY;
   const entY = process.env.STRIPE_PRICE_ENTERPRISE_YEARLY;
-  const clinM = process.env.STRIPE_PRICE_CLINICAL_MONTHLY;
-  const clinY = process.env.STRIPE_PRICE_CLINICAL_YEARLY;
 
-  if (proM) priceMap[proM] = "pro";
-  if (proY) priceMap[proY] = "pro";
+  if (starterM) priceMap[starterM] = "starter";
+  if (starterY) priceMap[starterY] = "starter";
+  if (proM) priceMap[proM] = "professional";
+  if (proY) priceMap[proY] = "professional";
   if (entM) priceMap[entM] = "enterprise";
   if (entY) priceMap[entY] = "enterprise";
-  if (clinM) priceMap[clinM] = "clinical";
-  if (clinY) priceMap[clinY] = "clinical";
 
   const resolved = priceMap[priceId];
   if (!resolved) {

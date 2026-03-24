@@ -33,10 +33,11 @@ export function useSubscription() {
     /** True if the subscription is active or in trial */
     isActive: data?.subscription?.status === "active" || data?.subscription?.status === "trialing",
     isFree: planTier === "free",
-    isPro: planTier === "pro",
+    isStarter: planTier === "starter",
+    isProfessional: planTier === "professional",
     isEnterprise: planTier === "enterprise",
-    isClinical: planTier === "clinical",
     hasClinicalDocs: planLimits.clinicalDocumentationEnabled,
+    hasPrioritySupport: planLimits.prioritySupport,
     hasRag: planLimits.ragEnabled,
     hasAbTesting: planLimits.abTestingEnabled,
     hasSso: planLimits.ssoEnabled,
