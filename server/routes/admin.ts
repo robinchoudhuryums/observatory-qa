@@ -680,4 +680,47 @@ export function registerAdminRoutes(app: Express): void {
       res.status(500).json({ message: "Failed to fetch edit insights" });
     }
   });
+
+  // ==================== CUSTOM VOCABULARY (WORD BOOST) ====================
+
+  app.get("/api/admin/vocabulary", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    try {
+      const org = await storage.getOrganization(req.orgId!);
+      const vocabulary: string[] = (org?.settings as any)?.customVocabulary || [];
+      res.json({ vocabulary });
+    } catch (error) {
+      logger.error({ err: error, orgId: req.orgId }, "Failed to fetch custom vocabulary");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to fetch custom vocabulary"));
+    }
+  });
+
+  app.put("/api/admin/vocabulary", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    try {
+      const { vocabulary } = req.body;
+      if (!Array.isArray(vocabulary)) {
+        res.status(400).json({ message: "vocabulary must be an array of strings" });
+        return;
+      }
+      const cleaned = vocabulary
+        .filter((v: unknown) => typeof v === "string" && v.trim().length > 0)
+        .map((v: string) => v.trim())
+        .slice(0, 500); // Safety cap
+
+      const org = await storage.getOrganization(req.orgId!);
+      if (!org) {
+        res.status(404).json({ message: "Organization not found" });
+        return;
+      }
+
+      await storage.updateOrganization(req.orgId!, {
+        settings: { ...(org.settings as any), customVocabulary: cleaned },
+      });
+
+      logger.info({ orgId: req.orgId, wordCount: cleaned.length }, "Custom vocabulary updated");
+      res.json({ vocabulary: cleaned, count: cleaned.length });
+    } catch (error) {
+      logger.error({ err: error, orgId: req.orgId }, "Failed to update custom vocabulary");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update custom vocabulary"));
+    }
+  });
 }

@@ -39,6 +39,19 @@ export interface AssemblyAIResponse {
     summary: Record<string, number>;
   };
   error?: string;
+  language_code?: string; // ISO language code (e.g., "en", "es") — set when language_detection: true
+}
+
+export interface TranscriptionOptions {
+  webhookUrl?: string;
+  webhookAuthHeaderValue?: string; // secret token sent in X-Assembly-Webhook-Token header
+  wordBoost?: string[];
+  piiRedaction?: {
+    enabled: boolean;
+    policies?: string[];
+    substitution?: 'hash' | 'entity_name';
+  };
+  languageDetection?: boolean;
 }
 
 export interface LeMURResponse {
@@ -73,26 +86,58 @@ export class AssemblyAIService {
     return (await response.json()).upload_url;
   }
 
-  async transcribeAudio(audioUrl: string): Promise<string> {
+  async transcribeAudio(audioUrl: string, options?: TranscriptionOptions): Promise<string> {
+    // Default PII redaction policies (used when no override provided)
+    const defaultPiiPolicies = [
+      "person_name", "phone_number", "email_address", "date_of_birth",
+      "us_social_security_number", "credit_card_number", "medical_record_number",
+      "blood_type", "drug", "injury", "medical_condition",
+    ];
+
+    // Determine PII redaction settings
+    const piiOpts = options?.piiRedaction;
+    const piiEnabled = piiOpts ? piiOpts.enabled : true; // default on
+    const piiPolicies = (piiOpts?.policies && piiOpts.policies.length > 0) ? piiOpts.policies : defaultPiiPolicies;
+    const piiSub = piiOpts?.substitution ?? 'hash';
+
+    const body: Record<string, unknown> = {
+      audio_url: audioUrl,
+      speech_model: "best",
+      speaker_labels: true,
+      punctuate: true,
+      format_text: true,
+      sentiment_analysis: true,
+      // PII/PHI auto-redaction
+      redact_pii: piiEnabled,
+      ...(piiEnabled ? {
+        redact_pii_policies: piiPolicies,
+        redact_pii_sub: piiSub,
+      } : {}),
+    };
+
+    // Language detection
+    if (options?.languageDetection) {
+      body.language_detection = true;
+    }
+
+    // Word boost (custom vocabulary)
+    if (options?.wordBoost && options.wordBoost.length > 0) {
+      body.word_boost = options.wordBoost;
+    }
+
+    // Webhook support — AssemblyAI will POST results instead of requiring polling
+    if (options?.webhookUrl) {
+      body.webhook_url = options.webhookUrl;
+      body.webhook_auth_header_name = "X-Assembly-Webhook-Token";
+      if (options.webhookAuthHeaderValue) {
+        body.webhook_auth_header_value = options.webhookAuthHeaderValue;
+      }
+    }
+
     const response = await fetch(`${this.config.baseUrl}/transcript`, {
       method: 'POST',
       headers: { 'Authorization': this.config.apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        audio_url: audioUrl,
-        speech_model: "best",
-        speaker_labels: true,
-        punctuate: true,
-        format_text: true,
-        sentiment_analysis: true,
-        // PII/PHI auto-redaction: replaces sensitive data with hash markers in transcript
-        redact_pii: true,
-        redact_pii_policies: [
-          "person_name", "phone_number", "email_address", "date_of_birth",
-          "us_social_security_number", "credit_card_number", "medical_record_number",
-          "blood_type", "drug", "injury", "medical_condition",
-        ],
-        redact_pii_sub: "hash", // Replace with ### instead of removing
-      })
+      body: JSON.stringify(body),
     });
     if (!response.ok) throw new Error(`Failed to start transcription: ${await response.text()}`);
     return (await response.json()).id;
@@ -235,6 +280,12 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
     // --- Speech Analytics: compute from word timing data ---
     const speechMetrics = this.computeSpeechMetrics(words);
 
+    // --- Speaker role mapping ---
+    // Convention: in call center environments, Speaker A typically speaks first (agent greeting).
+    // Default to Speaker A = agent for now; caller can refine via AI-detected agent name.
+    const agentSpeaker = 'A';
+    const speakerRoleMap: { agentSpeaker: string } = { agentSpeaker };
+
     // Determine flags
     const flags: string[] = aiAnalysis?.flags || [];
     if (performanceScore <= 2.0 && !flags.includes("low_score")) {
@@ -259,6 +310,7 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
       callPartyType: typeof aiAnalysis?.call_party_type === "string" ? aiAnalysis.call_party_type : undefined,
       flags: flags.length > 0 ? flags : undefined,
       speechMetrics: Object.keys(speechMetrics).length > 0 ? speechMetrics : undefined,
+      speakerRoleMap,
     };
 
     return { transcript, sentiment, analysis };

@@ -229,6 +229,22 @@ export class CloudStorage implements IStorage {
     const calls = await this.client.listAndDownloadJson<Call>(`${this.orgPrefix(orgId)}/calls/`);
     return calls.find(c => c.fileHash === fileHash && c.status !== "failed");
   }
+  async getCallByAssemblyAiId(transcriptId: string): Promise<Call | null> {
+    // Must search across all orgs — list top-level prefixes then search each
+    // This is a slow fallback for CloudStorage; prefer PostgreSQL backend for webhooks
+    try {
+      const allPrefixes = await this.client.listObjects("");
+      const orgPrefixes = Array.from(new Set(allPrefixes.map(p => p.split("/")[0]).filter(Boolean)));
+      for (const orgId of orgPrefixes) {
+        const calls = await this.client.listAndDownloadJson<Call>(`${orgId}/calls/`);
+        const found = calls.find(c => c.assemblyAiId === transcriptId);
+        if (found) return found;
+      }
+    } catch {
+      // Ignore — return null
+    }
+    return null;
+  }
 
   async getAllCalls(orgId: string): Promise<Call[]> {
     const calls = await this.client.listAndDownloadJson<Call>(`${this.orgPrefix(orgId)}/calls/`);
@@ -319,10 +335,15 @@ export class CloudStorage implements IStorage {
     return newTranscript;
   }
 
-  async updateTranscript(orgId: string, callId: string, updates: { text: string }): Promise<Transcript | undefined> {
+  async updateTranscript(orgId: string, callId: string, updates: { text?: string; corrections?: any[]; correctedText?: string }): Promise<Transcript | undefined> {
     const existing = await this.getTranscript(orgId, callId);
     if (!existing) return undefined;
-    const updated = { ...existing, text: updates.text };
+    const updated = {
+      ...existing,
+      ...(updates.text !== undefined ? { text: updates.text } : {}),
+      ...(updates.corrections !== undefined ? { corrections: updates.corrections } : {}),
+      ...(updates.correctedText !== undefined ? { correctedText: updates.correctedText } : {}),
+    };
     await this.client.uploadJson(`${this.orgPrefix(orgId)}/transcripts/${callId}.json`, updated);
     return updated;
   }

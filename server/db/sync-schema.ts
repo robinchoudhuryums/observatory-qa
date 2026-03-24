@@ -154,6 +154,8 @@ export async function syncSchema(db: Database): Promise<void> {
     `);
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS transcripts_call_id_idx ON transcripts (call_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS transcripts_org_id_idx ON transcripts (org_id)`);
+    await addColumnIfNotExists(db, "transcripts", "corrections", "JSONB");
+    await addColumnIfNotExists(db, "transcripts", "corrected_text", "TEXT");
     // Full-text search index for transcript search (GIN tsvector)
     await db.execute(sql`CREATE INDEX IF NOT EXISTS transcripts_text_search_idx ON transcripts USING GIN (to_tsvector('english', coalesce(text, '')))`).catch(() => {
       logger.warn("Failed to create transcript full-text search index (may already exist or text is encrypted)");

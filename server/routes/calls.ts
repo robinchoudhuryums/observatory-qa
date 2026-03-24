@@ -447,6 +447,49 @@ export function registerCallRoutes(app: Express): void {
     }
   });
 
+  // PATCH /api/calls/:id/transcript — save manual transcript corrections (manager+)
+  app.patch("/api/calls/:id/transcript", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
+    try {
+      const callId = req.params.id;
+      const { corrections, correctedText } = req.body;
+
+      if (!Array.isArray(corrections) && correctedText === undefined) {
+        res.status(400).json({ message: "corrections (array) or correctedText (string) is required" });
+        return;
+      }
+
+      const call = await storage.getCall(req.orgId!, callId);
+      if (!call) {
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call not found"));
+        return;
+      }
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "update_transcript_corrections",
+        resourceType: "transcript",
+        resourceId: callId,
+        detail: `${Array.isArray(corrections) ? corrections.length : 0} corrections by ${req.user?.name || req.user?.username}`,
+      });
+
+      const updated = await storage.updateTranscript(req.orgId!, callId, {
+        ...(Array.isArray(corrections) ? { corrections } : {}),
+        ...(correctedText !== undefined ? { correctedText } : {}),
+      });
+
+      if (!updated) {
+        res.status(404).json({ message: "Transcript not found" });
+        return;
+      }
+
+      logger.info({ callId, correctionCount: Array.isArray(corrections) ? corrections.length : 0 }, "Transcript corrections saved");
+      res.json(updated);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to save transcript corrections");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to save transcript corrections"));
+    }
+  });
+
   app.patch("/api/calls/:id/assign", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
     try {
       const { employeeId } = req.body;

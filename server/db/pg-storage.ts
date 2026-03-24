@@ -380,6 +380,13 @@ export class PostgresStorage implements IStorage {
     return rows[0] ? this.mapCall(rows[0]) : undefined;
   }
 
+  async getCallByAssemblyAiId(transcriptId: string): Promise<Call | null> {
+    const rows = await this.db.select().from(tables.calls)
+      .where(eq(tables.calls.assemblyAiId, transcriptId))
+      .limit(1);
+    return rows[0] ? this.mapCall(rows[0]) : null;
+  }
+
   async getAllCalls(orgId: string): Promise<Call[]> {
     const rows = await this.db.select().from(tables.calls)
       .where(eq(tables.calls.orgId, orgId))
@@ -540,13 +547,20 @@ export class PostgresStorage implements IStorage {
       text: typeof transcript.text === "string" ? encryptField(transcript.text) : transcript.text,
       confidence: transcript.confidence,
       words: transcript.words || null,
+      corrections: (transcript as any).corrections || null,
+      correctedText: (transcript as any).correctedText || null,
     }).returning();
     return this.mapTranscript(row);
   }
 
-  async updateTranscript(orgId: string, callId: string, updates: { text: string }): Promise<Transcript | undefined> {
+  async updateTranscript(orgId: string, callId: string, updates: { text?: string; corrections?: any[]; correctedText?: string }): Promise<Transcript | undefined> {
+    const setClause: Record<string, unknown> = {};
+    if (updates.text !== undefined) setClause.text = encryptField(updates.text);
+    if (updates.corrections !== undefined) setClause.corrections = updates.corrections;
+    if (updates.correctedText !== undefined) setClause.correctedText = updates.correctedText;
+    if (Object.keys(setClause).length === 0) return this.getTranscript(orgId, callId);
     const rows = await this.db.update(tables.transcripts)
-      .set({ text: encryptField(updates.text) })
+      .set(setClause as any)
       .where(and(eq(tables.transcripts.callId, callId), eq(tables.transcripts.orgId, orgId)))
       .returning();
     return rows[0] ? this.mapTranscript(rows[0]) : undefined;
@@ -1324,6 +1338,8 @@ export class PostgresStorage implements IStorage {
       text,
       confidence: row.confidence,
       words: row.words as any,
+      corrections: row.corrections as any,
+      correctedText: row.correctedText,
       createdAt: toISOString(row.createdAt),
     };
   }

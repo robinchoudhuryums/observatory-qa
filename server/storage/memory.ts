@@ -233,6 +233,9 @@ export class MemStorage implements IStorage {
   async getCallByFileHash(orgId: string, fileHash: string): Promise<Call | undefined> {
     return Array.from(this.calls.values()).find(c => c.orgId === orgId && c.fileHash === fileHash && c.status !== "failed");
   }
+  async getCallByAssemblyAiId(transcriptId: string): Promise<Call | null> {
+    return Array.from(this.calls.values()).find(c => c.assemblyAiId === transcriptId) || null;
+  }
   async getAllCalls(orgId: string): Promise<Call[]> {
     return Array.from(this.calls.values())
       .filter(c => c.orgId === orgId)
@@ -286,10 +289,15 @@ export class MemStorage implements IStorage {
     this.transcripts.set(transcript.callId, newTranscript);
     return newTranscript;
   }
-  async updateTranscript(orgId: string, callId: string, updates: { text: string }): Promise<Transcript | undefined> {
+  async updateTranscript(orgId: string, callId: string, updates: { text?: string; corrections?: any[]; correctedText?: string }): Promise<Transcript | undefined> {
     const t = this.transcripts.get(callId);
     if (!t || t.orgId !== orgId) return undefined;
-    const updated = { ...t, text: updates.text };
+    const updated = {
+      ...t,
+      ...(updates.text !== undefined ? { text: updates.text } : {}),
+      ...(updates.corrections !== undefined ? { corrections: updates.corrections } : {}),
+      ...(updates.correctedText !== undefined ? { correctedText: updates.correctedText } : {}),
+    };
     this.transcripts.set(callId, updated);
     return updated;
   }

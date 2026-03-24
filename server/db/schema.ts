@@ -137,6 +137,8 @@ export const transcripts = pgTable("transcripts", {
   text: text("text"),
   confidence: varchar("confidence", { length: 20 }),
   words: jsonb("words"),
+  corrections: jsonb("corrections"), // Manual word corrections [{wordIndex, original, corrected, correctedBy, correctedAt}]
+  correctedText: text("corrected_text"), // Full corrected text built from applying corrections
   createdAt: timestamp("created_at").defaultNow(),
 }, (t) => [
   uniqueIndex("transcripts_call_id_idx").on(t.callId),

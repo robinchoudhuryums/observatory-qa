@@ -339,6 +339,10 @@ export const insertCallAnalysisSchema = z.object({
     icd10Codes: z.array(z.object({ code: z.string(), description: z.string(), confidence: z.number() })).optional(),
     cdtCodes: z.array(z.object({ code: z.string(), description: z.string(), confidence: z.number() })).optional(),
   }).optional(),
+  // Speaker role mapping — which speaker label (A/B) is the agent
+  speakerRoleMap: z.object({ agentSpeaker: z.string() }).optional(),
+  // Detected language from AssemblyAI language detection (ISO code, e.g., "en", "es")
+  detectedLanguage: z.string().optional(),
 });
 
 export const callAnalysisSchema = insertCallAnalysisSchema.extend({
