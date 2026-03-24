@@ -75,6 +75,9 @@ export const orgSettingsSchema = z.object({
     customSections: z.array(z.string()).optional(),
     templateOverrides: z.record(z.string()).optional(),
   })).optional(),
+  // SIEM forwarding for Enterprise customers (Splunk, Datadog, etc.)
+  siemWebhookUrl: z.string().url().optional(),
+  siemEnabled: z.boolean().default(false).optional(),
   // Edit pattern insights: aggregated analysis of manager manual score edits
   editPatternInsights: z.object({
     updatedAt: z.string(),

@@ -50,6 +50,7 @@ export default function AuditLogsPage() {
   const [resourceTypeFilter, setResourceTypeFilter] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [usernameFilter, setUsernameFilter] = useState("");
   const pageSize = 25;
 
   const queryParams = new URLSearchParams();
@@ -57,11 +58,12 @@ export default function AuditLogsPage() {
   queryParams.set("limit", String(pageSize));
   if (eventFilter) queryParams.set("event", eventFilter);
   if (resourceTypeFilter) queryParams.set("resourceType", resourceTypeFilter);
+  if (usernameFilter) queryParams.set("username", usernameFilter);
   if (fromDate) queryParams.set("from", new Date(fromDate).toISOString());
   if (toDate) queryParams.set("to", new Date(toDate + "T23:59:59").toISOString());
 
   const { data, isLoading } = useQuery<AuditLogResponse>({
-    queryKey: ["/api/admin/audit-logs", page, eventFilter, resourceTypeFilter, fromDate, toDate],
+    queryKey: ["/api/admin/audit-logs", page, eventFilter, resourceTypeFilter, fromDate, toDate, usernameFilter],
     queryFn: async () => {
       const res = await fetch(`/api/admin/audit-logs?${queryParams.toString()}`);
       if (!res.ok) throw new Error("Failed to fetch audit logs");
@@ -74,32 +76,21 @@ export default function AuditLogsPage() {
     setResourceTypeFilter("");
     setFromDate("");
     setToDate("");
+    setUsernameFilter("");
     setPage(1);
   };
 
-  const hasFilters = eventFilter || resourceTypeFilter || fromDate || toDate;
+  const hasFilters = eventFilter || resourceTypeFilter || fromDate || toDate || usernameFilter;
 
   const exportCsv = () => {
-    if (!data?.entries.length) return;
-    const headers = ["Timestamp", "Event", "Username", "Role", "Resource Type", "Resource ID", "IP", "Detail"];
-    const rows = data.entries.map(e => [
-      e.timestamp || "",
-      e.event,
-      e.username || "",
-      e.role || "",
-      e.resourceType,
-      e.resourceId || "",
-      e.ip || "",
-      (e.detail || "").replace(/"/g, '""'),
-    ]);
-    const csv = [headers.join(","), ...rows.map(r => r.map(c => `"${c}"`).join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `audit-logs-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const params = new URLSearchParams();
+    params.set("format", "csv");
+    if (eventFilter) params.set("event", eventFilter);
+    if (resourceTypeFilter) params.set("resourceType", resourceTypeFilter);
+    if (usernameFilter) params.set("username", usernameFilter);
+    if (fromDate) params.set("from", new Date(fromDate).toISOString());
+    if (toDate) params.set("to", new Date(toDate + "T23:59:59").toISOString());
+    window.location.href = `/api/admin/audit-logs/export?${params.toString()}`;
   };
 
   const eventBadgeColor = (event: string) => {
@@ -122,7 +113,7 @@ export default function AuditLogsPage() {
             HIPAA compliance audit trail — all system events
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={exportCsv} disabled={!data?.entries.length}>
+        <Button variant="outline" size="sm" onClick={exportCsv}>
           <RiDownloadLine className="w-4 h-4 mr-1" />
           Export CSV
         </Button>
@@ -137,7 +128,7 @@ export default function AuditLogsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
             <Select value={eventFilter} onValueChange={(v) => { setEventFilter(v === "all" ? "" : v); setPage(1); }}>
               <SelectTrigger className="h-9 text-sm">
                 <SelectValue placeholder="Event type" />
@@ -175,6 +166,13 @@ export default function AuditLogsPage() {
               value={toDate}
               onChange={(e) => { setToDate(e.target.value); setPage(1); }}
               placeholder="To date"
+              className="h-9 text-sm"
+            />
+
+            <Input
+              value={usernameFilter}
+              onChange={(e) => { setUsernameFilter(e.target.value); setPage(1); }}
+              placeholder="Filter by user..."
               className="h-9 text-sm"
             />
 

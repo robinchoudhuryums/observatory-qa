@@ -93,12 +93,134 @@ async function getChainState(orgId: string): Promise<{ prevHash: string; sequenc
   return state;
 }
 
+// ── Anomaly detection ──────────────────────────────────────────────────────
+
+/** In-memory tracker for failed login attempts per IP. Auto-cleaned every 15 min. */
+const failedLoginsByIp = new Map<string, { count: number; windowStart: number }>();
+const FAILED_LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const FAILED_LOGIN_THRESHOLD = 10;
+
+// Clean up stale entries every 15 minutes
+setInterval(() => {
+  const cutoff = Date.now() - FAILED_LOGIN_WINDOW_MS;
+  for (const [key, val] of Array.from(failedLoginsByIp.entries())) {
+    if (val.windowStart < cutoff) failedLoginsByIp.delete(key);
+  }
+}, FAILED_LOGIN_WINDOW_MS).unref();
+
+/**
+ * Detect anomalous audit events and emit structured security alerts.
+ * Called synchronously inside logPhiAccess — must be fast (no DB I/O).
+ */
+function detectAnomalies(entry: AuditEntry & { timestamp: string }): void {
+  // 1. Brute-force: 10+ failed logins in 15 min from same IP
+  if (entry.event === "login_failed") {
+    const key = entry.ip || "unknown";
+    const now = Date.now();
+    const tracker = failedLoginsByIp.get(key) || { count: 0, windowStart: now };
+    if (now - tracker.windowStart > FAILED_LOGIN_WINDOW_MS) {
+      tracker.count = 1;
+      tracker.windowStart = now;
+    } else {
+      tracker.count++;
+    }
+    failedLoginsByIp.set(key, tracker);
+
+    if (tracker.count >= FAILED_LOGIN_THRESHOLD) {
+      logger.warn(
+        { ip: entry.ip, failedCount: tracker.count, orgId: entry.orgId, _securityAlert: "brute_force" },
+        "[SECURITY_ALERT] Excessive failed login attempts — possible brute force",
+      );
+    }
+  }
+
+  // 2. Bulk data export
+  if (entry.event === "audit_log_export" || entry.event === "call_export") {
+    logger.warn(
+      { username: entry.username, orgId: entry.orgId, ip: entry.ip, _securityAlert: "bulk_export" },
+      "[SECURITY_ALERT] Bulk data export detected",
+    );
+  }
+
+  // 3. PHI access outside business hours (06:00–22:00 UTC)
+  const isPhiEvent = entry.event.includes("phi") || entry.event.includes("clinical")
+    || entry.resourceType === "transcript" || entry.resourceType === "analysis";
+  if (isPhiEvent) {
+    const utcHour = new Date(entry.timestamp).getUTCHours();
+    if (utcHour < 6 || utcHour >= 22) {
+      logger.warn(
+        { username: entry.username, utcHour, orgId: entry.orgId, resourceType: entry.resourceType, _securityAlert: "off_hours_phi" },
+        "[SECURITY_ALERT] PHI access outside business hours (UTC)",
+      );
+    }
+  }
+}
+
+// ── SIEM forwarding ────────────────────────────────────────────────────────
+
+/** Cache of per-org SIEM URLs to avoid DB lookup on every log entry. TTL: 5 min. */
+const siemUrlCache = new Map<string, { url: string | null; cachedAt: number }>();
+const SIEM_CACHE_TTL_MS = 5 * 60 * 1000;
+
+/** Look up the org's SIEM webhook URL (cached). Returns null if not configured. */
+async function getSiemUrl(orgId: string): Promise<string | null> {
+  const cached = siemUrlCache.get(orgId);
+  if (cached && Date.now() - cached.cachedAt < SIEM_CACHE_TTL_MS) return cached.url;
+
+  try {
+    const { getDatabase } = await import("../db/index");
+    const db = getDatabase();
+    if (!db) return null;
+    const { organizations } = await import("../db/schema");
+    const { eq } = await import("drizzle-orm");
+    const [org] = await db.select({ settings: organizations.settings })
+      .from(organizations).where(eq(organizations.id, orgId)).limit(1);
+    const url = (org?.settings as any)?.siemWebhookUrl || null;
+    siemUrlCache.set(orgId, { url, cachedAt: Date.now() });
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+/** Forward a single audit entry to the org's SIEM webhook endpoint. Fire-and-forget. */
+async function forwardToSiem(entry: AuditEntry & { timestamp: string }, siemUrl: string): Promise<void> {
+  try {
+    const payload = {
+      source: "observatory-qa",
+      version: "1",
+      timestamp: entry.timestamp,
+      orgId: entry.orgId,
+      event: entry.event,
+      userId: entry.userId,
+      username: entry.username,
+      role: entry.role,
+      resourceType: entry.resourceType,
+      resourceId: entry.resourceId,
+      ip: entry.ip,
+      detail: entry.detail,
+    };
+    const resp = await fetch(siemUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Source": "observatory-qa-audit" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!resp.ok) {
+      logger.debug({ status: resp.status, orgId: entry.orgId }, "SIEM webhook returned non-2xx");
+    }
+  } catch (err) {
+    logger.debug({ err, orgId: entry.orgId }, "SIEM forward failed (non-blocking)");
+  }
+}
+
 /**
  * Log a PHI access event. Writes to both Pino (stdout) and PostgreSQL.
  * DB write is non-blocking — failures are logged but never throw.
  */
 export function logPhiAccess(entry: AuditEntry): void {
   const timestamp = entry.timestamp || new Date().toISOString();
+  const fullEntry = { ...entry, timestamp };
 
   // Always write to Pino (structured log)
   logger.info({
@@ -107,10 +229,20 @@ export function logPhiAccess(entry: AuditEntry): void {
     _audit: "HIPAA_PHI",
   }, `[HIPAA_AUDIT] ${entry.event}`);
 
+  // Anomaly detection (synchronous, no I/O)
+  detectAnomalies(fullEntry);
+
   // Non-blocking DB write with tamper-evident hash chain
-  persistAuditEntry({ ...entry, timestamp }).catch(() => {
+  persistAuditEntry(fullEntry).catch(() => {
     // Silently swallow — Pino log is the primary audit trail
   });
+
+  // Non-blocking SIEM forwarding (if configured for org)
+  if (entry.orgId) {
+    getSiemUrl(entry.orgId).then(siemUrl => {
+      if (siemUrl) forwardToSiem(fullEntry, siemUrl);
+    }).catch(() => {});
+  }
 }
 
 /**
@@ -219,6 +351,7 @@ export async function queryAuditLogs(options: {
   orgId: string;
   event?: string;
   userId?: string;
+  username?: string;
   resourceType?: string;
   from?: Date;
   to?: Date;
@@ -230,11 +363,12 @@ export async function queryAuditLogs(options: {
   if (!db) return { entries: [], total: 0 };
 
   const { auditLogs } = await import("../db/schema");
-  const { eq, and, desc, gte, lte, count } = await import("drizzle-orm");
+  const { eq, and, desc, gte, lte, count, ilike } = await import("drizzle-orm");
 
   const conditions = [eq(auditLogs.orgId, options.orgId)];
   if (options.event) conditions.push(eq(auditLogs.event, options.event));
   if (options.userId) conditions.push(eq(auditLogs.userId, options.userId));
+  if (options.username) conditions.push(ilike(auditLogs.username, `%${options.username}%`));
   if (options.resourceType) conditions.push(eq(auditLogs.resourceType, options.resourceType));
   if (options.from) conditions.push(gte(auditLogs.createdAt, options.from));
   if (options.to) conditions.push(lte(auditLogs.createdAt, options.to));
@@ -267,6 +401,58 @@ export async function queryAuditLogs(options: {
   }));
 
   return { entries, total: countResult[0]?.count || 0 };
+}
+
+/**
+ * Export audit logs for a date range (HIPAA auditor export).
+ * No pagination cap — returns up to maxRows rows (default 50,000).
+ * Used by GET /api/admin/audit-logs/export.
+ */
+export async function exportAuditLogs(options: {
+  orgId: string;
+  event?: string;
+  username?: string;
+  userId?: string;
+  resourceType?: string;
+  from?: Date;
+  to?: Date;
+  maxRows?: number;
+}): Promise<AuditEntry[]> {
+  const { getDatabase } = await import("../db/index");
+  const db = getDatabase();
+  if (!db) return [];
+
+  const { auditLogs } = await import("../db/schema");
+  const { eq, and, asc, gte, lte, ilike } = await import("drizzle-orm");
+
+  const conditions = [eq(auditLogs.orgId, options.orgId)];
+  if (options.event) conditions.push(eq(auditLogs.event, options.event));
+  if (options.userId) conditions.push(eq(auditLogs.userId, options.userId));
+  if (options.username) conditions.push(ilike(auditLogs.username, `%${options.username}%`));
+  if (options.resourceType) conditions.push(eq(auditLogs.resourceType, options.resourceType));
+  if (options.from) conditions.push(gte(auditLogs.createdAt, options.from));
+  if (options.to) conditions.push(lte(auditLogs.createdAt, options.to));
+
+  const cap = Math.min(options.maxRows ?? 50_000, 50_000);
+
+  const rows = await db.select().from(auditLogs)
+    .where(and(...conditions))
+    .orderBy(asc(auditLogs.createdAt))
+    .limit(cap);
+
+  return rows.map(r => ({
+    event: r.event,
+    orgId: r.orgId,
+    userId: r.userId || undefined,
+    username: r.username || undefined,
+    role: r.role || undefined,
+    resourceType: r.resourceType,
+    resourceId: r.resourceId || undefined,
+    ip: r.ip || undefined,
+    userAgent: r.userAgent || undefined,
+    detail: r.detail || undefined,
+    timestamp: r.createdAt?.toISOString(),
+  }));
 }
 
 /**
