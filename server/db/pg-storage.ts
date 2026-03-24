@@ -2551,4 +2551,95 @@ export class PostgresStorage implements IStorage {
       createdAt: toISOString(r.createdAt),
     };
   }
+
+  // --- Provider templates (custom clinical note templates per provider) ---
+
+  async getProviderTemplates(orgId: string, userId: string): Promise<any[]> {
+    const rows = await this.db.select().from(tables.providerTemplates)
+      .where(and(eq(tables.providerTemplates.orgId, orgId), eq(tables.providerTemplates.userId, userId)))
+      .orderBy(tables.providerTemplates.createdAt);
+    return rows.map(r => this.mapProviderTemplate(r));
+  }
+
+  async getAllProviderTemplates(orgId: string): Promise<any[]> {
+    const rows = await this.db.select().from(tables.providerTemplates)
+      .where(eq(tables.providerTemplates.orgId, orgId))
+      .orderBy(tables.providerTemplates.createdAt);
+    return rows.map(r => this.mapProviderTemplate(r));
+  }
+
+  async createProviderTemplate(orgId: string, template: any): Promise<any> {
+    const id = randomUUID();
+    const now = new Date();
+    const row = await this.db.insert(tables.providerTemplates).values({
+      id,
+      orgId,
+      userId: template.userId,
+      name: template.name,
+      specialty: template.specialty || null,
+      format: template.format || null,
+      category: template.category || null,
+      description: template.description || null,
+      sections: template.sections || null,
+      defaultCodes: template.defaultCodes || null,
+      tags: template.tags || null,
+      isDefault: template.isDefault || false,
+      createdAt: now,
+      updatedAt: now,
+    }).returning();
+    return this.mapProviderTemplate(row[0]);
+  }
+
+  async updateProviderTemplate(orgId: string, id: string, userId: string, updates: any): Promise<any | null> {
+    const setClause: Record<string, unknown> = { updatedAt: new Date() };
+    if (updates.name !== undefined) setClause.name = updates.name;
+    if (updates.specialty !== undefined) setClause.specialty = updates.specialty;
+    if (updates.format !== undefined) setClause.format = updates.format;
+    if (updates.category !== undefined) setClause.category = updates.category;
+    if (updates.description !== undefined) setClause.description = updates.description;
+    if (updates.sections !== undefined) setClause.sections = updates.sections;
+    if (updates.defaultCodes !== undefined) setClause.defaultCodes = updates.defaultCodes;
+    if (updates.tags !== undefined) setClause.tags = updates.tags;
+    if (updates.isDefault !== undefined) setClause.isDefault = updates.isDefault;
+
+    const rows = await this.db.update(tables.providerTemplates)
+      .set(setClause)
+      .where(and(
+        eq(tables.providerTemplates.orgId, orgId),
+        eq(tables.providerTemplates.id, id),
+        eq(tables.providerTemplates.userId, userId),
+      ))
+      .returning();
+    return rows[0] ? this.mapProviderTemplate(rows[0]) : null;
+  }
+
+  async deleteProviderTemplate(orgId: string, id: string, userId: string): Promise<boolean> {
+    const result = await this.db.delete(tables.providerTemplates)
+      .where(and(
+        eq(tables.providerTemplates.orgId, orgId),
+        eq(tables.providerTemplates.id, id),
+        eq(tables.providerTemplates.userId, userId),
+      ))
+      .returning();
+    return result.length > 0;
+  }
+
+  private mapProviderTemplate(r: any): any {
+    return {
+      id: r.id,
+      orgId: r.orgId,
+      userId: r.userId,
+      name: r.name,
+      specialty: r.specialty || undefined,
+      format: r.format || undefined,
+      category: r.category || undefined,
+      description: r.description || undefined,
+      sections: r.sections || undefined,
+      defaultCodes: r.defaultCodes || undefined,
+      tags: r.tags || undefined,
+      isDefault: r.isDefault || false,
+      createdAt: toISOString(r.createdAt),
+      updatedAt: toISOString(r.updatedAt),
+    };
+  }
 }

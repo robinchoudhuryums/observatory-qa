@@ -371,6 +371,90 @@ export function validateClinicalEditFields(edits: Record<string, unknown>): stri
   return errors;
 }
 
+// --- Quality Score Breakdown ---
+
+export interface QualityScoreBreakdown {
+  icd10Specificity: number;         // 0-10: how specific are the ICD codes
+  requiredElementsPresent: number;  // 0-10: % of required fields filled
+  planDiagnosisAlignment: number;   // 0-10: basic check plan has items when assessment exists
+  overallQuality: number;           // 0-10: weighted average
+}
+
+/**
+ * Compute quality scores for a clinical note beyond basic completeness.
+ *
+ * - icd10Specificity: rewards more decimal places in ICD-10 codes
+ * - requiredElementsPresent: fraction of required sections filled
+ * - planDiagnosisAlignment: checks plan is present when assessment exists
+ * - overallQuality: weighted average (50% completeness, 30% ICD specificity, 20% alignment)
+ */
+export function computeQualityScores(note: Record<string, unknown>): QualityScoreBreakdown {
+  // --- ICD-10 specificity ---
+  let icd10Specificity = 2.0; // Default: no codes (missing important documentation)
+  const icd10Codes = note.icd10Codes;
+  if (Array.isArray(icd10Codes) && icd10Codes.length > 0) {
+    let totalScore = 0;
+    let validCodes = 0;
+    for (const entry of icd10Codes) {
+      const code = (entry as any)?.code;
+      if (typeof code === "string" && code.length > 0) {
+        validCodes++;
+        const decimalMatch = code.match(/\.(\d+)/);
+        if (!decimalMatch) {
+          totalScore += 5.0; // No decimal (e.g., "J45")
+        } else if (decimalMatch[1].length === 1) {
+          totalScore += 7.5; // One decimal digit (e.g., "J45.9")
+        } else {
+          totalScore += 10.0; // Two or more decimal digits (e.g., "J45.90")
+        }
+      }
+    }
+    if (validCodes > 0) {
+      icd10Specificity = totalScore / validCodes;
+    }
+  }
+
+  // --- Required elements present ---
+  const validation = validateClinicalNote(note);
+  const requiredTotal = (validation.missingSections.length + validation.emptySections.length +
+    (getRequiredSections(validation.format).length - validation.missingSections.length - validation.emptySections.length));
+  const requiredFilled = requiredTotal - validation.missingSections.length - validation.emptySections.length;
+  const requiredElementsPresent = requiredTotal > 0
+    ? Math.min(10, Math.round((requiredFilled / requiredTotal) * 10 * 10) / 10)
+    : 0;
+
+  // --- Plan-diagnosis alignment ---
+  let planDiagnosisAlignment = 0.0;
+  const assessment = note.assessment;
+  const plan = note.plan;
+  const hasAssessment = typeof assessment === "string" && assessment.trim().length > 0;
+  const planItems = Array.isArray(plan)
+    ? (plan as string[]).filter(p => typeof p === "string" && p.trim().length > 0)
+    : (typeof plan === "string" && (plan as string).trim().length > 0 ? [(plan as string)] : []);
+
+  if (!hasAssessment && planItems.length === 0) {
+    planDiagnosisAlignment = 0.0;
+  } else if (hasAssessment && planItems.length === 0) {
+    planDiagnosisAlignment = 2.0; // Assessment exists but plan is empty — clinical gap
+  } else if (hasAssessment && planItems.length >= 1) {
+    planDiagnosisAlignment = planItems.length >= 3 ? 10.0 : 8.0;
+  } else if (!hasAssessment && planItems.length > 0) {
+    planDiagnosisAlignment = 4.0; // Plan without assessment
+  }
+
+  // --- Overall quality: weighted average ---
+  const overallQuality = Math.round(
+    (icd10Specificity * 0.3 + requiredElementsPresent * 0.5 + planDiagnosisAlignment * 0.2) * 10,
+  ) / 10;
+
+  return {
+    icd10Specificity: Math.round(icd10Specificity * 10) / 10,
+    requiredElementsPresent,
+    planDiagnosisAlignment,
+    overallQuality,
+  };
+}
+
 // --- Max length for style preference fields to prevent prompt injection ---
 const MAX_PREF_STRING_LENGTH = 200;
 const MAX_PREF_ARRAY_LENGTH = 10;

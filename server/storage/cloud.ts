@@ -726,4 +726,13 @@ export class CloudStorage implements IStorage {
   async getLearningProgress(_orgId: string, _employeeId: string, _moduleId: string): Promise<LearningProgress | undefined> { return undefined; }
   async getEmployeeLearningProgress(_orgId: string, _employeeId: string): Promise<LearningProgress[]> { return []; }
   async getModuleCompletionStats(_orgId: string, _moduleId: string) { return { total: 0, completed: 0, inProgress: 0, avgScore: 0 }; }
+
+  // --- Provider templates (not supported in cloud storage — use postgres backend) ---
+  async getProviderTemplates(_orgId: string, _userId: string): Promise<any[]> { return []; }
+  async getAllProviderTemplates(_orgId: string): Promise<any[]> { return []; }
+  async createProviderTemplate(_orgId: string, _template: any): Promise<any> {
+    throw new Error("Provider templates require PostgreSQL storage backend");
+  }
+  async updateProviderTemplate(_orgId: string, _id: string, _userId: string, _updates: any): Promise<any | null> { return null; }
+  async deleteProviderTemplate(_orgId: string, _id: string, _userId: string): Promise<boolean> { return false; }
 }

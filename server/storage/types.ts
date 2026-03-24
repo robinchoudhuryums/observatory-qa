@@ -376,6 +376,13 @@ export interface IStorage {
   getLearningProgress(orgId: string, employeeId: string, moduleId: string): Promise<LearningProgress | undefined>;
   getEmployeeLearningProgress(orgId: string, employeeId: string): Promise<LearningProgress[]>;
   getModuleCompletionStats(orgId: string, moduleId: string): Promise<{ total: number; completed: number; inProgress: number; avgScore: number }>;
+
+  // Provider templates (custom clinical note templates per provider, org-scoped)
+  getProviderTemplates(orgId: string, userId: string): Promise<any[]>;
+  getAllProviderTemplates(orgId: string): Promise<any[]>;
+  createProviderTemplate(orgId: string, template: any): Promise<any>;
+  updateProviderTemplate(orgId: string, id: string, userId: string, updates: any): Promise<any | null>;
+  deleteProviderTemplate(orgId: string, id: string, userId: string): Promise<boolean>;
 }
 
 export interface UsageSummary {

@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import { randomUUID } from "crypto";
 import { requireAuth, requireRole, injectOrgContext, getCachedOrganization, invalidateOrgCache } from "../auth";
 import { storage } from "../storage";
 import { logger } from "../services/logger";
@@ -15,8 +16,10 @@ import {
 } from "../services/clinical-templates";
 import {
   validateClinicalNote, getRecommendedFormat, getRequiredSections,
-  validateClinicalEditFields, VALID_NOTE_FORMATS,
+  validateClinicalEditFields, VALID_NOTE_FORMATS, computeQualityScores,
 } from "../services/clinical-validation";
+import { buildFhirBundle } from "../services/fhir";
+import { extractStructuredDataFromSections } from "../services/clinical-extraction";
 
 /**
  * Middleware to ensure the org has clinical documentation enabled.
@@ -96,11 +99,25 @@ export function registerClinicalRoutes(app: Express): void {
 
       // Run validation and attach warnings + weighted completeness
       const validation = validateClinicalNote(cn as Record<string, unknown>);
+
+      // Compute quality score breakdown
+      const qualityScores = computeQualityScores(cn as Record<string, unknown>);
+
+      // Extract structured data from decrypted note sections for display
+      const structuredDataExtracted = extractStructuredDataFromSections({
+        objective: typeof (cn as any).objective === "string" ? (cn as any).objective : undefined,
+        subjective: typeof (cn as any).subjective === "string" ? (cn as any).subjective : undefined,
+        plan: (cn as any).plan,
+      });
+
       const enriched = {
         ...cn,
         validationWarnings: validation.warnings.length > 0 ? validation.warnings : undefined,
         weightedCompleteness: validation.weightedCompleteness,
         sectionDepth: validation.sectionDepth,
+        qualityScoreBreakdown: qualityScores,
+        // Merge server-extracted structured data with any stored structuredData
+        structuredData: (cn as any).structuredData || (Object.keys(structuredDataExtracted).length > 0 ? structuredDataExtracted : undefined),
       };
 
       res.json(enriched);
@@ -144,6 +161,13 @@ export function registerClinicalRoutes(app: Express): void {
         analysis.clinicalNote.attestedNpi = req.body.npiNumber;
       }
 
+      // Check if org requires co-signature after attestation
+      const orgForAttest = await getCachedOrganization(req.orgId!);
+      const requiresCosig = (orgForAttest?.settings as OrgSettings)?.requiresCosignature === true;
+      if (requiresCosig) {
+        analysis.clinicalNote.cosignatureRequired = true;
+      }
+
       await storage.createCallAnalysis(req.orgId!, analysis);
 
       logPhiAccess({
@@ -155,7 +179,11 @@ export function registerClinicalRoutes(app: Express): void {
       });
 
       logger.info({ callId: req.params.callId }, "Clinical note attested by provider");
-      res.json({ success: true, attestedAt: analysis.clinicalNote.attestedAt });
+      res.json({
+        success: true,
+        attestedAt: analysis.clinicalNote.attestedAt,
+        cosignatureRequired: requiresCosig,
+      });
     } catch (error) {
       logger.error({ err: error }, "Failed to attest clinical note");
       res.status(500).json({ message: "Failed to attest clinical note" });
@@ -239,16 +267,66 @@ export function registerClinicalRoutes(app: Express): void {
           });
           return;
         }
+
+        // Require a reason when editing an attested note (compliance)
+        if (!req.body.reason || typeof req.body.reason !== "string" || !req.body.reason.trim()) {
+          res.status(400).json({
+            message: "A reason is required when editing an attested clinical note (medical records compliance).",
+            code: "OBS-CLINICAL-AMENDMENT-REASON-REQUIRED",
+          });
+          return;
+        }
+
+        // --- Amendment/addendum workflow (HIPAA medical records compliance) ---
+        // Capture a snapshot of non-PHI fields before clearing attestation.
+        const nonPhiSnapshot: Record<string, unknown> = {};
+        const nonPhiSnapshotKeys = [
+          "format", "specialty", "plan", "icd10Codes", "cptCodes", "cdtCodes",
+          "toothNumbers", "quadrants", "treatmentPhases", "prescriptions",
+          "followUp", "differentialDiagnoses", "documentationCompleteness",
+          "clinicalAccuracy", "attestedBy", "attestedAt", "attestedNpi", "version",
+        ];
+        const cn = analysis.clinicalNote as Record<string, unknown>;
+        for (const key of nonPhiSnapshotKeys) {
+          if (cn[key] !== undefined) nonPhiSnapshot[key] = cn[key];
+        }
+
+        // Determine which fields are being changed (including PHI fields by name only)
+        const editableFields = [
+          "chiefComplaint", "subjective", "objective", "assessment", "plan",
+          "hpiNarrative", "reviewOfSystems", "differentialDiagnoses",
+          "icd10Codes", "cptCodes", "cdtCodes", "prescriptions", "followUp",
+          "toothNumbers", "quadrants", "periodontalFindings", "treatmentPhases",
+          "format", "specialty",
+        ];
+        const fieldsChanged = Object.keys(req.body).filter(k => editableFields.includes(k));
+
+        const amendment = {
+          type: "amendment" as const,
+          reason: req.body.reason.trim(),
+          amendedBy: req.user?.name || req.user?.username || "unknown",
+          amendedById: req.user?.id,
+          amendedAt: new Date().toISOString(),
+          fieldsChanged,
+          noteSnapshot: nonPhiSnapshot,
+        };
+
+        if (!analysis.clinicalNote.amendments) {
+          analysis.clinicalNote.amendments = [];
+        }
+        analysis.clinicalNote.amendments.push(amendment);
+
         // Clear attestation — provider must re-attest after edits
         const previousAttester = analysis.clinicalNote.attestedBy;
         analysis.clinicalNote.providerAttested = false;
         analysis.clinicalNote.attestedBy = undefined;
         analysis.clinicalNote.attestedAt = undefined;
+        analysis.clinicalNote.cosignatureRequired = undefined;
         logger.info({
           callId: req.params.callId,
           previousAttester,
           editedBy: req.user?.name || req.user?.username,
-        }, "Attested clinical note edited — re-attestation required");
+        }, "Attested clinical note edited — amendment recorded, re-attestation required");
       }
 
       const allowedFields = [
@@ -337,6 +415,11 @@ export function registerClinicalRoutes(app: Express): void {
         editedAt: new Date().toISOString(),
         fieldsChanged: allEditedFields,
       });
+
+      // Recompute quality score breakdown after edit
+      analysis.clinicalNote.qualityScoreBreakdown = computeQualityScores(
+        analysis.clinicalNote as Record<string, unknown>,
+      );
 
       await storage.createCallAnalysis(req.orgId!, analysis);
 
@@ -569,7 +652,7 @@ export function registerClinicalRoutes(app: Express): void {
           if (cn.assessment) sections.assessment = decryptField(cn.assessment);
           if (cn.hpiNarrative) sections.hpiNarrative = decryptField(cn.hpiNarrative);
         } catch (decryptErr) {
-          logger.warn({ err: decryptErr, callId: row.id }, "PHI decryption failed for note in style analysis — skipping note");
+          logger.warn({ err: decryptErr }, "PHI decryption failed for note in style analysis — skipping note");
           continue;
         }
         if (cn.plan) sections.plan = Array.isArray(cn.plan) ? cn.plan.join("\n") : cn.plan;
@@ -716,9 +799,30 @@ export function registerClinicalRoutes(app: Express): void {
     }
   });
 
-  // Get a single template by ID
+  // Get a single template by ID (checks custom provider templates first, then system templates)
   app.get("/api/clinical/templates/:id", requireAuth, injectOrgContext, requireClinicalPlan(), async (req, res) => {
     try {
+      // Check custom provider templates first (for calling user's org + user)
+      const userId = req.user?.id;
+      if (userId) {
+        const customTemplates = await storage.getProviderTemplates(req.orgId!, userId);
+        const customTemplate = customTemplates.find(t => t.id === req.params.id);
+        if (customTemplate) {
+          res.json(customTemplate);
+          return;
+        }
+        // Also check all org templates (admin can view all)
+        if (req.user?.role === "admin") {
+          const allTemplates = await storage.getAllProviderTemplates(req.orgId!);
+          const orgTemplate = allTemplates.find(t => t.id === req.params.id);
+          if (orgTemplate) {
+            res.json(orgTemplate);
+            return;
+          }
+        }
+      }
+
+      // Fall back to system templates
       const template = getTemplateById(req.params.id);
       if (!template) {
         res.status(404).json({ message: "Template not found" });
@@ -981,6 +1085,452 @@ export function registerClinicalRoutes(app: Express): void {
     } catch (error) {
       logger.error({ err: error }, "Failed to save clinical note feedback");
       res.status(500).json({ message: "Failed to save feedback" });
+    }
+  });
+
+  // ==================== AMENDMENT / ADDENDUM WORKFLOW ====================
+
+  // Get amendments/addenda for a clinical note
+  app.get("/api/clinical/notes/:callId/amendments", requireAuth, injectOrgContext, requireClinicalPlan(), async (req, res) => {
+    try {
+      const analysis = await storage.getCallAnalysis(req.orgId!, req.params.callId);
+      if (!analysis?.clinicalNote) {
+        res.status(404).json({ message: "No clinical note found for this encounter" });
+        return;
+      }
+      // Amendments snapshot contains no PHI — no decryption needed
+      res.json({
+        amendments: analysis.clinicalNote.amendments || [],
+        count: analysis.clinicalNote.amendments?.length || 0,
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to get clinical note amendments");
+      res.status(500).json({ message: "Failed to get amendments" });
+    }
+  });
+
+  // Add a pure addendum (doesn't re-open note for editing, preserves attestation)
+  app.post("/api/clinical/notes/:callId/addendum", requireAuth, injectOrgContext, requireClinicalPlan(), requireRole("manager", "admin"), async (req, res) => {
+    try {
+      const { content, reason } = req.body;
+
+      if (!content || typeof content !== "string" || !content.trim()) {
+        res.status(400).json({ message: "content is required for an addendum" });
+        return;
+      }
+      if (!reason || typeof reason !== "string" || !reason.trim()) {
+        res.status(400).json({ message: "reason is required for an addendum" });
+        return;
+      }
+      if (content.length > 5000) {
+        res.status(400).json({ message: "Addendum content must be under 5000 characters" });
+        return;
+      }
+
+      const analysis = await storage.getCallAnalysis(req.orgId!, req.params.callId);
+      if (!analysis?.clinicalNote) {
+        res.status(404).json({ message: "No clinical note found for this encounter" });
+        return;
+      }
+
+      const addendum = {
+        type: "addendum" as const,
+        reason: reason.trim(),
+        amendedBy: req.user?.name || req.user?.username || "unknown",
+        amendedById: req.user?.id,
+        amendedAt: new Date().toISOString(),
+        fieldsChanged: [] as string[],
+        content: content.trim(),
+      };
+
+      if (!analysis.clinicalNote.amendments) {
+        analysis.clinicalNote.amendments = [];
+      }
+      analysis.clinicalNote.amendments.push(addendum);
+
+      await storage.createCallAnalysis(req.orgId!, analysis);
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "add_clinical_addendum",
+        resourceType: "clinical_note",
+        resourceId: req.params.callId,
+        detail: `Addendum added by ${req.user?.name || req.user?.username}`,
+      });
+
+      logger.info({ callId: req.params.callId }, "Clinical note addendum added");
+      res.json({ success: true, addendum });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to add clinical note addendum");
+      res.status(500).json({ message: "Failed to add addendum" });
+    }
+  });
+
+  // ==================== FHIR R4 EXPORT ====================
+
+  // Export clinical note as FHIR R4 Bundle
+  app.get("/api/clinical/notes/:callId/fhir", requireAuth, injectOrgContext, requireClinicalPlan(), async (req, res) => {
+    try {
+      const analysis = await storage.getCallAnalysis(req.orgId!, req.params.callId);
+      if (!analysis?.clinicalNote) {
+        res.status(404).json({ message: "No clinical note found for this encounter" });
+        return;
+      }
+
+      const cn = analysis.clinicalNote;
+
+      // FHIR export requires attestation (medical records compliance)
+      if (!cn.providerAttested) {
+        res.status(403).json({
+          message: "Clinical note must be attested before FHIR export. Please have the provider attest the note first.",
+          code: "OBS-CLINICAL-FHIR-UNATTESTED",
+          attestedBy: cn.attestedBy,
+        });
+        return;
+      }
+
+      // Decrypt PHI fields before building FHIR resource
+      try {
+        decryptClinicalNotePhi(analysis as Record<string, unknown>);
+      } catch (decryptErr) {
+        logger.error({ err: decryptErr, callId: req.params.callId }, "PHI decryption failed for FHIR export");
+        res.status(500).json({
+          message: "Unable to decrypt clinical note for FHIR export.",
+          code: "OBS-PHI-DECRYPT-001",
+        });
+        return;
+      }
+
+      const org = await getCachedOrganization(req.orgId!);
+      const orgName = org?.name || "Unknown Organization";
+      const providerName = cn.attestedBy || req.user?.name || req.user?.username || "Unknown Provider";
+      const npi = cn.attestedNpi;
+
+      const fhirBundle = buildFhirBundle({
+        note: cn as Record<string, unknown>,
+        callId: req.params.callId,
+        orgName,
+        providerName,
+        npi,
+      });
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "fhir_export",
+        resourceType: "clinical_note",
+        resourceId: req.params.callId,
+        detail: `FHIR R4 Bundle exported for call ${req.params.callId}`,
+      });
+
+      res.setHeader("Content-Type", "application/fhir+json");
+      res.json(fhirBundle);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to export FHIR bundle");
+      res.status(500).json({ message: "Failed to export FHIR bundle" });
+    }
+  });
+
+  // ==================== CO-SIGNATURE WORKFLOW ====================
+
+  // Provider co-signature (supervising provider signs after treating provider attests)
+  app.post("/api/clinical/notes/:callId/cosign", requireAuth, injectOrgContext, requireClinicalPlan(), requireRole("manager", "admin"), async (req, res) => {
+    try {
+      const { npiNumber, role } = req.body;
+
+      const analysis = await storage.getCallAnalysis(req.orgId!, req.params.callId);
+      if (!analysis?.clinicalNote) {
+        res.status(404).json({ message: "No clinical note found for this encounter" });
+        return;
+      }
+
+      if (!analysis.clinicalNote.providerAttested) {
+        res.status(400).json({
+          message: "The treating provider must attest the note before a co-signature can be added.",
+          code: "OBS-CLINICAL-COSIGN-NOT-ATTESTED",
+        });
+        return;
+      }
+
+      // Check if user's role is allowed to co-sign
+      const orgForCosign = await getCachedOrganization(req.orgId!);
+      const cosignatureRoles = (orgForCosign?.settings as OrgSettings)?.cosignatureRoles;
+      const currentUserRole = req.user?.role;
+
+      if (cosignatureRoles && cosignatureRoles.length > 0 && currentUserRole) {
+        if (!cosignatureRoles.includes(currentUserRole) && currentUserRole !== "admin") {
+          res.status(403).json({
+            message: `Your role (${currentUserRole}) is not authorized to co-sign notes. Authorized roles: ${cosignatureRoles.join(", ")}`,
+            code: "OBS-CLINICAL-COSIGN-UNAUTHORIZED",
+          });
+          return;
+        }
+      }
+
+      const cosignedAt = new Date().toISOString();
+      analysis.clinicalNote.cosignature = {
+        cosignedBy: req.user?.name || req.user?.username || "unknown",
+        cosignedById: req.user?.id,
+        cosignedNpi: npiNumber || undefined,
+        cosignedAt,
+        role: role || undefined,
+      };
+      analysis.clinicalNote.cosignatureRequired = false;
+
+      await storage.createCallAnalysis(req.orgId!, analysis);
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "cosign_clinical_note",
+        resourceType: "clinical_note",
+        resourceId: req.params.callId,
+        detail: `Co-signed by ${req.user?.name || req.user?.username}${role ? ` (${role})` : ""}`,
+      });
+
+      logger.info({ callId: req.params.callId }, "Clinical note co-signed");
+      res.json({ success: true, cosignedAt });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to co-sign clinical note");
+      res.status(500).json({ message: "Failed to co-sign clinical note" });
+    }
+  });
+
+  // ==================== POPULATION ANALYTICS ====================
+
+  // Aggregate population health stats (admin only, aggregate — no individual patient data)
+  app.get("/api/clinical/analytics/population", requireAuth, injectOrgContext, requireClinicalPlan(), requireRole("admin"), async (req, res) => {
+    try {
+      const orgId = req.orgId!;
+      const clinicalCategories = [
+        "clinical_encounter", "telemedicine",
+        "dental_encounter", "dental_consultation",
+      ];
+
+      const clinicalRows = await storage.getClinicalCallMetrics?.(orgId, clinicalCategories);
+      if (!clinicalRows) {
+        res.json({
+          totalNotes: 0, avgPainScale: null, avgBmi: null, avgBloodPressureSystolic: null,
+          avgBloodPressureDiastolic: null, topIcd10Codes: [], topMedications: [],
+          vitalsPresent: 0, medicationsPresent: 0,
+        });
+        return;
+      }
+
+      const notesWithData = clinicalRows.notesWithData.filter(n => n.clinicalNote);
+
+      // Aggregate vitals across all notes (from structuredData field)
+      let painScaleTotal = 0; let painScaleCount = 0;
+      let bmiTotal = 0; let bmiCount = 0;
+      let bpSysTotal = 0; let bpSysCount = 0;
+      let bpDiaTotal = 0; let bpDiaCount = 0;
+      let vitalsPresent = 0;
+      let medicationsPresent = 0;
+
+      const icd10Freq: Record<string, number> = {};
+      const medFreq: Record<string, number> = {};
+
+      for (const n of notesWithData) {
+        const cn = n.clinicalNote as any;
+        if (!cn) continue;
+
+        // Aggregate from stored structuredData
+        const sd = cn.structuredData;
+        if (sd?.vitals) {
+          vitalsPresent++;
+          if (typeof sd.vitals.painScale === "number") { painScaleTotal += sd.vitals.painScale; painScaleCount++; }
+          if (typeof sd.vitals.bmi === "number") { bmiTotal += sd.vitals.bmi; bmiCount++; }
+          if (typeof sd.vitals.bloodPressureSystolic === "number") { bpSysTotal += sd.vitals.bloodPressureSystolic; bpSysCount++; }
+          if (typeof sd.vitals.bloodPressureDiastolic === "number") { bpDiaTotal += sd.vitals.bloodPressureDiastolic; bpDiaCount++; }
+        }
+        if (sd?.medications?.length) {
+          medicationsPresent++;
+          for (const med of sd.medications) {
+            if (med.name) medFreq[med.name] = (medFreq[med.name] || 0) + 1;
+          }
+        }
+
+        // Aggregate ICD-10 codes
+        const codes = cn.icd10Codes || [];
+        for (const code of codes) {
+          if (code?.code) icd10Freq[code.code] = (icd10Freq[code.code] || 0) + 1;
+        }
+      }
+
+      const topIcd10Codes = Object.entries(icd10Freq)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 10)
+        .map(([code, count]) => ({ code, count }));
+
+      const topMedications = Object.entries(medFreq)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 10)
+        .map(([name, count]) => ({ name, count }));
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "view_population_analytics",
+        resourceType: "clinical_metrics",
+        detail: `Population analytics: ${notesWithData.length} notes aggregated`,
+      });
+
+      res.json({
+        totalNotes: notesWithData.length,
+        avgPainScale: painScaleCount > 0 ? Math.round((painScaleTotal / painScaleCount) * 10) / 10 : null,
+        avgBmi: bmiCount > 0 ? Math.round((bmiTotal / bmiCount) * 10) / 10 : null,
+        avgBloodPressureSystolic: bpSysCount > 0 ? Math.round(bpSysTotal / bpSysCount) : null,
+        avgBloodPressureDiastolic: bpDiaCount > 0 ? Math.round(bpDiaTotal / bpDiaCount) : null,
+        topIcd10Codes,
+        topMedications,
+        vitalsPresent,
+        medicationsPresent,
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to get population analytics");
+      res.status(500).json({ message: "Failed to get population analytics" });
+    }
+  });
+
+  // ==================== EHR PREFILL SUGGESTIONS ====================
+
+  // Get prefill suggestions for a clinical note from EHR prior visit data
+  app.get("/api/clinical/notes/:callId/prefill-suggestions", requireAuth, injectOrgContext, requireClinicalPlan(), async (req, res) => {
+    try {
+      const org = await getCachedOrganization(req.orgId!);
+      const ehrConfig = (org?.settings as OrgSettings)?.ehrConfig;
+
+      if (!ehrConfig?.enabled || !ehrConfig?.system) {
+        res.json({ medications: [], allergies: [], chiefComplaintHistory: [], ehrConnected: false });
+        return;
+      }
+
+      // Check if call has an EHR patient association
+      const call = await storage.getCall(req.orgId!, req.params.callId);
+      if (!call) {
+        res.status(404).json({ message: "Call not found" });
+        return;
+      }
+
+      // Return empty suggestions if no patient is linked
+      res.json({
+        medications: [],
+        allergies: [],
+        chiefComplaintHistory: [],
+        ehrConnected: true,
+        note: "Patient lookup from EHR requires patient ID association. Use /api/ehr/patients to search by name.",
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to get prefill suggestions");
+      res.status(500).json({ message: "Failed to get prefill suggestions" });
+    }
+  });
+
+  // ==================== PROVIDER TEMPLATES (CUSTOM) ====================
+
+  // List provider's own custom templates
+  app.get("/api/clinical/templates/my", requireAuth, injectOrgContext, requireClinicalPlan(), async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(401).json({ message: "User ID required" });
+        return;
+      }
+      const templates = await storage.getProviderTemplates(req.orgId!, userId);
+      res.json(templates);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to list provider templates");
+      res.status(500).json({ message: "Failed to list provider templates" });
+    }
+  });
+
+  // Create a custom provider template
+  app.post("/api/clinical/templates/custom", requireAuth, injectOrgContext, requireClinicalPlan(), requireRole("manager", "admin"), async (req, res) => {
+    try {
+      const { name, specialty, format, category, description, sections, defaultCodes, tags, isDefault } = req.body;
+
+      if (!name || typeof name !== "string" || !name.trim()) {
+        res.status(400).json({ message: "Template name is required" });
+        return;
+      }
+      if (name.length > 255) {
+        res.status(400).json({ message: "Template name must be under 255 characters" });
+        return;
+      }
+
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(401).json({ message: "User ID required" });
+        return;
+      }
+
+      const template = await storage.createProviderTemplate(req.orgId!, {
+        userId,
+        name: name.trim(),
+        specialty: typeof specialty === "string" ? specialty : undefined,
+        format: typeof format === "string" ? format : undefined,
+        category: typeof category === "string" ? category : undefined,
+        description: typeof description === "string" ? description.slice(0, 2000) : undefined,
+        sections: sections && typeof sections === "object" ? sections : undefined,
+        defaultCodes: defaultCodes && typeof defaultCodes === "object" ? defaultCodes : undefined,
+        tags: Array.isArray(tags) ? tags.filter((t: unknown) => typeof t === "string").slice(0, 20) : undefined,
+        isDefault: isDefault === true,
+      });
+
+      logger.info({ orgId: req.orgId, userId, templateId: template.id }, "Provider template created");
+      res.status(201).json(template);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to create provider template");
+      res.status(500).json({ message: "Failed to create provider template" });
+    }
+  });
+
+  // Update own provider template
+  app.patch("/api/clinical/templates/custom/:id", requireAuth, injectOrgContext, requireClinicalPlan(), requireRole("manager", "admin"), async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(401).json({ message: "User ID required" });
+        return;
+      }
+
+      const allowed = ["name", "specialty", "format", "category", "description", "sections", "defaultCodes", "tags", "isDefault"];
+      const updates: Record<string, unknown> = {};
+      for (const key of allowed) {
+        if (req.body[key] !== undefined) updates[key] = req.body[key];
+      }
+
+      if (updates.name && (typeof updates.name !== "string" || !updates.name.trim())) {
+        res.status(400).json({ message: "Template name must be a non-empty string" });
+        return;
+      }
+
+      const updated = await storage.updateProviderTemplate(req.orgId!, req.params.id, userId, updates);
+      if (!updated) {
+        res.status(404).json({ message: "Template not found or you do not have permission to edit it" });
+        return;
+      }
+      res.json(updated);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to update provider template");
+      res.status(500).json({ message: "Failed to update provider template" });
+    }
+  });
+
+  // Delete own provider template
+  app.delete("/api/clinical/templates/custom/:id", requireAuth, injectOrgContext, requireClinicalPlan(), requireRole("manager", "admin"), async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(401).json({ message: "User ID required" });
+        return;
+      }
+      const deleted = await storage.deleteProviderTemplate(req.orgId!, req.params.id, userId);
+      if (!deleted) {
+        res.status(404).json({ message: "Template not found or you do not have permission to delete it" });
+        return;
+      }
+      res.json({ success: true });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to delete provider template");
+      res.status(500).json({ message: "Failed to delete provider template" });
     }
   });
 }
