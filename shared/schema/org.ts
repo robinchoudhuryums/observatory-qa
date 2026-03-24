@@ -89,6 +89,12 @@ export const orgSettingsSchema = z.object({
   // SIEM forwarding for Enterprise customers (Splunk, Datadog, etc.)
   siemWebhookUrl: z.string().url().optional(),
   siemEnabled: z.boolean().default(false).optional(),
+  // Per-org KMS envelope encryption (when AWS_KMS_KEY_ID is set)
+  // The encrypted DEK (data encryption key) is stored here; the KEK (key encryption key)
+  // lives in AWS KMS and is identified by kmsKeyId. PHI fields are encrypted with the DEK,
+  // not the master key, enabling efficient key rotation without re-encrypting all data.
+  encryptedDataKey: z.string().optional(),  // KMS-encrypted DEK blob (base64)
+  kmsKeyId: z.string().optional(),           // CMK ARN used to encrypt the DEK
   // Edit pattern insights: aggregated analysis of manager manual score edits
   editPatternInsights: z.object({
     updatedAt: z.string(),
@@ -106,7 +112,7 @@ export const insertOrganizationSchema = z.object({
   name: z.string().min(1),
   slug: z.string().min(1).regex(/^[a-z0-9-]+$/, "Slug must be lowercase alphanumeric with hyphens"),
   settings: orgSettingsSchema.optional(),
-  status: z.enum(["active", "suspended", "trial"]).default("active"),
+  status: z.enum(["active", "suspended", "trial", "deleted"]).default("active"),
 });
 
 export const organizationSchema = insertOrganizationSchema.extend({

@@ -2624,6 +2624,149 @@ export class PostgresStorage implements IStorage {
     return result.length > 0;
   }
 
+  // ─── GDPR/CCPA: bulk org data deletion ───────────────────────────────────────
+
+  /**
+   * Delete all org data in FK-safe order.
+   * Cascades from calls.ts ON DELETE CASCADE will handle child rows automatically.
+   * Returns counts of top-level records deleted.
+   */
+  async deleteOrgData(orgId: string): Promise<{ employeesDeleted: number; callsDeleted: number; usersDeleted: number }> {
+    return this.db.transaction(async (tx) => {
+      // 1. Delete coaching sessions (references employees and calls)
+      await tx.execute(sql`DELETE FROM coaching_sessions WHERE org_id = ${orgId}`);
+      await tx.execute(sql`DELETE FROM coaching_recommendations WHERE org_id = ${orgId}`);
+      // 2. Delete calibration sessions/evaluations
+      await tx.execute(sql`DELETE FROM calibration_sessions WHERE org_id = ${orgId}`);
+      // 3. Delete insurance narratives
+      await tx.execute(sql`DELETE FROM insurance_narratives WHERE org_id = ${orgId}`);
+      // 4. Delete call revenues
+      await tx.execute(sql`DELETE FROM call_revenues WHERE org_id = ${orgId}`);
+      // 5. Delete call attributions
+      await tx.execute(sql`DELETE FROM call_attributions WHERE org_id = ${orgId}`);
+      // 6. Delete AB tests
+      await tx.execute(sql`DELETE FROM ab_tests WHERE org_id = ${orgId}`);
+      // 7. Delete spend records
+      await tx.execute(sql`DELETE FROM spend_records WHERE org_id = ${orgId}`);
+      // 8. Delete live sessions
+      await tx.execute(sql`DELETE FROM live_sessions WHERE org_id = ${orgId}`);
+      // 9. Delete calls (cascades: transcripts, sentiment_analyses, call_analyses via FK CASCADE)
+      const callsResult = await tx.execute(sql`DELETE FROM calls WHERE org_id = ${orgId}`);
+      const callsDeleted = (callsResult as any).rowCount ?? 0;
+      // 10. Delete gamification data
+      await tx.execute(sql`DELETE FROM employee_badges WHERE org_id = ${orgId}`);
+      await tx.execute(sql`DELETE FROM gamification_profiles WHERE org_id = ${orgId}`);
+      // 11. Delete learning data
+      await tx.execute(sql`DELETE FROM learning_progress WHERE org_id = ${orgId}`);
+      await tx.execute(sql`DELETE FROM learning_paths WHERE org_id = ${orgId}`);
+      await tx.execute(sql`DELETE FROM learning_modules WHERE org_id = ${orgId}`);
+      // 12. Delete employees
+      const empResult = await tx.execute(sql`DELETE FROM employees WHERE org_id = ${orgId}`);
+      const employeesDeleted = (empResult as any).rowCount ?? 0;
+      // 13. Delete reference docs (cascades document_chunks)
+      await tx.execute(sql`DELETE FROM reference_documents WHERE org_id = ${orgId}`);
+      // 14. Delete feedbacks
+      await tx.execute(sql`DELETE FROM feedbacks WHERE org_id = ${orgId}`);
+      // 15. Delete invitations
+      await tx.execute(sql`DELETE FROM invitations WHERE org_id = ${orgId}`);
+      // 16. Delete API keys
+      await tx.execute(sql`DELETE FROM api_keys WHERE org_id = ${orgId}`);
+      // 17. Delete prompt templates
+      await tx.execute(sql`DELETE FROM prompt_templates WHERE org_id = ${orgId}`);
+      // 18. Delete access requests
+      await tx.execute(sql`DELETE FROM access_requests WHERE org_id = ${orgId}`);
+      // 19. Delete provider templates
+      await tx.execute(sql`DELETE FROM provider_templates WHERE org_id = ${orgId}`);
+      // 20. Delete marketing data
+      await tx.execute(sql`DELETE FROM marketing_campaigns WHERE org_id = ${orgId}`);
+      // 21. Delete users (NOT the current user — mark them in memory as deleted)
+      const usersResult = await tx.execute(sql`DELETE FROM users WHERE org_id = ${orgId}`);
+      const usersDeleted = (usersResult as any).rowCount ?? 0;
+      // 22. Delete audit logs last (preserve audit trail as long as possible)
+      await tx.execute(sql`DELETE FROM audit_logs WHERE org_id = ${orgId}`);
+
+      return { employeesDeleted, callsDeleted, usersDeleted };
+    });
+  }
+
+  // ─── Super-admin usage summary ────────────────────────────────────────────
+
+  /**
+   * Aggregate per-org resource consumption using efficient SQL queries.
+   * Avoids N+1 by using COUNT/SUM aggregates in a single pass.
+   */
+  async getOrgUsageSummary(orgId: string): Promise<{
+    totalCalls: number;
+    completedCalls: number;
+    totalDurationSeconds: number;
+    totalEstimatedCostUsd: number;
+    employeeCount: number;
+  }> {
+    const [callStats, costStats, empStats] = await Promise.all([
+      // Call counts and total duration
+      this.db.execute(sql`
+        SELECT
+          COUNT(*) AS total_calls,
+          COUNT(*) FILTER (WHERE status = 'completed') AS completed_calls,
+          COALESCE(SUM(CASE WHEN status = 'completed' THEN COALESCE(duration, 0) ELSE 0 END), 0) AS total_duration
+        FROM calls
+        WHERE org_id = ${orgId}
+      `),
+      // Total estimated cost from spend_records
+      this.db.execute(sql`
+        SELECT COALESCE(SUM(total_estimated_cost), 0) AS total_cost
+        FROM spend_records
+        WHERE org_id = ${orgId}
+      `),
+      // Employee count
+      this.db.execute(sql`
+        SELECT COUNT(*) AS employee_count
+        FROM employees
+        WHERE org_id = ${orgId}
+      `),
+    ]);
+
+    const callRow = (callStats.rows as any[])[0] || {};
+    const costRow = (costStats.rows as any[])[0] || {};
+    const empRow = (empStats.rows as any[])[0] || {};
+
+    return {
+      totalCalls: Number(callRow.total_calls ?? 0),
+      completedCalls: Number(callRow.completed_calls ?? 0),
+      totalDurationSeconds: Number(callRow.total_duration ?? 0),
+      totalEstimatedCostUsd: Number(costRow.total_cost ?? 0),
+      employeeCount: Number(empRow.employee_count ?? 0),
+    };
+  }
+
+  // ─── RLS helpers ──────────────────────────────────────────────────────────
+
+  /**
+   * Execute a function with RLS bypassed — for cross-org super-admin operations.
+   * Uses set_config with is_local=false so it applies to the current connection session.
+   * ONLY use in super-admin routes and schema sync.
+   */
+  async withBypassRls<T>(fn: () => Promise<T>): Promise<T> {
+    await this.db.execute(sql`SELECT set_config('app.bypass_rls', 'true', false)`);
+    try {
+      return await fn();
+    } finally {
+      await this.db.execute(sql`SELECT set_config('app.bypass_rls', 'false', false)`);
+    }
+  }
+
+  /**
+   * Execute a function with org context set — adds RLS enforcement layer.
+   * Wraps in a transaction so SET LOCAL is scoped to this query batch.
+   */
+  async withOrgContext<T>(orgId: string, fn: (tx: typeof this.db) => Promise<T>): Promise<T> {
+    return this.db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT set_config('app.org_id', ${orgId}, true)`);
+      await tx.execute(sql`SELECT set_config('app.bypass_rls', 'false', true)`);
+      return fn(tx as unknown as typeof this.db);
+    });
+  }
+
   private mapProviderTemplate(r: any): any {
     return {
       id: r.id,

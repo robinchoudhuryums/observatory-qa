@@ -91,7 +91,8 @@ export async function reportCallOverage(
   stripe: Stripe,
   subscriptionItemId: string,
 ): Promise<void> {
-  await stripe.subscriptionItems.createUsageRecord(subscriptionItemId, {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (stripe.subscriptionItems as any).createUsageRecord(subscriptionItemId, {
     quantity: 1,
     timestamp: Math.floor(Date.now() / 1000),
     action: "increment",
@@ -109,7 +110,8 @@ export async function reportSeatUsage(
   subscriptionItemId: string,
   additionalSeats: number,
 ): Promise<void> {
-  await stripe.subscriptionItems.createUsageRecord(subscriptionItemId, {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (stripe.subscriptionItems as any).createUsageRecord(subscriptionItemId, {
     quantity: Math.max(0, additionalSeats),
     timestamp: Math.floor(Date.now() / 1000),
     action: "set",

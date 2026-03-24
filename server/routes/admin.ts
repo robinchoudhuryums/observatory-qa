@@ -681,6 +681,195 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
+  // ==================== GDPR/CCPA COMPLIANCE ====================
+
+  /**
+   * GET /api/admin/org/export
+   * Data portability — GDPR Article 20 / CCPA.
+   * Returns all org data as a structured JSON download (no secrets, no audio binaries).
+   */
+  app.get("/api/admin/org/export", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    const orgId = req.orgId!;
+    try {
+      const org = await storage.getOrganization(orgId);
+      if (!org) {
+        res.status(404).json({ message: "Organization not found" });
+        return;
+      }
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "gdpr_data_export",
+        resourceType: "organization",
+        resourceId: orgId,
+        detail: `Admin ${req.user?.username} exported all org data (GDPR Article 20)`,
+      });
+
+      // Fetch all org data in parallel (no secrets, no password hashes, no MFA secrets)
+      const [users, employees, calls, coaching, promptTemplates, apiKeysList, invitesList, subscription] = await Promise.all([
+        storage.listUsersByOrg(orgId),
+        storage.getAllEmployees(orgId),
+        storage.getAllCalls(orgId),
+        storage.getAllCoachingSessions(orgId),
+        storage.getAllPromptTemplates(orgId),
+        storage.listApiKeys(orgId),
+        storage.listInvitations(orgId),
+        storage.getSubscription(orgId),
+      ]);
+
+      // Fetch transcripts and analyses for calls (best-effort)
+      const callDetails = await Promise.all(
+        calls.slice(0, 1000).map(async (call) => { // Cap at 1000 to prevent timeout
+          const [transcript, analysis] = await Promise.allSettled([
+            storage.getTranscript(orgId, call.id),
+            storage.getCallAnalysis(orgId, call.id),
+          ]);
+          return {
+            ...call,
+            transcript: transcript.status === "fulfilled" ? transcript.value?.text : undefined,
+            analysis: analysis.status === "fulfilled" ? analysis.value ? {
+              performanceScore: analysis.value.performanceScore,
+              summary: analysis.value.summary,
+              flags: analysis.value.flags,
+            } : undefined : undefined,
+          };
+        })
+      );
+
+      const exportData = {
+        exportedAt: new Date().toISOString(),
+        exportVersion: "1.0",
+        organization: {
+          id: org.id,
+          name: org.name,
+          slug: org.slug,
+          status: org.status,
+          createdAt: org.createdAt,
+          settings: {
+            industryType: org.settings?.industryType,
+            retentionDays: org.settings?.retentionDays,
+            // Exclude secrets: SSO cert, EHR API keys, encryption keys
+          },
+        },
+        users: users.map(u => ({
+          id: u.id,
+          username: u.username,
+          name: u.name,
+          role: u.role,
+          createdAt: u.createdAt,
+          // Exclude: passwordHash, mfaSecret, mfaBackupCodes
+        })),
+        employees,
+        calls: callDetails,
+        coachingSessions: coaching,
+        promptTemplates,
+        apiKeys: apiKeysList.map(k => ({
+          id: k.id,
+          name: k.name,
+          keyPrefix: k.keyPrefix,
+          permissions: k.permissions,
+          status: k.status,
+          createdAt: k.createdAt,
+          // Exclude: keyHash
+        })),
+        invitations: invitesList.map(i => ({
+          id: i.id,
+          email: i.email,
+          role: i.role,
+          status: i.status,
+          createdAt: i.createdAt,
+          expiresAt: i.expiresAt,
+          // Exclude: token
+        })),
+        subscription: subscription ? {
+          planTier: subscription.planTier,
+          status: subscription.status,
+          billingInterval: subscription.billingInterval,
+          currentPeriodEnd: subscription.currentPeriodEnd,
+          // Exclude: stripeCustomerId, stripeSubscriptionId
+        } : null,
+      };
+
+      const filename = `observatory-export-${org.slug}-${new Date().toISOString().split("T")[0]}.json`;
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("X-Export-Warning", "Large datasets may be truncated at 1000 records per collection");
+      res.json(exportData);
+    } catch (error) {
+      logger.error({ err: error, orgId }, "Failed to export org data");
+      res.status(500).json({ message: "Failed to export organization data" });
+    }
+  });
+
+  /**
+   * DELETE /api/admin/org/purge
+   * Right to erasure — GDPR Article 17 / CCPA.
+   * Permanently deletes all org data. Requires explicit confirmation phrase.
+   * Org record is retained with status "deleted" for audit trail.
+   */
+  app.delete("/api/admin/org/purge", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    const orgId = req.orgId!;
+    try {
+      const { confirmation, reason } = req.body as { confirmation?: string; reason?: string };
+
+      if (confirmation !== "PURGE ALL DATA") {
+        res.status(400).json({
+          message: "Confirmation required. Set body.confirmation to exactly: PURGE ALL DATA",
+          code: "OBS-GDPR-001",
+        });
+        return;
+      }
+
+      if (!reason || typeof reason !== "string" || reason.trim().length < 10) {
+        res.status(400).json({
+          message: "A reason (at least 10 characters) is required for audit trail",
+          code: "OBS-GDPR-002",
+        });
+        return;
+      }
+
+      const org = await storage.getOrganization(orgId);
+      if (!org) {
+        res.status(404).json({ message: "Organization not found" });
+        return;
+      }
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "gdpr_data_purge",
+        resourceType: "organization",
+        resourceId: orgId,
+        detail: `Admin ${req.user?.username} initiated GDPR erasure. Reason: ${reason.trim()}`,
+      });
+
+      logger.warn(
+        { orgId, adminUser: req.user?.username, reason: reason.trim() },
+        "GDPR data purge initiated — deleting all org data",
+      );
+
+      // 1. Mark org as deleted immediately to block further API access
+      await storage.updateOrganization(orgId, { status: "deleted" } as any);
+
+      // 2. Bulk delete all org data (transactional in PostgreSQL, best-effort otherwise)
+      const deletionResult = await storage.deleteOrgData(orgId);
+
+      logger.info(
+        { orgId, ...deletionResult },
+        "GDPR data purge complete — org record retained for audit trail",
+      );
+
+      res.json({
+        success: true,
+        deletedAt: new Date().toISOString(),
+        deletionCounts: deletionResult,
+        message: "Organization data purged. Org record retained for audit trail.",
+      });
+    } catch (error) {
+      logger.error({ err: error, orgId }, "GDPR data purge failed");
+      res.status(500).json({ message: "Data purge failed. Please contact support." });
+    }
+  });
+
   // ==================== CUSTOM VOCABULARY (WORD BOOST) ====================
 
   app.get("/api/admin/vocabulary", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
@@ -721,6 +910,55 @@ export function registerAdminRoutes(app: Express): void {
     } catch (error) {
       logger.error({ err: error, orgId: req.orgId }, "Failed to update custom vocabulary");
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update custom vocabulary"));
+    }
+  });
+
+  // ── GDPR/CCPA: Organisation data export (Right to Access) ────────────────
+  app.get("/api/admin/org/export", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    try {
+      const orgId = req.orgId!;
+      const [org, employees, calls, users] = await Promise.all([
+        storage.getOrganization(orgId),
+        storage.getAllEmployees(orgId),
+        storage.getAllCalls(orgId),
+        storage.listUsersByOrg(orgId),
+      ]);
+
+      // Scrub password hashes from user export
+      const safeUsers = users.map(({ passwordHash: _ph, mfaSecret: _ms, mfaBackupCodes: _mb, ...u }: any) => u);
+
+      res.json({
+        exportedAt: new Date().toISOString(),
+        organization: org,
+        users: safeUsers,
+        employees,
+        callCount: calls.length,
+        calls: calls.map((c: any) => ({ id: c.id, fileName: c.fileName, status: c.status, uploadedAt: c.uploadedAt, duration: c.duration })),
+      });
+    } catch (err) {
+      logger.error({ err }, "Org data export failed");
+      res.status(500).json({ message: "Export failed" });
+    }
+  });
+
+  // ── GDPR/CCPA: Organisation data purge (Right to Erasure) ────────────────
+  app.delete("/api/admin/org/purge", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    try {
+      const orgId = req.orgId!;
+      const { confirm } = req.body;
+      if (confirm !== "DELETE_ALL_DATA") {
+        return res.status(400).json({ message: "Must send { confirm: 'DELETE_ALL_DATA' } to confirm purge" });
+      }
+
+      const result = await storage.deleteOrgData(orgId);
+      logger.warn({ orgId, ...result }, "Org data purged (GDPR/CCPA right to erasure)");
+
+      // Destroy the current session — org is now deleted
+      req.session.destroy(() => {});
+      res.json({ message: "All organisation data purged", ...result });
+    } catch (err) {
+      logger.error({ err }, "Org data purge failed");
+      res.status(500).json({ message: "Purge failed" });
     }
   });
 }

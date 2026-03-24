@@ -542,7 +542,7 @@ export async function resolveUserOrgId(userId: string): Promise<string | undefin
 
 const IMPERSONATION_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
 
-export const injectOrgContext: RequestHandler = (req: Request, res: Response, next: NextFunction) => {
+export const injectOrgContext: RequestHandler = async (req: Request, res: Response, next: NextFunction) => {
   // Super admins impersonating an org use the session's impersonated orgId
   const session = req.session as any;
   if (session?.impersonatingOrgId && req.user?.role === "super_admin") {
@@ -561,6 +561,31 @@ export const injectOrgContext: RequestHandler = (req: Request, res: Response, ne
     return res.status(401).json({ message: "No organization context in session" });
   }
   req.orgId = req.user.orgId;
+  // Gate: check org status — suspended and deleted orgs get 403/410.
+  // Uses getCachedOrganization (30s TTL) to avoid a DB hit on every request.
+  try {
+    const org = await getCachedOrganization(req.orgId);
+    if (org?.status === "suspended") {
+      logger.warn({ orgId: req.orgId, path: req.path }, "Request blocked — org is suspended");
+      res.status(403).json({
+        message: "Your organization account has been suspended. Please contact support.",
+        code: "OBS-ORG-SUSPENDED",
+        suspended: true,
+      });
+      return;
+    }
+    if (org?.status === "deleted") {
+      logger.warn({ orgId: req.orgId, path: req.path }, "Request blocked — org is deleted");
+      res.status(410).json({
+        message: "This organization account has been closed.",
+        code: "OBS-ORG-DELETED",
+      });
+      return;
+    }
+  } catch (err) {
+    // Don't block request if status check fails (fail open for availability)
+    logger.warn({ orgId: req.orgId, err }, "Could not verify org status — allowing request");
+  }
   next();
 };
 
