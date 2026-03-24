@@ -827,13 +827,14 @@ export function registerBillingRoutes(app: Express): void {
           await storage.upsertSubscription(orgId, {
             orgId,
             planTier: "free",
-            status: "active",
+            status: "canceled",
             billingInterval: "monthly",
             cancelAtPeriodEnd: false,
           });
-          // Suspend the org — blocks all API access until resolved
+          // Suspend org access on subscription cancellation — enforced by injectOrgContext gate.
+          // Admins can contact support to reactivate or resubscribe.
           await storage.updateOrganization(orgId, { status: "suspended" } as any);
-          logger.info({ orgId }, "Subscription deleted — reverted to free and org suspended");
+          logger.info({ orgId }, "Subscription canceled — org suspended, reverted to free");
           break;
         }
 

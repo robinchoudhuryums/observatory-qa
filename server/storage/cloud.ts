@@ -739,8 +739,8 @@ export class CloudStorage implements IStorage {
   // --- GDPR/CCPA: bulk org data deletion (cloud backend) ---
   async deleteOrgData(orgId: string): Promise<{ employeesDeleted: number; callsDeleted: number; usersDeleted: number }> {
     // For cloud (S3 JSON file) storage, delete the data blobs for the org
-    const employees = await this.listEmployees(orgId);
-    const calls = await this.listCalls(orgId);
+    const employees = await this.getAllEmployees(orgId);
+    const calls = await this.getAllCalls(orgId);
     const users = await this.listUsersByOrg(orgId);
     // Attempt to delete S3 audio/data objects (best-effort — non-blocking failures)
     const deletePromises: Promise<void>[] = [];
@@ -771,11 +771,11 @@ export class CloudStorage implements IStorage {
     employeeCount: number;
   }> {
     const [calls, employees] = await Promise.all([
-      this.listCalls(orgId),
-      this.listEmployees(orgId),
+      this.getAllCalls(orgId),
+      this.getAllEmployees(orgId),
     ]);
-    const completedCalls = calls.filter(c => c.status === "completed");
-    const totalDurationSeconds = completedCalls.reduce((sum, c) => sum + (c.duration || 0), 0);
+    const completedCalls = calls.filter((c: Call) => c.status === "completed");
+    const totalDurationSeconds = completedCalls.reduce((sum: number, c: Call) => sum + (c.duration || 0), 0);
     return {
       totalCalls: calls.length,
       completedCalls: completedCalls.length,

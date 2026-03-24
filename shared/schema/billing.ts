@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { clinicalNoteSchema } from "./calls";
-import type { Call, Employee, Transcript, SentimentAnalysis, CallAnalysis } from "./calls";
+import type { Call, Transcript, SentimentAnalysis, CallAnalysis } from "./calls";
+import type { Employee } from "./org";
 
 // --- ACCESS REQUEST SCHEMAS ---
 export const insertAccessRequestSchema = z.object({

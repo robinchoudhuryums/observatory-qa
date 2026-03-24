@@ -561,18 +561,30 @@ export const injectOrgContext: RequestHandler = async (req: Request, res: Respon
     return res.status(401).json({ message: "No organization context in session" });
   }
   req.orgId = req.user.orgId;
-  // Org status gate: suspended → 403, deleted → 410
-  // TODO: add a short-lived in-process cache here to avoid a DB hit on every request
+  // Gate: check org status — suspended and deleted orgs get 403/410.
+  // Uses getCachedOrganization (30s TTL) to avoid a DB hit on every request.
   try {
-    const org = await storage.getOrganization(req.user.orgId);
+    const org = await getCachedOrganization(req.orgId);
     if (org?.status === "suspended") {
-      return res.status(403).json({ message: "Your organization account has been suspended. Please contact support." });
+      logger.warn({ orgId: req.orgId, path: req.path }, "Request blocked — org is suspended");
+      res.status(403).json({
+        message: "Your organization account has been suspended. Please contact support.",
+        code: "OBS-ORG-SUSPENDED",
+        suspended: true,
+      });
+      return;
     }
     if (org?.status === "deleted") {
-      return res.status(410).json({ message: "This organization has been deleted." });
+      logger.warn({ orgId: req.orgId, path: req.path }, "Request blocked — org is deleted");
+      res.status(410).json({
+        message: "This organization account has been closed.",
+        code: "OBS-ORG-DELETED",
+      });
+      return;
     }
-  } catch {
-    // On storage error, don't block the request
+  } catch (err) {
+    // Don't block request if status check fails (fail open for availability)
+    logger.warn({ orgId: req.orgId, err }, "Could not verify org status — allowing request");
   }
   next();
 };

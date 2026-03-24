@@ -412,6 +412,7 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS stripe_seats_item_id VARCHAR(255)`);
     await db.execute(sql`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS stripe_overage_item_id VARCHAR(255)`);
     await db.execute(sql`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS past_due_at TIMESTAMP`);
+    await addRlsPolicy(db, "subscriptions").catch(e => logger.warn({ err: e }, "RLS setup skipped for subscriptions"));
 
     // --- Reference Documents ---
     await db.execute(sql`
@@ -486,6 +487,7 @@ export async function syncSchema(db: Database): Promise<void> {
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS usage_org_type_idx ON usage_events (org_id, event_type)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS usage_created_at_idx ON usage_events (created_at)`);
+    await addRlsPolicy(db, "usage_events").catch(e => logger.warn({ err: e }, "RLS setup skipped for usage_events"));
 
     // --- A/B Tests ---
     await db.execute(sql`
@@ -550,6 +552,7 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS live_sessions_org_id_idx ON live_sessions (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS live_sessions_status_idx ON live_sessions (org_id, status)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS live_sessions_created_by_idx ON live_sessions (org_id, created_by)`);
+    await addRlsPolicy(db, "live_sessions").catch(e => logger.warn({ err: e }, "RLS setup skipped for live_sessions"));
 
     // --- User Feedback ---
     await db.execute(sql`

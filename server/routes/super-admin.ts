@@ -3,6 +3,8 @@ import { storage } from "../storage";
 import { requireAuth, requireSuperAdmin, unlockAccount } from "../auth";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
+import { invalidateOrgDek } from "../services/org-encryption";
+import { PLAN_DEFINITIONS } from "@shared/schema";
 
 /**
  * Super-admin routes — platform-level administration.
@@ -159,7 +161,7 @@ export function registerSuperAdminRoutes(app: Express): void {
       const { status, settings, name } = req.body;
       const updates: Record<string, unknown> = {};
 
-      if (status && ["active", "suspended", "trial"].includes(status)) {
+      if (status && ["active", "suspended", "trial", "deleted"].includes(status)) {
         updates.status = status;
       }
       if (name && typeof name === "string") {
@@ -294,6 +296,122 @@ export function registerSuperAdminRoutes(app: Express): void {
     } catch (error) {
       logger.error({ err: error }, "Failed to unlock account");
       res.status(500).json({ message: "Failed to unlock account" });
+    }
+  });
+
+  // ==================== TENANT USAGE DASHBOARD ====================
+
+  /**
+   * GET /api/super-admin/usage
+   * Per-org resource consumption aggregates for cost visibility and capacity planning.
+   * Uses efficient SQL aggregates for PostgreSQL backends; falls back to per-org queries otherwise.
+   */
+  app.get("/api/super-admin/usage", requireAuth, requireSuperAdmin, async (_req, res) => {
+    try {
+      const orgs = await storage.listOrganizations();
+
+      const orgsWithUsage = await Promise.all(
+        orgs.map(async (org) => {
+          const [usageSummary, subscription] = await Promise.all([
+            storage.getOrgUsageSummary(org.id),
+            storage.getSubscription(org.id),
+          ]);
+
+          const plan = subscription ? PLAN_DEFINITIONS[subscription.planTier as keyof typeof PLAN_DEFINITIONS] : null;
+          const callLimit = plan?.limits?.callsPerMonth ?? 50;
+          const overageCount = Math.max(0, usageSummary.totalCalls - callLimit);
+
+          return {
+            orgId: org.id,
+            orgName: org.name,
+            orgSlug: org.slug,
+            status: org.status,
+            planTier: subscription?.planTier || "free",
+            callCount: usageSummary.totalCalls,
+            completedCallCount: usageSummary.completedCalls,
+            totalTranscriptionSeconds: usageSummary.totalDurationSeconds,
+            userCount: await storage.countUsersByOrg(org.id),
+            employeeCount: usageSummary.employeeCount,
+            estimatedStorageMb: Math.round((usageSummary.totalDurationSeconds * 0.5) / 1024), // rough estimate: 0.5 KB/s
+            totalEstimatedCostUsd: Math.round(usageSummary.totalEstimatedCostUsd * 100) / 100,
+            quotaUsed: {
+              calls: usageSummary.totalCalls,
+              limit: callLimit,
+              overageCount,
+            },
+            subscription: subscription ? {
+              status: subscription.status,
+              planTier: subscription.planTier,
+              billingInterval: subscription.billingInterval,
+            } : null,
+          };
+        })
+      );
+
+      const platformTotals = {
+        totalOrgs: orgs.length,
+        totalCalls: orgsWithUsage.reduce((sum, o) => sum + o.callCount, 0),
+        totalTranscriptionHours: Math.round(orgsWithUsage.reduce((sum, o) => sum + o.totalTranscriptionSeconds, 0) / 3600),
+        totalEstimatedCostUsd: Math.round(orgsWithUsage.reduce((sum, o) => sum + o.totalEstimatedCostUsd, 0) * 100) / 100,
+        totalUsers: orgsWithUsage.reduce((sum, o) => sum + o.userCount, 0),
+      };
+
+      logger.info({ superAdmin: "super_admin", orgCount: orgs.length }, "Super admin fetched platform usage dashboard");
+      res.json({
+        generatedAt: new Date().toISOString(),
+        orgs: orgsWithUsage,
+        platformTotals,
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to fetch platform usage");
+      res.status(500).json({ message: "Failed to fetch platform usage" });
+    }
+  });
+
+  // ==================== PER-ORG KEY ROTATION ====================
+
+  /**
+   * POST /api/super-admin/organizations/:id/rotate-key
+   * Rotate the per-org KMS data encryption key (DEK).
+   * Evicts the cached DEK so the next PHI access generates a new DEK via KMS.
+   * For full rotation: also clears the stored encrypted DEK so a fresh one is generated.
+   */
+  app.post("/api/super-admin/organizations/:id/rotate-key", requireAuth, requireSuperAdmin, async (req, res) => {
+    try {
+      const org = await storage.getOrganization(req.params.id);
+      if (!org) {
+        return res.status(404).json({ message: "Organization not found" });
+      }
+
+      // Evict the in-memory DEK cache for this org
+      invalidateOrgDek(org.id);
+
+      // Clear the stored encrypted DEK in org settings so a fresh DEK is generated on next access
+      const currentSettings = (org.settings || {}) as Record<string, unknown>;
+      delete currentSettings.encryptedDataKey;
+      await storage.updateOrganization(org.id, { settings: currentSettings as any });
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "org_key_rotation",
+        resourceType: "organization",
+        resourceId: org.id,
+        detail: `Super admin ${req.user?.username} rotated encryption key for org "${org.name}" (${org.slug})`,
+      });
+
+      logger.warn(
+        { superAdmin: req.user?.username, orgId: org.id, orgSlug: org.slug },
+        "Super admin rotated per-org DEK — next PHI access will generate a new key via KMS",
+      );
+
+      res.json({
+        success: true,
+        message: "Key rotated — next PHI access will generate a new DEK via KMS",
+        orgId: org.id,
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to rotate org encryption key");
+      res.status(500).json({ message: "Failed to rotate org encryption key" });
     }
   });
 }
