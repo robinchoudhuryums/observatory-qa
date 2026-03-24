@@ -195,12 +195,22 @@ export const transcriptWordSchema = z.object({
   speaker: z.string().optional(),
 });
 
+export const transcriptCorrectionSchema = z.object({
+  wordIndex: z.number(),       // index into words array
+  original: z.string(),
+  corrected: z.string(),
+  correctedBy: z.string(),     // user name
+  correctedAt: z.string(),     // ISO timestamp
+});
+
 export const insertTranscriptSchema = z.object({
   orgId: z.string(),
   callId: z.string(),
   text: z.string().optional(),
   confidence: z.string().optional(),
   words: z.array(transcriptWordSchema).optional(),
+  corrections: z.array(transcriptCorrectionSchema).optional(),
+  correctedText: z.string().optional(), // full corrected text (built from applying corrections)
 });
 
 export const transcriptSchema = insertTranscriptSchema.extend({

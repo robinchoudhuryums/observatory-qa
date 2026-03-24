@@ -75,6 +75,14 @@ export const orgSettingsSchema = z.object({
     customSections: z.array(z.string()).optional(),
     templateOverrides: z.record(z.string()).optional(),
   })).optional(),
+  // PII/PHI redaction config (overrides always-on defaults)
+  piiRedaction: z.object({
+    enabled: z.boolean().default(true),
+    policies: z.array(z.string()).optional(), // override specific policies
+    substitution: z.enum(["hash", "entity_name"]).default("hash"),
+  }).optional(),
+  // Custom vocabulary — word boost list for better transcription of org-specific terms
+  customVocabulary: z.array(z.string()).optional(),
   // SIEM forwarding for Enterprise customers (Splunk, Datadog, etc.)
   siemWebhookUrl: z.string().url().optional(),
   siemEnabled: z.boolean().default(false).optional(),
