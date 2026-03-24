@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { storage } from "../storage";
-import { requireAuth, requireSuperAdmin } from "../auth";
+import { requireAuth, requireSuperAdmin, unlockAccount } from "../auth";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 
@@ -264,6 +264,36 @@ export function registerSuperAdminRoutes(app: Express): void {
     } catch (error) {
       logger.error({ err: error }, "Failed to stop impersonation");
       res.status(500).json({ message: "Failed to stop impersonation" });
+    }
+  });
+
+  /**
+   * POST /api/super-admin/unlock-account
+   * Break-glass: immediately clear a locked-out account so the user can log in.
+   * Use when an org admin is locked out and cannot wait for the 15-minute auto-expiry.
+   * Requires: super_admin role. Every invocation is written to the tamper-evident audit log.
+   */
+  app.post("/api/super-admin/unlock-account", requireAuth, requireSuperAdmin, async (req, res) => {
+    try {
+      const { username } = req.body as { username?: string };
+      if (!username || typeof username !== "string") {
+        return res.status(400).json({ message: "username is required", code: "OBS-VALID-001" });
+      }
+
+      unlockAccount(username);
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "emergency_account_unlock",
+        resourceType: "user",
+        detail: `Super admin unlocked account: ${username}`,
+      });
+
+      logger.warn({ superAdmin: req.user?.username, unlockedUsername: username }, "Super admin performed emergency account unlock");
+      res.json({ message: `Account '${username}' unlocked successfully` });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to unlock account");
+      res.status(500).json({ message: "Failed to unlock account" });
     }
   });
 }

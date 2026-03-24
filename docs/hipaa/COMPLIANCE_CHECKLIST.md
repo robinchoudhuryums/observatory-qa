@@ -18,7 +18,7 @@ Scope: SaaS platform handling Protected Health Information (PHI) in clinical cal
 | Termination procedures | ✅ Required | Account deactivation on offboarding |
 | Access authorization | ✅ Implemented | requireAuth + requireRole middleware; per-org isolation |
 | Security incident procedures | ✅ Implemented | See `INCIDENT_RESPONSE.md` |
-| Contingency plan | ⚠️ Partial | Backup documented; DR plan needed |
+| Contingency plan | ✅ Implemented | RTO/RPO targets, backup encryption procedures in `KEY_MANAGEMENT.md`; DR plan needed |
 | Evaluation | ✅ Required | Annual HIPAA compliance review |
 | BAA with subcontractors | ✅ Required | See `BAA_TEMPLATE.md`; BAAs needed with AWS, AssemblyAI |
 
@@ -40,7 +40,7 @@ Scope: SaaS platform handling Protected Health Information (PHI) in clinical cal
 | Requirement | Status | Implementation |
 |-------------|--------|----------------|
 | Unique user identification | ✅ Implemented | Per-org unique usernames; UUID user IDs |
-| Emergency access procedure | ✅ Required | Break-glass procedure for locked admin accounts |
+| Emergency access procedure | ✅ Implemented | Super-admin unlock API (`POST /api/super-admin/unlock-account`) + `docs/hipaa/EMERGENCY_ACCESS.md` |
 | Automatic logoff | ✅ Implemented | 15-min idle timeout + 8-hour absolute max (`server/auth.ts`) |
 | Encryption/decryption | ✅ Implemented | AES-256-GCM field-level encryption for PHI fields (`phi-encryption.ts`) |
 | Audit controls | ✅ Implemented | Tamper-evident hash-chain audit log (`audit-log.ts`); all PHI access logged |

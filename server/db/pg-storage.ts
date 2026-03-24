@@ -1308,11 +1308,20 @@ export class PostgresStorage implements IStorage {
   }
 
   private mapTranscript(row: any): Transcript {
+    let text = row.text;
+    if (typeof row.text === "string") {
+      try {
+        text = decryptField(row.text);
+      } catch (err) {
+        logger.error({ err, callId: row.callId }, "PHI decryption failed for transcript text");
+        throw new Error(`PHI decryption failed for transcript ${row.callId}: ${(err as Error).message}`);
+      }
+    }
     return {
       id: row.id,
       orgId: row.orgId,
       callId: row.callId,
-      text: typeof row.text === "string" ? decryptField(row.text) : row.text,
+      text,
       confidence: row.confidence,
       words: row.words as any,
       createdAt: toISOString(row.createdAt),
@@ -1341,7 +1350,15 @@ export class PostgresStorage implements IStorage {
       responseTime: row.responseTime,
       keywords: row.keywords as string[],
       topics: row.topics as string[],
-      summary: typeof row.summary === "string" ? decryptField(row.summary) : row.summary,
+      summary: (() => {
+        if (typeof row.summary !== "string") return row.summary;
+        try {
+          return decryptField(row.summary);
+        } catch (err) {
+          logger.error({ err, callId: row.callId }, "PHI decryption failed for analysis summary");
+          throw new Error(`PHI decryption failed for analysis ${row.callId}: ${(err as Error).message}`);
+        }
+      })(),
       actionItems: row.actionItems as string[],
       feedback: row.feedback as any,
       lemurResponse: row.lemurResponse,

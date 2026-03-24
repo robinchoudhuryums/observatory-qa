@@ -61,6 +61,14 @@ function recordFailedAttempt(username: string): void {
   loginAttempts.set(username, record);
 }
 
+/**
+ * Break-glass: immediately clear a locked account so the user can log in again.
+ * Called by the super-admin unlock endpoint. Emits a HIPAA audit entry.
+ */
+export function unlockAccount(username: string): void {
+  loginAttempts.delete(username);
+}
+
 function clearFailedAttempts(username: string): void {
   loginAttempts.delete(username);
 }
