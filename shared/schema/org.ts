@@ -83,6 +83,9 @@ export const orgSettingsSchema = z.object({
   }).optional(),
   // Custom vocabulary — word boost list for better transcription of org-specific terms
   customVocabulary: z.array(z.string()).optional(),
+  // Co-signature requirements (clinical documentation)
+  requiresCosignature: z.boolean().optional(),   // all notes require co-signature
+  cosignatureRoles: z.array(z.string()).optional(), // ["admin", "manager"] can co-sign
   // SIEM forwarding for Enterprise customers (Splunk, Datadog, etc.)
   siemWebhookUrl: z.string().url().optional(),
   siemEnabled: z.boolean().default(false).optional(),

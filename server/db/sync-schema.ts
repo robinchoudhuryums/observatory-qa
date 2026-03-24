@@ -786,6 +786,28 @@ export async function syncSchema(db: Database): Promise<void> {
       logger.warn("Failed to create audit_logs BRIN index");
     });
 
+    // --- Provider Templates (custom clinical note templates per provider) ---
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS provider_templates (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL REFERENCES organizations(id),
+        user_id TEXT NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        specialty VARCHAR(100),
+        format VARCHAR(50),
+        category VARCHAR(100),
+        description TEXT,
+        sections JSONB,
+        default_codes JSONB,
+        tags JSONB,
+        is_default BOOLEAN DEFAULT false,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS provider_templates_org_user_idx ON provider_templates (org_id, user_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS provider_templates_org_specialty_idx ON provider_templates (org_id, specialty)`);
+
     // ── One-time data migrations ─────────────────────────────────────────────
     // These use runOnceMigration() to ensure they execute exactly once even
     // across repeated server restarts. Add new one-time migrations here.
