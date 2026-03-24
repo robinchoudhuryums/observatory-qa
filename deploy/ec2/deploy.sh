@@ -12,9 +12,11 @@ set -euo pipefail
 APP_DIR="/opt/callanalyzer"
 APP_USER="callanalyzer"
 BRANCH="${1:-main}"
+TARGET_SHA="${2:-}"  # Optional: pin to a specific git SHA (passed by CI)
 
 echo "=== Observatory QA Deploy — $(date) ==="
 echo "Branch: $BRANCH"
+[ -n "$TARGET_SHA" ] && echo "Target SHA: $TARGET_SHA"
 
 cd "$APP_DIR"
 
@@ -44,11 +46,43 @@ if [ ${#MISSING_VARS[@]} -gt 0 ]; then
     echo ""
 fi
 
+# --- Pre-deploy database snapshot ---
+echo "--- Pre-deploy database snapshot ---"
+SNAPSHOT_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+SNAPSHOT_DIR="/tmp/observatory-backups"
+mkdir -p "$SNAPSHOT_DIR"
+
+DATABASE_URL=""
+if grep -qE '^DATABASE_URL=.+' "$ENV_FILE"; then
+    DATABASE_URL=$(grep -E '^DATABASE_URL=' "$ENV_FILE" | cut -d= -f2- | tr -d '"')
+fi
+
+if [ -n "$DATABASE_URL" ]; then
+    SNAPSHOT_FILE="$SNAPSHOT_DIR/pre_deploy_${SNAPSHOT_TIMESTAMP}.dump"
+    pg_dump "$DATABASE_URL" --format=custom --compress=6 --file="$SNAPSHOT_FILE" \
+        && echo "Pre-deploy snapshot: $SNAPSHOT_FILE ($(du -h "$SNAPSHOT_FILE" | cut -f1))" \
+        || echo "WARNING: Pre-deploy snapshot failed — deploy continues without it"
+else
+    echo "WARN: DATABASE_URL not set — skipping pre-deploy snapshot"
+fi
+
+# Record current SHA for rollback reference
+PREV_SHA=$(sudo -u "$APP_USER" git rev-parse HEAD 2>/dev/null || echo "unknown")
+echo "Previous SHA: $PREV_SHA"
+echo "$PREV_SHA" > "$SNAPSHOT_DIR/last_good_sha.txt"
+
 # Pull latest code
 echo "--- Pulling latest code ---"
 sudo -u "$APP_USER" git fetch origin "$BRANCH"
 sudo -u "$APP_USER" git checkout "$BRANCH"
-sudo -u "$APP_USER" git pull origin "$BRANCH"
+
+if [ -n "$TARGET_SHA" ]; then
+    # Pin to the exact SHA that CI built and tested
+    sudo -u "$APP_USER" git checkout "$TARGET_SHA"
+    echo "Pinned to SHA: $(sudo -u "$APP_USER" git rev-parse HEAD)"
+else
+    sudo -u "$APP_USER" git pull origin "$BRANCH"
+fi
 
 # Install dependencies
 echo "--- Installing dependencies ---"
@@ -74,8 +108,15 @@ if systemctl is-active --quiet callanalyzer; then
 else
     echo "!!! Observatory QA failed to start !!!"
     journalctl -u callanalyzer --no-pager -n 30
+    echo ""
+    echo "To roll back to the previous version:"
+    echo "  sudo /opt/callanalyzer/deploy/ec2/rollback.sh $PREV_SHA"
     exit 1
 fi
 
+DEPLOYED_SHA=$(sudo -u "$APP_USER" git rev-parse HEAD)
 echo ""
 echo "=== Deploy complete — $(date) ==="
+echo "  Deployed SHA: $DEPLOYED_SHA"
+echo "  Previous SHA: $PREV_SHA"
+echo "  To roll back: sudo /opt/callanalyzer/deploy/ec2/rollback.sh $PREV_SHA"

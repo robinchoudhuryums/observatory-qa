@@ -781,11 +781,25 @@ export async function syncSchema(db: Database): Promise<void> {
       logger.warn("Failed to create audit_logs BRIN index");
     });
 
+    // ── One-time data migrations ─────────────────────────────────────────────
+    // These use runOnceMigration() to ensure they execute exactly once even
+    // across repeated server restarts. Add new one-time migrations here.
+    // Format: runOnceMigration(db, "YYYY-MM-DD-descriptive-key", async () => { ... })
+    //
+    // Example (already run — do not remove, guards prevent re-execution):
+    // await runOnceMigration(db, "2025-08-01-backfill-org-industry-type", async () => {
+    //   await db.execute(sql`UPDATE organizations SET industry_type = 'general' WHERE industry_type IS NULL`);
+    // });
+
     logger.info("Schema sync complete");
   } catch (error) {
     logger.error({ err: error }, "Schema sync failed — some features may not work");
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DDL helper functions — all idempotent, safe to run on every startup
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Add a column to a table if it doesn't already exist.
@@ -802,9 +816,143 @@ async function addColumnIfNotExists(
   const safeColumn = `"${column.replace(/"/g, '""')}"`;
   await db.execute(sql.raw(`
     DO $$ BEGIN
-      ALTER TABLE ${safeTable} ADD COLUMN ${safeColumn} ${definition};
+      ALTER TABLE ${safeTable} ADD COLUMN IF NOT EXISTS ${safeColumn} ${definition};
     EXCEPTION
       WHEN duplicate_column THEN NULL;
     END $$;
   `));
+}
+
+/**
+ * Rename a column if the old name exists and the new name does not.
+ * No-op if the column has already been renamed (new name present) or if the
+ * old name never existed. Safe to run on every startup.
+ *
+ * Usage:
+ *   await renameColumnIfExists(db, "calls", "assembly_ai_id", "transcription_job_id");
+ */
+async function renameColumnIfExists(
+  db: Database,
+  table: string,
+  oldColumn: string,
+  newColumn: string,
+): Promise<void> {
+  const safeTable = `"${table.replace(/"/g, '""')}"`;
+  const safeOld = `"${oldColumn.replace(/"/g, '""')}"`;
+  const safeNew = `"${newColumn.replace(/"/g, '""')}"`;
+  // Check: old column exists AND new column does not. If both exist, the rename
+  // was only partially applied — log a warning but do not error.
+  await db.execute(sql.raw(`
+    DO $$ BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = '${table.replace(/'/g, "''")}' AND column_name = '${oldColumn.replace(/'/g, "''")}'
+      ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = '${table.replace(/'/g, "''")}' AND column_name = '${newColumn.replace(/'/g, "''")}'
+      ) THEN
+        ALTER TABLE ${safeTable} RENAME COLUMN ${safeOld} TO ${safeNew};
+      END IF;
+    END $$;
+  `));
+}
+
+/**
+ * Drop a column if it exists. No-op if the column is already absent.
+ * Safe to run on every startup.
+ *
+ * WARNING: This is destructive and permanent. Only use for columns that have
+ * been migrated away and whose data is no longer needed. Consider using
+ * runOnceMigration() to guard this so it only fires once.
+ *
+ * Usage:
+ *   await dropColumnIfExists(db, "call_analyses", "lemur_response");
+ */
+async function dropColumnIfExists(
+  db: Database,
+  table: string,
+  column: string,
+): Promise<void> {
+  const safeTable = `"${table.replace(/"/g, '""')}"`;
+  const safeColumn = `"${column.replace(/"/g, '""')}"`;
+  await db.execute(sql.raw(`
+    DO $$ BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = '${table.replace(/'/g, "''")}' AND column_name = '${column.replace(/'/g, "''")}'
+      ) THEN
+        ALTER TABLE ${safeTable} DROP COLUMN ${safeColumn};
+      END IF;
+    END $$;
+  `));
+}
+
+/**
+ * Ensure the schema_migrations tracking table exists.
+ * Called internally by runOnceMigration.
+ */
+async function ensureMigrationsTable(db: Database): Promise<void> {
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      key TEXT PRIMARY KEY,
+      applied_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      duration_ms INTEGER
+    )
+  `);
+}
+
+/**
+ * Run a one-time data migration, guarded by a key stored in the
+ * schema_migrations table. The migration function will only execute once —
+ * subsequent server restarts skip it entirely.
+ *
+ * Use this for:
+ *   - Backfilling new columns with computed data
+ *   - Data transformations (e.g. splitting a column, normalizing values)
+ *   - One-time cleanup of legacy data
+ *   - Destructive DDL (column drops) that should only run once
+ *
+ * Keys should be globally unique and descriptive. Recommended format:
+ *   "YYYY-MM-DD-short-description"
+ *
+ * Usage:
+ *   await runOnceMigration(db, "2025-09-01-backfill-call-channel", async () => {
+ *     await db.execute(sql`UPDATE calls SET channel = 'voice' WHERE channel IS NULL`);
+ *   });
+ *
+ *   await runOnceMigration(db, "2025-09-15-drop-legacy-lemur-response", async () => {
+ *     await dropColumnIfExists(db, "call_analyses", "lemur_response");
+ *   });
+ */
+async function runOnceMigration(
+  db: Database,
+  key: string,
+  fn: () => Promise<void>,
+): Promise<void> {
+  await ensureMigrationsTable(db);
+
+  // Check if already applied
+  const result = await db.execute(
+    sql.raw(`SELECT key FROM schema_migrations WHERE key = '${key.replace(/'/g, "''")}'`)
+  );
+  const rows = result.rows as Array<{ key: string }>;
+  if (rows.length > 0) {
+    return; // Already applied — skip
+  }
+
+  const start = Date.now();
+  try {
+    await fn();
+    const durationMs = Date.now() - start;
+    await db.execute(
+      sql.raw(`
+        INSERT INTO schema_migrations (key, applied_at, duration_ms)
+        VALUES ('${key.replace(/'/g, "''")}', NOW(), ${durationMs})
+      `)
+    );
+    logger.info({ migrationKey: key, durationMs }, "One-time migration applied");
+  } catch (error) {
+    logger.error({ err: error, migrationKey: key }, "One-time migration failed");
+    throw error; // Propagate — sync-schema outer catch will handle gracefully
+  }
 }
