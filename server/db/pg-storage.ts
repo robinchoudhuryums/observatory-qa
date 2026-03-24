@@ -96,6 +96,20 @@ export class PostgresStorage implements IStorage {
     this.blobClient = blobClient;
   }
 
+  /**
+   * Execute a set of database operations within a single transaction.
+   * All operations either commit together or roll back together.
+   *
+   * @example
+   * await storage.withTransaction(async (tx) => {
+   *   await tx.insert(tables.calls).values(callData);
+   *   await tx.insert(tables.transcripts).values(transcriptData);
+   * });
+   */
+  async withTransaction<T>(fn: (tx: Database) => Promise<T>): Promise<T> {
+    return this.db.transaction(fn);
+  }
+
   // --- Organization operations ---
   async getOrganization(orgId: string): Promise<Organization | undefined> {
     const rows = await this.db.select().from(tables.organizations).where(eq(tables.organizations.id, orgId)).limit(1);

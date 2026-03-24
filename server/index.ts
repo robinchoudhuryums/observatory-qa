@@ -162,8 +162,10 @@ app.use((req, res, next) => {
   const cdnDirective = cdnOrigin ? ` ${cdnOrigin}` : "";
   const sentryDsn = process.env.SENTRY_DSN || "";
   const sentryDirective = sentryDsn ? " https://*.ingest.sentry.io" : "";
+  const isProduction = process.env.NODE_ENV === "production";
+  const upgradeInsecure = isProduction ? " upgrade-insecure-requests;" : "";
   res.setHeader('Content-Security-Policy',
-    `default-src 'self'${cdnDirective}; script-src 'self'${cdnDirective}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com${cdnDirective}; font-src 'self' https://fonts.gstatic.com${cdnDirective}; img-src 'self' data: blob:${cdnDirective}; media-src 'self' blob:${cdnDirective}; connect-src 'self' wss:${sentryDirective}${cdnDirective}; frame-ancestors 'none';`
+    `default-src 'self'${cdnDirective}; script-src 'self'${cdnDirective}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com${cdnDirective}; font-src 'self' https://fonts.gstatic.com${cdnDirective}; img-src 'self' data: blob:${cdnDirective}; media-src 'self' blob:${cdnDirective}; connect-src 'self' wss:${sentryDirective}${cdnDirective}; worker-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';${upgradeInsecure}`
   );
   // Only set no-cache on API routes — static assets need caching for performance
   if (req.path.startsWith("/api")) {

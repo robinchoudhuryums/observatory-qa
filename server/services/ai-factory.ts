@@ -23,7 +23,9 @@ function createProvider(modelOverride?: string): AIAnalysisProvider {
 // Default global provider (used when no org-specific config exists)
 export const aiProvider = createProvider();
 
-// Cache of per-org providers to avoid re-creating on every call
+// Cache of per-org providers to avoid re-creating on every call.
+// Bounded to prevent unbounded memory growth in large multi-tenant deployments.
+const MAX_ORG_PROVIDER_CACHE_SIZE = 200;
 const orgProviderCache = new Map<string, AIAnalysisProvider>();
 
 /**
@@ -38,6 +40,12 @@ export function getOrgAIProvider(orgId: string, orgSettings?: OrgSettings | null
   const cacheKey = `${orgId}:${orgSettings.bedrockModel}`;
   const cached = orgProviderCache.get(cacheKey);
   if (cached) return cached;
+
+  // Evict oldest entry (Map preserves insertion order) when at capacity
+  if (orgProviderCache.size >= MAX_ORG_PROVIDER_CACHE_SIZE) {
+    const oldestKey = orgProviderCache.keys().next().value;
+    if (oldestKey !== undefined) orgProviderCache.delete(oldestKey);
+  }
 
   const provider = new BedrockProvider(orgSettings.bedrockModel);
   const resolved = provider.isAvailable ? provider : aiProvider;

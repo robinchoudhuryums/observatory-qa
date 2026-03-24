@@ -92,17 +92,28 @@ export function registerApiKeyRoutes(app: Express): void {
       const { limit, offset } = parsePagination(req.query);
       const keys = await storage.listApiKeys(req.orgId!);
       // Never return the hash — only metadata
-      const sanitized = keys.map(k => ({
-        id: k.id,
-        name: k.name,
-        keyPrefix: k.keyPrefix,
-        permissions: k.permissions,
-        createdBy: k.createdBy,
-        status: k.status,
-        expiresAt: k.expiresAt,
-        lastUsedAt: k.lastUsedAt,
-        createdAt: k.createdAt,
-      }));
+      const now = Date.now();
+      const KEY_ROTATION_DAYS = 90;
+      const sanitized = keys.map(k => {
+        const staleDays = k.createdAt
+          ? Math.floor((now - new Date(k.createdAt).getTime()) / (1000 * 60 * 60 * 24))
+          : 0;
+        // Warn if key has no expiry and was created more than KEY_ROTATION_DAYS ago
+        const rotationWarning = !k.expiresAt && staleDays >= KEY_ROTATION_DAYS;
+        return {
+          id: k.id,
+          name: k.name,
+          keyPrefix: k.keyPrefix,
+          permissions: k.permissions,
+          createdBy: k.createdBy,
+          status: k.status,
+          expiresAt: k.expiresAt,
+          lastUsedAt: k.lastUsedAt,
+          createdAt: k.createdAt,
+          staleDays,
+          rotationWarning,
+        };
+      });
       res.json(sanitized);
     } catch (error) {
       res.status(500).json({ message: "Failed to list API keys" });
