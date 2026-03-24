@@ -12,9 +12,10 @@ AI-powered call quality analysis and clinical documentation for healthcare and c
 
 ## Key Features
 
-- **Multi-tenant SaaS** — self-service registration, per-org data isolation, team invitations, industry-specific setup (dental, medical, behavioral health, veterinary)
+- **Multi-tenant SaaS** — self-service registration, per-org data isolation (including PostgreSQL Row-Level Security), team invitations, industry-specific setup (dental, medical, behavioral health, veterinary)
 - **AI-powered analysis** — performance scoring (0-10 with sub-scores), compliance checks, sentiment tracking, action items, coaching suggestions
 - **Clinical documentation (AI scribe)** — auto-generate SOAP, DAP, BIRP, and procedure notes from call recordings with provider attestation workflow
+- **Clinical note amendments** — post-attestation amendment/addendum workflow (medical records compliance), FHIR R4 export, co-signature/supervising provider workflow, structured data extraction (vitals, medications, allergies)
 - **Provider style learning** — AI analyzes provider's past notes to learn formatting preferences (abbreviation level, section emphasis, common phrases)
 - **Clinical note templates** — 10+ specialty-specific templates (dental, behavioral health, pediatrics, cardiology, dermatology, etc.)
 - **EHR integration** — Open Dental (bidirectional), Eaglesoft (read-focused) — patient lookup, appointment sync, clinical note push
@@ -27,7 +28,7 @@ AI-powered call quality analysis and clinical documentation for healthcare and c
 - **SSO** — SAML 2.0 single sign-on (Enterprise plan, per-org IDP configuration)
 - **MFA** — TOTP-based multi-factor authentication, optional per-org enforcement
 - **Billing** — Stripe integration with Free / Clinical Documentation ($49/mo) / Pro ($99/mo) / Enterprise ($499/mo) tiers
-- **HIPAA compliant** — session timeouts, session fixation prevention, audit logging (PHI access on all sensitive endpoints), MFA, PHI field encryption, org-scoped rate limiting, data retention
+- **HIPAA compliant** — session timeouts, session fixation prevention, audit logging (PHI access on all sensitive endpoints), MFA, PHI field encryption (AES-256-GCM), PostgreSQL Row-Level Security (RLS) on all tenant-scoped tables, per-org KMS envelope encryption, org-scoped rate limiting, data retention, GDPR/CCPA data export and right-to-erasure
 - **Learning Management System** — AI-generated training courses from call analysis, lesson tracking
 - **Marketing attribution** — UTM parameter tracking, campaign source/medium, ROI calculation
 - **Real-time clinical sessions** — Live transcription with AssemblyAI real-time streaming
@@ -37,6 +38,8 @@ AI-powered call quality analysis and clinical documentation for healthcare and c
 - **Observability** — OpenTelemetry traces/metrics, WAF middleware, Pino structured logging + Betterstack
 - **Data export** — CSV export for calls, employees, and performance data
 - **Password reset** — Self-service forgot-password flow via email (SMTP or AWS SES)
+- **Webhook-driven transcription** — AssemblyAI webhooks replace polling (set APP_BASE_URL to enable), with speaker identification (agent/patient), custom vocabulary per org, word-level confidence highlighting, language detection, and manual transcript corrections
+- **GDPR/CCPA compliance** — per-org data export (right to access) and full data purge (right to erasure) via admin panel
 - **Real-time updates** — WebSocket notifications for call processing status
 - **CDN-ready** — Static assets with proper cache headers, configurable CDN origin
 - **Dark mode** — full dark theme support
@@ -195,18 +198,15 @@ Configure with `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_REGION`. P
 
 ## Plan Tiers
 
-| Feature | Free | Clinical Docs ($49/mo) | Pro ($99/mo) | Enterprise ($499/mo) |
-|---------|------|----------------------|-------------|---------------------|
-| Calls/month | 50 | 200 | 1,000 | Unlimited |
-| Storage | 500 MB | 2 GB | 10 GB | 100 GB |
-| Users | 3 | 10 | 25 | Unlimited |
+| Feature | Free | Starter ($79/mo) | Professional ($149/mo) | Enterprise ($999/mo) |
+|---------|------|-----------------|----------------------|---------------------|
+| Calls/month | 50 | 300 | 1,000 | Unlimited |
+| Storage | 500 MB | 5 GB | 20 GB | 500 GB |
+| Base Seats | 3 | 5 (+$12/seat) | 10 (+$18/seat) | 25 (+$25/seat) |
 | RAG Knowledge Base | - | Yes | Yes | Yes |
-| Clinical Notes (AI Scribe) | - | Yes | - | Yes |
-| Custom Templates | - | - | Yes | Yes |
-| EHR Integration | - | - | - | Yes |
+| Custom Templates | - | Yes | Yes | Yes |
+| Clinical Notes (AI Scribe) | - | - | Yes | Yes |
 | SSO | - | - | - | Yes |
-| A/B Model Testing | - | - | Yes | Yes |
-| Priority Support | - | - | - | Yes |
 
 ## Deployment
 
@@ -230,6 +230,9 @@ Observatory QA implements healthcare-grade security controls:
 - **PHI encryption**: AES-256-GCM application-level field encryption for sensitive data
 - **Data retention**: Auto-purge calls per org policy (configurable, default 90 days)
 - **Tenant isolation**: All data access requires org context — cross-org access is structurally impossible. Per-org username uniqueness, org-scoped rate limiting, org-scoped WebSocket broadcasts
+- **PostgreSQL Row-Level Security** — Database-level tenant isolation via RLS policies on all 27 tenant-scoped tables, enforced at the PostgreSQL layer independent of application code
+- **Per-org KMS encryption** — Envelope encryption with AWS KMS: per-org AES-256 data encryption keys (DEK), encrypted master key stored per org, 30-min cache, graceful fallback to shared PHI_ENCRYPTION_KEY
+- **GDPR/CCPA** — Data export (right to access) and full org purge (right to erasure) with confirmation token
 - **Security headers**: CSP, HSTS, X-Frame-Options, X-Content-Type-Options, X-XSS-Protection
 
 ## Testing
@@ -255,6 +258,9 @@ See [`.env.example`](.env.example) for the full list. Key new additions:
 - `CDN_ORIGIN` — CDN domain for static asset URLs and CSP headers
 - `OTEL_ENABLED=true` — Enable OpenTelemetry traces and metrics
 - `SUPER_ADMIN_USERS` — Platform-level admin users (cross-org)
+- `ASSEMBLYAI_WEBHOOK_SECRET` — Webhook token verification for AssemblyAI webhooks (falls back to SESSION_SECRET)
+- `AWS_KMS_KEY_ID` — AWS KMS CMK ARN for per-org envelope encryption (optional; uses shared key if not set)
+- `PHI_ENCRYPTION_KEY` — 64-char hex for AES-256-GCM field-level PHI encryption
 
 ## License
 
