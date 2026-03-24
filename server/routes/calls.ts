@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createHash } from "crypto";
 import fs from "fs";
 import { pipeline } from "stream/promises";
@@ -8,7 +8,7 @@ import { logPhiAccess, auditContext } from "../services/audit-log";
 import { upload, safeFloat, validateUUIDParam, acquireUploadSlot, releaseUploadSlot } from "./helpers";
 import { enforceQuota, requireActiveSubscription } from "./billing";
 import { logger } from "../services/logger";
-import { CALL_CATEGORIES } from "@shared/schema";
+import { CALL_CATEGORIES, type InsertCallAnalysis } from "@shared/schema";
 import { decryptClinicalNotePhi } from "../services/phi-encryption";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import { processAudioFile, invalidateRefDocCache, cleanupFile } from "../services/call-processing";
@@ -82,16 +82,17 @@ export function registerCallRoutes(app: Express): void {
   });
 
   // Wrap multer to catch file-size and type errors with proper HTTP responses
-  const handleUpload = (req: any, res: any, next: any) => {
-    upload.single('audioFile')(req, res, (err: any) => {
+  const handleUpload = (req: Request, res: Response, next: NextFunction): void => {
+    upload.single('audioFile')(req, res, (err: unknown) => {
       if (err) {
-        if (err.code === 'LIMIT_FILE_SIZE') {
+        const multerErr = err as { code?: string; message?: string };
+        if (multerErr.code === 'LIMIT_FILE_SIZE') {
           return res.status(413).json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "File too large. Maximum size is 100MB."));
         }
-        if (err.message?.includes('Invalid file type')) {
+        if (multerErr.message?.includes('Invalid file type')) {
           return res.status(400).json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "Invalid file type. Only audio files (MP3, WAV, M4A, MP4, FLAC, OGG) are allowed."));
         }
-        logger.warn({ err: err.message }, "Upload error");
+        logger.warn({ err: multerErr.message }, "Upload error");
         return res.status(400).json(errorResponse(ERROR_CODES.CALL_UPLOAD_FAILED, "File upload failed. Please try again."));
       }
       next();
@@ -344,11 +345,11 @@ export function registerCallRoutes(app: Express): void {
         editedAt: new Date().toISOString(),
         reason: reason.trim(),
         fieldsChanged: Object.keys(updates),
-        previousValues: {} as Record<string, any>,
+        previousValues: {} as Record<string, unknown>,
       };
 
       for (const key of Object.keys(updates)) {
-        editRecord.previousValues[key] = (existing as any)[key];
+        editRecord.previousValues[key] = (existing as Record<string, unknown>)[key];
       }
 
       const updatedAnalysis = {
@@ -512,7 +513,7 @@ export function registerCallRoutes(app: Express): void {
                 previousValues: { performanceScore: existing?.performanceScore },
               },
             ],
-          } as any);
+          } as InsertCallAnalysis);
 
           await storage.updateCall(orgId, callId, { status: "completed" });
           broadcastCallUpdate(callId, "completed", { step: 2, totalSteps: 2, label: "Reanalysis complete" }, orgId);

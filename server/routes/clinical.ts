@@ -811,11 +811,11 @@ export function registerClinicalRoutes(app: Express): void {
             } : undefined;
 
             // Load provider style preferences
-            const providerPrefs = user.id && (org?.settings as any)?.providerStylePreferences?.[user.id];
+            const providerPrefs = user.id && org?.settings?.providerStylePreferences?.[user.id];
             if (providerPrefs) {
               if (!templateConfig) templateConfig = {} as PromptTemplateConfig;
               const sanitizedPrefs = sanitizeStylePreferences(providerPrefs);
-              templateConfig.providerStylePreferences = sanitizedPrefs as any;
+              templateConfig.providerStylePreferences = sanitizedPrefs as PromptTemplateConfig["providerStylePreferences"];
             }
 
             // Run AI analysis on edited transcript
@@ -878,7 +878,7 @@ export function registerClinicalRoutes(app: Express): void {
               performanceScore: parsed.performance_score?.toString(),
               summary: parsed.summary,
               topics: parsed.topics,
-              feedback: parsed.feedback as any,
+              feedback: parsed.feedback,
               flags: parsed.flags,
               subScores: {
                 compliance: parsed.sub_scores?.compliance,
@@ -962,10 +962,10 @@ export function registerClinicalRoutes(app: Express): void {
       };
 
       // Store feedback on the clinical note
-      const existingFeedback = Array.isArray((analysis.clinicalNote as any).qualityFeedback)
-        ? (analysis.clinicalNote as any).qualityFeedback
+      const existingFeedback = Array.isArray(analysis.clinicalNote?.qualityFeedback)
+        ? analysis.clinicalNote!.qualityFeedback!
         : [];
-      (analysis.clinicalNote as any).qualityFeedback = [...existingFeedback, feedback];
+      analysis.clinicalNote!.qualityFeedback = [...existingFeedback, feedback];
 
       await storage.createCallAnalysis(req.orgId!, analysis);
 
