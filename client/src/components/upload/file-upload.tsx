@@ -8,7 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { CALL_CATEGORIES } from "@shared/schema";
 import type { Employee } from "@shared/schema";
-import {  RiUploadCloud2Line, RiFileMusicLine, RiCloseLine, RiCheckboxCircleLine, RiCloseCircleLine, RiLoader4Line, RiUploadLine, RiCheckLine  } from "@remixicon/react";
+import {  RiUploadCloud2Line, RiFileMusicLine, RiCloseLine, RiCheckboxCircleLine, RiCloseCircleLine, RiLoader4Line, RiUploadLine, RiCheckLine, RiArrowDownSLine, RiSettings3Line  } from "@remixicon/react";
 
 interface UploadFile {
   file: File;
@@ -20,6 +20,7 @@ interface UploadFile {
   callId?: string;
   processingStep?: string;
   processingProgress?: number;
+  detailsOpen?: boolean;
 }
 
 const PROCESSING_STEPS = [
@@ -237,26 +238,17 @@ export default function FileUpload() {
 
                 {fileData.status === 'pending' && (
                   <>
-                    <Select onValueChange={(value) => updateFile(index, { callCategory: value })}>
-                      <SelectTrigger className="w-40"><SelectValue placeholder="Call type" /></SelectTrigger>
-                      <SelectContent>
-                        {CALL_CATEGORIES.map(cat => (
-                          <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Select onValueChange={(value) => updateFile(index, { employeeId: value === "__unassigned__" ? "" : value })}>
-                      <SelectTrigger className="w-44"><SelectValue placeholder="Assign to agent" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__unassigned__">
-                          <span className="text-muted-foreground italic">Unassigned (auto-detect)</span>
-                        </SelectItem>
-                        {employees?.map(employee => (
-                          <SelectItem key={employee.id} value={employee.id}>{employee.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button size="sm" variant="ghost" onClick={() => removeFile(index)}><RiCloseLine className="w-4 h-4" /></Button>
+                    <button
+                      type="button"
+                      onClick={() => updateFile(index, { detailsOpen: !fileData.detailsOpen })}
+                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                      aria-expanded={fileData.detailsOpen}
+                    >
+                      <RiSettings3Line className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Details</span>
+                      <RiArrowDownSLine className={`w-3 h-3 transition-transform ${fileData.detailsOpen ? "rotate-180" : ""}`} />
+                    </button>
+                    <Button size="sm" variant="ghost" onClick={() => removeFile(index)} className="shrink-0"><RiCloseLine className="w-4 h-4" /></Button>
                   </>
                 )}
 
@@ -276,6 +268,31 @@ export default function FileUpload() {
                   </div>
                 )}
               </div>
+
+              {/* Collapsible call details (progressive disclosure) */}
+              {fileData.status === 'pending' && fileData.detailsOpen && (
+                <div className="flex flex-wrap gap-2 pt-1 pl-11">
+                  <Select onValueChange={(value) => updateFile(index, { callCategory: value })}>
+                    <SelectTrigger className="h-8 w-36 text-xs"><SelectValue placeholder="Call type" /></SelectTrigger>
+                    <SelectContent>
+                      {CALL_CATEGORIES.map(cat => (
+                        <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select onValueChange={(value) => updateFile(index, { employeeId: value === "__unassigned__" ? "" : value })}>
+                    <SelectTrigger className="h-8 w-40 text-xs"><SelectValue placeholder="Assign to agent" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__unassigned__">
+                        <span className="text-muted-foreground italic">Unassigned (auto-detect)</span>
+                      </SelectItem>
+                      {employees?.map(employee => (
+                        <SelectItem key={employee.id} value={employee.id}>{employee.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               {/* Processing Progress Indicator */}
               {(fileData.status === 'uploading' || fileData.status === 'processing') && (

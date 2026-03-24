@@ -239,3 +239,165 @@ describe("Cross-org data leakage prevention", () => {
     assert.equal(resultsB.length, 0, "Org B should NOT see Org A data");
   });
 });
+
+describe("User isolation", () => {
+  it("users are isolated between orgs", async () => {
+    await storage.createUser({ orgId: ORG_A, username: "alice", passwordHash: "hA", name: "Alice A", role: "admin" });
+    await storage.createUser({ orgId: ORG_B, username: "alice", passwordHash: "hB", name: "Alice B", role: "admin" });
+
+    const usersA = await storage.listUsersByOrg(ORG_A);
+    const usersB = await storage.listUsersByOrg(ORG_B);
+
+    assert.equal(usersA.length, 1);
+    assert.equal(usersA[0].name, "Alice A");
+    assert.equal(usersB.length, 1);
+    assert.equal(usersB[0].name, "Alice B");
+  });
+
+  it("same username is allowed in different orgs (per-org uniqueness)", async () => {
+    await storage.createUser({ orgId: ORG_A, username: "shared", passwordHash: "hA", name: "Shared A", role: "viewer" });
+    await storage.createUser({ orgId: ORG_B, username: "shared", passwordHash: "hB", name: "Shared B", role: "viewer" });
+
+    const fromA = await storage.getUserByUsername("shared", ORG_A);
+    const fromB = await storage.getUserByUsername("shared", ORG_B);
+
+    assert.ok(fromA);
+    assert.equal(fromA!.name, "Shared A");
+    assert.ok(fromB);
+    assert.equal(fromB!.name, "Shared B");
+  });
+
+  it("updateUser is org-scoped — cannot update another org's user", async () => {
+    const userA = await storage.createUser({ orgId: ORG_A, username: "target", passwordHash: "h", name: "Original", role: "viewer" });
+
+    const result = await storage.updateUser(ORG_B, userA.id, { name: "Tampered" });
+    assert.equal(result, undefined, "Update from wrong org should return undefined");
+
+    const unchanged = await storage.getUser(userA.id);
+    assert.equal(unchanged!.name, "Original");
+  });
+});
+
+describe("API key isolation", () => {
+  it("API keys are isolated between orgs", async () => {
+    await storage.createApiKey(ORG_A, {
+      orgId: ORG_A, name: "Key A", keyHash: "hash-aaa", keyPrefix: "obs_k_AA",
+      permissions: ["read"], createdBy: "admin",
+    });
+    await storage.createApiKey(ORG_B, {
+      orgId: ORG_B, name: "Key B", keyHash: "hash-bbb", keyPrefix: "obs_k_BB",
+      permissions: ["read"], createdBy: "admin",
+    });
+
+    const keysA = await storage.listApiKeys(ORG_A);
+    const keysB = await storage.listApiKeys(ORG_B);
+
+    assert.equal(keysA.length, 1);
+    assert.equal(keysA[0].name, "Key A");
+    assert.equal(keysA[0].orgId, ORG_A);
+    assert.equal(keysB.length, 1);
+    assert.equal(keysB[0].name, "Key B");
+    assert.equal(keysB[0].orgId, ORG_B);
+  });
+
+  it("getApiKeyByHash returns the owning org — never leaks to another org", async () => {
+    await storage.createApiKey(ORG_A, {
+      orgId: ORG_A, name: "Exclusive", keyHash: "exclusive-hash-xyz", keyPrefix: "obs_k_EX",
+      permissions: ["admin"], createdBy: "admin",
+    });
+
+    const key = await storage.getApiKeyByHash("exclusive-hash-xyz");
+    assert.ok(key, "Key should be findable by hash");
+    assert.equal(key!.orgId, ORG_A, "Returned key must belong to Org A");
+    assert.notEqual(key!.orgId, ORG_B);
+  });
+});
+
+describe("Invitation isolation", () => {
+  it("invitations are isolated between orgs", async () => {
+    await storage.createInvitation(ORG_A, { email: "invite@alpha.com", role: "viewer", invitedBy: "admin-a" });
+    await storage.createInvitation(ORG_B, { email: "invite@beta.com", role: "viewer", invitedBy: "admin-b" });
+
+    const invA = await storage.listInvitations(ORG_A);
+    const invB = await storage.listInvitations(ORG_B);
+
+    assert.equal(invA.length, 1);
+    assert.equal(invA[0].email, "invite@alpha.com");
+    assert.equal(invB.length, 1);
+    assert.equal(invB[0].email, "invite@beta.com");
+  });
+});
+
+describe("Prompt template isolation", () => {
+  it("prompt templates are isolated between orgs", async () => {
+    await storage.createPromptTemplate(ORG_A, {
+      orgId: ORG_A, callCategory: "inbound", name: "Alpha Template",
+      evaluationCriteria: "Criteria A", isActive: true,
+    });
+    await storage.createPromptTemplate(ORG_B, {
+      orgId: ORG_B, callCategory: "inbound", name: "Beta Template",
+      evaluationCriteria: "Criteria B", isActive: true,
+    });
+
+    const tmplA = await storage.getAllPromptTemplates(ORG_A);
+    const tmplB = await storage.getAllPromptTemplates(ORG_B);
+
+    assert.equal(tmplA.length, 1);
+    assert.equal(tmplA[0].name, "Alpha Template");
+    assert.equal(tmplB.length, 1);
+    assert.equal(tmplB[0].name, "Beta Template");
+  });
+});
+
+describe("Reference document isolation", () => {
+  it("reference documents are isolated between orgs", async () => {
+    await storage.createReferenceDocument(ORG_A, {
+      orgId: ORG_A, name: "Alpha Policy", category: "policy", fileName: "alpha-policy.pdf",
+    });
+    await storage.createReferenceDocument(ORG_B, {
+      orgId: ORG_B, name: "Beta Policy", category: "policy", fileName: "beta-policy.pdf",
+    });
+
+    const docsA = await storage.listReferenceDocuments(ORG_A);
+    const docsB = await storage.listReferenceDocuments(ORG_B);
+
+    assert.equal(docsA.length, 1);
+    assert.equal(docsA[0].name, "Alpha Policy");
+    assert.equal(docsB.length, 1);
+    assert.equal(docsB[0].name, "Beta Policy");
+  });
+});
+
+describe("Feedback isolation", () => {
+  it("feedback is isolated between orgs", async () => {
+    await storage.createFeedback(ORG_A, {
+      orgId: ORG_A, userId: "user-a", type: "general", comment: "Feedback from Org A",
+    });
+    await storage.createFeedback(ORG_B, {
+      orgId: ORG_B, userId: "user-b", type: "general", comment: "Feedback from Org B",
+    });
+
+    const fbA = await storage.listFeedback(ORG_A);
+    const fbB = await storage.listFeedback(ORG_B);
+
+    assert.equal(fbA.length, 1);
+    assert.equal(fbA[0].comment, "Feedback from Org A");
+    assert.equal(fbA[0].orgId, ORG_A);
+    assert.equal(fbB.length, 1);
+    assert.equal(fbB[0].comment, "Feedback from Org B");
+    assert.equal(fbB[0].orgId, ORG_B);
+  });
+
+  it("feedback type filter does not leak across orgs", async () => {
+    await storage.createFeedback(ORG_A, { orgId: ORG_A, userId: "u", type: "nps", comment: "NPS from A" });
+    await storage.createFeedback(ORG_B, { orgId: ORG_B, userId: "u", type: "nps", comment: "NPS from B" });
+
+    const npsA = await storage.listFeedback(ORG_A, { type: "nps" });
+    const npsB = await storage.listFeedback(ORG_B, { type: "nps" });
+
+    assert.equal(npsA.length, 1);
+    assert.equal(npsA[0].comment, "NPS from A");
+    assert.equal(npsB.length, 1);
+    assert.equal(npsB[0].comment, "NPS from B");
+  });
+});

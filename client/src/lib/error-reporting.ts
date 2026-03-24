@@ -56,23 +56,27 @@ interface ErrorContext {
 
 export function reportError(error: unknown, context?: ErrorContext): void {
   const errorObj = error instanceof Error ? error : new Error(String(error));
-  const timestamp = new Date().toISOString();
-
-  // Always log locally for dev visibility
-  console.error("[APP_ERROR]", {
-    timestamp,
-    message: errorObj.message,
-    stack: errorObj.stack,
-    ...context,
-  });
 
   if (sentryInitialized) {
+    // Sentry is active — send to Sentry only. Avoid console.error in production
+    // because browser devtools can capture values from React component stacks
+    // or stringified error objects that may contain PHI (HIPAA concern).
     Sentry.withScope((scope) => {
       if (context?.component) scope.setTag("component", context.component);
       if (context?.action) scope.setTag("action", context.action);
       if (context?.userId) scope.setUser({ id: context.userId });
       if (context?.extra) scope.setExtras(context.extra);
       Sentry.captureException(errorObj);
+    });
+  } else {
+    // Sentry not configured — fall back to console for dev visibility only.
+    // eslint-disable-next-line no-console
+    console.error("[APP_ERROR]", {
+      timestamp: new Date().toISOString(),
+      message: errorObj.message,
+      component: context?.component,
+      action: context?.action,
+      ...(import.meta.env.DEV ? { stack: errorObj.stack, extra: context?.extra } : {}),
     });
   }
 }

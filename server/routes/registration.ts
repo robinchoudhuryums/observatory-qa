@@ -1,14 +1,37 @@
 import type { Express } from "express";
 import passport from "passport";
-import { readFileSync } from "fs";
+import { readFile } from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { storage } from "../storage";
+import { getDatabase } from "../db";
+import { organizations } from "../db/schema";
+import { eq } from "drizzle-orm";
 import { requireAuth, requireRole, injectOrgContext, hashPassword, validatePasswordComplexity } from "../auth";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { randomUUID } from "crypto";
 import { enforceUserQuota } from "./billing";
+
+/**
+ * Attempt to delete an organization by ID.
+ * Used as a compensating action when user creation fails after org creation,
+ * preventing orphaned organizations with no admin user.
+ */
+async function rollbackOrg(orgId: string): Promise<void> {
+  try {
+    const db = getDatabase();
+    if (db) {
+      await db.delete(organizations).where(eq(organizations.id, orgId));
+      logger.info({ orgId }, "Rolled back orphaned organization after user creation failure");
+    } else {
+      // Non-PostgreSQL backend (memory/S3) — log for manual cleanup
+      logger.error({ orgId }, "CRITICAL: orphaned org created but cannot auto-rollback (non-postgres backend) — manual cleanup required");
+    }
+  } catch (rollbackErr) {
+    logger.error({ err: rollbackErr, orgId }, "CRITICAL: org rollback failed — orphaned org requires manual cleanup");
+  }
+}
 
 export function registerRegistrationRoutes(app: Express): void {
   // ==================== SELF-SERVICE REGISTRATION ====================
@@ -74,9 +97,9 @@ export function registerRegistrationRoutes(app: Express): void {
         "dental_scheduling", "dental_insurance", "dental_treatment",
         "dental_recall", "dental_emergency", "dental_encounter", "dental_consultation",
       ];
-      const healthcareCategories = ["inbound", "outbound", "clinical_encounter", "telemedicine"];
+      const medicalCategories = ["inbound", "outbound", "clinical_encounter", "telemedicine"];
       const defaultCategories = industryType === "dental" ? dentalCategories
-        : industryType === "healthcare" ? healthcareCategories
+        : industryType === "medical" ? medicalCategories
         : undefined;
 
       // Create the organization
@@ -92,15 +115,22 @@ export function registerRegistrationRoutes(app: Express): void {
         },
       });
 
-      // Create the admin user
-      const passwordHash = await hashPassword(password);
-      const user = await storage.createUser({
-        orgId: org.id,
-        username,
-        passwordHash,
-        name,
-        role: "admin",
-      });
+      // Create the admin user. If this fails we roll back the org so we never
+      // leave an organization with no admin (a persistent broken state).
+      let user: Awaited<ReturnType<typeof storage.createUser>>;
+      try {
+        const passwordHash = await hashPassword(password);
+        user = await storage.createUser({
+          orgId: org.id,
+          username,
+          passwordHash,
+          name,
+          role: "admin",
+        });
+      } catch (userErr) {
+        await rollbackOrg(org.id);
+        throw userErr;
+      }
 
       logger.info({ orgId: org.id, userId: user.id, username, industryType }, "New organization registered");
 
@@ -108,7 +138,7 @@ export function registerRegistrationRoutes(app: Express): void {
       if (industryType === "dental") {
         try {
           const templatesPath = join(process.cwd(), "data", "dental", "default-prompt-templates.json");
-          const rawTemplates = readFileSync(templatesPath, "utf-8");
+          const rawTemplates = await readFile(templatesPath, "utf-8");
           const templates = JSON.parse(rawTemplates) as Array<{
             callCategory: string; name: string; evaluationCriteria: string;
             requiredPhrases?: unknown; scoringWeights?: unknown; additionalInstructions?: string;

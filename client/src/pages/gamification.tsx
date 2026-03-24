@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useState } from "react";
 import { BADGE_DEFINITIONS, type BadgeDefinition, type Employee } from "@shared/schema";
 import {  RiTrophyLine, RiStarLine, RiArrowRightUpLine, RiAwardLine, RiFlashlightLine, RiPhoneLine, RiRefreshLine, RiClipboardLine, RiMedalLine, RiFireLine, RiTargetLine, RiBookOpenLine  } from "@remixicon/react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type LeaderboardEntry = {
   employeeId: string;
@@ -61,7 +62,7 @@ function RankMedal({ rank }: { rank: number }) {
 export default function GamificationPage() {
   const [selectedEmployee, setSelectedEmployee] = useState<string>("");
 
-  const { data: leaderboard = [] } = useQuery<LeaderboardEntry[]>({
+  const { data: leaderboard = [], isLoading: leaderboardLoading } = useQuery<LeaderboardEntry[]>({
     queryKey: ["/api/gamification/leaderboard"],
     queryFn: getQueryFn({ on401: "returnNull" }),
   });
@@ -101,7 +102,23 @@ export default function GamificationPage() {
               <CardDescription>Top performers ranked by points</CardDescription>
             </CardHeader>
             <CardContent>
-              {leaderboard.length === 0 ? (
+              {leaderboardLoading ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-4 p-3 rounded-lg border">
+                      <Skeleton className="w-5 h-5 rounded-full" />
+                      <div className="flex-1 space-y-1.5">
+                        <Skeleton className="h-4 w-36" />
+                        <Skeleton className="h-3 w-24" />
+                      </div>
+                      <div className="space-y-1 text-right">
+                        <Skeleton className="h-6 w-16 ml-auto" />
+                        <Skeleton className="h-3 w-10 ml-auto" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : leaderboard.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-8">
                   No leaderboard data yet. Points are earned as calls are processed and reviewed.
                 </p>

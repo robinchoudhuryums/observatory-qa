@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { storage } from "../storage";
-import { aiProvider } from "../services/ai-factory";
+import { aiProvider, getBedrockCircuitState } from "../services/ai-factory";
 import { getRedis, getRedisStatus } from "../services/redis";
 import { logger } from "../services/logger";
 
@@ -57,10 +57,13 @@ export function registerHealthRoutes(app: Express): void {
       checks.redis = { status: "unavailable", detail: "No REDIS_URL configured" };
     }
 
-    // --- AI provider availability ---
+    // --- AI provider availability + circuit breaker state ---
+    const circuit = getBedrockCircuitState();
     checks.ai = {
-      status: aiProvider.isAvailable ? "ok" : "unavailable",
-      detail: aiProvider.name,
+      status: !aiProvider.isAvailable ? "unavailable"
+        : circuit.state === "OPEN" ? "degraded"
+        : "ok",
+      detail: `${aiProvider.name} | circuit: ${circuit.state}${circuit.state !== "CLOSED" ? ` (${circuit.consecutiveFailures} failures)` : ""}`,
     };
 
     // --- Transcription service ---

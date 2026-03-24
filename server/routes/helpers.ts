@@ -118,17 +118,16 @@ export function releaseUploadSlot(orgId: string): void {
 const ORPHAN_FILE_AGE_MS = 60 * 60 * 1000; // 1 hour
 
 export function startUploadCleanup(): void {
-  const interval = setInterval(() => {
+  const interval = setInterval(async () => {
     try {
-      if (!fs.existsSync(uploadsDir)) return;
-      const files = fs.readdirSync(uploadsDir);
+      const files = await fs.promises.readdir(uploadsDir);
       const now = Date.now();
       for (const file of files) {
         const filePath = path.join(uploadsDir, file);
         try {
-          const stats = fs.statSync(filePath);
+          const stats = await fs.promises.stat(filePath);
           if (now - stats.mtimeMs > ORPHAN_FILE_AGE_MS) {
-            fs.unlinkSync(filePath);
+            await fs.promises.unlink(filePath);
           }
         } catch { /* file may have been removed between readdir and stat */ }
       }

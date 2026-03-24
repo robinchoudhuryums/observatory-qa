@@ -402,7 +402,7 @@ export default function CallsTable() {
       )}
 
       <div className="overflow-x-auto">
-        <table className="w-full">
+        <table className="w-full min-w-[700px]">
           <thead>
             <tr className="border-b border-border">
               <th className="py-3 px-2 w-8">

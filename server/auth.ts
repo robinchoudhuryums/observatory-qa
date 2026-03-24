@@ -17,6 +17,9 @@ const scryptAsync = promisify(scrypt) as (
 // HIPAA: Login attempt tracking for account lockout
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
+// Hard cap prevents a bot flooding with unique usernames from exhausting memory
+// between the 5-minute cleanup cycles.
+const MAX_LOGIN_ATTEMPTS_ENTRIES = 10_000;
 const loginAttempts = new Map<string, { count: number; lastAttempt: number; lockedUntil?: number }>();
 
 // Prune expired lockout entries every 5 minutes to prevent unbounded memory growth
@@ -41,6 +44,13 @@ function isAccountLocked(username: string): boolean {
 }
 
 function recordFailedAttempt(username: string): void {
+  // If the map is at capacity and this is a new key, evict the oldest entry
+  // before inserting so a flood of unique usernames can't exhaust memory
+  // between the periodic cleanup cycles.
+  if (!loginAttempts.has(username) && loginAttempts.size >= MAX_LOGIN_ATTEMPTS_ENTRIES) {
+    const oldest = loginAttempts.keys().next().value;
+    if (oldest) loginAttempts.delete(oldest);
+  }
   const record = loginAttempts.get(username) || { count: 0, lastAttempt: 0 };
   record.count++;
   record.lastAttempt = Date.now();
@@ -49,6 +59,14 @@ function recordFailedAttempt(username: string): void {
     logger.warn({ username, failedAttempts: record.count }, "Account locked after excessive failed attempts");
   }
   loginAttempts.set(username, record);
+}
+
+/**
+ * Break-glass: immediately clear a locked account so the user can log in again.
+ * Called by the super-admin unlock endpoint. Emits a HIPAA audit entry.
+ */
+export function unlockAccount(username: string): void {
+  loginAttempts.delete(username);
 }
 
 function clearFailedAttempts(username: string): void {
@@ -297,16 +315,21 @@ export async function setupAuth(app: Express) {
   app.use(passport.session());
 
   // Local strategy: authenticate against env-var-defined users AND database users
+  // passReqToCallback=true gives the strategy access to req so IP and User-Agent
+  // can be included in HIPAA login audit events.
   passport.use(
-    new LocalStrategy(async (username, password, done) => {
+    new LocalStrategy({ passReqToCallback: true }, async (req: Request, username: string, password: string, done: any) => {
+      const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress;
+      const userAgent = req.headers["user-agent"];
       try {
         // HIPAA: Check account lockout before attempting authentication
         if (isAccountLocked(username)) {
           logPhiAccess({
-
             event: "login_locked",
             username,
             resourceType: "auth",
+            ip,
+            userAgent,
             detail: "Account locked due to excessive failed attempts",
           });
           return done(null, false, { message: "Account temporarily locked. Try again later." });
@@ -318,7 +341,7 @@ export async function setupAuth(app: Express) {
           const isValid = await comparePasswords(password, envUser.passwordHash);
           if (!isValid) {
             recordFailedAttempt(username);
-            logPhiAccess({ event: "login_failed", username, resourceType: "auth" });
+            logPhiAccess({ event: "login_failed", username, resourceType: "auth", ip, userAgent });
             return done(null, false, { message: "Invalid username or password" });
           }
           // Check if org enforces SSO login
@@ -337,6 +360,8 @@ export async function setupAuth(app: Express) {
             username: envUser.username,
             role: envUser.role,
             resourceType: "auth",
+            ip,
+            userAgent,
             detail: `org: ${envUser.orgSlug}`,
           });
           return done(null, {
@@ -381,6 +406,8 @@ export async function setupAuth(app: Express) {
           username: dbUser.username,
           role: dbUser.role,
           resourceType: "auth",
+          ip,
+          userAgent,
           detail: `org: ${orgSlug} (db user)`,
         });
         return done(null, {
@@ -513,10 +540,19 @@ export async function resolveUserOrgId(userId: string): Promise<string | undefin
   }
 }
 
+const IMPERSONATION_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+
 export const injectOrgContext: RequestHandler = (req: Request, res: Response, next: NextFunction) => {
   // Super admins impersonating an org use the session's impersonated orgId
   const session = req.session as any;
   if (session?.impersonatingOrgId && req.user?.role === "super_admin") {
+    // Auto-expire impersonation after TTL to limit blast radius of forgotten sessions
+    if (session.impersonationStartedAt && Date.now() - session.impersonationStartedAt > IMPERSONATION_TTL_MS) {
+      delete session.impersonatingOrgId;
+      delete session.originalOrgId;
+      delete session.impersonationStartedAt;
+      return res.status(401).json({ message: "Impersonation session expired (4-hour limit). Please re-initiate." });
+    }
     req.orgId = session.impersonatingOrgId;
     return next();
   }
@@ -525,6 +561,29 @@ export const injectOrgContext: RequestHandler = (req: Request, res: Response, ne
     return res.status(401).json({ message: "No organization context in session" });
   }
   req.orgId = req.user.orgId;
+  next();
+};
+
+/**
+ * Runtime guard that asserts req.orgId is present and non-empty.
+ *
+ * Use this AFTER injectOrgContext on routes that store or retrieve data.
+ * It provides defense-in-depth: if injectOrgContext is ever accidentally
+ * omitted from a route chain, this guard prevents cross-tenant data access
+ * rather than silently querying with an undefined orgId.
+ *
+ * Prefer `const orgId = req.orgId!` only in handlers where requireOrgContext
+ * already appears in the middleware chain — the non-null assertion is then
+ * backed by a runtime check rather than relying purely on TypeScript.
+ */
+export const requireOrgContext: RequestHandler = (req: Request, res: Response, next: NextFunction) => {
+  if (!req.orgId) {
+    logger.error(
+      { path: req.path, method: req.method, userId: req.user?.id },
+      "requireOrgContext: orgId missing — possible middleware ordering bug",
+    );
+    return res.status(403).json({ message: "Organization context required", errorCode: "OBS-AUTH-007" });
+  }
   next();
 };
 

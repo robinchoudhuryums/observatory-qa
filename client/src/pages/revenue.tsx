@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import {  RiMoneyDollarCircleLine, RiArrowRightUpLine, RiTeamLine, RiSubtractLine  } from "@remixicon/react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type RevenueMetrics = {
   totalEstimated: number;
@@ -55,7 +56,7 @@ function formatCurrency(value: number): string {
 }
 
 export default function RevenuePage() {
-  const { data: metrics } = useQuery<RevenueMetrics>({
+  const { data: metrics, isLoading: metricsLoading } = useQuery<RevenueMetrics>({
     queryKey: ["/api/revenue/metrics"],
     queryFn: getQueryFn({ on401: "returnNull" }),
   });
@@ -91,7 +92,7 @@ export default function RevenuePage() {
           <CardHeader className="pb-2">
             <CardDescription>Estimated Revenue</CardDescription>
             <CardTitle className="text-2xl text-green-600">
-              {metrics ? formatCurrency(metrics.totalEstimated) : "$0"}
+              {metricsLoading ? <Skeleton className="h-8 w-24" /> : metrics ? formatCurrency(metrics.totalEstimated) : "$0"}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -102,7 +103,7 @@ export default function RevenuePage() {
           <CardHeader className="pb-2">
             <CardDescription>Actual Revenue</CardDescription>
             <CardTitle className="text-2xl">
-              {metrics ? formatCurrency(metrics.totalActual) : "$0"}
+              {metricsLoading ? <Skeleton className="h-8 w-24" /> : metrics ? formatCurrency(metrics.totalActual) : "$0"}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -113,7 +114,7 @@ export default function RevenuePage() {
           <CardHeader className="pb-2">
             <CardDescription>Conversion Rate</CardDescription>
             <CardTitle className="text-2xl">
-              {metrics ? `${(metrics.conversionRate * 100).toFixed(1)}%` : "—"}
+              {metricsLoading ? <Skeleton className="h-8 w-20" /> : metrics ? `${(metrics.conversionRate * 100).toFixed(1)}%` : "—"}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -124,7 +125,7 @@ export default function RevenuePage() {
           <CardHeader className="pb-2">
             <CardDescription>Avg Deal Value</CardDescription>
             <CardTitle className="text-2xl">
-              {metrics ? formatCurrency(metrics.avgDealValue) : "$0"}
+              {metricsLoading ? <Skeleton className="h-8 w-24" /> : metrics ? formatCurrency(metrics.avgDealValue) : "$0"}
             </CardTitle>
           </CardHeader>
           <CardContent>

@@ -19,6 +19,7 @@ const IV_LENGTH = 12; // GCM standard
 const AUTH_TAG_LENGTH = 16;
 
 let encryptionKey: Buffer | null = null;
+let prevEncryptionKey: Buffer | null | undefined = undefined; // undefined = not yet loaded
 
 function getKey(): Buffer | null {
   if (encryptionKey) return encryptionKey;
@@ -33,6 +34,43 @@ function getKey(): Buffer | null {
 
   encryptionKey = Buffer.from(keyHex, "hex");
   return encryptionKey;
+}
+
+/**
+ * Load the previous encryption key for key-rotation decryption fallback.
+ * Set PHI_ENCRYPTION_KEY_PREV to the old key when rotating to a new key.
+ * Once all records are re-encrypted, remove PHI_ENCRYPTION_KEY_PREV.
+ */
+function getPrevKey(): Buffer | null {
+  if (prevEncryptionKey !== undefined) return prevEncryptionKey;
+
+  const keyHex = process.env.PHI_ENCRYPTION_KEY_PREV;
+  if (!keyHex) {
+    prevEncryptionKey = null;
+    return null;
+  }
+
+  if (keyHex.length !== 64) {
+    logger.error("PHI_ENCRYPTION_KEY_PREV must be exactly 64 hex characters (32 bytes)");
+    prevEncryptionKey = null;
+    return null;
+  }
+
+  prevEncryptionKey = Buffer.from(keyHex, "hex");
+  logger.info("PHI key rotation mode: previous key loaded for decryption fallback");
+  return prevEncryptionKey;
+}
+
+/** Inner decrypt — tries one specific key. Throws on failure. */
+function decryptWithKey(payload: string, key: Buffer): string {
+  const packed = Buffer.from(payload, "base64");
+  const iv = packed.subarray(0, IV_LENGTH);
+  const authTag = packed.subarray(packed.length - AUTH_TAG_LENGTH);
+  const ciphertext = packed.subarray(IV_LENGTH, packed.length - AUTH_TAG_LENGTH);
+
+  const decipher = createDecipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
+  decipher.setAuthTag(authTag);
+  return decipher.update(ciphertext) + decipher.final("utf8");
 }
 
 /**
@@ -64,30 +102,41 @@ export function encryptField(plaintext: string): string {
 /**
  * Decrypt an encrypted field. If the value doesn't have the encryption prefix,
  * returns it as-is (backward compatibility with unencrypted data).
+ *
+ * THROWS on decryption failure — callers must handle errors and return a
+ * proper HTTP error rather than surfacing broken placeholder strings to users.
+ * Returning a placeholder to a clinician making care decisions is a patient
+ * safety issue and a HIPAA data-integrity violation.
  */
 export function decryptField(encrypted: string): string {
   if (!encrypted.startsWith("enc_v1:")) return encrypted;
 
   const key = getKey();
   if (!key) {
-    logger.error("Cannot decrypt PHI field: PHI_ENCRYPTION_KEY not configured");
-    return "[ENCRYPTED - KEY UNAVAILABLE]";
+    const msg = "Cannot decrypt PHI field: PHI_ENCRYPTION_KEY not configured";
+    logger.error(msg);
+    throw new Error(msg);
   }
 
+  const payload = encrypted.slice(7); // strip "enc_v1:" prefix
+
+  // Try current key first
   try {
-    const packed = Buffer.from(encrypted.slice(7), "base64");
-
-    const iv = packed.subarray(0, IV_LENGTH);
-    const authTag = packed.subarray(packed.length - AUTH_TAG_LENGTH);
-    const ciphertext = packed.subarray(IV_LENGTH, packed.length - AUTH_TAG_LENGTH);
-
-    const decipher = createDecipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
-    decipher.setAuthTag(authTag);
-
-    return decipher.update(ciphertext) + decipher.final("utf8");
-  } catch (err) {
-    logger.error({ err }, "Failed to decrypt PHI field — data may be corrupted or key mismatch");
-    return "[DECRYPTION FAILED]";
+    return decryptWithKey(payload, key);
+  } catch (primaryErr) {
+    // Current key failed — try previous key if one is configured (key rotation in progress)
+    const prevKey = getPrevKey();
+    if (prevKey) {
+      try {
+        const plaintext = decryptWithKey(payload, prevKey);
+        logger.warn("PHI field decrypted with previous key — re-encrypt with current key is recommended");
+        return plaintext;
+      } catch {
+        // Both keys failed — fall through to the error below
+      }
+    }
+    logger.error({ err: primaryErr }, "Failed to decrypt PHI field — data may be corrupted or key mismatch");
+    throw new Error("PHI decryption failed: data may be corrupted or the encryption key has changed");
   }
 }
 

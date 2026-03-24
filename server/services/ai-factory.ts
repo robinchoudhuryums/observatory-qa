@@ -23,7 +23,9 @@ function createProvider(modelOverride?: string): AIAnalysisProvider {
 // Default global provider (used when no org-specific config exists)
 export const aiProvider = createProvider();
 
-// Cache of per-org providers to avoid re-creating on every call
+// Cache of per-org providers to avoid re-creating on every call.
+// Bounded to prevent unbounded memory growth in large multi-tenant deployments.
+const MAX_ORG_PROVIDER_CACHE_SIZE = 200;
 const orgProviderCache = new Map<string, AIAnalysisProvider>();
 
 /**
@@ -38,6 +40,12 @@ export function getOrgAIProvider(orgId: string, orgSettings?: OrgSettings | null
   const cacheKey = `${orgId}:${orgSettings.bedrockModel}`;
   const cached = orgProviderCache.get(cacheKey);
   if (cached) return cached;
+
+  // Evict oldest entry (Map preserves insertion order) when at capacity
+  if (orgProviderCache.size >= MAX_ORG_PROVIDER_CACHE_SIZE) {
+    const oldestKey = orgProviderCache.keys().next().value;
+    if (oldestKey !== undefined) orgProviderCache.delete(oldestKey);
+  }
 
   const provider = new BedrockProvider(orgSettings.bedrockModel);
   const resolved = provider.isAvailable ? provider : aiProvider;
@@ -117,6 +125,113 @@ export async function withBedrockRateLimit<T>(orgId: string, fn: () => Promise<T
   }
   try {
     return await fn();
+  } finally {
+    releaseBedrockSlot(orgId);
+  }
+}
+
+// ==================== CIRCUIT BREAKER ====================
+
+/**
+ * Circuit breaker for Bedrock API calls.
+ *
+ * Prevents cascading failures when Bedrock is unavailable.
+ * After CIRCUIT_FAILURE_THRESHOLD consecutive failures the circuit opens and
+ * all requests are rejected immediately (fast-fail). After CIRCUIT_RESET_MS
+ * one probe request is allowed through (half-open state). On success the
+ * circuit closes; on failure it re-opens and the timer resets.
+ *
+ * States: CLOSED → normal operation
+ *         OPEN   → fast-fail, no calls reach Bedrock
+ *         HALF_OPEN → single probe allowed to test recovery
+ */
+const CIRCUIT_FAILURE_THRESHOLD = parseInt(process.env.BEDROCK_CIRCUIT_THRESHOLD || "5", 10);
+const CIRCUIT_RESET_MS = parseInt(process.env.BEDROCK_CIRCUIT_RESET_MS || "60000", 10); // 1 min
+
+type CircuitState = "CLOSED" | "OPEN" | "HALF_OPEN";
+
+let circuitState: CircuitState = "CLOSED";
+let consecutiveFailures = 0;
+let circuitOpenedAt: number | null = null;
+let halfOpenProbeInFlight = false;
+
+function recordBedrockSuccess(): void {
+  if (circuitState !== "CLOSED") {
+    logger.info({ previousState: circuitState }, "Bedrock circuit breaker: closing after successful probe");
+  }
+  circuitState = "CLOSED";
+  consecutiveFailures = 0;
+  circuitOpenedAt = null;
+  halfOpenProbeInFlight = false;
+}
+
+function recordBedrockFailure(): void {
+  consecutiveFailures++;
+  halfOpenProbeInFlight = false;
+  if (circuitState === "CLOSED" && consecutiveFailures >= CIRCUIT_FAILURE_THRESHOLD) {
+    circuitState = "OPEN";
+    circuitOpenedAt = Date.now();
+    logger.error(
+      { consecutiveFailures, resetMs: CIRCUIT_RESET_MS },
+      "Bedrock circuit breaker OPENED — AI analysis will fast-fail until Bedrock recovers",
+    );
+  } else if (circuitState === "HALF_OPEN") {
+    // Probe failed → re-open
+    circuitState = "OPEN";
+    circuitOpenedAt = Date.now();
+    logger.warn("Bedrock circuit breaker: probe failed, re-opening circuit");
+  }
+}
+
+function getCircuitDecision(): "allow" | "reject" | "probe" {
+  if (circuitState === "CLOSED") return "allow";
+  if (circuitState === "HALF_OPEN") {
+    return halfOpenProbeInFlight ? "reject" : "probe";
+  }
+  // OPEN — check if reset window has passed
+  if (circuitOpenedAt && Date.now() - circuitOpenedAt >= CIRCUIT_RESET_MS) {
+    circuitState = "HALF_OPEN";
+    return "probe";
+  }
+  return "reject";
+}
+
+/** Expose circuit state for health checks and monitoring. */
+export function getBedrockCircuitState(): { state: CircuitState; consecutiveFailures: number; openedAt: number | null } {
+  return { state: circuitState, consecutiveFailures, openedAt: circuitOpenedAt };
+}
+
+/**
+ * Wrap a Bedrock call with both rate limiting and circuit breaker protection.
+ * Replaces direct use of withBedrockRateLimit in the processing pipeline.
+ */
+export async function withBedrockProtection<T>(orgId: string, fn: () => Promise<T>): Promise<T> {
+  const decision = getCircuitDecision();
+
+  if (decision === "reject") {
+    const openedSecondsAgo = circuitOpenedAt ? Math.round((Date.now() - circuitOpenedAt) / 1000) : 0;
+    throw new Error(
+      `Bedrock circuit breaker is OPEN (opened ${openedSecondsAgo}s ago, resets after ${CIRCUIT_RESET_MS / 1000}s). AI analysis temporarily unavailable.`,
+    );
+  }
+
+  if (decision === "probe") {
+    halfOpenProbeInFlight = true;
+    logger.info({ orgId }, "Bedrock circuit breaker: allowing probe request (HALF_OPEN)");
+  }
+
+  if (!acquireBedrockSlot(orgId)) {
+    if (decision === "probe") halfOpenProbeInFlight = false;
+    throw new Error("Bedrock rate limit exceeded for organization. Please try again shortly.");
+  }
+
+  try {
+    const result = await fn();
+    recordBedrockSuccess();
+    return result;
+  } catch (err) {
+    recordBedrockFailure();
+    throw err;
   } finally {
     releaseBedrockSlot(orgId);
   }

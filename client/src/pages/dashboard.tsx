@@ -15,6 +15,7 @@ import type { CallWithDetails, PlanTier } from "@shared/schema";
 import { PLAN_DEFINITIONS } from "@shared/schema";
 import { getQueryFn } from "@/lib/queryClient";
 import OnboardingTour from "@/components/onboarding-tour";
+import OnboardingChecklist from "@/components/onboarding-checklist";
 import {  RiSearchLine, RiAddLine, RiAlertLine, RiAwardLine, RiArrowRightUpLine, RiFlashlightLine, RiUploadLine, RiArrowDownSLine  } from "@remixicon/react";
 
 export default function Dashboard() {
@@ -26,6 +27,12 @@ export default function Dashboard() {
   // Fetch recent calls to extract flagged ones for the dashboard alert panel
   const { data: calls, error: callsError, isLoading: callsLoading } = useQuery<CallWithDetails[]>({
     queryKey: ["/api/calls", { status: "", sentiment: "", employee: "" }],
+  });
+
+  // Lightweight employee count check for onboarding checklist
+  const { data: employees } = useQuery<{ id: string }[]>({
+    queryKey: ["/api/employees"],
+    staleTime: 60000,
   });
 
   // Fetch billing/subscription for quota alerts
@@ -302,6 +309,12 @@ export default function Dashboard() {
             )}
           </div>
         )}
+
+        {/* Onboarding Checklist — shown until dismissed */}
+        <OnboardingChecklist
+          hasCallsData={(calls?.length ?? 0) > 0}
+          hasEmployeesData={(employees?.length ?? 0) > 0}
+        />
 
         {/* Metrics Overview */}
         <MetricsOverview />

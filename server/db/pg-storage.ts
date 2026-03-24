@@ -61,6 +61,13 @@ function toISOString(date: Date | null | undefined): string | undefined {
 }
 
 /**
+ * Hard cap applied to unbounded list queries that accumulate over time.
+ * Prevents runaway memory usage when fetching all records for large orgs.
+ * Routes that need to serve more records should use cursor- or offset-based pagination.
+ */
+const QUERY_HARD_CAP = 5000;
+
+/**
  * Execute an inArray query in chunks to avoid exceeding PostgreSQL's parameter limit.
  * When arrays exceed ~5000 elements, some drivers hit issues with parameter binding.
  */
@@ -94,6 +101,20 @@ export class PostgresStorage implements IStorage {
   constructor(db: Database, blobClient: ObjectStorageClient | null = null) {
     this.db = db;
     this.blobClient = blobClient;
+  }
+
+  /**
+   * Execute a set of database operations within a single transaction.
+   * All operations either commit together or roll back together.
+   *
+   * @example
+   * await storage.withTransaction(async (tx) => {
+   *   await tx.insert(tables.calls).values(callData);
+   *   await tx.insert(tables.transcripts).values(transcriptData);
+   * });
+   */
+  async withTransaction<T>(fn: (tx: Database) => Promise<T>): Promise<T> {
+    return this.db.transaction(fn);
   }
 
   // --- Organization operations ---
@@ -133,7 +154,7 @@ export class PostgresStorage implements IStorage {
   }
 
   async listOrganizations(): Promise<Organization[]> {
-    const rows = await this.db.select().from(tables.organizations);
+    const rows = await this.db.select().from(tables.organizations).limit(QUERY_HARD_CAP);
     return rows.map((r) => this.mapOrg(r));
   }
 
@@ -1287,11 +1308,20 @@ export class PostgresStorage implements IStorage {
   }
 
   private mapTranscript(row: any): Transcript {
+    let text = row.text;
+    if (typeof row.text === "string") {
+      try {
+        text = decryptField(row.text);
+      } catch (err) {
+        logger.error({ err, callId: row.callId }, "PHI decryption failed for transcript text");
+        throw new Error(`PHI decryption failed for transcript ${row.callId}: ${(err as Error).message}`);
+      }
+    }
     return {
       id: row.id,
       orgId: row.orgId,
       callId: row.callId,
-      text: typeof row.text === "string" ? decryptField(row.text) : row.text,
+      text,
       confidence: row.confidence,
       words: row.words as any,
       createdAt: toISOString(row.createdAt),
@@ -1320,7 +1350,15 @@ export class PostgresStorage implements IStorage {
       responseTime: row.responseTime,
       keywords: row.keywords as string[],
       topics: row.topics as string[],
-      summary: typeof row.summary === "string" ? decryptField(row.summary) : row.summary,
+      summary: (() => {
+        if (typeof row.summary !== "string") return row.summary;
+        try {
+          return decryptField(row.summary);
+        } catch (err) {
+          logger.error({ err, callId: row.callId }, "PHI decryption failed for analysis summary");
+          throw new Error(`PHI decryption failed for analysis ${row.callId}: ${(err as Error).message}`);
+        }
+      })(),
       actionItems: row.actionItems as string[],
       feedback: row.feedback as any,
       lemurResponse: row.lemurResponse,
@@ -1630,7 +1668,8 @@ export class PostgresStorage implements IStorage {
   async getAllABTests(orgId: string): Promise<ABTest[]> {
     const rows = await this.db.select().from(tables.abTests)
       .where(eq(tables.abTests.orgId, orgId))
-      .orderBy(desc(tables.abTests.createdAt));
+      .orderBy(desc(tables.abTests.createdAt))
+      .limit(QUERY_HARD_CAP);
     return rows.map(r => this.mapABTest(r));
   }
 
@@ -1694,7 +1733,8 @@ export class PostgresStorage implements IStorage {
   async getUsageRecords(orgId: string): Promise<UsageRecord[]> {
     const rows = await this.db.select().from(tables.spendRecords)
       .where(eq(tables.spendRecords.orgId, orgId))
-      .orderBy(desc(tables.spendRecords.timestamp));
+      .orderBy(desc(tables.spendRecords.timestamp))
+      .limit(QUERY_HARD_CAP);
     return rows.map(r => ({
       id: r.id,
       orgId: r.orgId,
@@ -1823,7 +1863,8 @@ export class PostgresStorage implements IStorage {
     if (filters?.status) conditions.push(eq(tables.feedbacks.status, filters.status));
     const rows = await this.db.select().from(tables.feedbacks)
       .where(and(...conditions))
-      .orderBy(desc(tables.feedbacks.createdAt));
+      .orderBy(desc(tables.feedbacks.createdAt))
+      .limit(QUERY_HARD_CAP);
     return rows.map(r => this.mapFeedbackRow(r));
   }
 
@@ -1961,7 +2002,7 @@ export class PostgresStorage implements IStorage {
     if (filters?.callId) conditions.push(eq(tables.insuranceNarratives.callId, filters.callId));
     if (filters?.status) conditions.push(eq(tables.insuranceNarratives.status, filters.status));
     const rows = await this.db.select().from(tables.insuranceNarratives)
-      .where(and(...conditions)).orderBy(desc(tables.insuranceNarratives.createdAt));
+      .where(and(...conditions)).orderBy(desc(tables.insuranceNarratives.createdAt)).limit(QUERY_HARD_CAP);
     return rows.map(r => this.mapInsuranceNarrativeRow(r));
   }
 
@@ -2030,7 +2071,7 @@ export class PostgresStorage implements IStorage {
     const conditions = [eq(tables.callRevenues.orgId, orgId)];
     if (filters?.conversionStatus) conditions.push(eq(tables.callRevenues.conversionStatus, filters.conversionStatus));
     const rows = await this.db.select().from(tables.callRevenues)
-      .where(and(...conditions)).orderBy(desc(tables.callRevenues.createdAt));
+      .where(and(...conditions)).orderBy(desc(tables.callRevenues.createdAt)).limit(QUERY_HARD_CAP);
     return rows.map(r => this.mapCallRevenueRow(r));
   }
 
@@ -2122,10 +2163,13 @@ export class PostgresStorage implements IStorage {
   }
 
   async deleteCalibrationSession(orgId: string, id: string): Promise<void> {
-    // Cascade delete evaluations first
-    await this.db.delete(tables.calibrationEvaluations).where(eq(tables.calibrationEvaluations.sessionId, id));
-    await this.db.delete(tables.calibrationSessions)
-      .where(and(eq(tables.calibrationSessions.orgId, orgId), eq(tables.calibrationSessions.id, id)));
+    // Both deletes run in a single transaction so evaluations are never
+    // left orphaned if the session delete fails (or vice versa).
+    await this.db.transaction(async (tx) => {
+      await tx.delete(tables.calibrationEvaluations).where(eq(tables.calibrationEvaluations.sessionId, id));
+      await tx.delete(tables.calibrationSessions)
+        .where(and(eq(tables.calibrationSessions.orgId, orgId), eq(tables.calibrationSessions.id, id)));
+    });
   }
 
   async createCalibrationEvaluation(orgId: string, evaluation: InsertCalibrationEvaluation): Promise<CalibrationEvaluation> {

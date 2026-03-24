@@ -73,18 +73,20 @@ export function registerClinicalRoutes(app: Express): void {
         resourceId: req.params.callId,
       });
 
-      // Decrypt PHI fields before sending to client
-      decryptClinicalNotePhi(analysis as Record<string, unknown>);
-
-      // HIPAA: Check for decryption failures — don't send garbled data
-      const phiFields = ["subjective", "objective", "assessment", "hpiNarrative", "chiefComplaint",
-        "reviewOfSystems", "differentialDiagnoses", "periodontalFindings"];
-      const decryptionFailed = phiFields.some(f => {
-        const val = (cn as Record<string, unknown>)[f];
-        return typeof val === "string" && (val === "[DECRYPTION FAILED]" || val === "[ENCRYPTED - KEY UNAVAILABLE]");
-      });
-      if (decryptionFailed) {
-        logger.error({ callId: req.params.callId }, "PHI decryption failed — refusing to serve clinical note with corrupted data");
+      // Decrypt PHI fields before sending to client.
+      // decryptClinicalNotePhi() calls decryptField() which throws on failure —
+      // catch here to return a clear HIPAA error rather than a generic 500.
+      try {
+        decryptClinicalNotePhi(analysis as Record<string, unknown>);
+      } catch (decryptErr) {
+        logger.error({ err: decryptErr, callId: req.params.callId }, "PHI decryption failed for clinical note");
+        logPhiAccess({
+          ...auditContext(req),
+          event: "phi_decryption_failure",
+          resourceType: "clinical_note",
+          resourceId: req.params.callId,
+          detail: "Decryption failed — key mismatch or data corruption",
+        });
         res.status(500).json({
           message: "Unable to decrypt clinical note. PHI encryption key may be misconfigured.",
           code: "OBS-PHI-DECRYPT-001",
@@ -558,12 +560,19 @@ export function registerClinicalRoutes(app: Express): void {
         // Only include notes attested by this user (if tracked)
         if (cn.attestedBy && cn.attestedBy !== userName) continue;
 
+        // Decrypt PHI fields — skip this note if any field fails rather than
+        // aborting the entire style analysis for one bad record.
         const sections: Record<string, string> = {};
-        if (cn.subjective) sections.subjective = decryptField(cn.subjective);
-        if (cn.objective) sections.objective = decryptField(cn.objective);
-        if (cn.assessment) sections.assessment = decryptField(cn.assessment);
+        try {
+          if (cn.subjective) sections.subjective = decryptField(cn.subjective);
+          if (cn.objective) sections.objective = decryptField(cn.objective);
+          if (cn.assessment) sections.assessment = decryptField(cn.assessment);
+          if (cn.hpiNarrative) sections.hpiNarrative = decryptField(cn.hpiNarrative);
+        } catch (decryptErr) {
+          logger.warn({ err: decryptErr, callId: row.id }, "PHI decryption failed for note in style analysis — skipping note");
+          continue;
+        }
         if (cn.plan) sections.plan = Array.isArray(cn.plan) ? cn.plan.join("\n") : cn.plan;
-        if (cn.hpiNarrative) sections.hpiNarrative = decryptField(cn.hpiNarrative);
         if (cn.data) sections.data = cn.data;
         if (cn.behavior) sections.behavior = cn.behavior;
         if (cn.intervention) sections.intervention = cn.intervention;

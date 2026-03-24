@@ -1,8 +1,11 @@
 import React from 'react';
+import { reportError } from '@/lib/error-reporting';
 
 interface Props {
   children: React.ReactNode;
   fallback?: React.ReactNode;
+  /** Optional label surfaced in Sentry to identify which boundary caught the error. */
+  name?: string;
 }
 
 interface State {
@@ -21,13 +24,16 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    // Log error name and message (safe: no PHI in framework errors)
-    // Full stack logged only in non-production for debugging
-    console.error("UI error boundary triggered:", error?.name, error?.message);
-    if (process.env.NODE_ENV !== "production") {
-      console.error("Stack:", error?.stack);
-      console.error("Component stack:", errorInfo?.componentStack);
-    }
+    // Route through centralized error reporting (Sentry when configured).
+    // Avoids logging to browser console in production where API responses or
+    // form values captured in component stacks could contain PHI.
+    reportError(error, {
+      component: this.props.name ?? "ErrorBoundary",
+      extra: {
+        // componentStack is safe: it contains component names, not user data.
+        componentStack: errorInfo?.componentStack?.slice(0, 2000) ?? "",
+      },
+    });
   }
 
   render() {
