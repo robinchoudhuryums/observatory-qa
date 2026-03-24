@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { MARKETING_SOURCES, type MarketingCampaign, type MarketingSourceMetrics } from "@shared/schema";
 import {  RiMegaphoneLine, RiMoneyDollarCircleLine, RiArrowRightUpLine, RiTeamLine, RiAddLine, RiBarChartBoxLine, RiLoader4Line, RiDeleteBinLine, RiPhoneLine, RiUserAddLine, RiArrowRightDownLine, RiTargetLine, RiInputMethodLine, RiCodeLine  } from "@remixicon/react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 function formatCurrency(val: number | null | undefined) {
   if (val == null) return "—";
@@ -150,7 +151,7 @@ function CreateCampaignForm({ onSuccess }: { onSuccess: () => void }) {
 }
 
 function MetricsOverview() {
-  const { data: metrics } = useQuery<{
+  const { data: metrics, isLoading } = useQuery<{
     sources: MarketingSourceMetrics[];
     totalAttributed: number;
     totalNewPatients: number;
@@ -160,6 +161,24 @@ function MetricsOverview() {
   }>({
     queryKey: ["/api/marketing/metrics"],
   });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Card key={i}>
+              <CardContent className="p-4">
+                <Skeleton className="h-3 w-20 mb-2" />
+                <Skeleton className="h-8 w-16 mb-1" />
+                <Skeleton className="h-3 w-24" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   if (!metrics) return null;
 
