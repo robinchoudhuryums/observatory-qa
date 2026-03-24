@@ -61,6 +61,13 @@ function toISOString(date: Date | null | undefined): string | undefined {
 }
 
 /**
+ * Hard cap applied to unbounded list queries that accumulate over time.
+ * Prevents runaway memory usage when fetching all records for large orgs.
+ * Routes that need to serve more records should use cursor- or offset-based pagination.
+ */
+const QUERY_HARD_CAP = 5000;
+
+/**
  * Execute an inArray query in chunks to avoid exceeding PostgreSQL's parameter limit.
  * When arrays exceed ~5000 elements, some drivers hit issues with parameter binding.
  */
@@ -147,7 +154,7 @@ export class PostgresStorage implements IStorage {
   }
 
   async listOrganizations(): Promise<Organization[]> {
-    const rows = await this.db.select().from(tables.organizations);
+    const rows = await this.db.select().from(tables.organizations).limit(QUERY_HARD_CAP);
     return rows.map((r) => this.mapOrg(r));
   }
 
@@ -1644,7 +1651,8 @@ export class PostgresStorage implements IStorage {
   async getAllABTests(orgId: string): Promise<ABTest[]> {
     const rows = await this.db.select().from(tables.abTests)
       .where(eq(tables.abTests.orgId, orgId))
-      .orderBy(desc(tables.abTests.createdAt));
+      .orderBy(desc(tables.abTests.createdAt))
+      .limit(QUERY_HARD_CAP);
     return rows.map(r => this.mapABTest(r));
   }
 
@@ -1708,7 +1716,8 @@ export class PostgresStorage implements IStorage {
   async getUsageRecords(orgId: string): Promise<UsageRecord[]> {
     const rows = await this.db.select().from(tables.spendRecords)
       .where(eq(tables.spendRecords.orgId, orgId))
-      .orderBy(desc(tables.spendRecords.timestamp));
+      .orderBy(desc(tables.spendRecords.timestamp))
+      .limit(QUERY_HARD_CAP);
     return rows.map(r => ({
       id: r.id,
       orgId: r.orgId,
@@ -1837,7 +1846,8 @@ export class PostgresStorage implements IStorage {
     if (filters?.status) conditions.push(eq(tables.feedbacks.status, filters.status));
     const rows = await this.db.select().from(tables.feedbacks)
       .where(and(...conditions))
-      .orderBy(desc(tables.feedbacks.createdAt));
+      .orderBy(desc(tables.feedbacks.createdAt))
+      .limit(QUERY_HARD_CAP);
     return rows.map(r => this.mapFeedbackRow(r));
   }
 
@@ -1975,7 +1985,7 @@ export class PostgresStorage implements IStorage {
     if (filters?.callId) conditions.push(eq(tables.insuranceNarratives.callId, filters.callId));
     if (filters?.status) conditions.push(eq(tables.insuranceNarratives.status, filters.status));
     const rows = await this.db.select().from(tables.insuranceNarratives)
-      .where(and(...conditions)).orderBy(desc(tables.insuranceNarratives.createdAt));
+      .where(and(...conditions)).orderBy(desc(tables.insuranceNarratives.createdAt)).limit(QUERY_HARD_CAP);
     return rows.map(r => this.mapInsuranceNarrativeRow(r));
   }
 
@@ -2044,7 +2054,7 @@ export class PostgresStorage implements IStorage {
     const conditions = [eq(tables.callRevenues.orgId, orgId)];
     if (filters?.conversionStatus) conditions.push(eq(tables.callRevenues.conversionStatus, filters.conversionStatus));
     const rows = await this.db.select().from(tables.callRevenues)
-      .where(and(...conditions)).orderBy(desc(tables.callRevenues.createdAt));
+      .where(and(...conditions)).orderBy(desc(tables.callRevenues.createdAt)).limit(QUERY_HARD_CAP);
     return rows.map(r => this.mapCallRevenueRow(r));
   }
 

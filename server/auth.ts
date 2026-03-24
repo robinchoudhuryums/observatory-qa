@@ -523,10 +523,19 @@ export async function resolveUserOrgId(userId: string): Promise<string | undefin
   }
 }
 
+const IMPERSONATION_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+
 export const injectOrgContext: RequestHandler = (req: Request, res: Response, next: NextFunction) => {
   // Super admins impersonating an org use the session's impersonated orgId
   const session = req.session as any;
   if (session?.impersonatingOrgId && req.user?.role === "super_admin") {
+    // Auto-expire impersonation after TTL to limit blast radius of forgotten sessions
+    if (session.impersonationStartedAt && Date.now() - session.impersonationStartedAt > IMPERSONATION_TTL_MS) {
+      delete session.impersonatingOrgId;
+      delete session.originalOrgId;
+      delete session.impersonationStartedAt;
+      return res.status(401).json({ message: "Impersonation session expired (4-hour limit). Please re-initiate." });
+    }
     req.orgId = session.impersonatingOrgId;
     return next();
   }

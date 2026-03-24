@@ -209,6 +209,7 @@ export function registerSuperAdminRoutes(app: Express): void {
       const session = req.session as any;
       session.impersonatingOrgId = org.id;
       session.originalOrgId = req.user!.orgId;
+      session.impersonationStartedAt = Date.now();
 
       // Audit log — impersonation is a sensitive action
       logPhiAccess({
@@ -256,6 +257,7 @@ export function registerSuperAdminRoutes(app: Express): void {
 
       delete session.impersonatingOrgId;
       delete session.originalOrgId;
+      delete session.impersonationStartedAt;
 
       logger.info({ superAdmin: req.user?.username, previousOrgId: wasImpersonating }, "Super admin stopped org impersonation");
       res.json({ message: "Stopped impersonating organization" });
