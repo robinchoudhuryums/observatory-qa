@@ -23,6 +23,16 @@ export interface CallAnalysis {
   call_party_type: string;
   flags: string[];
   detected_agent_name: string | null;
+  /**
+   * Score rationale: 3-5 concise bullet points per dimension explaining the score.
+   * Keyed by dimension name: compliance, customer_experience, communication, resolution
+   */
+  score_rationale?: Record<string, string[]>;
+  /**
+   * Short hash identifying which system prompt version generated this analysis.
+   * Computed from the rendered system prompt text, stored for audit and debugging.
+   */
+  prompt_version_id?: string;
   /** Present only for clinical encounter / telemedicine categories */
   clinical_note?: {
     format: string;
@@ -129,6 +139,30 @@ Use a professional but supportive tone appropriate for a performance review. Do 
 }
 
 /**
+ * Parse score_rationale from AI response.
+ * Expects { compliance: string[], customer_experience: string[], ... }
+ * Validates each dimension is a string array with ≤5 items.
+ */
+function parseScoreRationale(raw: unknown): Record<string, string[]> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const obj = raw as Record<string, unknown>;
+  const result: Record<string, string[]> = {};
+  const validDimensions = ["compliance", "customer_experience", "communication", "resolution"];
+  let hasAny = false;
+  for (const dim of validDimensions) {
+    if (!Array.isArray(obj[dim])) continue;
+    const items = (obj[dim] as unknown[])
+      .filter(x => typeof x === "string" && x.length > 0)
+      .slice(0, 5) as string[];
+    if (items.length > 0) {
+      result[dim] = items;
+      hasAny = true;
+    }
+  }
+  return hasAny ? result : undefined;
+}
+
+/**
  * Parse a JSON object from model output, handling markdown fences and extra text.
  */
 export function parseJsonResponse(text: string, callId: string): CallAnalysis {
@@ -207,6 +241,7 @@ export function parseJsonResponse(text: string, callId: string): CallAnalysis {
       return false;
     }),
     detected_agent_name: typeof raw.detected_agent_name === "string" ? raw.detected_agent_name : null,
+    score_rationale: parseScoreRationale(raw.score_rationale),
   };
 
   // Carry through clinical_note if present

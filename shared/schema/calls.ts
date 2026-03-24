@@ -143,6 +143,65 @@ export const clinicalNoteSchema = z.object({
     procedures: z.array(z.string()),
     estimatedCost: z.string().optional(),
   })).optional(),
+  // Amendment/addendum workflow (HIPAA medical records compliance)
+  amendments: z.array(z.object({
+    type: z.enum(["amendment", "addendum"]),
+    reason: z.string(),
+    amendedBy: z.string(),
+    amendedById: z.string().optional(),
+    amendedAt: z.string(),
+    fieldsChanged: z.array(z.string()),
+    // Snapshot of non-PHI fields at time of amendment (PHI fields noted by name only)
+    noteSnapshot: z.record(z.unknown()).optional(),
+    // For addenda: the addendum content text
+    content: z.string().optional(),
+  })).optional(),
+  // Co-signature / supervising provider workflow
+  cosignatureRequired: z.boolean().optional(),
+  cosignature: z.object({
+    cosignedBy: z.string(),
+    cosignedById: z.string().optional(),
+    cosignedNpi: z.string().optional(),
+    cosignedAt: z.string(),
+    role: z.string().optional(), // "attending", "supervisor", "supervising_dentist"
+  }).optional(),
+  // Structured data extracted from note free text (vitals, medications, allergies)
+  structuredData: z.object({
+    vitals: z.object({
+      bloodPressureSystolic: z.number().optional(),
+      bloodPressureDiastolic: z.number().optional(),
+      heartRate: z.number().optional(),
+      respiratoryRate: z.number().optional(),
+      temperature: z.number().optional(),
+      temperatureUnit: z.enum(["F", "C"]).optional(),
+      oxygenSaturation: z.number().optional(),
+      painScale: z.number().min(0).max(10).optional(),
+      weight: z.number().optional(),
+      weightUnit: z.enum(["lbs", "kg"]).optional(),
+      height: z.number().optional(),
+      heightUnit: z.enum(["in", "cm"]).optional(),
+      bmi: z.number().optional(),
+    }).optional(),
+    medications: z.array(z.object({
+      name: z.string(),
+      dose: z.string().optional(),
+      frequency: z.string().optional(),
+      route: z.string().optional(),
+      isNew: z.boolean().optional(),
+    })).optional(),
+    allergies: z.array(z.object({
+      substance: z.string(),
+      reaction: z.string().optional(),
+      severity: z.enum(["mild", "moderate", "severe"]).optional(),
+    })).optional(),
+  }).optional(),
+  // Quality score breakdown beyond basic completeness
+  qualityScoreBreakdown: z.object({
+    icd10Specificity: z.number().min(0).max(10).optional(),
+    requiredElementsPresent: z.number().min(0).max(10).optional(),
+    planDiagnosisAlignment: z.number().min(0).max(10).optional(),
+    overallQuality: z.number().min(0).max(10).optional(),
+  }).optional(),
 });
 
 export type ClinicalNote = z.infer<typeof clinicalNoteSchema>;
@@ -195,12 +254,22 @@ export const transcriptWordSchema = z.object({
   speaker: z.string().optional(),
 });
 
+export const transcriptCorrectionSchema = z.object({
+  wordIndex: z.number(),       // index into words array
+  original: z.string(),
+  corrected: z.string(),
+  correctedBy: z.string(),     // user name
+  correctedAt: z.string(),     // ISO timestamp
+});
+
 export const insertTranscriptSchema = z.object({
   orgId: z.string(),
   callId: z.string(),
   text: z.string().optional(),
   confidence: z.string().optional(),
   words: z.array(transcriptWordSchema).optional(),
+  corrections: z.array(transcriptCorrectionSchema).optional(),
+  correctedText: z.string().optional(), // full corrected text (built from applying corrections)
 });
 
 export const transcriptSchema = insertTranscriptSchema.extend({
@@ -294,6 +363,10 @@ export const insertCallAnalysisSchema = z.object({
     resolution: z.number().min(0).max(10).optional(),
   }).optional(),
   detectedAgentName: z.string().optional(),
+  // Score rationale: 3-5 bullet points per dimension explaining the score
+  scoreRationale: z.record(z.array(z.string())).optional(),
+  // Prompt versioning: hash of the system prompt used to generate this analysis
+  promptVersionId: z.string().optional(),
   clinicalNote: clinicalNoteSchema.optional(),
   speechMetrics: speechMetricsSchema.optional(),
   // Self-review: agent can review their own call
@@ -325,6 +398,10 @@ export const insertCallAnalysisSchema = z.object({
     icd10Codes: z.array(z.object({ code: z.string(), description: z.string(), confidence: z.number() })).optional(),
     cdtCodes: z.array(z.object({ code: z.string(), description: z.string(), confidence: z.number() })).optional(),
   }).optional(),
+  // Speaker role mapping — which speaker label (A/B) is the agent
+  speakerRoleMap: z.object({ agentSpeaker: z.string() }).optional(),
+  // Detected language from AssemblyAI language detection (ISO code, e.g., "en", "es")
+  detectedLanguage: z.string().optional(),
 });
 
 export const callAnalysisSchema = insertCallAnalysisSchema.extend({

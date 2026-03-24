@@ -90,7 +90,7 @@ export const planLimitsSchema = z.object({
 export type PlanLimits = z.infer<typeof planLimitsSchema>;
 
 /** Static plan definitions — no DB needed for these */
-export const PLAN_DEFINITIONS: Record<PlanTier, { name: string; description: string; monthlyPriceUsd: number; yearlyPriceUsd: number; limits: PlanLimits; contactSales?: boolean }> = {
+export const PLAN_DEFINITIONS: Record<PlanTier, { name: string; description: string; monthlyPriceUsd: number; yearlyPriceUsd: number; trialDays?: number; limits: PlanLimits; contactSales?: boolean }> = {
   free: {
     name: "Free",
     description: "Get started with 50 calls/month — no credit card required",
@@ -118,6 +118,7 @@ export const PLAN_DEFINITIONS: Record<PlanTier, { name: string; description: str
     description: "For growing teams that need smarter call insights",
     monthlyPriceUsd: 79,
     yearlyPriceUsd: 756, // $63/mo billed yearly
+    trialDays: 14,
     limits: {
       callsPerMonth: 300,
       storageMb: 5000,
@@ -140,6 +141,7 @@ export const PLAN_DEFINITIONS: Record<PlanTier, { name: string; description: str
     description: "Full QA platform with clinical documentation for healthcare teams",
     monthlyPriceUsd: 149,
     yearlyPriceUsd: 1428, // $119/mo billed yearly
+    trialDays: 14,
     limits: {
       callsPerMonth: 1000,
       storageMb: 20000,
@@ -192,10 +194,14 @@ export const subscriptionSchema = z.object({
   stripePriceId: z.string().optional(),
   /** Stripe subscription item ID for the metered seat add-on line item */
   stripeSeatsItemId: z.string().optional(),
+  /** Stripe subscription item ID for the metered per-call overage line item */
+  stripeOverageItemId: z.string().optional(),
   billingInterval: z.enum(["monthly", "yearly"]).default("monthly"),
   currentPeriodStart: z.string().optional(),
   currentPeriodEnd: z.string().optional(),
   cancelAtPeriodEnd: z.boolean().default(false),
+  /** ISO timestamp when subscription first went past_due — used to enforce grace period */
+  pastDueAt: z.string().optional(),
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
 });

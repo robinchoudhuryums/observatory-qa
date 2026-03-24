@@ -137,6 +137,8 @@ export const transcripts = pgTable("transcripts", {
   text: text("text"),
   confidence: varchar("confidence", { length: 20 }),
   words: jsonb("words"),
+  corrections: jsonb("corrections"), // Manual word corrections [{wordIndex, original, corrected, correctedBy, correctedAt}]
+  correctedText: text("corrected_text"), // Full corrected text built from applying corrections
   createdAt: timestamp("created_at").defaultNow(),
 }, (t) => [
   uniqueIndex("transcripts_call_id_idx").on(t.callId),
@@ -316,10 +318,12 @@ export const subscriptions = pgTable("subscriptions", {
   stripeSubscriptionId: varchar("stripe_subscription_id", { length: 255 }),
   stripePriceId: varchar("stripe_price_id", { length: 255 }),
   stripeSeatsItemId: varchar("stripe_seats_item_id", { length: 255 }),
+  stripeOverageItemId: varchar("stripe_overage_item_id", { length: 255 }),
   billingInterval: varchar("billing_interval", { length: 10 }).notNull().default("monthly"),
   currentPeriodStart: timestamp("current_period_start"),
   currentPeriodEnd: timestamp("current_period_end"),
   cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+  pastDueAt: timestamp("past_due_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => [
@@ -713,4 +717,25 @@ export const auditLogs = pgTable("audit_logs", {
   index("audit_logs_event_idx").on(t.orgId, t.event),
   index("audit_logs_user_idx").on(t.orgId, t.userId),
   index("audit_logs_sequence_idx").on(t.orgId, t.sequenceNum),
+]);
+
+// --- PROVIDER TEMPLATES (custom clinical note templates per provider) ---
+export const providerTemplates = pgTable("provider_templates", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => organizations.id),
+  userId: text("user_id").notNull(),  // template owner
+  name: varchar("name", { length: 255 }).notNull(),
+  specialty: varchar("specialty", { length: 100 }),
+  format: varchar("format", { length: 50 }),
+  category: varchar("category", { length: 100 }),
+  description: text("description"),
+  sections: jsonb("sections"),         // { subjective, objective, assessment, plan, ... }
+  defaultCodes: jsonb("default_codes"), // ICD/CPT/CDT codes
+  tags: jsonb("tags"),                  // string[]
+  isDefault: boolean("is_default").default(false), // show as default for this specialty
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("provider_templates_org_user_idx").on(t.orgId, t.userId),
+  index("provider_templates_org_specialty_idx").on(t.orgId, t.specialty),
 ]);

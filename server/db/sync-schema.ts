@@ -154,6 +154,8 @@ export async function syncSchema(db: Database): Promise<void> {
     `);
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS transcripts_call_id_idx ON transcripts (call_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS transcripts_org_id_idx ON transcripts (org_id)`);
+    await addColumnIfNotExists(db, "transcripts", "corrections", "JSONB");
+    await addColumnIfNotExists(db, "transcripts", "corrected_text", "TEXT");
     // Full-text search index for transcript search (GIN tsvector)
     await db.execute(sql`CREATE INDEX IF NOT EXISTS transcripts_text_search_idx ON transcripts USING GIN (to_tsvector('english', coalesce(text, '')))`).catch(() => {
       logger.warn("Failed to create transcript full-text search index (may already exist or text is encrypted)");
@@ -367,6 +369,8 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS subscriptions_stripe_customer_idx ON subscriptions (stripe_customer_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS subscriptions_stripe_sub_idx ON subscriptions (stripe_subscription_id)`);
     await db.execute(sql`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS stripe_seats_item_id VARCHAR(255)`);
+    await db.execute(sql`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS stripe_overage_item_id VARCHAR(255)`);
+    await db.execute(sql`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS past_due_at TIMESTAMP`);
 
     // --- Reference Documents ---
     await db.execute(sql`
@@ -781,6 +785,28 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS audit_logs_created_at_brin_idx ON audit_logs USING BRIN (created_at)`).catch(() => {
       logger.warn("Failed to create audit_logs BRIN index");
     });
+
+    // --- Provider Templates (custom clinical note templates per provider) ---
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS provider_templates (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL REFERENCES organizations(id),
+        user_id TEXT NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        specialty VARCHAR(100),
+        format VARCHAR(50),
+        category VARCHAR(100),
+        description TEXT,
+        sections JSONB,
+        default_codes JSONB,
+        tags JSONB,
+        is_default BOOLEAN DEFAULT false,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS provider_templates_org_user_idx ON provider_templates (org_id, user_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS provider_templates_org_specialty_idx ON provider_templates (org_id, specialty)`);
 
     // ── One-time data migrations ─────────────────────────────────────────────
     // These use runOnceMigration() to ensure they execute exactly once even

@@ -55,6 +55,16 @@ export const orgSettingsSchema = z.object({
     options: z.record(z.string()).optional(),
     enabled: z.boolean().default(false),
   }).optional(),
+  // Billing alerts: send email when call quota approaches threshold
+  billingAlerts: z.object({
+    enabled: z.boolean().default(false),
+    /** Percentage of monthly quota (50–100) at which to send an alert */
+    quotaThresholdPct: z.number().min(50).max(100).default(80),
+    /** Email address to notify (defaults to the admin's username/email) */
+    alertEmail: z.string().email().optional(),
+    /** ISO timestamp of the last quota alert email sent (prevents flooding) */
+    lastQuotaAlertSentAt: z.string().optional(),
+  }).optional(),
   // Provider-specific clinical note style preferences (self-learning feature)
   providerStylePreferences: z.record(z.string(), z.object({
     noteFormat: z.string().optional(),
@@ -65,6 +75,31 @@ export const orgSettingsSchema = z.object({
     customSections: z.array(z.string()).optional(),
     templateOverrides: z.record(z.string()).optional(),
   })).optional(),
+  // PII/PHI redaction config (overrides always-on defaults)
+  piiRedaction: z.object({
+    enabled: z.boolean().default(true),
+    policies: z.array(z.string()).optional(), // override specific policies
+    substitution: z.enum(["hash", "entity_name"]).default("hash"),
+  }).optional(),
+  // Custom vocabulary — word boost list for better transcription of org-specific terms
+  customVocabulary: z.array(z.string()).optional(),
+  // Co-signature requirements (clinical documentation)
+  requiresCosignature: z.boolean().optional(),   // all notes require co-signature
+  cosignatureRoles: z.array(z.string()).optional(), // ["admin", "manager"] can co-sign
+  // SIEM forwarding for Enterprise customers (Splunk, Datadog, etc.)
+  siemWebhookUrl: z.string().url().optional(),
+  siemEnabled: z.boolean().default(false).optional(),
+  // Edit pattern insights: aggregated analysis of manager manual score edits
+  editPatternInsights: z.object({
+    updatedAt: z.string(),
+    totalEdits: z.number(),
+    insights: z.array(z.object({
+      dimension: z.string(),
+      avgDelta: z.number(),
+      editCount: z.number(),
+      pattern: z.string(),
+    })),
+  }).optional(),
 });
 
 export const insertOrganizationSchema = z.object({

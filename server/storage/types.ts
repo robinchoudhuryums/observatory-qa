@@ -184,6 +184,8 @@ export interface IStorage {
   updateCall(orgId: string, id: string, updates: Partial<Call>): Promise<Call | undefined>;
   deleteCall(orgId: string, id: string): Promise<void>;
   getCallByFileHash(orgId: string, fileHash: string): Promise<Call | undefined>;
+  /** Look up a call by AssemblyAI transcript ID (cross-org, used by webhook handler) */
+  getCallByAssemblyAiId(transcriptId: string): Promise<Call | null>;
   getAllCalls(orgId: string): Promise<Call[]>;
   getCallsWithDetails(orgId: string, filters?: { status?: string; sentiment?: string; employee?: string; limit?: number; offset?: number }): Promise<CallWithDetails[]>;
   /** Lightweight version of getCallsWithDetails — excludes transcript text/words for reporting */
@@ -192,7 +194,7 @@ export interface IStorage {
   // Transcript operations (org-scoped)
   getTranscript(orgId: string, callId: string): Promise<Transcript | undefined>;
   createTranscript(orgId: string, transcript: InsertTranscript): Promise<Transcript>;
-  updateTranscript(orgId: string, callId: string, updates: { text: string }): Promise<Transcript | undefined>;
+  updateTranscript(orgId: string, callId: string, updates: { text?: string; corrections?: any[]; correctedText?: string }): Promise<Transcript | undefined>;
 
   // Sentiment analysis operations (org-scoped)
   getSentimentAnalysis(orgId: string, callId: string): Promise<SentimentAnalysis | undefined>;
@@ -374,6 +376,13 @@ export interface IStorage {
   getLearningProgress(orgId: string, employeeId: string, moduleId: string): Promise<LearningProgress | undefined>;
   getEmployeeLearningProgress(orgId: string, employeeId: string): Promise<LearningProgress[]>;
   getModuleCompletionStats(orgId: string, moduleId: string): Promise<{ total: number; completed: number; inProgress: number; avgScore: number }>;
+
+  // Provider templates (custom clinical note templates per provider, org-scoped)
+  getProviderTemplates(orgId: string, userId: string): Promise<any[]>;
+  getAllProviderTemplates(orgId: string): Promise<any[]>;
+  createProviderTemplate(orgId: string, template: any): Promise<any>;
+  updateProviderTemplate(orgId: string, id: string, userId: string, updates: any): Promise<any | null>;
+  deleteProviderTemplate(orgId: string, id: string, userId: string): Promise<boolean>;
 }
 
 export interface UsageSummary {

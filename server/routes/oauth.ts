@@ -3,6 +3,7 @@ import passport from "passport";
 import { storage } from "../storage";
 import { logger } from "../services/logger";
 import { isSamlConfigured } from "./sso";
+import { syncSeatUsage } from "./billing";
 
 /**
  * Google OAuth 2.0 login flow.
@@ -84,6 +85,9 @@ export async function setupGoogleOAuth(): Promise<boolean> {
                 { userId: newUser.id, email, orgId: matchingOrg.id },
                 "Auto-provisioned user via Google OAuth"
               );
+
+              // Sync seat count to Stripe (fire-and-forget)
+              syncSeatUsage(matchingOrg.id).catch(() => {});
 
               return done(null, {
                 id: newUser.id,

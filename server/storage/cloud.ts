@@ -229,6 +229,22 @@ export class CloudStorage implements IStorage {
     const calls = await this.client.listAndDownloadJson<Call>(`${this.orgPrefix(orgId)}/calls/`);
     return calls.find(c => c.fileHash === fileHash && c.status !== "failed");
   }
+  async getCallByAssemblyAiId(transcriptId: string): Promise<Call | null> {
+    // Must search across all orgs — list top-level prefixes then search each
+    // This is a slow fallback for CloudStorage; prefer PostgreSQL backend for webhooks
+    try {
+      const allPrefixes = await this.client.listObjects("");
+      const orgPrefixes = Array.from(new Set(allPrefixes.map(p => p.split("/")[0]).filter(Boolean)));
+      for (const orgId of orgPrefixes) {
+        const calls = await this.client.listAndDownloadJson<Call>(`${orgId}/calls/`);
+        const found = calls.find(c => c.assemblyAiId === transcriptId);
+        if (found) return found;
+      }
+    } catch {
+      // Ignore — return null
+    }
+    return null;
+  }
 
   async getAllCalls(orgId: string): Promise<Call[]> {
     const calls = await this.client.listAndDownloadJson<Call>(`${this.orgPrefix(orgId)}/calls/`);
@@ -319,10 +335,15 @@ export class CloudStorage implements IStorage {
     return newTranscript;
   }
 
-  async updateTranscript(orgId: string, callId: string, updates: { text: string }): Promise<Transcript | undefined> {
+  async updateTranscript(orgId: string, callId: string, updates: { text?: string; corrections?: any[]; correctedText?: string }): Promise<Transcript | undefined> {
     const existing = await this.getTranscript(orgId, callId);
     if (!existing) return undefined;
-    const updated = { ...existing, text: updates.text };
+    const updated = {
+      ...existing,
+      ...(updates.text !== undefined ? { text: updates.text } : {}),
+      ...(updates.corrections !== undefined ? { corrections: updates.corrections } : {}),
+      ...(updates.correctedText !== undefined ? { correctedText: updates.correctedText } : {}),
+    };
     await this.client.uploadJson(`${this.orgPrefix(orgId)}/transcripts/${callId}.json`, updated);
     return updated;
   }
@@ -705,4 +726,13 @@ export class CloudStorage implements IStorage {
   async getLearningProgress(_orgId: string, _employeeId: string, _moduleId: string): Promise<LearningProgress | undefined> { return undefined; }
   async getEmployeeLearningProgress(_orgId: string, _employeeId: string): Promise<LearningProgress[]> { return []; }
   async getModuleCompletionStats(_orgId: string, _moduleId: string) { return { total: 0, completed: 0, inProgress: 0, avgScore: 0 }; }
+
+  // --- Provider templates (not supported in cloud storage — use postgres backend) ---
+  async getProviderTemplates(_orgId: string, _userId: string): Promise<any[]> { return []; }
+  async getAllProviderTemplates(_orgId: string): Promise<any[]> { return []; }
+  async createProviderTemplate(_orgId: string, _template: any): Promise<any> {
+    throw new Error("Provider templates require PostgreSQL storage backend");
+  }
+  async updateProviderTemplate(_orgId: string, _id: string, _userId: string, _updates: any): Promise<any | null> { return null; }
+  async deleteProviderTemplate(_orgId: string, _id: string, _userId: string): Promise<boolean> { return false; }
 }

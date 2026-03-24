@@ -8,7 +8,16 @@ import { Link } from "wouter";
 import { useBeforeUnload } from "@/hooks/use-before-unload";
 import { toDisplayString } from "@/lib/display-utils";
 import type { CallWithDetails } from "@shared/schema";
-import {  RiPlayLine, RiPauseLine, RiDownloadLine, RiTimeLine, RiFileTextLine, RiAlertLine, RiShieldLine, RiPencilLine, RiCloseLine, RiSaveLine, RiHistoryLine, RiAwardLine, RiDashboard3Line, RiShieldKeyholeLine, RiClipboardLine, RiBrainLine, RiVoiceprintLine, RiCheckLine, RiKeyLine, RiInputMethodLine, RiRefreshLine  } from "@remixicon/react";
+import {  RiPlayLine, RiPauseLine, RiDownloadLine, RiTimeLine, RiFileTextLine, RiAlertLine, RiShieldLine, RiPencilLine, RiCloseLine, RiSaveLine, RiHistoryLine, RiAwardLine, RiDashboard3Line, RiShieldKeyholeLine, RiClipboardLine, RiBrainLine, RiVoiceprintLine, RiCheckLine, RiKeyLine, RiInputMethodLine, RiRefreshLine, RiGlobalLine, RiTranslate2  } from "@remixicon/react";
+
+// Language code to display name lookup
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: "English", es: "Spanish", fr: "French", de: "German", it: "Italian",
+  pt: "Portuguese", nl: "Dutch", pl: "Polish", ru: "Russian", zh: "Chinese",
+  ja: "Japanese", ko: "Korean", ar: "Arabic", hi: "Hindi", tr: "Turkish",
+  sv: "Swedish", da: "Danish", no: "Norwegian", fi: "Finnish", he: "Hebrew",
+  vi: "Vietnamese", th: "Thai", id: "Indonesian", ms: "Malay", uk: "Ukrainian",
+};
 
 interface TranscriptViewerProps {
   callId: string;
@@ -48,8 +57,17 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
   const [editSubScores, setEditSubScores] = useState<Record<string, string>>({});
   const [editActionItems, setEditActionItems] = useState<string[]>([]);
 
-  // Warn before navigating away with unsaved edits
-  useBeforeUnload(isEditing && (editScore !== "" || editSummary !== "" || editReason !== ""));
+  // Confidence display state
+  const [showConfidence, setShowConfidence] = useState(false);
+
+  // Transcript correction state
+  const [showCorrectionMode, setShowCorrectionMode] = useState(false);
+  const [pendingCorrections, setPendingCorrections] = useState<Map<number, string>>(new Map());
+  const [editingWordIndex, setEditingWordIndex] = useState<number | null>(null);
+  const [wordEditValue, setWordEditValue] = useState("");
+
+  // Warn before navigating away with unsaved edits or corrections
+  useBeforeUnload(isEditing && (editScore !== "" || editSummary !== "" || editReason !== "") || (showCorrectionMode && pendingCorrections.size > 0));
 
   const { data: call, isLoading } = useQuery<CallWithDetails>({
     queryKey: ["/api/calls", callId],
@@ -90,6 +108,28 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/calls", callId] });
+    },
+  });
+
+  const correctionMutation = useMutation({
+    mutationFn: async (payload: { corrections: any[]; correctedText: string }) => {
+      const res = await fetch(`/api/calls/${callId}/transcript`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Failed to save corrections");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/calls", callId] });
+      setShowCorrectionMode(false);
+      setPendingCorrections(new Map());
+      setEditingWordIndex(null);
     },
   });
 
@@ -267,6 +307,41 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
     setCurrentTime(timeMs);
   };
 
+  const handleWordClick = (wordIndex: number, wordText: string) => {
+    if (!showCorrectionMode) return;
+    setEditingWordIndex(wordIndex);
+    setWordEditValue(pendingCorrections.get(wordIndex) ?? wordText);
+  };
+
+  const handleWordEditConfirm = (wordIndex: number, original: string) => {
+    if (wordEditValue.trim() && wordEditValue.trim() !== original) {
+      setPendingCorrections(prev => new Map(prev).set(wordIndex, wordEditValue.trim()));
+    } else if (!wordEditValue.trim() || wordEditValue.trim() === original) {
+      // Remove correction if reverted to original
+      setPendingCorrections(prev => { const next = new Map(prev); next.delete(wordIndex); return next; });
+    }
+    setEditingWordIndex(null);
+    setWordEditValue("");
+  };
+
+  const handleSaveCorrections = () => {
+    const words = call?.transcript?.words as TranscriptWord[] | undefined;
+    if (!words || pendingCorrections.size === 0) return;
+    const user = "Manager"; // We don't have user context in the component; use a placeholder
+    const now = new Date().toISOString();
+    const corrections = Array.from(pendingCorrections.entries()).map(([wordIndex, corrected]) => ({
+      wordIndex,
+      original: words[wordIndex]?.text || "",
+      corrected,
+      correctedBy: user,
+      correctedAt: now,
+    }));
+    // Build corrected full text
+    const correctedWords = words.map((w, i) => pendingCorrections.get(i) ?? w.text);
+    const correctedText = correctedWords.join(" ");
+    correctionMutation.mutate({ corrections, correctedText });
+  };
+
   const togglePlayPause = () => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -360,16 +435,58 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
     }
   );
 
+  // Detected language info
+  const detectedLang = (call.analysis as any)?.detectedLanguage as string | undefined;
+  const isNonEnglish = detectedLang && detectedLang !== 'en';
+  const langName = detectedLang ? (LANGUAGE_NAMES[detectedLang] || detectedLang.toUpperCase()) : undefined;
+
   return (
     <div className="bg-card rounded-lg border border-border p-6" data-testid="transcript-viewer">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-lg font-semibold text-foreground">Call Transcript</h3>
-          <p className="text-sm text-muted-foreground">
-            {call.employee?.name} • {new Date(call.uploadedAt || "").toLocaleDateString()}
-          </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm text-muted-foreground">
+              {call.employee?.name} • {new Date(call.uploadedAt || "").toLocaleDateString()}
+            </p>
+            {langName && (
+              isNonEnglish ? (
+                <Badge className="bg-amber-200 text-amber-900 dark:bg-amber-900 dark:text-amber-200 text-xs flex items-center gap-1">
+                  <RiTranslate2 className="w-3 h-3" />
+                  Non-English: {langName}
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="text-xs flex items-center gap-1">
+                  <RiGlobalLine className="w-3 h-3" />
+                  {langName}
+                </Badge>
+              )
+            )}
+          </div>
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+          {call.transcript?.words && Array.isArray(call.transcript.words) && call.transcript.words.length > 0 && (
+            <>
+              <Button
+                variant={showConfidence ? "default" : "outline"}
+                size="sm"
+                onClick={() => { setShowConfidence(v => !v); if (showCorrectionMode) setShowCorrectionMode(false); }}
+                title="Toggle word-level confidence highlighting"
+              >
+                <RiShieldKeyholeLine className="w-4 h-4 mr-1" />
+                {showConfidence ? "Hide Confidence" : "Show Confidence"}
+              </Button>
+              <Button
+                variant={showCorrectionMode ? "default" : "outline"}
+                size="sm"
+                onClick={() => { setShowCorrectionMode(v => !v); if (showConfidence) setShowConfidence(false); if (!showCorrectionMode) { setPendingCorrections(new Map()); setEditingWordIndex(null); } }}
+                title="Correct transcript words"
+              >
+                <RiPencilLine className="w-4 h-4 mr-1" />
+                {showCorrectionMode ? "Exit Corrections" : "Correct Transcript"}
+              </Button>
+            </>
+          )}
           <Button variant="outline" size="sm" onClick={handleExportTranscript} data-testid="export-transcript">
             <RiFileTextLine className="w-4 h-4 mr-1" />
             Export
@@ -449,37 +566,145 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
                 </p>
               </div>
             ) : call.transcript?.text ? (
-              <div className="space-y-3">
-                {transcriptSegments.map((segment, index) => (
-                  <div
-                    key={index}
-                    className={`transcript-line p-2 rounded cursor-pointer transition-colors ${
-                      index === activeSegmentIndex ? 'bg-primary/10 ring-1 ring-primary/30' : ''
-                    }`}
-                    onClick={() => jumpToTime(segment.start)}
-                    data-testid={`transcript-segment-${index}`}
-                  >
-                    <div className="flex items-start space-x-3">
-                      <button
-                        className="text-xs text-muted-foreground bg-background px-2 py-1 rounded hover:bg-primary hover:text-primary-foreground"
-                        onClick={() => jumpToTime(segment.start)}
-                      >
-                        <RiTimeLine className="w-3 h-3 mr-1 inline" />
-                        {formatTimestamp(segment.start)}
-                      </button>
-                      <div className="flex-1">
-                        <p className={`text-sm font-medium ${segment.speaker === 'Agent' ? 'text-primary' : 'text-gray-600'}`}>
-                          {segment.speaker === 'Agent' ? `Agent (${call.employee?.name}):` : 'Customer:'}
-                        </p>
-                        <p className="text-foreground">{highlightKeywords(segment.text)}</p>
+              <>
+                {/* Word-by-word view for confidence or correction mode */}
+                {(showConfidence || showCorrectionMode) && call.transcript?.words && Array.isArray(call.transcript.words) && (call.transcript.words as TranscriptWord[]).length > 0 ? (
+                  <div className="space-y-3">
+                    {showCorrectionMode && (
+                      <div className="text-xs text-muted-foreground bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded p-2 mb-2">
+                        Click any word to correct it. Low-confidence words are underlined in amber.
+                        {pendingCorrections.size > 0 && (
+                          <span className="ml-2 font-semibold text-amber-700 dark:text-amber-300">
+                            {pendingCorrections.size} pending correction{pendingCorrections.size > 1 ? "s" : ""}
+                          </span>
+                        )}
                       </div>
-                      <Badge className={getSentimentColor(segment.sentiment)}>
-                        {segment.sentiment.charAt(0).toUpperCase() + segment.sentiment.slice(1)}
-                      </Badge>
+                    )}
+                    {showConfidence && (
+                      <div className="text-xs text-muted-foreground mb-2 flex items-center gap-3">
+                        <span className="font-medium">Confidence:</span>
+                        <span className="text-amber-600">Amber text = 70–85%</span>
+                        <span className="bg-amber-200 text-amber-900 px-1 rounded">Amber bg = &lt;70%</span>
+                        <span className="text-foreground">Normal = ≥85%</span>
+                      </div>
+                    )}
+                    <div className="leading-relaxed flex flex-wrap gap-1">
+                      {(call.transcript.words as TranscriptWord[]).map((word, wordIndex) => {
+                        const isPending = pendingCorrections.has(wordIndex);
+                        const correctedText = pendingCorrections.get(wordIndex);
+                        const isLowConf = word.confidence < 0.70;
+                        const isMedConf = !isLowConf && word.confidence < 0.85;
+
+                        // Confidence styling
+                        let confClass = "";
+                        if (showConfidence) {
+                          if (isLowConf) confClass = "bg-amber-200 text-amber-900 dark:bg-amber-900 dark:text-amber-200 rounded px-0.5";
+                          else if (isMedConf) confClass = "text-amber-600 dark:text-amber-400";
+                        }
+
+                        // Correction styling
+                        let corrClass = "";
+                        if (showCorrectionMode) {
+                          if (isPending) corrClass = "text-green-700 dark:text-green-400 font-semibold cursor-pointer hover:opacity-80";
+                          else if (isLowConf) corrClass = "underline decoration-amber-400 cursor-pointer hover:opacity-80";
+                          else corrClass = "cursor-pointer hover:opacity-80";
+                        }
+
+                        if (showCorrectionMode && editingWordIndex === wordIndex) {
+                          return (
+                            <span key={wordIndex} className="inline-flex items-center gap-0.5">
+                              <input
+                                autoFocus
+                                className="border border-primary rounded px-1 py-0.5 text-xs w-24"
+                                value={wordEditValue}
+                                onChange={e => setWordEditValue(e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === "Enter") handleWordEditConfirm(wordIndex, word.text);
+                                  if (e.key === "Escape") { setEditingWordIndex(null); setWordEditValue(""); }
+                                }}
+                                onBlur={() => handleWordEditConfirm(wordIndex, word.text)}
+                              />
+                            </span>
+                          );
+                        }
+
+                        return (
+                          <span
+                            key={wordIndex}
+                            className={`inline-block ${confClass} ${corrClass}`}
+                            title={showConfidence ? `Confidence: ${(word.confidence * 100).toFixed(0)}%` : undefined}
+                            onClick={() => handleWordClick(wordIndex, isPending ? correctedText! : word.text)}
+                          >
+                            {isPending ? (
+                              <>
+                                <span className="line-through text-muted-foreground text-xs">{word.text}</span>
+                                <span className="ml-0.5 text-green-700 dark:text-green-400">{correctedText}</span>
+                              </>
+                            ) : word.text}
+                          </span>
+                        );
+                      })}
                     </div>
+                    {showCorrectionMode && (
+                      <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border">
+                        <Button
+                          size="sm"
+                          onClick={handleSaveCorrections}
+                          disabled={pendingCorrections.size === 0 || correctionMutation.isPending}
+                          className="h-7 text-xs"
+                        >
+                          <RiSaveLine className="w-3 h-3 mr-1" />
+                          {correctionMutation.isPending ? "Saving..." : `Save ${pendingCorrections.size} Correction${pendingCorrections.size !== 1 ? "s" : ""}`}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => { setPendingCorrections(new Map()); setEditingWordIndex(null); }}
+                          disabled={correctionMutation.isPending}
+                          className="h-7 text-xs"
+                        >
+                          <RiCloseLine className="w-3 h-3 mr-1" /> Clear
+                        </Button>
+                        {correctionMutation.isError && (
+                          <p className="text-xs text-red-500">{correctionMutation.error?.message}</p>
+                        )}
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
+                ) : (
+                  <div className="space-y-3">
+                    {transcriptSegments.map((segment, index) => (
+                      <div
+                        key={index}
+                        className={`transcript-line p-2 rounded cursor-pointer transition-colors ${
+                          index === activeSegmentIndex ? 'bg-primary/10 ring-1 ring-primary/30' : ''
+                        }`}
+                        onClick={() => jumpToTime(segment.start)}
+                        data-testid={`transcript-segment-${index}`}
+                      >
+                        <div className="flex items-start space-x-3">
+                          <button
+                            className="text-xs text-muted-foreground bg-background px-2 py-1 rounded hover:bg-primary hover:text-primary-foreground"
+                            onClick={() => jumpToTime(segment.start)}
+                          >
+                            <RiTimeLine className="w-3 h-3 mr-1 inline" />
+                            {formatTimestamp(segment.start)}
+                          </button>
+                          <div className="flex-1">
+                            <p className={`text-sm font-medium ${segment.speaker === 'Agent' ? 'text-primary' : 'text-gray-600'}`}>
+                              {segment.speaker === 'Agent' ? `Agent (${call.employee?.name}):` : 'Customer:'}
+                            </p>
+                            <p className="text-foreground">{highlightKeywords(segment.text)}</p>
+                          </div>
+                          <Badge className={getSentimentColor(segment.sentiment)}>
+                            {segment.sentiment.charAt(0).toUpperCase() + segment.sentiment.slice(1)}
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
             ) : (
               <div className="text-center py-8">
                 <p className="text-muted-foreground">No transcript text available</p>

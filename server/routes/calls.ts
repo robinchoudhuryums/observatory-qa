@@ -6,7 +6,7 @@ import { storage, normalizeAnalysis } from "../storage";
 import { requireAuth, requireRole, injectOrgContext, requireOrgContext } from "../auth";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { upload, safeFloat, validateUUIDParam, acquireUploadSlot, releaseUploadSlot } from "./helpers";
-import { enforceQuota, requireActiveSubscription } from "./billing";
+import { enforceQuota, requireActiveSubscription, reportCallOverageToStripe } from "./billing";
 import { logger } from "../services/logger";
 import { CALL_CATEGORIES, type InsertCallAnalysis } from "@shared/schema";
 import { decryptClinicalNotePhi } from "../services/phi-encryption";
@@ -17,6 +17,76 @@ import path from "path";
 
 // Re-export invalidateRefDocCache for consumers that import from calls route
 export { invalidateRefDocCache } from "../services/call-processing";
+
+/**
+ * Analyze manual edit patterns across the org and store insights in org settings.
+ * Fires-and-forgets after each PATCH /api/calls/:id/analysis.
+ * Requires ≥20 edits across the org for statistical reliability.
+ * Surfaces patterns like "compliance scores consistently lowered by 1.5 pts on average."
+ */
+async function analyzeAndStoreEditPatterns(orgId: string): Promise<void> {
+  try {
+    // Sample up to 500 completed calls to find edited analyses
+    const calls = await storage.getCallsWithDetails(orgId, { status: "completed", limit: 500 });
+    let totalEdits = 0;
+    const perfDeltas: number[] = [];
+
+    for (const call of calls) {
+      const analysis = await storage.getCallAnalysis(orgId, call.id);
+      const edits = Array.isArray(analysis?.manualEdits) ? analysis.manualEdits as any[] : [];
+      if (edits.length === 0) continue;
+      totalEdits += edits.length;
+
+      for (const edit of edits) {
+        const prev = edit.previousValues || {};
+        const beforeScore = typeof prev.performanceScore !== "undefined"
+          ? parseFloat(String(prev.performanceScore)) : NaN;
+        const afterScore = analysis?.performanceScore
+          ? parseFloat(String(analysis.performanceScore)) : NaN;
+        if (!isNaN(beforeScore) && !isNaN(afterScore)) {
+          perfDeltas.push(afterScore - beforeScore);
+        }
+      }
+    }
+
+    if (totalEdits < 20) return;
+
+    const insights: Array<{ dimension: string; avgDelta: number; editCount: number; pattern: string }> = [];
+
+    if (perfDeltas.length >= 5) {
+      const avg = perfDeltas.reduce((a, b) => a + b, 0) / perfDeltas.length;
+      if (Math.abs(avg) >= 0.3) {
+        const dir = avg > 0 ? "raised" : "lowered";
+        insights.push({
+          dimension: "performanceScore",
+          avgDelta: Math.round(avg * 100) / 100,
+          editCount: perfDeltas.length,
+          pattern: `Managers consistently ${dir} overall performance scores by ${Math.abs(avg).toFixed(1)} pts on average (${perfDeltas.length} edits)`,
+        });
+      }
+    }
+
+    if (insights.length === 0) return;
+
+    const org = await storage.getOrganization(orgId);
+    if (!org) return;
+
+    await storage.updateOrganization(orgId, {
+      settings: {
+        ...org.settings,
+        editPatternInsights: {
+          updatedAt: new Date().toISOString(),
+          totalEdits,
+          insights,
+        },
+      } as any,
+    });
+
+    logger.info({ orgId, insightCount: insights.length, totalEdits }, "Edit pattern insights updated");
+  } catch (err) {
+    logger.warn({ orgId, err }, "Edit pattern analysis failed (non-blocking)");
+  }
+}
 
 export function registerCallRoutes(app: Express): void {
 
@@ -162,6 +232,12 @@ export function registerCallRoutes(app: Express): void {
       const originalName = req.file.originalname;
       const mimeType = req.file.mimetype || "audio/mpeg";
       const uploadUserId = req.user?.id;
+      // If this call was accepted under overage, report 1 unit to Stripe metered billing.
+      // Fire-and-forget — a Stripe failure must never block the upload response.
+      if ((req as any).isOverQuota) {
+        reportCallOverageToStripe(orgId).catch(() => {}); // already logged inside the helper
+      }
+
       processAudioFile({ orgId, callId: call.id, filePath: req.file.path, audioBuffer, originalName, mimeType, callCategory, userId: uploadUserId, clinicalSpecialty, noteFormat })
         .catch(async (error) => {
           logger.error({ callId: call.id, err: error }, "Failed to process call");
@@ -360,11 +436,57 @@ export function registerCallRoutes(app: Express): void {
 
       await storage.updateCallAnalysis(req.orgId!, callId, updatedAnalysis);
 
+      // Fire-and-forget: update edit pattern insights for this org
+      analyzeAndStoreEditPatterns(req.orgId!).catch(() => {});
+
       logger.info({ callId, editedBy, reason, fields: editRecord.fieldsChanged }, "Manual edit applied to call analysis");
       res.json(updatedAnalysis);
     } catch (error) {
       logger.error({ err: error }, "Failed to update call analysis");
       res.status(500).json(errorResponse(ERROR_CODES.CALL_ANALYSIS_FAILED, "Failed to update call analysis"));
+    }
+  });
+
+  // PATCH /api/calls/:id/transcript — save manual transcript corrections (manager+)
+  app.patch("/api/calls/:id/transcript", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
+    try {
+      const callId = req.params.id;
+      const { corrections, correctedText } = req.body;
+
+      if (!Array.isArray(corrections) && correctedText === undefined) {
+        res.status(400).json({ message: "corrections (array) or correctedText (string) is required" });
+        return;
+      }
+
+      const call = await storage.getCall(req.orgId!, callId);
+      if (!call) {
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call not found"));
+        return;
+      }
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "update_transcript_corrections",
+        resourceType: "transcript",
+        resourceId: callId,
+        detail: `${Array.isArray(corrections) ? corrections.length : 0} corrections by ${req.user?.name || req.user?.username}`,
+      });
+
+      const updated = await storage.updateTranscript(req.orgId!, callId, {
+        ...(Array.isArray(corrections) ? { corrections } : {}),
+        ...(correctedText !== undefined ? { correctedText } : {}),
+      });
+
+      if (!updated) {
+        res.status(404).json({ message: "Transcript not found" });
+        return;
+      }
+
+      logger.info({ callId, correctionCount: Array.isArray(corrections) ? corrections.length : 0 }, "Transcript corrections saved");
+      res.json(updated);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to save transcript corrections");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to save transcript corrections"));
     }
   });
 

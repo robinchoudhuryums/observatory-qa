@@ -6,7 +6,7 @@ import { assemblyAIService } from "../services/assemblyai";
 import { broadcastCallUpdate } from "../services/websocket";
 import { insertPromptTemplateSchema, orgSettingsSchema, PLAN_DEFINITIONS, type OrgSettings } from "@shared/schema";
 import { logger } from "../services/logger";
-import { queryAuditLogs, verifyAuditChain, logPhiAccess, auditContext } from "../services/audit-log";
+import { queryAuditLogs, exportAuditLogs, verifyAuditChain, logPhiAccess, auditContext } from "../services/audit-log";
 import { safeInt, withRetry } from "./helpers";
 import { enqueueReanalysis } from "../services/queue";
 import { getWafStats, blockIp, unblockIp } from "../middleware/waf";
@@ -454,7 +454,7 @@ export function registerAdminRoutes(app: Express): void {
 
   app.get("/api/admin/audit-logs", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
     try {
-      const { event, userId, resourceType, from, to, page, limit } = req.query;
+      const { event, userId, username, resourceType, from, to, page, limit } = req.query;
       const pageNum = Math.max(1, safeInt(page, 1));
       const pageLimit = Math.min(safeInt(limit, 50), 200);
 
@@ -462,6 +462,7 @@ export function registerAdminRoutes(app: Express): void {
         orgId: req.orgId!,
         event: event as string | undefined,
         userId: userId as string | undefined,
+        username: username as string | undefined,
         resourceType: resourceType as string | undefined,
         from: from ? new Date(from as string) : undefined,
         to: to ? new Date(to as string) : undefined,
@@ -479,6 +480,56 @@ export function registerAdminRoutes(app: Express): void {
     } catch (error) {
       logger.error({ err: error }, "Failed to fetch audit logs");
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to fetch audit logs"));
+    }
+  });
+
+  // Export audit logs for HIPAA auditors (full date range, no page cap)
+  app.get("/api/admin/audit-logs/export", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      const { event, userId, username, resourceType, from, to, format } = req.query;
+      const exportFormat = (format as string) === "json" ? "json" : "csv";
+
+      const fromDate = from ? new Date(from as string) : undefined;
+      const toDate = to ? new Date(to as string) : undefined;
+
+      // Log that an export was performed (HIPAA: audit the auditor)
+      logPhiAccess({
+        ...auditContext(req),
+        event: "audit_log_export",
+        resourceType: "audit_logs",
+        detail: `Exported audit logs: format=${exportFormat}, from=${from || "all"}, to=${to || "now"}`,
+      });
+
+      const rows = await exportAuditLogs({
+        orgId: req.orgId!,
+        event: event as string | undefined,
+        userId: userId as string | undefined,
+        username: username as string | undefined,
+        resourceType: resourceType as string | undefined,
+        from: fromDate,
+        to: toDate,
+      });
+
+      if (exportFormat === "json") {
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader("Content-Disposition", `attachment; filename="audit-logs-${new Date().toISOString().slice(0, 10)}.json"`);
+        return res.json({ exportedAt: new Date().toISOString(), orgId: req.orgId, count: rows.length, entries: rows });
+      }
+
+      // CSV format
+      const headers = ["timestamp", "event", "username", "role", "resourceType", "resourceId", "ip", "userAgent", "detail"];
+      const csvRows = rows.map(r => headers.map(h => {
+        const val = String((r as unknown as Record<string, unknown>)[h] ?? "");
+        return `"${val.replace(/"/g, '""')}"`;
+      }).join(","));
+      const csv = [headers.join(","), ...csvRows].join("\n");
+
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="audit-logs-${new Date().toISOString().slice(0, 10)}.csv"`);
+      res.send(csv);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to export audit logs");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to export audit logs"));
     }
   });
 
@@ -616,5 +667,60 @@ export function registerAdminRoutes(app: Express): void {
     const report = updateBreachReport(req.orgId!, req.params.id, req.body);
     if (!report) { res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Breach report not found")); return; }
     res.json(report);
+  });
+
+  // ==================== EDIT PATTERN INSIGHTS ====================
+
+  app.get("/api/admin/edit-insights", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
+    try {
+      const org = await storage.getOrganization(req.orgId!);
+      const insights = (org?.settings as any)?.editPatternInsights || null;
+      res.json({ insights });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch edit insights" });
+    }
+  });
+
+  // ==================== CUSTOM VOCABULARY (WORD BOOST) ====================
+
+  app.get("/api/admin/vocabulary", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    try {
+      const org = await storage.getOrganization(req.orgId!);
+      const vocabulary: string[] = (org?.settings as any)?.customVocabulary || [];
+      res.json({ vocabulary });
+    } catch (error) {
+      logger.error({ err: error, orgId: req.orgId }, "Failed to fetch custom vocabulary");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to fetch custom vocabulary"));
+    }
+  });
+
+  app.put("/api/admin/vocabulary", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    try {
+      const { vocabulary } = req.body;
+      if (!Array.isArray(vocabulary)) {
+        res.status(400).json({ message: "vocabulary must be an array of strings" });
+        return;
+      }
+      const cleaned = vocabulary
+        .filter((v: unknown) => typeof v === "string" && v.trim().length > 0)
+        .map((v: string) => v.trim())
+        .slice(0, 500); // Safety cap
+
+      const org = await storage.getOrganization(req.orgId!);
+      if (!org) {
+        res.status(404).json({ message: "Organization not found" });
+        return;
+      }
+
+      await storage.updateOrganization(req.orgId!, {
+        settings: { ...(org.settings as any), customVocabulary: cleaned },
+      });
+
+      logger.info({ orgId: req.orgId, wordCount: cleaned.length }, "Custom vocabulary updated");
+      res.json({ vocabulary: cleaned, count: cleaned.length });
+    } catch (error) {
+      logger.error({ err: error, orgId: req.orgId }, "Failed to update custom vocabulary");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update custom vocabulary"));
+    }
   });
 }

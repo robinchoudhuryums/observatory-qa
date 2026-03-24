@@ -461,6 +461,73 @@ export function registerEhrRoutes(app: Express): void {
       res.status(500).json({ message: "Failed to disable EHR integration" });
     }
   });
+
+  // Get EHR prefill data for a patient (medications, allergies, recent visit history)
+  // Used to pre-populate clinical note fields from EHR prior visit data
+  app.get("/api/ehr/patients/:ehrPatientId/prefill-data", requireAuth, injectOrgContext, async (req, res) => {
+    try {
+      const org = await getCachedOrganization(req.orgId!);
+      const ehrConfig = (org?.settings as any)?.ehrConfig;
+
+      if (!ehrConfig?.enabled || !ehrConfig?.system) {
+        res.status(400).json({ message: "EHR integration is not configured or enabled for this organization" });
+        return;
+      }
+
+      const decryptedConfig = decryptEhrApiKey(ehrConfig);
+      const adapter = getEhrAdapter(ehrConfig.system);
+      if (!adapter) {
+        res.status(400).json({ message: `EHR adapter not available for: ${ehrConfig.system}` });
+        return;
+      }
+
+      const { ehrPatientId } = req.params;
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "ehr_patient_prefill",
+        resourceType: "ehr_patient",
+        resourceId: ehrPatientId,
+        detail: `Prefill data requested for EHR patient ${ehrPatientId}`,
+      });
+
+      // Get patient demographics and allergies from EHR
+      let medications: Array<{ name: string; dose?: string; frequency?: string }> = [];
+      let allergies: Array<{ substance: string; reaction?: string }> = [];
+      let lastChiefComplaint: string | undefined;
+      let demographicsNote: string | undefined;
+
+      try {
+        const patient = await adapter.getPatient(decryptedConfig, ehrPatientId);
+        if (patient) {
+          demographicsNote = [
+            patient.dateOfBirth ? `DOB: ${patient.dateOfBirth}` : null,
+            patient.phone ? `Phone: ${patient.phone}` : null,
+          ].filter(Boolean).join(", ") || undefined;
+
+          // Extract allergies from patient data if available
+          if (patient.allergies && Array.isArray(patient.allergies)) {
+            allergies = (patient.allergies as any[]).map(a => ({
+              substance: typeof a === "string" ? a : (a.substance || a.name || String(a)),
+              reaction: typeof a === "object" ? a.reaction || undefined : undefined,
+            }));
+          }
+        }
+      } catch (ehrErr) {
+        logger.warn({ err: ehrErr, ehrPatientId }, "EHR patient lookup failed for prefill");
+      }
+
+      res.json({
+        medications,
+        allergies,
+        chiefComplaintHistory: lastChiefComplaint ? [lastChiefComplaint] : [],
+        demographicsNote,
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to get EHR prefill data");
+      res.status(500).json({ message: "Failed to get EHR prefill data" });
+    }
+  });
 }
 
 /**

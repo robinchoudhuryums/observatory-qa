@@ -195,7 +195,7 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
                 onClick={() => onNavigate("register")}
                 className="bg-gradient-to-r from-teal-500 to-blue-500 hover:from-teal-600 hover:to-blue-600 text-white border-0 shadow-lg shadow-teal-500/20"
               >
-                Get Started
+                Start Free Trial
               </Button>
             </div>
           </div>
@@ -423,16 +423,17 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
               Ready to improve your team's call quality?
             </h2>
             <p className="landing-text-muted mb-10 max-w-xl mx-auto text-lg">
-              Set up your organization in under 2 minutes. Start with 50 free calls per month.
+              Set up your organization in under 2 minutes. Start with a 14-day free trial — no credit card required.
             </p>
             <Button
               size="lg"
               onClick={() => onNavigate("register")}
               className="bg-gradient-to-r from-teal-500 to-blue-500 hover:from-teal-600 hover:to-blue-600 text-white border-0 shadow-lg shadow-teal-500/25 px-10 h-13 text-base"
             >
-              Create Your Organization
+              Start Your 14-Day Free Trial
               <RiArrowRightLine className="w-4 h-4 ml-2" />
             </Button>
+            <p className="text-sm landing-text-muted mt-4">No credit card required. 14-day free trial on Starter &amp; Professional plans.</p>
           </div>
         </FadeUp>
       </section>

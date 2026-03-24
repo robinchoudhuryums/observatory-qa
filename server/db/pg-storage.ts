@@ -380,6 +380,13 @@ export class PostgresStorage implements IStorage {
     return rows[0] ? this.mapCall(rows[0]) : undefined;
   }
 
+  async getCallByAssemblyAiId(transcriptId: string): Promise<Call | null> {
+    const rows = await this.db.select().from(tables.calls)
+      .where(eq(tables.calls.assemblyAiId, transcriptId))
+      .limit(1);
+    return rows[0] ? this.mapCall(rows[0]) : null;
+  }
+
   async getAllCalls(orgId: string): Promise<Call[]> {
     const rows = await this.db.select().from(tables.calls)
       .where(eq(tables.calls.orgId, orgId))
@@ -540,13 +547,20 @@ export class PostgresStorage implements IStorage {
       text: typeof transcript.text === "string" ? encryptField(transcript.text) : transcript.text,
       confidence: transcript.confidence,
       words: transcript.words || null,
+      corrections: (transcript as any).corrections || null,
+      correctedText: (transcript as any).correctedText || null,
     }).returning();
     return this.mapTranscript(row);
   }
 
-  async updateTranscript(orgId: string, callId: string, updates: { text: string }): Promise<Transcript | undefined> {
+  async updateTranscript(orgId: string, callId: string, updates: { text?: string; corrections?: any[]; correctedText?: string }): Promise<Transcript | undefined> {
+    const setClause: Record<string, unknown> = {};
+    if (updates.text !== undefined) setClause.text = encryptField(updates.text);
+    if (updates.corrections !== undefined) setClause.corrections = updates.corrections;
+    if (updates.correctedText !== undefined) setClause.correctedText = updates.correctedText;
+    if (Object.keys(setClause).length === 0) return this.getTranscript(orgId, callId);
     const rows = await this.db.update(tables.transcripts)
-      .set({ text: encryptField(updates.text) })
+      .set(setClause as any)
       .where(and(eq(tables.transcripts.callId, callId), eq(tables.transcripts.orgId, orgId)))
       .returning();
     return rows[0] ? this.mapTranscript(rows[0]) : undefined;
@@ -1324,6 +1338,8 @@ export class PostgresStorage implements IStorage {
       text,
       confidence: row.confidence,
       words: row.words as any,
+      corrections: row.corrections as any,
+      correctedText: row.correctedText,
       createdAt: toISOString(row.createdAt),
     };
   }
@@ -1474,10 +1490,12 @@ export class PostgresStorage implements IStorage {
         stripeSubscriptionId: sub.stripeSubscriptionId,
         stripePriceId: sub.stripePriceId,
         stripeSeatsItemId: sub.stripeSeatsItemId,
+        stripeOverageItemId: sub.stripeOverageItemId,
         billingInterval: sub.billingInterval,
         currentPeriodStart: sub.currentPeriodStart ? new Date(sub.currentPeriodStart) : undefined,
         currentPeriodEnd: sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd) : undefined,
         cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+        pastDueAt: sub.pastDueAt ? new Date(sub.pastDueAt) : undefined,
         updatedAt: now,
       }).where(eq(tables.subscriptions.orgId, orgId)).returning();
       return this.mapSubscription(row);
@@ -1492,10 +1510,12 @@ export class PostgresStorage implements IStorage {
       stripeSubscriptionId: sub.stripeSubscriptionId || null,
       stripePriceId: sub.stripePriceId || null,
       stripeSeatsItemId: sub.stripeSeatsItemId || null,
+      stripeOverageItemId: sub.stripeOverageItemId || null,
       billingInterval: sub.billingInterval || "monthly",
       currentPeriodStart: sub.currentPeriodStart ? new Date(sub.currentPeriodStart) : null,
       currentPeriodEnd: sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd) : null,
       cancelAtPeriodEnd: sub.cancelAtPeriodEnd || false,
+      pastDueAt: sub.pastDueAt ? new Date(sub.pastDueAt) : null,
     }).returning();
     return this.mapSubscription(row);
   }
@@ -1508,10 +1528,12 @@ export class PostgresStorage implements IStorage {
     if (updates.stripeSubscriptionId) setValues.stripeSubscriptionId = updates.stripeSubscriptionId;
     if (updates.stripePriceId) setValues.stripePriceId = updates.stripePriceId;
     if (updates.stripeSeatsItemId !== undefined) setValues.stripeSeatsItemId = updates.stripeSeatsItemId || null;
+    if (updates.stripeOverageItemId !== undefined) setValues.stripeOverageItemId = updates.stripeOverageItemId || null;
     if (updates.billingInterval) setValues.billingInterval = updates.billingInterval;
     if (updates.currentPeriodStart) setValues.currentPeriodStart = new Date(updates.currentPeriodStart);
     if (updates.currentPeriodEnd) setValues.currentPeriodEnd = new Date(updates.currentPeriodEnd);
     if (updates.cancelAtPeriodEnd !== undefined) setValues.cancelAtPeriodEnd = updates.cancelAtPeriodEnd;
+    if (updates.pastDueAt !== undefined) setValues.pastDueAt = updates.pastDueAt ? new Date(updates.pastDueAt) : null;
 
     const [row] = await this.db.update(tables.subscriptions).set(setValues)
       .where(eq(tables.subscriptions.orgId, orgId)).returning();
@@ -1528,10 +1550,12 @@ export class PostgresStorage implements IStorage {
       stripeSubscriptionId: row.stripeSubscriptionId || undefined,
       stripePriceId: row.stripePriceId || undefined,
       stripeSeatsItemId: row.stripeSeatsItemId || undefined,
+      stripeOverageItemId: row.stripeOverageItemId || undefined,
       billingInterval: row.billingInterval,
       currentPeriodStart: toISOString(row.currentPeriodStart),
       currentPeriodEnd: toISOString(row.currentPeriodEnd),
       cancelAtPeriodEnd: row.cancelAtPeriodEnd || false,
+      pastDueAt: toISOString(row.pastDueAt),
       createdAt: toISOString(row.createdAt),
       updatedAt: toISOString(row.updatedAt),
     };
@@ -2525,6 +2549,97 @@ export class PostgresStorage implements IStorage {
       detectionMethod: r.detectionMethod || undefined, confidence: r.confidence || undefined,
       notes: r.notes || undefined, attributedBy: r.attributedBy || undefined,
       createdAt: toISOString(r.createdAt),
+    };
+  }
+
+  // --- Provider templates (custom clinical note templates per provider) ---
+
+  async getProviderTemplates(orgId: string, userId: string): Promise<any[]> {
+    const rows = await this.db.select().from(tables.providerTemplates)
+      .where(and(eq(tables.providerTemplates.orgId, orgId), eq(tables.providerTemplates.userId, userId)))
+      .orderBy(tables.providerTemplates.createdAt);
+    return rows.map(r => this.mapProviderTemplate(r));
+  }
+
+  async getAllProviderTemplates(orgId: string): Promise<any[]> {
+    const rows = await this.db.select().from(tables.providerTemplates)
+      .where(eq(tables.providerTemplates.orgId, orgId))
+      .orderBy(tables.providerTemplates.createdAt);
+    return rows.map(r => this.mapProviderTemplate(r));
+  }
+
+  async createProviderTemplate(orgId: string, template: any): Promise<any> {
+    const id = randomUUID();
+    const now = new Date();
+    const row = await this.db.insert(tables.providerTemplates).values({
+      id,
+      orgId,
+      userId: template.userId,
+      name: template.name,
+      specialty: template.specialty || null,
+      format: template.format || null,
+      category: template.category || null,
+      description: template.description || null,
+      sections: template.sections || null,
+      defaultCodes: template.defaultCodes || null,
+      tags: template.tags || null,
+      isDefault: template.isDefault || false,
+      createdAt: now,
+      updatedAt: now,
+    }).returning();
+    return this.mapProviderTemplate(row[0]);
+  }
+
+  async updateProviderTemplate(orgId: string, id: string, userId: string, updates: any): Promise<any | null> {
+    const setClause: Record<string, unknown> = { updatedAt: new Date() };
+    if (updates.name !== undefined) setClause.name = updates.name;
+    if (updates.specialty !== undefined) setClause.specialty = updates.specialty;
+    if (updates.format !== undefined) setClause.format = updates.format;
+    if (updates.category !== undefined) setClause.category = updates.category;
+    if (updates.description !== undefined) setClause.description = updates.description;
+    if (updates.sections !== undefined) setClause.sections = updates.sections;
+    if (updates.defaultCodes !== undefined) setClause.defaultCodes = updates.defaultCodes;
+    if (updates.tags !== undefined) setClause.tags = updates.tags;
+    if (updates.isDefault !== undefined) setClause.isDefault = updates.isDefault;
+
+    const rows = await this.db.update(tables.providerTemplates)
+      .set(setClause)
+      .where(and(
+        eq(tables.providerTemplates.orgId, orgId),
+        eq(tables.providerTemplates.id, id),
+        eq(tables.providerTemplates.userId, userId),
+      ))
+      .returning();
+    return rows[0] ? this.mapProviderTemplate(rows[0]) : null;
+  }
+
+  async deleteProviderTemplate(orgId: string, id: string, userId: string): Promise<boolean> {
+    const result = await this.db.delete(tables.providerTemplates)
+      .where(and(
+        eq(tables.providerTemplates.orgId, orgId),
+        eq(tables.providerTemplates.id, id),
+        eq(tables.providerTemplates.userId, userId),
+      ))
+      .returning();
+    return result.length > 0;
+  }
+
+  private mapProviderTemplate(r: any): any {
+    return {
+      id: r.id,
+      orgId: r.orgId,
+      userId: r.userId,
+      name: r.name,
+      specialty: r.specialty || undefined,
+      format: r.format || undefined,
+      category: r.category || undefined,
+      description: r.description || undefined,
+      sections: r.sections || undefined,
+      defaultCodes: r.defaultCodes || undefined,
+      tags: r.tags || undefined,
+      isDefault: r.isDefault || false,
+      createdAt: toISOString(r.createdAt),
+      updatedAt: toISOString(r.updatedAt),
     };
   }
 }

@@ -13,7 +13,7 @@
  */
 import path from "path";
 import fs from "fs";
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
 import { storage } from "../storage";
 import { assemblyAIService } from "./assemblyai";
 import { aiProvider, withBedrockProtection } from "./ai-factory";
@@ -29,8 +29,9 @@ import { calibrateAnalysis } from "./scoring-calibration";
 import { validateClinicalNote, sanitizeStylePreferences } from "./clinical-validation";
 import { estimateBedrockCost, estimateAssemblyAICost } from "../routes/ab-testing";
 import { safeFloat, withRetry } from "../routes/helpers";
-import { PLAN_DEFINITIONS, type PlanTier, type UsageRecord } from "@shared/schema";
+import { PLAN_DEFINITIONS, type PlanTier, type UsageRecord, type OrgSettings } from "@shared/schema";
 import type { PromptTemplateConfig } from "./ai-provider";
+import type { AssemblyAIResponse, TranscriptionOptions } from "./assemblyai";
 
 // ==================== REFERENCE DOC CACHE ====================
 
@@ -390,23 +391,101 @@ export async function processAudioFile(opts: ProcessAudioOptions): Promise<void>
 
   try {
     // Step 1: Upload + archive
-    const audioUrl = await uploadAndArchive(orgId, callId, filePath, audioBuffer, originalName, mimeType);
+    const uploadResult = await uploadAndArchive(orgId, callId, filePath, audioBuffer, originalName, mimeType);
+
+    // Build transcription options from org settings
+    const org = await storage.getOrganization(orgId);
+    const settings = org?.settings as OrgSettings | undefined;
+    const appBaseUrl = process.env.APP_BASE_URL;
+    const webhookSecret = process.env.ASSEMBLYAI_WEBHOOK_SECRET || process.env.SESSION_SECRET;
+    const transcriptionOptions: TranscriptionOptions = {
+      wordBoost: settings?.customVocabulary?.length ? settings.customVocabulary : undefined,
+      piiRedaction: settings?.piiRedaction,
+      languageDetection: true,
+      // Only use webhooks when APP_BASE_URL is set (not in dev without tunnel)
+      ...(appBaseUrl ? {
+        webhookUrl: `${appBaseUrl}/api/webhooks/assemblyai`,
+        webhookAuthHeaderValue: webhookSecret,
+      } : {}),
+    };
 
     // Step 2-3: Transcribe
-    const transcriptResult = await transcribe(orgId, callId, audioUrl, audioUrl.audioArchived, filePath);
-    if (!transcriptResult) return; // Empty transcript handled
+    const transcriptResult = await transcribe(orgId, callId, uploadResult, uploadResult.audioArchived, filePath, transcriptionOptions);
+    if (!transcriptResult) return; // Empty transcript handled, or webhook mode (async)
+
+    // In webhook mode, processing continues in the webhook handler
+    if (transcriptResult.webhookMode) {
+      logger.info({ callId }, "Webhook mode: transcription submitted, waiting for callback");
+      return;
+    }
 
     const { transcriptResponse, audioArchived } = transcriptResult;
 
+    await continueAfterTranscription(orgId, callId, transcriptResponse!, {
+      callCategory, userId, clinicalSpecialty, noteFormat,
+      audioArchived: audioArchived!,
+      originalName,
+      filePath,
+    });
+
+  } catch (error) {
+    logger.error({ callId, err: error }, "Critical error during audio processing");
+    await storage.updateCall(orgId, callId, { status: "failed" });
+    broadcastCallUpdate(callId, "failed", { label: "Processing failed" }, orgId);
+    await cleanupFile(filePath);
+  }
+}
+
+/**
+ * Continue pipeline after transcription is complete.
+ * Called by both the polling path (in-process) and the webhook handler (async).
+ */
+export async function continueAfterTranscription(
+  orgId: string,
+  callId: string,
+  transcriptResponse: AssemblyAIResponse,
+  opts?: {
+    callCategory?: string;
+    userId?: string;
+    clinicalSpecialty?: string;
+    noteFormat?: string;
+    audioArchived?: boolean;
+    originalName?: string;
+    filePath?: string; // for cleanup
+  },
+): Promise<void> {
+  const callCategory = opts?.callCategory;
+  const userId = opts?.userId;
+  const clinicalSpecialty = opts?.clinicalSpecialty;
+  const noteFormat = opts?.noteFormat;
+  const audioArchived = opts?.audioArchived ?? true;
+  const filePath = opts?.filePath;
+
+  // If opts not provided, look up call record to get category
+  let resolvedCallCategory = callCategory;
+  let resolvedOriginalName = opts?.originalName;
+  if (!resolvedCallCategory || !resolvedOriginalName) {
+    try {
+      const callRecord = await storage.getCall(orgId, callId);
+      if (callRecord) {
+        resolvedCallCategory = resolvedCallCategory || callRecord.callCategory || undefined;
+        resolvedOriginalName = resolvedOriginalName || callRecord.fileName || callId;
+      }
+    } catch {
+      // Non-critical — continue with whatever we have
+    }
+  }
+
+  try {
     // Step 4: AI analysis
-    const aiAnalysis = await runAiAnalysis(orgId, callId, callCategory, userId, clinicalSpecialty, noteFormat, transcriptResponse.text);
+    const aiAnalysis = await runAiAnalysis(orgId, callId, resolvedCallCategory, userId, clinicalSpecialty, noteFormat, transcriptResponse.text);
 
     // Warn if clinical call didn't produce a clinical note
-    if (callCategory && CLINICAL_CATEGORIES.includes(callCategory) && !aiAnalysis?.clinical_note) {
+    if (resolvedCallCategory && CLINICAL_CATEGORIES.includes(resolvedCallCategory) && !aiAnalysis?.clinical_note) {
       const reason = !aiProvider.isAvailable ? "AI provider not configured"
         : aiAnalysis === null ? "AI analysis failed"
         : "AI response did not include clinical note";
-      logger.warn({ callId, callCategory, reason }, "Clinical encounter without clinical note");
+      logger.warn({ callId, callCategory: resolvedCallCategory, reason }, "Clinical encounter without clinical note");
     }
 
     // Step 5: Process results
@@ -436,6 +515,26 @@ export async function processAudioFile(opts: ProcessAudioOptions): Promise<void>
 
     if (aiAnalysis?.detected_agent_name) {
       analysis.detectedAgentName = aiAnalysis.detected_agent_name;
+    }
+
+    // Score rationale
+    if (aiAnalysis?.score_rationale) {
+      analysis.scoreRationale = aiAnalysis.score_rationale;
+    }
+
+    // Prompt versioning (set by runAiAnalysis via prompt_version_id)
+    if (aiAnalysis?.prompt_version_id) {
+      analysis.promptVersionId = aiAnalysis.prompt_version_id;
+    }
+
+    // Language detection — store detected language and flag non-English calls
+    if (transcriptResponse.language_code) {
+      analysis.detectedLanguage = transcriptResponse.language_code;
+      if (transcriptResponse.language_code !== 'en') {
+        const flags = Array.isArray(analysis.flags) ? [...analysis.flags as string[]] : [];
+        if (!flags.includes('non_english')) flags.push('non_english');
+        analysis.flags = flags;
+      }
     }
 
     // Clinical note processing
@@ -478,20 +577,20 @@ export async function processAudioFile(opts: ProcessAudioOptions): Promise<void>
       ...(callTags.length > 0 ? { tags: callTags } : {}),
     });
 
-    await cleanupFile(filePath);
+    if (filePath) await cleanupFile(filePath);
     broadcastCallUpdate(callId, "completed", { step: 6, totalSteps: 6, label: "Complete" }, orgId);
 
     // Invalidate dashboard cache so next request picks up new data
     invalidateDashboardCache(orgId).catch(() => {});
 
     // Non-blocking: notifications, coaching, usage tracking
-    await postProcessing(orgId, callId, analysis, aiAnalysis, assignedEmployeeId, originalName, transcriptResponse);
+    await postProcessing(orgId, callId, analysis, aiAnalysis, assignedEmployeeId, resolvedOriginalName || callId, transcriptResponse);
 
   } catch (error) {
-    logger.error({ callId, err: error }, "Critical error during audio processing");
+    logger.error({ callId, err: error }, "Critical error during post-transcription processing");
     await storage.updateCall(orgId, callId, { status: "failed" });
     broadcastCallUpdate(callId, "failed", { label: "Processing failed" }, orgId);
-    await cleanupFile(filePath);
+    if (filePath) await cleanupFile(filePath);
   }
 }
 
@@ -519,10 +618,18 @@ async function transcribe(
   orgId: string, callId: string,
   uploadResult: { audioUrl: string; audioArchived: boolean },
   audioArchived: boolean, filePath: string,
-) {
+  transcriptionOptions?: TranscriptionOptions,
+): Promise<{ transcriptResponse?: AssemblyAIResponse; audioArchived?: boolean; webhookMode?: boolean } | null> {
   broadcastCallUpdate(callId, "transcribing", { step: 2, totalSteps: 6, label: "Transcribing audio..." }, orgId);
-  const transcriptId = await assemblyAIService.transcribeAudio(uploadResult.audioUrl);
+  const transcriptId = await assemblyAIService.transcribeAudio(uploadResult.audioUrl, transcriptionOptions);
   await storage.updateCall(orgId, callId, { assemblyAiId: transcriptId });
+
+  // Webhook mode: return early — AssemblyAI will POST results asynchronously
+  if (transcriptionOptions?.webhookUrl) {
+    logger.info({ callId, transcriptId }, "Webhook mode: transcription submitted, waiting for webhook callback");
+    broadcastCallUpdate(callId, "transcribing", { step: 3, totalSteps: 6, label: "Waiting for transcript (webhook)..." }, orgId);
+    return { webhookMode: true };
+  }
 
   broadcastCallUpdate(callId, "transcribing", { step: 3, totalSteps: 6, label: "Waiting for transcript..." }, orgId);
   const transcriptResponse = await assemblyAIService.pollTranscript(transcriptId, 60, (attempt, max, status) => {
@@ -590,6 +697,14 @@ async function runAiAnalysis(
         { retries: 2, baseDelay: 2000, label: `AI analysis for ${callId}` },
       ),
     );
+    // Attach prompt version ID for audit trail (12-char SHA-256 prefix of rendered system prompt)
+    try {
+      const { buildSystemPrompt } = await import("./ai-prompts");
+      const sysPrompt = buildSystemPrompt(callCategory, promptTemplate);
+      result.prompt_version_id = createHash("sha256").update(sysPrompt).digest("hex").slice(0, 12);
+    } catch {
+      // Non-critical
+    }
     logger.info({ callId }, "AI analysis complete");
     return result;
   } catch (err) {

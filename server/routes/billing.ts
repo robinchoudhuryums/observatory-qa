@@ -7,10 +7,11 @@ import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import {
-  getStripe, isStripeConfigured, getPriceId, getSeatPriceId,
+  getStripe, isStripeConfigured, getPriceId, getSeatPriceId, getOveragePriceId,
   getOrCreateCustomer, createCheckoutSession, createPortalSession,
-  constructWebhookEvent, reportSeatUsage,
+  constructWebhookEvent, reportSeatUsage, reportCallOverage,
 } from "../services/stripe";
+import { sendEmail, buildPaymentFailedEmail, buildTrialEndingEmail, buildQuotaAlertEmail } from "../services/email";
 import {
   PLAN_DEFINITIONS, PLAN_TIERS,
   type PlanTier, type Subscription,
@@ -148,9 +149,14 @@ export function requirePlanFeature(feature: keyof import("@shared/schema").PlanL
   };
 }
 
+/** Grace period after a payment failure before hard-blocking the account (days) */
+const DUNNING_GRACE_PERIOD_DAYS = 7;
+
 /**
  * Middleware to block requests when subscription is past_due or canceled.
  * Allows read-only access (GET) but blocks mutations.
+ * Implements a 7-day grace period for past_due: mutations are allowed during
+ * the grace window with a warning header, then hard-blocked after.
  */
 export function requireActiveSubscription() {
   return async (req: Request, res: Response, next: NextFunction) => {
@@ -167,8 +173,23 @@ export function requireActiveSubscription() {
       if (!sub) return next(); // Free tier, no subscription record
 
       if (sub.status === "past_due") {
+        // Calculate grace period: allow access for DUNNING_GRACE_PERIOD_DAYS after first failure
+        const gracePeriodMs = DUNNING_GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000;
+        const pastDueAt = sub.pastDueAt ? new Date(sub.pastDueAt) : null;
+        const graceExpiry = pastDueAt ? new Date(pastDueAt.getTime() + gracePeriodMs) : null;
+        const inGracePeriod = graceExpiry ? Date.now() < graceExpiry.getTime() : true; // fail open if no timestamp
+
+        if (inGracePeriod) {
+          const daysLeft = graceExpiry
+            ? Math.max(0, Math.ceil((graceExpiry.getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+            : DUNNING_GRACE_PERIOD_DAYS;
+          res.setHeader("X-Subscription-Warning", "past_due");
+          res.setHeader("X-Grace-Period-Days-Left", daysLeft.toString());
+          return next();
+        }
+
         return res.status(402).json({
-          message: "Your subscription payment is past due. Please update your payment method.",
+          message: "Your subscription payment is past due and your grace period has expired. Please update your payment method.",
           code: "SUBSCRIPTION_PAST_DUE",
           status: sub.status,
           portalUrl: "/settings?tab=billing",
@@ -224,6 +245,24 @@ export async function syncSeatUsage(orgId: string): Promise<void> {
   }
 }
 
+/**
+ * Report one overage call to Stripe. Called from the upload handler when
+ * enforceQuota has set isOverQuota=true. Non-blocking — failures are logged only.
+ */
+export async function reportCallOverageToStripe(orgId: string): Promise<void> {
+  const stripe = getStripe();
+  if (!stripe) return;
+
+  try {
+    const sub = await storage.getSubscription(orgId);
+    if (!sub?.stripeOverageItemId) return; // no overage meter on this subscription
+    await reportCallOverage(stripe, sub.stripeOverageItemId);
+    logger.info({ orgId }, "Call overage reported to Stripe");
+  } catch (err) {
+    logger.warn({ err, orgId }, "Call overage Stripe report failed (non-fatal)");
+  }
+}
+
 // ============================================================================
 // Billing Routes
 // ============================================================================
@@ -247,29 +286,76 @@ export function registerBillingRoutes(app: Express): void {
       const tier = (sub?.planTier as PlanTier) || "free";
       const plan = PLAN_DEFINITIONS[tier];
 
-      // Get current month's usage
+      // Determine billing period bounds (use Stripe period if available, else calendar month)
       const now = new Date();
-      const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      const usage = await storage.getUsageSummary(req.orgId!, periodStart);
+      const periodStart = sub?.currentPeriodStart
+        ? new Date(sub.currentPeriodStart)
+        : new Date(now.getFullYear(), now.getMonth(), 1);
+      const periodEnd = sub?.currentPeriodEnd
+        ? new Date(sub.currentPeriodEnd)
+        : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
 
+      const usage = await storage.getUsageSummary(req.orgId!, periodStart);
       const usageMap: Record<string, number> = {};
       for (const u of usage) {
         usageMap[u.eventType] = u.totalQuantity;
       }
 
+      const callsThisMonth = usageMap["transcription"] || 0;
+      const callLimit = plan.limits.callsPerMonth; // -1 = unlimited
+
+      // --- Usage forecast ---
+      const daysElapsed = Math.max(1, (now.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24));
+      const totalDays = Math.max(1, (periodEnd.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24));
+      const daysRemaining = Math.max(0, Math.ceil((periodEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+      const dailyCallRate = callsThisMonth / daysElapsed;
+      const projectedCallsEom = Math.round(dailyCallRate * totalDays);
+      const daysUntilCallQuotaExceeded = (callLimit > 0 && dailyCallRate > 0)
+        ? Math.max(0, Math.floor((callLimit - callsThisMonth) / dailyCallRate))
+        : null;
+
+      // --- Grace period info for past_due ---
+      let gracePeriodDaysLeft: number | null = null;
+      if (sub?.status === "past_due" && sub.pastDueAt) {
+        const gracePeriodMs = DUNNING_GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000;
+        const graceExpiry = new Date(new Date(sub.pastDueAt).getTime() + gracePeriodMs);
+        gracePeriodDaysLeft = Math.max(0, Math.ceil((graceExpiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+      }
+
+      // --- Spend alert check (rate-limited to once per 24h) ---
+      const org = await storage.getOrganization(req.orgId!);
+      const alerts = org?.settings?.billingAlerts;
+      if (alerts?.enabled && callLimit > 0) {
+        const usagePct = Math.round((callsThisMonth / callLimit) * 100);
+        const lastSent = alerts.lastQuotaAlertSentAt ? new Date(alerts.lastQuotaAlertSentAt) : null;
+        const cooldownPassed = !lastSent || (now.getTime() - lastSent.getTime()) > 24 * 60 * 60 * 1000;
+        if (cooldownPassed && usagePct >= (alerts.quotaThresholdPct ?? 80)) {
+          const alertEmail = alerts.alertEmail || req.user!.username;
+          const warnings = [{ label: "Calls", used: callsThisMonth, limit: callLimit, pct: usagePct }];
+          const emailPayload = buildQuotaAlertEmail(org!.name, warnings, usagePct >= 100, req.get("origin") || "");
+          emailPayload.to = alertEmail;
+          sendEmail(emailPayload).catch(err => logger.warn({ err, orgId: req.orgId }, "Quota alert email failed"));
+          // Update lastQuotaAlertSentAt in org settings (fire-and-forget)
+          const updatedSettings = { ...org!.settings, billingAlerts: { ...alerts, lastQuotaAlertSentAt: now.toISOString() } };
+          storage.updateOrganization(req.orgId!, { settings: updatedSettings as any }).catch(() => {});
+        }
+      }
+
       res.json({
-        subscription: sub || {
-          planTier: "free",
-          status: "active",
-          billingInterval: "monthly",
-        },
+        subscription: sub || { planTier: "free", status: "active", billingInterval: "monthly" },
         plan,
         usage: {
-          callsThisMonth: usageMap["transcription"] || 0,
+          callsThisMonth,
           aiAnalysesThisMonth: usageMap["ai_analysis"] || 0,
           apiCallsThisMonth: usageMap["api_call"] || 0,
           storageMbUsed: usageMap["storage_mb"] || 0,
         },
+        forecast: {
+          projectedCallsEom,
+          daysUntilCallQuotaExceeded,
+          daysRemaining,
+        },
+        gracePeriodDaysLeft,
         stripeConfigured: isStripeConfigured(),
       });
     } catch (error) {
@@ -359,6 +445,10 @@ export function registerBillingRoutes(app: Express): void {
 
       const baseUrl = `${req.protocol}://${req.get("host")}`;
       const seatPriceId = getSeatPriceId(tier as PlanTier) ?? undefined;
+      const overagePriceId = getOveragePriceId(tier as PlanTier) ?? undefined;
+      const trialDays = existingSub?.planTier === "free" || !existingSub
+        ? (PLAN_DEFINITIONS[tier as PlanTier].trialDays ?? undefined)
+        : undefined; // No trial for existing paid subscribers
       const checkoutUrl = await createCheckoutSession(
         stripe,
         customerId,
@@ -367,6 +457,8 @@ export function registerBillingRoutes(app: Express): void {
         `${baseUrl}/settings?tab=billing&checkout=success`,
         `${baseUrl}/settings?tab=billing&checkout=canceled`,
         seatPriceId,
+        overagePriceId,
+        trialDays,
       );
 
       logPhiAccess({
@@ -453,6 +545,129 @@ export function registerBillingRoutes(app: Express): void {
     }
   });
 
+  // --- Mid-cycle plan upgrade (admin only) ---
+  // Uses stripe.subscriptions.update() + proration instead of a new checkout session.
+  // Only applicable when the org already has an active Stripe subscription.
+  app.post("/api/billing/upgrade", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    const stripe = getStripe();
+    if (!stripe) {
+      return res.status(503).json({ message: "Stripe not configured" });
+    }
+
+    try {
+      const { tier, interval = "monthly" } = req.body;
+      if (!tier || !PLAN_TIERS.includes(tier)) {
+        return res.status(400).json({ message: "Invalid plan tier" });
+      }
+      if (tier === "free") {
+        return res.status(400).json({ message: "Use /api/billing/downgrade to cancel" });
+      }
+      if (tier === "enterprise") {
+        return res.status(400).json({ message: "Enterprise plan requires contacting sales", code: "CONTACT_SALES_REQUIRED" });
+      }
+
+      const sub = await storage.getSubscription(req.orgId!);
+      if (!sub?.stripeSubscriptionId || (sub.status !== "active" && sub.status !== "trialing")) {
+        // No active subscription — fall back to checkout flow
+        return res.status(400).json({
+          message: "No active Stripe subscription found. Use /api/billing/checkout to subscribe.",
+          code: "NO_ACTIVE_SUBSCRIPTION",
+        });
+      }
+
+      const newPriceId = getPriceId(tier as PlanTier, interval);
+      if (!newPriceId) {
+        return res.status(400).json({ message: `No Stripe price configured for ${tier}/${interval}` });
+      }
+
+      // Retrieve current Stripe subscription to find existing item IDs
+      const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
+      const currentItems: any[] = (stripeSub as any).items?.data || [];
+      const flatItem = currentItems.find((i: any) => i.price?.recurring?.usage_type !== "metered");
+      const meteredItems = currentItems.filter((i: any) => i.price?.recurring?.usage_type === "metered");
+
+      const newSeatPriceId = getSeatPriceId(tier as PlanTier);
+      const newOveragePriceId = getOveragePriceId(tier as PlanTier);
+
+      // Build items array: update flat-rate price, replace metered items
+      const items: any[] = [];
+      if (flatItem) {
+        items.push({ id: flatItem.id, price: newPriceId });
+      } else {
+        items.push({ price: newPriceId, quantity: 1 });
+      }
+      // Remove old metered items; add new ones for the target tier
+      for (const item of meteredItems) {
+        items.push({ id: item.id, deleted: true });
+      }
+      if (newSeatPriceId) items.push({ price: newSeatPriceId });
+      if (newOveragePriceId) items.push({ price: newOveragePriceId });
+
+      const updatedSub = await stripe.subscriptions.update(sub.stripeSubscriptionId, {
+        items,
+        proration_behavior: "create_prorations",
+        metadata: { orgId: req.orgId! },
+      });
+
+      // Extract new item IDs from the updated subscription
+      const updatedItems: any[] = (updatedSub as any).items?.data || [];
+      const newFlatItem = updatedItems.find((i: any) => i.price?.recurring?.usage_type !== "metered");
+      const newSeatsItem = newSeatPriceId ? updatedItems.find((i: any) => i.price?.id === newSeatPriceId) : null;
+      const newOverageItem = newOveragePriceId ? updatedItems.find((i: any) => i.price?.id === newOveragePriceId) : null;
+
+      await storage.updateSubscription(req.orgId!, {
+        planTier: tier as PlanTier,
+        stripePriceId: newFlatItem?.price?.id,
+        stripeSeatsItemId: newSeatsItem?.id || undefined,
+        stripeOverageItemId: newOverageItem?.id || undefined,
+        billingInterval: interval as "monthly" | "yearly",
+        currentPeriodStart: new Date((updatedSub as any).current_period_start * 1000).toISOString(),
+        currentPeriodEnd: new Date((updatedSub as any).current_period_end * 1000).toISOString(),
+      });
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "billing_plan_upgraded",
+        resourceType: "subscription",
+        resourceId: req.orgId!,
+        detail: `From: ${sub.planTier}, To: ${tier}, Interval: ${interval}`,
+      });
+      logger.info({ orgId: req.orgId, from: sub.planTier, to: tier, interval }, "Plan upgraded mid-cycle with proration");
+
+      // Sync seat usage to new tier
+      await syncSeatUsage(req.orgId!);
+
+      res.json({ success: true, planTier: tier, interval });
+    } catch (error) {
+      logger.error({ err: error }, "Mid-cycle upgrade failed");
+      res.status(500).json({ message: "Failed to upgrade subscription" });
+    }
+  });
+
+  // --- Billing alert configuration (admin only) ---
+  app.patch("/api/billing/alerts", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      const { enabled, quotaThresholdPct, alertEmail } = req.body;
+      const org = await storage.getOrganization(req.orgId!);
+      if (!org) return res.status(404).json({ message: "Organization not found" });
+
+      const updatedSettings = {
+        ...org.settings,
+        billingAlerts: {
+          enabled: enabled ?? org.settings?.billingAlerts?.enabled ?? false,
+          quotaThresholdPct: quotaThresholdPct ?? org.settings?.billingAlerts?.quotaThresholdPct ?? 80,
+          alertEmail: alertEmail ?? org.settings?.billingAlerts?.alertEmail,
+          lastQuotaAlertSentAt: org.settings?.billingAlerts?.lastQuotaAlertSentAt,
+        },
+      };
+      await storage.updateOrganization(req.orgId!, { settings: updatedSettings as any });
+      logger.info({ orgId: req.orgId, enabled, quotaThresholdPct }, "Billing alerts updated");
+      res.json({ success: true, billingAlerts: updatedSettings.billingAlerts });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update billing alerts" });
+    }
+  });
+
   // --- Seat usage sync (admin only) ---
   app.post("/api/billing/seats/sync", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
     const stripe = getStripe();
@@ -525,27 +740,38 @@ export function registerBillingRoutes(app: Express): void {
 
             // The flat-rate item is the one whose price is NOT metered
             const flatItem = items.find((i: any) => i.price?.recurring?.usage_type !== "metered") || items[0];
-            const seatsItem = items.find((i: any) => i.price?.recurring?.usage_type === "metered");
+            // Identify metered items by matching against known price env vars
+            const seatsItem = findItemByKnownPriceId(items, [
+              process.env.STRIPE_PRICE_STARTER_SEATS,
+              process.env.STRIPE_PRICE_PROFESSIONAL_SEATS,
+            ]);
+            const overageItem = findItemByKnownPriceId(items, [
+              process.env.STRIPE_PRICE_STARTER_OVERAGE,
+              process.env.STRIPE_PRICE_PROFESSIONAL_OVERAGE,
+            ]);
 
             const priceId = flatItem?.price?.id;
             const tier = resolveTierFromPriceId(priceId);
             const interval = flatItem?.price?.recurring?.interval === "year" ? "yearly" : "monthly";
             const stripeSeatsItemId = seatsItem?.id;
+            const stripeOverageItemId = overageItem?.id;
+            const isTrialing = subData.status === "trialing";
 
             await storage.upsertSubscription(orgId, {
               orgId,
               planTier: tier,
-              status: "active",
+              status: isTrialing ? "trialing" : "active",
               stripeCustomerId: session.customer as string,
               stripeSubscriptionId: stripeSub.id,
               stripePriceId: priceId,
               stripeSeatsItemId,
+              stripeOverageItemId,
               billingInterval: interval,
               currentPeriodStart: new Date(subData.current_period_start * 1000).toISOString(),
               currentPeriodEnd: new Date(subData.current_period_end * 1000).toISOString(),
               cancelAtPeriodEnd: false,
             });
-            logger.info({ orgId, tier, interval, hasSeatMeter: !!stripeSeatsItemId }, "Subscription activated via checkout");
+            logger.info({ orgId, tier, interval, hasSeatMeter: !!stripeSeatsItemId, hasOverageMeter: !!stripeOverageItemId, isTrialing }, "Subscription activated via checkout");
 
             // Report initial seat count for metered billing
             if (stripeSeatsItemId) {
@@ -616,8 +842,26 @@ export function registerBillingRoutes(app: Express): void {
 
           const sub = await storage.getSubscriptionByStripeCustomerId(customerId);
           if (sub) {
-            await storage.updateSubscription(sub.orgId, { status: "past_due" });
-            logger.warn({ orgId: sub.orgId }, "Invoice payment failed — status set to past_due");
+            const now = new Date();
+            // Only set pastDueAt on the first failure (don't reset on retries)
+            const pastDueAt = sub.pastDueAt || now.toISOString();
+            await storage.updateSubscription(sub.orgId, { status: "past_due", pastDueAt });
+            logger.warn({ orgId: sub.orgId, pastDueAt }, "Invoice payment failed — status set to past_due");
+
+            // Send dunning email to admin
+            try {
+              const org = await storage.getOrganization(sub.orgId);
+              const adminUsers = await storage.listUsersByOrg(sub.orgId);
+              const admin = adminUsers.find(u => u.role === "admin");
+              if (admin?.username && org) {
+                const baseUrl = process.env.APP_BASE_URL || "https://app.observatory-qa.com";
+                const email = buildPaymentFailedEmail(org.name, DUNNING_GRACE_PERIOD_DAYS, baseUrl);
+                email.to = admin.username;
+                await sendEmail(email);
+              }
+            } catch (emailErr) {
+              logger.warn({ err: emailErr, orgId: sub.orgId }, "Failed to send payment failed email (non-fatal)");
+            }
           }
           break;
         }
@@ -627,10 +871,10 @@ export function registerBillingRoutes(app: Express): void {
           const customerId = invoice.customer;
           if (!customerId) break;
 
-          // Re-activate subscription if it was past_due
+          // Re-activate subscription if it was past_due, clear pastDueAt
           const sub = await storage.getSubscriptionByStripeCustomerId(customerId);
           if (sub && sub.status === "past_due") {
-            await storage.updateSubscription(sub.orgId, { status: "active" });
+            await storage.updateSubscription(sub.orgId, { status: "active", pastDueAt: undefined });
             logger.info({ orgId: sub.orgId }, "Invoice paid — subscription re-activated from past_due");
           }
           break;
@@ -640,7 +884,22 @@ export function registerBillingRoutes(app: Express): void {
           const stripeSub = event.data.object as any;
           const orgId = stripeSub.metadata?.orgId;
           if (orgId) {
-            logger.info({ orgId, trialEnd: new Date(stripeSub.trial_end * 1000).toISOString() }, "Trial ending soon");
+            const trialEnd = new Date(stripeSub.trial_end * 1000);
+            logger.info({ orgId, trialEnd: trialEnd.toISOString() }, "Trial ending soon");
+            // Send trial ending email to admin
+            try {
+              const org = await storage.getOrganization(orgId);
+              const adminUsers = await storage.listUsersByOrg(orgId);
+              const admin = adminUsers.find((u: any) => u.role === "admin");
+              if (admin?.username && org) {
+                const baseUrl = process.env.APP_BASE_URL || "https://app.observatory-qa.com";
+                const email = buildTrialEndingEmail(org.name, trialEnd, baseUrl);
+                email.to = admin.username;
+                await sendEmail(email);
+              }
+            } catch (emailErr) {
+              logger.warn({ err: emailErr, orgId }, "Failed to send trial ending email (non-fatal)");
+            }
           }
           break;
         }
@@ -655,6 +914,15 @@ export function registerBillingRoutes(app: Express): void {
       res.status(500).json({ message: "Webhook processing failed" });
     }
   });
+}
+
+/**
+ * Find a Stripe subscription item whose price.id matches one of the given known price IDs.
+ * Used to reliably distinguish seats vs overage metered items (rather than by position).
+ */
+function findItemByKnownPriceId(items: any[], knownIds: (string | undefined)[]): any | undefined {
+  const validIds = knownIds.filter(Boolean) as string[];
+  return items.find((i: any) => validIds.includes(i.price?.id));
 }
 
 /** Reverse-lookup a plan tier from a Stripe price ID */

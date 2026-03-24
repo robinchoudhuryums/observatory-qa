@@ -81,6 +81,7 @@ export class MemStorage implements IStorage {
   private accessRequests = new Map<string, AccessRequest>();
   private promptTemplates = new Map<string, PromptTemplate>();
   private coachingSessions = new Map<string, CoachingSession>();
+  private providerTemplatesStore = new Map<string, any>();
   private cleanupTimer: ReturnType<typeof setInterval>;
 
   constructor() {
@@ -233,6 +234,9 @@ export class MemStorage implements IStorage {
   async getCallByFileHash(orgId: string, fileHash: string): Promise<Call | undefined> {
     return Array.from(this.calls.values()).find(c => c.orgId === orgId && c.fileHash === fileHash && c.status !== "failed");
   }
+  async getCallByAssemblyAiId(transcriptId: string): Promise<Call | null> {
+    return Array.from(this.calls.values()).find(c => c.assemblyAiId === transcriptId) || null;
+  }
   async getAllCalls(orgId: string): Promise<Call[]> {
     return Array.from(this.calls.values())
       .filter(c => c.orgId === orgId)
@@ -286,10 +290,15 @@ export class MemStorage implements IStorage {
     this.transcripts.set(transcript.callId, newTranscript);
     return newTranscript;
   }
-  async updateTranscript(orgId: string, callId: string, updates: { text: string }): Promise<Transcript | undefined> {
+  async updateTranscript(orgId: string, callId: string, updates: { text?: string; corrections?: any[]; correctedText?: string }): Promise<Transcript | undefined> {
     const t = this.transcripts.get(callId);
     if (!t || t.orgId !== orgId) return undefined;
-    const updated = { ...t, text: updates.text };
+    const updated = {
+      ...t,
+      ...(updates.text !== undefined ? { text: updates.text } : {}),
+      ...(updates.corrections !== undefined ? { corrections: updates.corrections } : {}),
+      ...(updates.correctedText !== undefined ? { correctedText: updates.correctedText } : {}),
+    };
     this.transcripts.set(callId, updated);
     return updated;
   }
@@ -1117,6 +1126,36 @@ export class MemStorage implements IStorage {
       inProgress: progress.filter(p => p.status === "in_progress").length,
       avgScore: scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0,
     };
+  }
+
+  // --- Provider templates (org-scoped) ---
+  async getProviderTemplates(orgId: string, userId: string): Promise<any[]> {
+    return Array.from(this.providerTemplatesStore.values()).filter(
+      t => t.orgId === orgId && t.userId === userId,
+    );
+  }
+  async getAllProviderTemplates(orgId: string): Promise<any[]> {
+    return Array.from(this.providerTemplatesStore.values()).filter(t => t.orgId === orgId);
+  }
+  async createProviderTemplate(orgId: string, template: any): Promise<any> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const t = { ...template, id, orgId, createdAt: now, updatedAt: now };
+    this.providerTemplatesStore.set(id, t);
+    return t;
+  }
+  async updateProviderTemplate(orgId: string, id: string, userId: string, updates: any): Promise<any | null> {
+    const t = this.providerTemplatesStore.get(id);
+    if (!t || t.orgId !== orgId || t.userId !== userId) return null;
+    const updated = { ...t, ...updates, updatedAt: new Date().toISOString() };
+    this.providerTemplatesStore.set(id, updated);
+    return updated;
+  }
+  async deleteProviderTemplate(orgId: string, id: string, userId: string): Promise<boolean> {
+    const t = this.providerTemplatesStore.get(id);
+    if (!t || t.orgId !== orgId || t.userId !== userId) return false;
+    this.providerTemplatesStore.delete(id);
+    return true;
   }
 
   // --- Data retention (org-scoped) ---

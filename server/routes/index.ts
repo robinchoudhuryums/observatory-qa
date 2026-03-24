@@ -35,6 +35,7 @@ import { registerCalibrationRoutes } from "./calibration";
 import { registerEmailRoutes } from "./emails";
 import { registerLmsRoutes } from "./lms";
 import { registerMarketingRoutes } from "./marketing";
+import { registerAssemblyAIWebhookRoutes } from "./assemblyai-webhook";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -50,6 +51,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       next();
     });
   }
+
+  // Register AssemblyAI webhook BEFORE auth middleware — it is public but token-verified
+  registerAssemblyAIWebhookRoutes(app);
 
   // API key auth middleware (before routes, after session middleware)
   app.use("/api", apiKeyAuth);
