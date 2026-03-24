@@ -308,7 +308,7 @@ Every data entity has an `orgId` field. All storage methods take `orgId` as the 
 - `Transcript` — id, orgId, callId, text, confidence, words[]
 - `SentimentAnalysis` — id, orgId, callId, overallSentiment, overallScore, segments[]
 - `CallAnalysis` — id, orgId, callId, performanceScore, subScores, summary, topics, feedback, flags, clinicalNote (optional)
-- `ClinicalNote` — embedded in CallAnalysis: format (SOAP/DAP/BIRP/HPI/procedure), specialty, subjective, objective, assessment, plan, HPI, ROS, differentialDiagnoses, icd10Codes, cptCodes, cdtCodes, toothNumbers, periodontalFindings, treatmentPhases, providerAttested, attestedBy, editHistory, consentObtained, documentationCompleteness (0-10), clinicalAccuracy (0-10)
+- `ClinicalNote` — embedded in CallAnalysis: format (SOAP/DAP/BIRP/HPI/procedure), specialty, subjective, objective, assessment, plan, HPI, ROS, differentialDiagnoses, icd10Codes, cptCodes, cdtCodes, toothNumbers, periodontalFindings, treatmentPhases, providerAttested, attestedBy, editHistory, consentObtained, documentationCompleteness (0-10), clinicalAccuracy (0-10), `amendments[]` — array of post-attestation amendment snapshots (reason, changedBy, timestamp, fieldsChanged), `cosignature` — supervising provider co-signature (signedBy, signedAt, providerName, credentials), `cosignatureRequired` — boolean flag, `structuredData` — extracted vitals (BP, HR, RR, temp, O2sat, pain, weight), medications[], allergies[], `qualityScoreBreakdown` — icd10Specificity, requiredElementsPresent, planDiagnosisAlignment, overallQuality (all 0-10)
 - `ABTest` — id, orgId, fileName, baselineModel, testModel, transcriptText, baselineAnalysis, testAnalysis, baselineLatencyMs, testLatencyMs, status, createdBy
 - `UsageRecord` — id, orgId, callId, type (transcription/ai_analysis/ab-test), services (assemblyai/bedrock cost breakdown), totalEstimatedCost
 - `AccessRequest` — id, orgId, name, email, requestedRole, status
@@ -785,6 +785,12 @@ CDN_ORIGIN                      # CDN domain (e.g. https://cdn.observatory-qa.co
 # ─── PHI Encryption ─────────────────────────────────────────────────
 PHI_ENCRYPTION_KEY              # 64-char hex for AES-256-GCM field-level encryption
 
+# ─── Transcription Webhooks ──────────────────────────────────────────
+ASSEMBLYAI_WEBHOOK_SECRET       # Webhook token for AssemblyAI callbacks (falls back to SESSION_SECRET)
+
+# ─── KMS Encryption ──────────────────────────────────────────────────
+AWS_KMS_KEY_ID                  # AWS KMS CMK ARN for per-org envelope encryption (optional)
+
 # ─── OpenTelemetry ───────────────────────────────────────────────────
 OTEL_ENABLED                    # Set to "true" to enable OpenTelemetry traces + metrics
 OTEL_EXPORTER_OTLP_ENDPOINT     # OTLP exporter endpoint (e.g. http://localhost:4318)
@@ -819,7 +825,7 @@ DISABLE_SECURE_COOKIE           # Set to skip secure cookie flag (for non-TLS de
 | `users` | unique on `(org_id, username)` | Per-org username uniqueness (composite index). Passwords hashed with scrypt. MFA fields: `mfa_enabled`, `mfa_secret`, `mfa_backup_codes` |
 | `employees` | unique on `(org_id, email)` | Per-org employee roster |
 | `calls` | index on `(org_id, status)`, `uploaded_at` | Links to employee. `file_hash` for dedup, `call_category`, `tags` (JSONB) |
-| `transcripts` | unique on `call_id` | Cascade delete with call |
+| `transcripts` | unique on `call_id` | Cascade delete with call. `corrections` JSONB, `corrected_text` TEXT for manual transcript corrections |
 | `sentiment_analyses` | unique on `call_id` | Cascade delete with call |
 | `call_analyses` | unique on `call_id`, index on `(org_id, performance_score)` | Cascade delete. `confidence_factors` (JSONB incl. `aiAnalysisCompleted`), `sub_scores`, `detected_agent_name`, `manual_edits` |
 | `access_requests` | index on `(org_id, status)` | |
@@ -843,6 +849,7 @@ DISABLE_SECURE_COOKIE           # Set to skip secure cookie flag (for non-TLS de
 | `call_revenues` | unique on `(org_id, call_id)`, index on `conversion_status` | Per-call revenue/conversion tracking |
 | `calibration_sessions` | index on `(org_id, status)` | Multi-evaluator QA alignment sessions |
 | `calibration_evaluations` | unique on `(session_id, evaluator_id)` | Individual evaluator scores, cascade delete with session |
+| `provider_templates` | index on `(org_id, user_id)`, `(org_id, specialty)` | Per-provider custom clinical note templates. JSONB sections, defaultCodes, tags |
 
 Requires pgvector extension: `CREATE EXTENSION IF NOT EXISTS vector;`
 
@@ -896,6 +903,9 @@ On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add mi
 - **Per-org username uniqueness**: Usernames are unique within an org (composite index `orgId + username`), not globally. `getUserByUsername()` accepts optional `orgId` for scoped lookups. OAuth/SSO flows without org context search globally
 - **Org-scoped rate limiting**: Authenticated data routes include `orgId` in rate limit keys so tenants sharing an IP (corporate networks) don't affect each other. Pre-auth routes (login, register) use IP-only keys
 - **Search scope**: `searchCalls()` searches transcripts, analysis summaries, and topics (not just transcripts). Uses PostgreSQL ILIKE with Set-based deduplication
+- **PostgreSQL RLS for defense-in-depth**: Row-Level Security policies enforce tenant isolation at the database layer — even if application code has a bug, the DB rejects cross-org queries. `withBypassRls()` and `withOrgContext()` helpers in pg-storage.ts manage the `app.bypass_rls` and `app.org_id` session settings
+- **KMS envelope encryption**: Per-org DEKs are generated by AWS KMS and stored encrypted in org settings. Actual PHI encryption uses the DEK (AES-256-GCM), not the master key — enabling efficient rotation. Format prefix (`enc_v1:` vs `enc_v2_{prefix}:`) allows per-field routing to the correct key
+- **Dual-path transcription**: When `APP_BASE_URL` is set, AssemblyAI uses webhooks; otherwise polls. `continueAfterTranscription()` in call-processing.ts handles steps 4–15 of the pipeline for both paths
 
 ## Deployment
 
@@ -967,6 +977,10 @@ Server serves both API and static frontend from the same process.
 - **Empty transcript handling**: If transcript text is <10 characters, the pipeline saves the call with `empty_transcript` flag, low confidence, and skips AI analysis entirely — prevents generating junk analysis from silence/noise
 - **Employee auto-assignment safety**: Only considers active employees. If multiple employees match the detected name, prefers exact full-name match; skips assignment if ambiguous (logs the ambiguity)
 - **`toDisplayString()` handles nested objects**: Checks `value`, `message`, `text` keys for wrapped strings, handles arrays, and caps JSON fallback at 500 chars
+- **RLS bypass required for schema-sync**: `syncSchema()` sets `app.bypass_rls = 'true'` at the session level before creating tables/policies, since RLS would otherwise block DDL operations. All pgvector and super-admin cross-org queries must use `withBypassRls()`
+- **Org status gate adds latency**: `injectOrgContext` now does an async org status lookup on every authenticated request. For high-traffic deployments, consider a short-lived org status cache (TTL ~30s is already used in some implementations)
+- **GDPR purge is irreversible**: `deleteOrgData()` deletes employees, calls, and users but preserves the org record (status=deleted) for audit trail. The session is destroyed immediately after purge. Backups should be the recovery path
+- **AssemblyAI webhook verification**: `POST /api/webhooks/assemblyai` checks `X-Assembly-Webhook-Token` header against `ASSEMBLYAI_WEBHOOK_SECRET` (falls back to `SESSION_SECRET`). Register this endpoint as the webhook URL in your AssemblyAI account
 
 ## Future Plans / Roadmap
 See `HEALTHCARE_EXPANSION_PLAN.md` for the full 4-phase healthcare expansion roadmap.
