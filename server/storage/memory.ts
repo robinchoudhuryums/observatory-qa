@@ -1158,6 +1158,81 @@ export class MemStorage implements IStorage {
     return true;
   }
 
+  // --- GDPR/CCPA: bulk org data deletion ---
+  async deleteOrgData(orgId: string): Promise<{ employeesDeleted: number; callsDeleted: number; usersDeleted: number }> {
+    // Delete coaching sessions for org
+    for (const [id, s] of Array.from(this.coachingSessions.entries())) {
+      if (s.orgId === orgId) this.coachingSessions.delete(id);
+    }
+    // Delete calls (cascades transcript/analysis/sentiment in memory)
+    const orgCalls = Array.from(this.calls.values()).filter(c => c.orgId === orgId);
+    let callsDeleted = 0;
+    for (const call of orgCalls) {
+      this.transcripts.delete(call.id);
+      this.sentiments.delete(call.id);
+      this.analyses.delete(call.id);
+      this.calls.delete(call.id);
+      callsDeleted++;
+    }
+    // Delete employees
+    const orgEmployees = Array.from(this.employees.values()).filter(e => e.orgId === orgId);
+    let employeesDeleted = 0;
+    for (const emp of orgEmployees) {
+      this.employees.delete(emp.id);
+      employeesDeleted++;
+    }
+    // Delete users
+    const orgUsers = Array.from(this.users.values()).filter(u => u.orgId === orgId);
+    let usersDeleted = 0;
+    for (const user of orgUsers) {
+      this.users.delete(user.id);
+      usersDeleted++;
+    }
+    // Delete reference documents
+    for (const [id, doc] of Array.from(this.referenceDocuments.entries())) {
+      if (doc.orgId === orgId) this.referenceDocuments.delete(id);
+    }
+    // Delete invitations
+    for (const [id, inv] of Array.from(this.invitations.entries())) {
+      if (inv.orgId === orgId) this.invitations.delete(id);
+    }
+    // Delete API keys
+    for (const [id, key] of Array.from(this.apiKeys.entries())) {
+      if (key.orgId === orgId) this.apiKeys.delete(id);
+    }
+    // Delete prompt templates
+    for (const [id, tpl] of Array.from(this.promptTemplates.entries())) {
+      if (tpl.orgId === orgId) this.promptTemplates.delete(id);
+    }
+    // Delete access requests
+    for (const [id, req] of Array.from(this.accessRequests.entries())) {
+      if (req.orgId === orgId) this.accessRequests.delete(id);
+    }
+    return { employeesDeleted, callsDeleted, usersDeleted };
+  }
+
+  // --- Super-admin usage summary (in-memory stub) ---
+  async getOrgUsageSummary(orgId: string): Promise<{
+    totalCalls: number;
+    completedCalls: number;
+    totalDurationSeconds: number;
+    totalEstimatedCostUsd: number;
+    employeeCount: number;
+  }> {
+    const calls = Array.from(this.calls.values()).filter(c => c.orgId === orgId);
+    const completedCalls = calls.filter(c => c.status === "completed");
+    const totalDurationSeconds = completedCalls.reduce((sum, c) => sum + (c.duration || 0), 0);
+    const employees = Array.from(this.employees.values()).filter(e => e.orgId === orgId);
+    // Cost data not tracked in memory backend — return 0
+    return {
+      totalCalls: calls.length,
+      completedCalls: completedCalls.length,
+      totalDurationSeconds,
+      totalEstimatedCostUsd: 0,
+      employeeCount: employees.length,
+    };
+  }
+
   // --- Data retention (org-scoped) ---
   async purgeExpiredCalls(orgId: string, retentionDays: number): Promise<number> {
     const cutoff = new Date();

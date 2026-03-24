@@ -723,4 +723,53 @@ export function registerAdminRoutes(app: Express): void {
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update custom vocabulary"));
     }
   });
+
+  // ── GDPR/CCPA: Organisation data export (Right to Access) ────────────────
+  app.get("/api/admin/org/export", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    try {
+      const orgId = req.orgId!;
+      const [org, employees, calls, users] = await Promise.all([
+        storage.getOrganization(orgId),
+        storage.listEmployees(orgId),
+        storage.listCalls(orgId),
+        storage.listUsersByOrg(orgId),
+      ]);
+
+      // Scrub password hashes from user export
+      const safeUsers = users.map(({ passwordHash: _ph, mfaSecret: _ms, mfaBackupCodes: _mb, ...u }: any) => u);
+
+      res.json({
+        exportedAt: new Date().toISOString(),
+        organization: org,
+        users: safeUsers,
+        employees,
+        callCount: calls.length,
+        calls: calls.map((c: any) => ({ id: c.id, fileName: c.fileName, status: c.status, uploadedAt: c.uploadedAt, duration: c.duration })),
+      });
+    } catch (err) {
+      logger.error({ err }, "Org data export failed");
+      res.status(500).json({ message: "Export failed" });
+    }
+  });
+
+  // ── GDPR/CCPA: Organisation data purge (Right to Erasure) ────────────────
+  app.delete("/api/admin/org/purge", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    try {
+      const orgId = req.orgId!;
+      const { confirm } = req.body;
+      if (confirm !== "DELETE_ALL_DATA") {
+        return res.status(400).json({ message: "Must send { confirm: 'DELETE_ALL_DATA' } to confirm purge" });
+      }
+
+      const result = await storage.deleteOrgData(orgId);
+      logger.warn({ orgId, ...result }, "Org data purged (GDPR/CCPA right to erasure)");
+
+      // Destroy the current session — org is now deleted
+      req.session.destroy(() => {});
+      res.json({ message: "All organisation data purged", ...result });
+    } catch (err) {
+      logger.error({ err }, "Org data purge failed");
+      res.status(500).json({ message: "Purge failed" });
+    }
+  });
 }

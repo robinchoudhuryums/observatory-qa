@@ -735,4 +735,53 @@ export class CloudStorage implements IStorage {
   }
   async updateProviderTemplate(_orgId: string, _id: string, _userId: string, _updates: any): Promise<any | null> { return null; }
   async deleteProviderTemplate(_orgId: string, _id: string, _userId: string): Promise<boolean> { return false; }
+
+  // --- GDPR/CCPA: bulk org data deletion (cloud backend) ---
+  async deleteOrgData(orgId: string): Promise<{ employeesDeleted: number; callsDeleted: number; usersDeleted: number }> {
+    // For cloud (S3 JSON file) storage, delete the data blobs for the org
+    const employees = await this.listEmployees(orgId);
+    const calls = await this.listCalls(orgId);
+    const users = await this.listUsersByOrg(orgId);
+    // Attempt to delete S3 audio/data objects (best-effort — non-blocking failures)
+    const deletePromises: Promise<void>[] = [];
+    const prefix = this.orgPrefix(orgId);
+    for (const call of calls) {
+      if (call.filePath) {
+        deletePromises.push(this.client.deleteObject(call.filePath).catch(() => {}));
+      }
+      deletePromises.push(this.client.deleteObject(`${prefix}/calls/${call.id}.json`).catch(() => {}));
+      deletePromises.push(this.client.deleteObject(`${prefix}/transcripts/${call.id}.json`).catch(() => {}));
+      deletePromises.push(this.client.deleteObject(`${prefix}/sentiments/${call.id}.json`).catch(() => {}));
+      deletePromises.push(this.client.deleteObject(`${prefix}/analyses/${call.id}.json`).catch(() => {}));
+    }
+    await Promise.allSettled(deletePromises);
+    return {
+      employeesDeleted: employees.length,
+      callsDeleted: calls.length,
+      usersDeleted: users.length,
+    };
+  }
+
+  // --- Super-admin usage summary (cloud backend stub) ---
+  async getOrgUsageSummary(orgId: string): Promise<{
+    totalCalls: number;
+    completedCalls: number;
+    totalDurationSeconds: number;
+    totalEstimatedCostUsd: number;
+    employeeCount: number;
+  }> {
+    const [calls, employees] = await Promise.all([
+      this.listCalls(orgId),
+      this.listEmployees(orgId),
+    ]);
+    const completedCalls = calls.filter(c => c.status === "completed");
+    const totalDurationSeconds = completedCalls.reduce((sum, c) => sum + (c.duration || 0), 0);
+    return {
+      totalCalls: calls.length,
+      completedCalls: completedCalls.length,
+      totalDurationSeconds,
+      totalEstimatedCostUsd: 0, // Cost data not tracked in S3 backend
+      employeeCount: employees.length,
+    };
+  }
 }

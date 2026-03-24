@@ -831,7 +831,9 @@ export function registerBillingRoutes(app: Express): void {
             billingInterval: "monthly",
             cancelAtPeriodEnd: false,
           });
-          logger.info({ orgId }, "Subscription deleted — reverted to free");
+          // Suspend the org — blocks all API access until resolved
+          await storage.updateOrganization(orgId, { status: "suspended" } as any);
+          logger.info({ orgId }, "Subscription deleted — reverted to free and org suspended");
           break;
         }
 

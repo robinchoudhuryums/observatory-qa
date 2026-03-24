@@ -542,7 +542,7 @@ export async function resolveUserOrgId(userId: string): Promise<string | undefin
 
 const IMPERSONATION_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
 
-export const injectOrgContext: RequestHandler = (req: Request, res: Response, next: NextFunction) => {
+export const injectOrgContext: RequestHandler = async (req: Request, res: Response, next: NextFunction) => {
   // Super admins impersonating an org use the session's impersonated orgId
   const session = req.session as any;
   if (session?.impersonatingOrgId && req.user?.role === "super_admin") {
@@ -561,6 +561,19 @@ export const injectOrgContext: RequestHandler = (req: Request, res: Response, ne
     return res.status(401).json({ message: "No organization context in session" });
   }
   req.orgId = req.user.orgId;
+  // Org status gate: suspended → 403, deleted → 410
+  // TODO: add a short-lived in-process cache here to avoid a DB hit on every request
+  try {
+    const org = await storage.getOrganization(req.user.orgId);
+    if (org?.status === "suspended") {
+      return res.status(403).json({ message: "Your organization account has been suspended. Please contact support." });
+    }
+    if (org?.status === "deleted") {
+      return res.status(410).json({ message: "This organization has been deleted." });
+    }
+  } catch {
+    // On storage error, don't block the request
+  }
   next();
 };
 

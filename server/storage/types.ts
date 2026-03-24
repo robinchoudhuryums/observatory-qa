@@ -383,6 +383,18 @@ export interface IStorage {
   createProviderTemplate(orgId: string, template: any): Promise<any>;
   updateProviderTemplate(orgId: string, id: string, userId: string, updates: any): Promise<any | null>;
   deleteProviderTemplate(orgId: string, id: string, userId: string): Promise<boolean>;
+
+  // GDPR/CCPA: bulk org data deletion (right to erasure)
+  deleteOrgData(orgId: string): Promise<{ employeesDeleted: number; callsDeleted: number; usersDeleted: number }>;
+
+  // Super-admin usage dashboard: per-org aggregate resource consumption
+  getOrgUsageSummary(orgId: string): Promise<{
+    totalCalls: number;
+    completedCalls: number;
+    totalDurationSeconds: number;
+    totalEstimatedCostUsd: number;
+    employeeCount: number;
+  }>;
 }
 
 export interface UsageSummary {
