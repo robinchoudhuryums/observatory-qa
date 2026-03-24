@@ -18,6 +18,76 @@ import path from "path";
 // Re-export invalidateRefDocCache for consumers that import from calls route
 export { invalidateRefDocCache } from "../services/call-processing";
 
+/**
+ * Analyze manual edit patterns across the org and store insights in org settings.
+ * Fires-and-forgets after each PATCH /api/calls/:id/analysis.
+ * Requires ≥20 edits across the org for statistical reliability.
+ * Surfaces patterns like "compliance scores consistently lowered by 1.5 pts on average."
+ */
+async function analyzeAndStoreEditPatterns(orgId: string): Promise<void> {
+  try {
+    // Sample up to 500 completed calls to find edited analyses
+    const calls = await storage.getCallsWithDetails(orgId, { status: "completed", limit: 500 });
+    let totalEdits = 0;
+    const perfDeltas: number[] = [];
+
+    for (const call of calls) {
+      const analysis = await storage.getCallAnalysis(orgId, call.id);
+      const edits = Array.isArray(analysis?.manualEdits) ? analysis.manualEdits as any[] : [];
+      if (edits.length === 0) continue;
+      totalEdits += edits.length;
+
+      for (const edit of edits) {
+        const prev = edit.previousValues || {};
+        const beforeScore = typeof prev.performanceScore !== "undefined"
+          ? parseFloat(String(prev.performanceScore)) : NaN;
+        const afterScore = analysis?.performanceScore
+          ? parseFloat(String(analysis.performanceScore)) : NaN;
+        if (!isNaN(beforeScore) && !isNaN(afterScore)) {
+          perfDeltas.push(afterScore - beforeScore);
+        }
+      }
+    }
+
+    if (totalEdits < 20) return;
+
+    const insights: Array<{ dimension: string; avgDelta: number; editCount: number; pattern: string }> = [];
+
+    if (perfDeltas.length >= 5) {
+      const avg = perfDeltas.reduce((a, b) => a + b, 0) / perfDeltas.length;
+      if (Math.abs(avg) >= 0.3) {
+        const dir = avg > 0 ? "raised" : "lowered";
+        insights.push({
+          dimension: "performanceScore",
+          avgDelta: Math.round(avg * 100) / 100,
+          editCount: perfDeltas.length,
+          pattern: `Managers consistently ${dir} overall performance scores by ${Math.abs(avg).toFixed(1)} pts on average (${perfDeltas.length} edits)`,
+        });
+      }
+    }
+
+    if (insights.length === 0) return;
+
+    const org = await storage.getOrganization(orgId);
+    if (!org) return;
+
+    await storage.updateOrganization(orgId, {
+      settings: {
+        ...org.settings,
+        editPatternInsights: {
+          updatedAt: new Date().toISOString(),
+          totalEdits,
+          insights,
+        },
+      },
+    });
+
+    logger.info({ orgId, insightCount: insights.length, totalEdits }, "Edit pattern insights updated");
+  } catch (err) {
+    logger.warn({ orgId, err }, "Edit pattern analysis failed (non-blocking)");
+  }
+}
+
 export function registerCallRoutes(app: Express): void {
 
   app.get("/api/calls", requireAuth, injectOrgContext, async (req, res) => {
@@ -365,6 +435,9 @@ export function registerCallRoutes(app: Express): void {
       };
 
       await storage.updateCallAnalysis(req.orgId!, callId, updatedAnalysis);
+
+      // Fire-and-forget: update edit pattern insights for this org
+      analyzeAndStoreEditPatterns(req.orgId!).catch(() => {});
 
       logger.info({ callId, editedBy, reason, fields: editRecord.fieldsChanged }, "Manual edit applied to call analysis");
       res.json(updatedAnalysis);

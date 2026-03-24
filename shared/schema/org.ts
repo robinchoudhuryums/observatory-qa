@@ -75,6 +75,17 @@ export const orgSettingsSchema = z.object({
     customSections: z.array(z.string()).optional(),
     templateOverrides: z.record(z.string()).optional(),
   })).optional(),
+  // Edit pattern insights: aggregated analysis of manager manual score edits
+  editPatternInsights: z.object({
+    updatedAt: z.string(),
+    totalEdits: z.number(),
+    insights: z.array(z.object({
+      dimension: z.string(),
+      avgDelta: z.number(),
+      editCount: z.number(),
+      pattern: z.string(),
+    })),
+  }).optional(),
 });
 
 export const insertOrganizationSchema = z.object({

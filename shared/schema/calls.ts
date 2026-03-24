@@ -294,6 +294,10 @@ export const insertCallAnalysisSchema = z.object({
     resolution: z.number().min(0).max(10).optional(),
   }).optional(),
   detectedAgentName: z.string().optional(),
+  // Score rationale: 3-5 bullet points per dimension explaining the score
+  scoreRationale: z.record(z.array(z.string())).optional(),
+  // Prompt versioning: hash of the system prompt used to generate this analysis
+  promptVersionId: z.string().optional(),
   clinicalNote: clinicalNoteSchema.optional(),
   speechMetrics: speechMetricsSchema.optional(),
   // Self-review: agent can review their own call

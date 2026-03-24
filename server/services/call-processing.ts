@@ -13,7 +13,7 @@
  */
 import path from "path";
 import fs from "fs";
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
 import { storage } from "../storage";
 import { assemblyAIService } from "./assemblyai";
 import { aiProvider, withBedrockProtection } from "./ai-factory";
@@ -438,6 +438,16 @@ export async function processAudioFile(opts: ProcessAudioOptions): Promise<void>
       analysis.detectedAgentName = aiAnalysis.detected_agent_name;
     }
 
+    // Score rationale
+    if (aiAnalysis?.score_rationale) {
+      analysis.scoreRationale = aiAnalysis.score_rationale;
+    }
+
+    // Prompt versioning (set by runAiAnalysis via prompt_version_id)
+    if (aiAnalysis?.prompt_version_id) {
+      analysis.promptVersionId = aiAnalysis.prompt_version_id;
+    }
+
     // Clinical note processing
     if (aiAnalysis?.clinical_note) {
       analysis.clinicalNote = mapClinicalNote(aiAnalysis.clinical_note);
@@ -590,6 +600,14 @@ async function runAiAnalysis(
         { retries: 2, baseDelay: 2000, label: `AI analysis for ${callId}` },
       ),
     );
+    // Attach prompt version ID for audit trail (12-char SHA-256 prefix of rendered system prompt)
+    try {
+      const { buildSystemPrompt } = await import("./ai-prompts");
+      const sysPrompt = buildSystemPrompt(callCategory, promptTemplate);
+      result.prompt_version_id = createHash("sha256").update(sysPrompt).digest("hex").slice(0, 12);
+    } catch {
+      // Non-critical
+    }
     logger.info({ callId }, "AI analysis complete");
     return result;
   } catch (err) {
