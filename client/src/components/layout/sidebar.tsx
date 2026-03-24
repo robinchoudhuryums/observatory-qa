@@ -7,6 +7,7 @@ import { apiRequest, queryClient, getQueryFn } from "@/lib/queryClient";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { CallWithDetails, Employee, AccessRequest, AuthUser } from "@shared/schema";
 import { useAppName, useOrganization } from "@/hooks/use-organization";
+import { useSubscription } from "@/hooks/use-subscription";
 import {  RiBarChartBoxLine, RiUploadLine, RiFileTextLine, RiHeartLine, RiTeamLine, RiUserAddLine, RiSearchLine, RiLogoutBoxLine, RiUserLine, RiArrowRightUpLine, RiSunLine, RiMoonLine, RiShieldLine, RiBuilding2Line, RiEqualizerLine, RiClipboardLine, RiPaletteLine, RiFileList3Line, RiMenuLine, RiCloseLine, RiFlaskLine, RiMoneyDollarCircleLine, RiStethoscopeLine, RiBookOpenLine, RiBroadcastLine, RiTrophyLine, RiScales3Line, RiFileShield2Line, RiMessage2Line, RiMailLine, RiGraduationCapLine, RiMegaphoneLine, RiSettings3Line, RiArrowDownSLine  } from "@remixicon/react";
 
 type NavItem = { name: string; href: string; icon: any; requireRole?: string[] };
@@ -90,6 +91,8 @@ export default function Sidebar() {
       setIsDark(prefersDark);
     }
   }, []);
+
+  const { hasClinicalDocs, isFree } = useSubscription();
 
   const appName = useAppName();
   const logoUrl = orgData?.settings?.branding?.logoUrl;
@@ -356,20 +359,24 @@ export default function Sidebar() {
           </div>
         )}
 
-        {/* Clinical Documentation links */}
-        <div className="pt-4 pb-1.5 px-3">
-          <button onClick={() => toggleSection('Clinical')} className="flex items-center justify-between w-full hover:text-foreground transition-colors cursor-pointer" aria-expanded={!collapsedSections['Clinical']}>
-            <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">Clinical</p>
-            <RiArrowDownSLine className={cn("w-3.5 h-3.5 text-muted-foreground/70 transition-transform", collapsedSections['Clinical'] && "-rotate-90")} />
-          </button>
-        </div>
-        {!collapsedSections['Clinical'] && (
-          <div className="space-y-0.5">
-            <AdminLink href="/clinical" icon={RiStethoscopeLine} label="Clinical Dashboard" testId="nav-link-clinical" />
-            <AdminLink href="/clinical/upload" icon={RiUploadLine} label="Record Encounter" testId="nav-link-clinical-upload" />
-            <AdminLink href="/clinical/live" icon={RiBroadcastLine} label="Live Recording" testId="nav-link-clinical-live" />
-            <AdminLink href="/clinical/templates" icon={RiBookOpenLine} label="Note Templates" testId="nav-link-clinical-templates" />
-          </div>
+        {/* Clinical Documentation links — only for plans with clinical docs */}
+        {hasClinicalDocs && (
+          <>
+            <div className="pt-4 pb-1.5 px-3">
+              <button onClick={() => toggleSection('Clinical')} className="flex items-center justify-between w-full hover:text-foreground transition-colors cursor-pointer" aria-expanded={!collapsedSections['Clinical']}>
+                <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">Clinical</p>
+                <RiArrowDownSLine className={cn("w-3.5 h-3.5 text-muted-foreground/70 transition-transform", collapsedSections['Clinical'] && "-rotate-90")} />
+              </button>
+            </div>
+            {!collapsedSections['Clinical'] && (
+              <div className="space-y-0.5">
+                <AdminLink href="/clinical" icon={RiStethoscopeLine} label="Clinical Dashboard" testId="nav-link-clinical" />
+                <AdminLink href="/clinical/upload" icon={RiUploadLine} label="Record Encounter" testId="nav-link-clinical-upload" />
+                <AdminLink href="/clinical/live" icon={RiBroadcastLine} label="Live Recording" testId="nav-link-clinical-live" />
+                <AdminLink href="/clinical/templates" icon={RiBookOpenLine} label="Note Templates" testId="nav-link-clinical-templates" />
+              </div>
+            )}
+          </>
         )}
 
         {/* Admin-only links — collapsible, collapsed by default */}
@@ -403,7 +410,21 @@ export default function Sidebar() {
                 />
                 <AdminLink href="/admin/templates" icon={RiEqualizerLine} label="Prompt Templates" testId="nav-link-templates" />
                 <AdminLink href="/admin/settings" icon={RiPaletteLine} label="Settings" testId="nav-link-settings" />
-                <AdminLink href="/admin/ab-testing" icon={RiFlaskLine} label="A/B Testing" testId="nav-link-ab-testing" />
+                {isFree ? (
+                  <Link
+                    href="/admin/settings?tab=billing"
+                    className="flex items-center space-x-3 py-2 pl-3 pr-3 rounded-lg font-medium transition-all duration-200 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                    data-testid="nav-link-ab-testing"
+                  >
+                    <RiFlaskLine className="w-5 h-5" />
+                    <span>A/B Testing</span>
+                    <span className="ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-brand-from/10 text-brand-from border border-brand-from/20" style={{ color: "hsl(var(--brand-from))", borderColor: "hsla(var(--brand-from), 0.3)", background: "hsla(var(--brand-from), 0.1)" }}>
+                      PRO
+                    </span>
+                  </Link>
+                ) : (
+                  <AdminLink href="/admin/ab-testing" icon={RiFlaskLine} label="A/B Testing" testId="nav-link-ab-testing" />
+                )}
                 <AdminLink href="/admin/spend-tracking" icon={RiMoneyDollarCircleLine} label="Spend Tracking" testId="nav-link-spend-tracking" />
                 <AdminLink href="/admin/audit-logs" icon={RiFileList3Line} label="Audit Logs" testId="nav-link-audit-logs" />
                 <AdminLink href="/admin/feedback" icon={RiMessage2Line} label="User Feedback" testId="nav-link-feedback" />

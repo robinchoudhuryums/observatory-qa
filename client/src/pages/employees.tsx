@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Link } from "wouter";
 import { DEFAULT_SUBTEAMS } from "@shared/schema";
 import type { Employee } from "@shared/schema";
@@ -520,21 +521,13 @@ export default function EmployeesPage() {
             <p className="text-sm text-muted-foreground">{employeesError.message}</p>
           </div>
         ) : !employees || employees.length === 0 ? (
-          <div className="text-center py-12">
-            <RiTeamLine className="mx-auto h-12 w-12 text-muted-foreground" />
-            <h3 className="mt-4 text-lg font-medium text-foreground">No employees yet</h3>
-            <p className="text-muted-foreground mt-1 mb-4">Import from CSV or add employees manually.</p>
-            <div className="flex items-center justify-center gap-3">
-              <Button variant="outline" onClick={() => importMutation.mutate()} disabled={importMutation.isPending}>
-                <RiUploadLine className="w-4 h-4 mr-2" />
-                {importMutation.isPending ? "Importing..." : "Import from CSV"}
-              </Button>
-              <Button onClick={() => setAddOpen(true)}>
-                <RiUserAddLine className="w-4 h-4 mr-2" />
-                Add Manually
-              </Button>
-            </div>
-          </div>
+          <EmptyState
+            icon={RiTeamLine}
+            title="No employees yet"
+            description="Add your team so calls can be assigned to agents and performance can be tracked per employee."
+            action={{ label: "Add Employee", onClick: () => setAddOpen(true), icon: RiUserAddLine }}
+            secondaryAction={{ label: "Import from CSV", onClick: () => importMutation.mutate() }}
+          />
         ) : (
           <div className="space-y-3">
             {departments.map(({ department, subTeams, employees: deptEmployees }) => {

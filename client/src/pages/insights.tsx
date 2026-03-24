@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, Legend } from "recharts";
 import {  RiBuilding2Line, RiArrowRightDownLine, RiAlertLine, RiBarChartBoxLine, RiChat1Line, RiShieldFlashLine, RiFileDownloadLine, RiUploadLine  } from "@remixicon/react";
+import { EmptyState } from "@/components/ui/empty-state";
 
 interface InsightsData {
   totalAnalyzed: number;
@@ -52,15 +53,12 @@ export default function InsightsPage() {
           <p className="text-muted-foreground">Trends and patterns across all calls</p>
         </header>
         <div className="p-6">
-          <div className="text-center py-16">
-            <div className="mx-auto w-16 h-16 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full flex items-center justify-center mb-4">
-              <RiBuilding2Line className="w-8 h-8 text-primary/60" />
-            </div>
-            <h4 className="font-semibold text-foreground mb-1">No data yet</h4>
-            <p className="text-sm text-muted-foreground max-w-md mx-auto">
-              Upload and process calls to see company-wide insights, complaint trends, and process improvement opportunities.
-            </p>
-          </div>
+          <EmptyState
+            icon={RiBuilding2Line}
+            title="No insights yet"
+            description="Upload and process calls to see company-wide trends, complaint patterns, and process improvement opportunities."
+            action={{ label: "Upload your first call", href: "/upload", icon: RiUploadLine }}
+          />
         </div>
       </div>
     );
