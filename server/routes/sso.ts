@@ -3,6 +3,7 @@ import passport from "passport";
 import { storage } from "../storage";
 import { logger } from "../services/logger";
 import { logPhiAccess } from "../services/audit-log";
+import { syncSeatUsage } from "./billing";
 import type { Organization, OrgSettings } from "../../shared/schema";
 
 /**
@@ -183,6 +184,9 @@ export async function setupSamlAuth(): Promise<boolean> {
               name: displayName,
               role: "viewer", // Default role for auto-provisioned SSO users
             });
+
+            // Sync seat count to Stripe (fire-and-forget)
+            syncSeatUsage(org.id).catch(() => {});
 
             logger.info(
               { userId: newUser.id, email, orgId: org.id, orgSlug },

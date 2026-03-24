@@ -1474,10 +1474,12 @@ export class PostgresStorage implements IStorage {
         stripeSubscriptionId: sub.stripeSubscriptionId,
         stripePriceId: sub.stripePriceId,
         stripeSeatsItemId: sub.stripeSeatsItemId,
+        stripeOverageItemId: sub.stripeOverageItemId,
         billingInterval: sub.billingInterval,
         currentPeriodStart: sub.currentPeriodStart ? new Date(sub.currentPeriodStart) : undefined,
         currentPeriodEnd: sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd) : undefined,
         cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+        pastDueAt: sub.pastDueAt ? new Date(sub.pastDueAt) : undefined,
         updatedAt: now,
       }).where(eq(tables.subscriptions.orgId, orgId)).returning();
       return this.mapSubscription(row);
@@ -1492,10 +1494,12 @@ export class PostgresStorage implements IStorage {
       stripeSubscriptionId: sub.stripeSubscriptionId || null,
       stripePriceId: sub.stripePriceId || null,
       stripeSeatsItemId: sub.stripeSeatsItemId || null,
+      stripeOverageItemId: sub.stripeOverageItemId || null,
       billingInterval: sub.billingInterval || "monthly",
       currentPeriodStart: sub.currentPeriodStart ? new Date(sub.currentPeriodStart) : null,
       currentPeriodEnd: sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd) : null,
       cancelAtPeriodEnd: sub.cancelAtPeriodEnd || false,
+      pastDueAt: sub.pastDueAt ? new Date(sub.pastDueAt) : null,
     }).returning();
     return this.mapSubscription(row);
   }
@@ -1508,10 +1512,12 @@ export class PostgresStorage implements IStorage {
     if (updates.stripeSubscriptionId) setValues.stripeSubscriptionId = updates.stripeSubscriptionId;
     if (updates.stripePriceId) setValues.stripePriceId = updates.stripePriceId;
     if (updates.stripeSeatsItemId !== undefined) setValues.stripeSeatsItemId = updates.stripeSeatsItemId || null;
+    if (updates.stripeOverageItemId !== undefined) setValues.stripeOverageItemId = updates.stripeOverageItemId || null;
     if (updates.billingInterval) setValues.billingInterval = updates.billingInterval;
     if (updates.currentPeriodStart) setValues.currentPeriodStart = new Date(updates.currentPeriodStart);
     if (updates.currentPeriodEnd) setValues.currentPeriodEnd = new Date(updates.currentPeriodEnd);
     if (updates.cancelAtPeriodEnd !== undefined) setValues.cancelAtPeriodEnd = updates.cancelAtPeriodEnd;
+    if (updates.pastDueAt !== undefined) setValues.pastDueAt = updates.pastDueAt ? new Date(updates.pastDueAt) : null;
 
     const [row] = await this.db.update(tables.subscriptions).set(setValues)
       .where(eq(tables.subscriptions.orgId, orgId)).returning();
@@ -1528,10 +1534,12 @@ export class PostgresStorage implements IStorage {
       stripeSubscriptionId: row.stripeSubscriptionId || undefined,
       stripePriceId: row.stripePriceId || undefined,
       stripeSeatsItemId: row.stripeSeatsItemId || undefined,
+      stripeOverageItemId: row.stripeOverageItemId || undefined,
       billingInterval: row.billingInterval,
       currentPeriodStart: toISOString(row.currentPeriodStart),
       currentPeriodEnd: toISOString(row.currentPeriodEnd),
       cancelAtPeriodEnd: row.cancelAtPeriodEnd || false,
+      pastDueAt: toISOString(row.pastDueAt),
       createdAt: toISOString(row.createdAt),
       updatedAt: toISOString(row.updatedAt),
     };

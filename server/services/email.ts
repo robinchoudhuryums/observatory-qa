@@ -407,6 +407,98 @@ export function buildTrialDowngradeEmail(
   return { to: "", subject, text, html };
 }
 
+/**
+ * Payment failed / dunning email.
+ * Sent on invoice.payment_failed webhook. Includes grace period info and portal link.
+ */
+export function buildPaymentFailedEmail(
+  orgName: string,
+  gracePeriodDays: number,
+  dashboardUrl: string,
+): EmailOptions {
+  const subject = `[${orgName}] Action Required: Payment Failed`;
+  const settingsUrl = `${dashboardUrl}/settings?tab=billing`;
+
+  const text = [
+    `${orgName} — Payment Failed`,
+    "",
+    `Your latest subscription payment could not be processed.`,
+    "",
+    `You have a ${gracePeriodDays}-day grace period before your account is restricted.`,
+    "Stripe will automatically retry the payment. To ensure uninterrupted access, please update your payment method now.",
+    "",
+    `Update payment method: ${settingsUrl}`,
+    "",
+    `— Observatory QA`,
+  ].join("\n");
+
+  const html = wrapWithDarkMode(`
+      <div style="border-left: 4px solid #ef4444; padding-left: 16px; margin-bottom: 16px;">
+        <h2 class="email-heading" style="color: #1a1a1a; margin: 0 0 4px;">Payment Failed</h2>
+        <p class="email-muted" style="color: #666; font-size: 14px; margin: 0;">${escapeHtml(orgName)}</p>
+      </div>
+      <p class="email-text" style="font-size: 14px; color: #333;">
+        Your latest subscription payment could not be processed.
+      </p>
+      <p class="email-text" style="font-size: 14px; color: #333;">
+        You have a <strong>${gracePeriodDays}-day grace period</strong> before your account is restricted.
+        Stripe will automatically retry the charge. To guarantee uninterrupted access, please update your
+        payment method as soon as possible.
+      </p>
+      <p style="margin: 20px 0;">
+        <a href="${escapeHtml(settingsUrl)}" style="background: #ef4444; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; display: inline-block;">
+          Update Payment Method
+        </a>
+      </p>
+  `);
+
+  return { to: "", subject, text, html };
+}
+
+/**
+ * Trial ending soon reminder (3 days before).
+ */
+export function buildTrialEndingEmail(
+  orgName: string,
+  trialEndDate: Date,
+  dashboardUrl: string,
+): EmailOptions {
+  const daysLeft = Math.ceil((trialEndDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+  const subject = `[${orgName}] Your free trial ends in ${daysLeft} day${daysLeft !== 1 ? "s" : ""}`;
+  const settingsUrl = `${dashboardUrl}/settings?tab=billing`;
+  const dateStr = trialEndDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+
+  const text = [
+    `${orgName} — Trial Ending Soon`,
+    "",
+    `Your 14-day free trial ends on ${dateStr} (${daysLeft} day${daysLeft !== 1 ? "s" : ""} left).`,
+    "",
+    "To keep full access after your trial, add a payment method now — you won't be charged until the trial ends.",
+    "",
+    `Upgrade now: ${settingsUrl}`,
+    "",
+    `— Observatory QA`,
+  ].join("\n");
+
+  const html = wrapWithDarkMode(`
+      <div style="border-left: 4px solid #6366f1; padding-left: 16px; margin-bottom: 16px;">
+        <h2 class="email-heading" style="color: #1a1a1a; margin: 0 0 4px;">Your trial ends in ${daysLeft} day${daysLeft !== 1 ? "s" : ""}</h2>
+        <p class="email-muted" style="color: #666; font-size: 14px; margin: 0;">${escapeHtml(orgName)}</p>
+      </div>
+      <p class="email-text" style="font-size: 14px; color: #333;">
+        Your free trial expires on <strong>${escapeHtml(dateStr)}</strong>.
+        Add a payment method now to keep full access — you won't be charged until the trial ends.
+      </p>
+      <p style="margin: 20px 0;">
+        <a href="${escapeHtml(settingsUrl)}" style="background: #6366f1; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; display: inline-block;">
+          Upgrade &amp; Keep Access
+        </a>
+      </p>
+  `);
+
+  return { to: "", subject, text, html };
+}
+
 function escapeHtml(str: string): string {
   return str
     .replace(/&/g, "&amp;")

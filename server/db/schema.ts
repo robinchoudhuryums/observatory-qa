@@ -316,10 +316,12 @@ export const subscriptions = pgTable("subscriptions", {
   stripeSubscriptionId: varchar("stripe_subscription_id", { length: 255 }),
   stripePriceId: varchar("stripe_price_id", { length: 255 }),
   stripeSeatsItemId: varchar("stripe_seats_item_id", { length: 255 }),
+  stripeOverageItemId: varchar("stripe_overage_item_id", { length: 255 }),
   billingInterval: varchar("billing_interval", { length: 10 }).notNull().default("monthly"),
   currentPeriodStart: timestamp("current_period_start"),
   currentPeriodEnd: timestamp("current_period_end"),
   cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+  pastDueAt: timestamp("past_due_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => [

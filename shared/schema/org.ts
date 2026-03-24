@@ -55,6 +55,16 @@ export const orgSettingsSchema = z.object({
     options: z.record(z.string()).optional(),
     enabled: z.boolean().default(false),
   }).optional(),
+  // Billing alerts: send email when call quota approaches threshold
+  billingAlerts: z.object({
+    enabled: z.boolean().default(false),
+    /** Percentage of monthly quota (50–100) at which to send an alert */
+    quotaThresholdPct: z.number().min(50).max(100).default(80),
+    /** Email address to notify (defaults to the admin's username/email) */
+    alertEmail: z.string().email().optional(),
+    /** ISO timestamp of the last quota alert email sent (prevents flooding) */
+    lastQuotaAlertSentAt: z.string().optional(),
+  }).optional(),
   // Provider-specific clinical note style preferences (self-learning feature)
   providerStylePreferences: z.record(z.string(), z.object({
     noteFormat: z.string().optional(),

@@ -14,6 +14,10 @@
  * - STRIPE_PRICE_STARTER_SEATS    ($12/seat/mo above 5 base seats)
  * - STRIPE_PRICE_PROFESSIONAL_SEATS ($18/seat/mo above 10 base seats)
  *
+ * Metered per-call overage prices (usage_type=metered, billed per call over quota):
+ * - STRIPE_PRICE_STARTER_OVERAGE    ($0.35/call over 300/mo)
+ * - STRIPE_PRICE_PROFESSIONAL_OVERAGE ($0.25/call over 1000/mo)
+ *
  * Enterprise seats are negotiated per contract — no metered price configured here.
  */
 import Stripe from "stripe";
@@ -67,6 +71,34 @@ export function getSeatPriceId(tier: PlanTier): string | null {
 }
 
 /**
+ * Map plan tier to its metered per-call overage Price ID.
+ * Returns null for tiers without a configured overage price (free, enterprise).
+ */
+export function getOveragePriceId(tier: PlanTier): string | null {
+  const overagePriceMap: Record<string, string | undefined> = {
+    "starter": process.env.STRIPE_PRICE_STARTER_OVERAGE,
+    "professional": process.env.STRIPE_PRICE_PROFESSIONAL_OVERAGE,
+  };
+  return overagePriceMap[tier] || null;
+}
+
+/**
+ * Report a single call overage to Stripe for metered billing.
+ * Uses action="increment" so each call adds 1 to the running total.
+ * @param subscriptionItemId  The Stripe subscription item ID for the overage line
+ */
+export async function reportCallOverage(
+  stripe: Stripe,
+  subscriptionItemId: string,
+): Promise<void> {
+  await stripe.subscriptionItems.createUsageRecord(subscriptionItemId, {
+    quantity: 1,
+    timestamp: Math.floor(Date.now() / 1000),
+    action: "increment",
+  });
+}
+
+/**
  * Report the current count of additional seats to Stripe for metered billing.
  * Uses action="set" to replace any prior usage record for this period.
  * @param subscriptionItemId  The Stripe subscription item ID for the seat add-on line
@@ -112,9 +144,9 @@ export async function getOrCreateCustomer(
 
 /**
  * Create a Stripe Checkout session for subscription.
- * @param seatPriceId  Optional metered price ID for additional seats.
- *                     When provided, it is added as a second line item with no
- *                     up-front quantity — seat usage is reported via reportSeatUsage().
+ * @param seatPriceId    Optional metered price ID for additional seats.
+ * @param overagePriceId Optional metered price ID for per-call overage billing.
+ * @param trialDays      Optional free trial period in days (Starter/Professional).
  */
 export async function createCheckoutSession(
   stripe: Stripe,
@@ -124,14 +156,19 @@ export async function createCheckoutSession(
   successUrl: string,
   cancelUrl: string,
   seatPriceId?: string,
+  overagePriceId?: string,
+  trialDays?: number,
 ): Promise<string> {
   const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [
     { price: priceId, quantity: 1 },
   ];
 
+  // Metered items — Stripe manages quantity via usage records; no quantity here
   if (seatPriceId) {
-    // Metered item — Stripe manages quantity via usage records; no quantity here
     lineItems.push({ price: seatPriceId });
+  }
+  if (overagePriceId) {
+    lineItems.push({ price: overagePriceId });
   }
 
   const session = await stripe.checkout.sessions.create({
@@ -141,7 +178,15 @@ export async function createCheckoutSession(
     success_url: successUrl,
     cancel_url: cancelUrl,
     metadata: { orgId },
-    subscription_data: { metadata: { orgId } },
+    // automatic_tax calculates sales tax/VAT based on the customer's billing address.
+    // Required for HIPAA-adjacent healthcare SaaS compliance in US states with SaaS tax.
+    automatic_tax: { enabled: true },
+    // Allow Stripe to collect/update billing address for tax calculation
+    customer_update: { address: "auto" },
+    subscription_data: {
+      metadata: { orgId },
+      ...(trialDays && trialDays > 0 ? { trial_period_days: trialDays } : {}),
+    },
   });
 
   return session.url!;

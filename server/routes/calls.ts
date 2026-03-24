@@ -6,7 +6,7 @@ import { storage, normalizeAnalysis } from "../storage";
 import { requireAuth, requireRole, injectOrgContext, requireOrgContext } from "../auth";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { upload, safeFloat, validateUUIDParam, acquireUploadSlot, releaseUploadSlot } from "./helpers";
-import { enforceQuota, requireActiveSubscription } from "./billing";
+import { enforceQuota, requireActiveSubscription, reportCallOverageToStripe } from "./billing";
 import { logger } from "../services/logger";
 import { CALL_CATEGORIES, type InsertCallAnalysis } from "@shared/schema";
 import { decryptClinicalNotePhi } from "../services/phi-encryption";
@@ -162,6 +162,12 @@ export function registerCallRoutes(app: Express): void {
       const originalName = req.file.originalname;
       const mimeType = req.file.mimetype || "audio/mpeg";
       const uploadUserId = req.user?.id;
+      // If this call was accepted under overage, report 1 unit to Stripe metered billing.
+      // Fire-and-forget — a Stripe failure must never block the upload response.
+      if ((req as any).isOverQuota) {
+        reportCallOverageToStripe(orgId).catch(() => {}); // already logged inside the helper
+      }
+
       processAudioFile({ orgId, callId: call.id, filePath: req.file.path, audioBuffer, originalName, mimeType, callCategory, userId: uploadUserId, clinicalSpecialty, noteFormat })
         .catch(async (error) => {
           logger.error({ callId: call.id, err: error }, "Failed to process call");

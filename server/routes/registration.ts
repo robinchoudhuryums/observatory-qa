@@ -11,7 +11,7 @@ import { requireAuth, requireRole, injectOrgContext, hashPassword, validatePassw
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { randomUUID } from "crypto";
-import { enforceUserQuota } from "./billing";
+import { enforceUserQuota, syncSeatUsage } from "./billing";
 
 /**
  * Attempt to delete an organization by ID.
@@ -133,6 +133,9 @@ export function registerRegistrationRoutes(app: Express): void {
       }
 
       logger.info({ orgId: org.id, userId: user.id, username, industryType }, "New organization registered");
+
+      // Sync seat count to Stripe (fire-and-forget — no subscription yet for new orgs, no-op)
+      syncSeatUsage(org.id).catch(() => {});
 
       // Auto-seed default prompt templates based on industry type
       if (industryType === "dental") {
@@ -289,6 +292,9 @@ export function registerRegistrationRoutes(app: Express): void {
         name,
         role: invitation.role,
       });
+
+      // Sync seat count to Stripe for the new user (fire-and-forget)
+      syncSeatUsage(invitation.orgId).catch(() => {});
 
       // Mark invitation as accepted
       await storage.updateInvitation(invitation.orgId, invitation.id, {
