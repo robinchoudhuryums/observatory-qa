@@ -17,6 +17,9 @@ const scryptAsync = promisify(scrypt) as (
 // HIPAA: Login attempt tracking for account lockout
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
+// Hard cap prevents a bot flooding with unique usernames from exhausting memory
+// between the 5-minute cleanup cycles.
+const MAX_LOGIN_ATTEMPTS_ENTRIES = 10_000;
 const loginAttempts = new Map<string, { count: number; lastAttempt: number; lockedUntil?: number }>();
 
 // Prune expired lockout entries every 5 minutes to prevent unbounded memory growth
@@ -41,6 +44,13 @@ function isAccountLocked(username: string): boolean {
 }
 
 function recordFailedAttempt(username: string): void {
+  // If the map is at capacity and this is a new key, evict the oldest entry
+  // before inserting so a flood of unique usernames can't exhaust memory
+  // between the periodic cleanup cycles.
+  if (!loginAttempts.has(username) && loginAttempts.size >= MAX_LOGIN_ATTEMPTS_ENTRIES) {
+    const oldest = loginAttempts.keys().next().value;
+    if (oldest) loginAttempts.delete(oldest);
+  }
   const record = loginAttempts.get(username) || { count: 0, lastAttempt: 0 };
   record.count++;
   record.lastAttempt = Date.now();

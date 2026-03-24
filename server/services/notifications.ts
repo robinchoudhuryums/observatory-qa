@@ -14,6 +14,7 @@
 import { logger } from "./logger";
 import { storage } from "../storage";
 import { sendEmail, buildFlaggedCallEmail } from "./email";
+import { withRetry } from "../routes/helpers";
 
 // --- Configuration ---
 
@@ -82,7 +83,7 @@ type SlackBlock = {
 // --- Core send function ---
 
 async function sendWebhook(url: string, payload: Record<string, unknown>): Promise<boolean> {
-  try {
+  const attempt = async () => {
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -92,12 +93,25 @@ async function sendWebhook(url: string, payload: Record<string, unknown>): Promi
 
     if (!response.ok) {
       const body = await response.text().catch(() => "");
-      logger.warn({ statusCode: response.status, responseBody: body }, "Webhook returned non-OK status");
-      return false;
+      // 4xx errors are permanent failures (bad URL, auth) — don't retry.
+      // 5xx / network errors are transient and should be retried.
+      if (response.status >= 400 && response.status < 500) {
+        logger.warn({ statusCode: response.status, responseBody: body }, "Webhook returned client error (not retrying)");
+        return false;
+      }
+      throw new Error(`Webhook HTTP ${response.status}: ${body.slice(0, 200)}`);
     }
     return true;
+  };
+
+  try {
+    return await withRetry(attempt, {
+      retries: 3,
+      baseDelay: 2000, // 2s, 4s, 8s — exponential backoff
+      label: "webhook-delivery",
+    });
   } catch (error) {
-    logger.warn({ err: error }, "Webhook delivery failed");
+    logger.warn({ err: error }, "Webhook delivery failed after retries");
     return false;
   }
 }

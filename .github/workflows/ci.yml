@@ -13,28 +13,42 @@ concurrency:
 
 jobs:
   check:
-    name: Type Check & Test
+    name: Lint, Type Check & Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
-      - run: npm run check
-      - run: npm test
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run check
+
+      - name: Unit tests
+        run: npm test
 
   security:
     name: Security Audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Audit for high/critical vulnerabilities
         run: npm audit --audit-level=high
 
@@ -44,16 +58,25 @@ jobs:
     needs: check
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
-      - run: npm run build
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
       - name: Verify build artifacts
+        # Frontend builds to dist/client (Vite), backend to dist/index.js (esbuild)
         run: |
-          test -f dist/index.js
-          test -d dist/public
+          test -f dist/index.js   || (echo "ERROR: dist/index.js missing" && exit 1)
+          test -d dist/client     || (echo "ERROR: dist/client/ missing"  && exit 1)
+          echo "Build artifacts verified"
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -67,8 +90,10 @@ jobs:
     needs: check
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
       - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
@@ -77,10 +102,6 @@ jobs:
           tags: observatory-qa:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: Verify Docker image health check config
-        run: |
-          docker build -t observatory-qa:${{ github.sha }} .
-          docker inspect observatory-qa:${{ github.sha }} --format='{{.Config.Healthcheck}}'
 
   e2e:
     name: E2E Tests
@@ -88,31 +109,39 @@ jobs:
     needs: build
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
           name: dist
           path: dist/
+
       - name: Verify dist exists
         run: test -f dist/index.js && echo "dist/index.js found" || (echo "dist missing, rebuilding..." && npm run build)
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
+
       - name: Run E2E tests
         run: npm run test:e2e
         env:
-          CI: true
+          CI: "true"
           NODE_ENV: production
           PORT: "5000"
           DISABLE_SECURE_COOKIE: "true"
-          SESSION_SECRET: e2e-test-secret
+          SESSION_SECRET: e2e-test-secret-ci-only
           ASSEMBLYAI_API_KEY: test-key
-          AUTH_USERS: "admin:admin123:admin:Test Admin:default,viewer:viewer123:viewer:Test Viewer:default"
-      - name: Upload E2E test results
+          AUTH_USERS: "admin:Admin1234!:admin:Test Admin:default,viewer:Viewer1234!:viewer:Test Viewer:default"
+
+      - name: Upload Playwright report
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -132,21 +161,22 @@ jobs:
         run: curl -sf "$RENDER_DEPLOY_HOOK_URL"
         env:
           RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+
       - name: Verify staging health
         if: env.STAGING_URL != ''
         run: |
-          echo "Waiting for staging deploy..."
+          echo "Waiting for staging deploy to settle..."
           sleep 30
           for i in 1 2 3 4 5; do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$STAGING_URL/api/health" || echo "000")
             if [ "$STATUS" = "200" ]; then
-              echo "Staging is healthy"
+              echo "Staging is healthy (HTTP $STATUS)"
               exit 0
             fi
-            echo "Attempt $i: status=$STATUS, retrying in 15s..."
+            echo "Attempt $i: HTTP $STATUS — retrying in 15s..."
             sleep 15
           done
-          echo "Staging health check failed"
+          echo "ERROR: Staging health check failed after 5 attempts"
           exit 1
         env:
           STAGING_URL: ${{ vars.STAGING_URL }}

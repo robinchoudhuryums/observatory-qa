@@ -16,7 +16,7 @@ import fs from "fs";
 import { randomUUID } from "crypto";
 import { storage } from "../storage";
 import { assemblyAIService } from "./assemblyai";
-import { aiProvider, withBedrockRateLimit } from "./ai-factory";
+import { aiProvider, withBedrockProtection } from "./ai-factory";
 import { broadcastCallUpdate } from "./websocket";
 import { invalidateDashboardCache } from "../routes/dashboard";
 import { notifyFlaggedCall } from "./notifications";
@@ -584,7 +584,7 @@ async function runAiAnalysis(
   }
 
   try {
-    const result = await withBedrockRateLimit(orgId, () =>
+    const result = await withBedrockProtection(orgId, () =>
       withRetry(
         () => aiProvider.analyzeCallTranscript(transcriptText, callId, callCategory, promptTemplate),
         { retries: 2, baseDelay: 2000, label: `AI analysis for ${callId}` },
