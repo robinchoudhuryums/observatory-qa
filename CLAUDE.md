@@ -183,12 +183,13 @@ server/routes/               # Modular API route files (36 route files)
   lms.ts                     #   Learning Management System: courses, lessons, AI-generated training
   marketing.ts               #   Marketing attribution: UTM tracking, source/medium, campaign ROI
   super-admin.ts             #   Platform-level admin (cross-org management, SUPER_ADMIN_USERS)
+  assemblyai-webhook.ts      #   AssemblyAI transcription webhook receiver (POST /api/webhooks/assemblyai)
 
 server/services/             # Business logic & integrations (30 files)
   ai-factory.ts              #   AI provider setup (Bedrock, per-org model config)
   ai-provider.ts             #   AI analysis interface, prompt building, JSON parsing, clinical note generation
   bedrock.ts                 #   AWS Bedrock Claude provider (raw REST + SigV4)
-  assemblyai.ts              #   AssemblyAI transcription + transcript processing
+  assemblyai.ts              #   AssemblyAI transcription + transcript processing. TranscriptionOptions: webhookUrl, wordBoost, piiRedaction, languageDetection. continueAfterTranscription() for webhook/polling dual-path
   assemblyai-realtime.ts     #   AssemblyAI real-time streaming transcription
   aws-credentials.ts         #   AWS credential resolution (env vars, instance roles, STS)
   s3.ts                      #   S3 client (raw REST + SigV4, no AWS SDK)
@@ -215,6 +216,9 @@ server/services/             # Business logic & integrations (30 files)
   telemetry.ts               #   OpenTelemetry setup (traces, metrics — enabled via OTEL_ENABLED=true)
   incident-response.ts       #   Automated incident detection and response workflows
   proactive-alerts.ts        #   Proactive performance/compliance alerting engine
+  fhir.ts                    #   FHIR R4 export builder (Composition, DocumentReference, Bundle)
+  clinical-extraction.ts     #   Structured data extraction from clinical notes (vitals, medications, allergies)
+  org-encryption.ts          #   Per-org KMS envelope encryption: getOrgDataKey, encryptFieldForOrg, decryptFieldForOrg
 
 server/middleware/           # Express middleware
   waf.ts                     #   Web Application Firewall (request filtering, bot detection)
@@ -484,6 +488,10 @@ Uses AWS Bedrock (Claude) for AI analysis. Per-org `bedrockModel` can be configu
 | DELETE | `/api/prompt-templates/:id` | admin | Delete prompt template |
 | GET | `/api/access-requests` | admin | List access requests |
 | PATCH | `/api/access-requests/:id` | admin | Approve/deny request |
+| GET | `/api/admin/vocabulary` | admin | Get org's custom vocabulary (word boost list) |
+| PUT | `/api/admin/vocabulary` | admin | Update custom vocabulary for transcription |
+| GET | `/api/admin/org/export` | admin | GDPR/CCPA data export (all org data, passwords scrubbed) |
+| DELETE | `/api/admin/org/purge` | admin | GDPR/CCPA right to erasure (requires confirm: 'PURGE ALL DATA') |
 
 ### API Keys (org-scoped)
 | Method | Path | Role | Description |
@@ -526,6 +534,23 @@ Uses AWS Bedrock (Claude) for AI analysis. Per-org `bedrockModel` can be configu
 | POST | `/api/clinical/style-learning/apply` | authenticated | Apply learned style preferences |
 | GET | `/api/clinical/templates` | authenticated | List clinical note templates (filter by specialty/format) |
 | GET | `/api/clinical/templates/:id` | authenticated | Get specific template |
+| GET | `/api/clinical/notes/:callId/amendments` | authenticated | List amendment history |
+| POST | `/api/clinical/notes/:callId/addendum` | manager+ | Add addendum to attested note |
+| GET | `/api/clinical/notes/:callId/fhir` | authenticated | Export note as FHIR R4 Bundle (requires attestation) |
+| POST | `/api/clinical/notes/:callId/cosign` | manager+ | Co-sign/supervising provider attestation |
+| GET | `/api/clinical/analytics/population` | admin | Population-level clinical analytics |
+| GET | `/api/clinical/notes/:callId/prefill-suggestions` | authenticated | EHR-prefilled note suggestions |
+| GET | `/api/clinical/templates/my` | authenticated | List provider's custom templates |
+| POST | `/api/clinical/templates/custom` | manager+ | Create custom provider template |
+| PATCH | `/api/clinical/templates/custom/:id` | manager+ | Update custom provider template |
+| DELETE | `/api/clinical/templates/custom/:id` | manager+ | Delete custom provider template |
+| GET | `/api/clinical/notes/:callId/validate` | authenticated | Validate note completeness |
+| POST | `/api/clinical/notes/:callId/feedback` | authenticated | Submit clinical note feedback |
+
+### Transcription Webhooks (public)
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/webhooks/assemblyai` | AssemblyAI transcription completion webhook (verified via X-Assembly-Webhook-Token) |
 
 ### EHR Integration (org-scoped)
 | Method | Path | Role | Description |
@@ -652,6 +677,8 @@ Uses AWS Bedrock (Claude) for AI analysis. Per-org `bedrockModel` can be configu
 | GET | `/api/super-admin/organizations/:id` | Get organization details |
 | POST | `/api/super-admin/organizations/:id/impersonate` | Impersonate organization |
 | GET | `/api/super-admin/stats` | Platform-wide statistics |
+| GET | `/api/super-admin/usage` | Per-org resource usage dashboard (calls, cost, employees) |
+| POST | `/api/super-admin/organizations/:id/rotate-key` | Rotate org's KMS data encryption key |
 
 ### Health
 | Method | Path | Description |
@@ -845,6 +872,10 @@ On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add mi
 | **MFA** | `server/routes/mfa.ts` | TOTP-based MFA, per-org mandatory option (`mfaRequired` in org settings) |
 | **PHI encryption** | `server/services/phi-encryption.ts` | AES-256-GCM application-level encryption for sensitive fields |
 | **Tamper-evident audit** | `server/db/sync-schema.ts` | `audit_logs` table with integrity hashes and sequence numbers |
+| **PostgreSQL RLS** | `server/db/sync-schema.ts` | `ENABLE/FORCE ROW LEVEL SECURITY` on all 27 tenant-scoped tables. `org_isolation` policies using `current_setting('app.org_id')`. DO-block idempotency for PG15 compatibility. `app.bypass_rls` session var for schema-sync and super-admin operations |
+| **Per-org KMS encryption** | `server/services/org-encryption.ts` | Envelope encryption: AWS KMS generates per-org DEK, encrypted DEK stored in org settings, 30-min cache, `enc_v2_{orgPrefix}:` format. Falls back to shared `PHI_ENCRYPTION_KEY` when `AWS_KMS_KEY_ID` not set |
+| **GDPR/CCPA compliance** | `server/routes/admin.ts` | `GET /api/admin/org/export` (right to access), `DELETE /api/admin/org/purge` (right to erasure with confirmation). `deleteOrgData()` in all storage backends |
+| **Org suspension gate** | `server/auth.ts` | `injectOrgContext` checks org `status` field: suspended → 403 `OBS-ORG-SUSPENDED`, deleted → 410 `OBS-ORG-DELETED` |
 
 ## Key Design Decisions
 - **AWS SDK v3**: S3 (`@aws-sdk/client-s3`), Bedrock (`@aws-sdk/client-bedrock-runtime`), SES (`@aws-sdk/client-ses`), and Titan Embed use the modular AWS SDK v3. Credential resolution (`@aws-sdk/credential-providers`) supports env vars and EC2 instance metadata (IMDSv2)
