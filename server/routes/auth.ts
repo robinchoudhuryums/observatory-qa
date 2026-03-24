@@ -2,6 +2,7 @@ import type { Express } from "express";
 import passport from "passport";
 import { storage } from "../storage";
 import { logger } from "../services/logger";
+import { logPhiAccess } from "../services/audit-log";
 
 export function registerAuthRoutes(app: Express): void {
   // ==================== AUTH ROUTES (unauthenticated) ====================
@@ -52,6 +53,18 @@ export function registerAuthRoutes(app: Express): void {
       // session inside req.login(), so no manual req.session.regenerate() is needed.
       req.login(user, (loginErr) => {
         if (loginErr) return next(loginErr);
+        // HIPAA: log session creation with IP/UA (LocalStrategy only has username context)
+        logPhiAccess({
+          event: "session_created",
+          orgId: user.orgId,
+          userId: user.id,
+          username: user.username,
+          role: user.role,
+          resourceType: "auth",
+          ip: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress,
+          userAgent: req.headers["user-agent"],
+          detail: "Interactive login session established",
+        });
         res.json({ id: user.id, username: user.username, name: user.name, role: user.role, orgId: user.orgId, orgSlug: user.orgSlug });
       });
     })(req, res, next);
@@ -59,6 +72,21 @@ export function registerAuthRoutes(app: Express): void {
 
   // Logout — destroy session to clear server-side session data
   app.post("/api/auth/logout", (req, res) => {
+    // HIPAA: audit before destroying session so user identity is still available
+    if (req.user) {
+      const user = req.user as { id?: string; username?: string; role?: string; orgId?: string };
+      logPhiAccess({
+        event: "logout",
+        orgId: user.orgId,
+        userId: user.id,
+        username: user.username,
+        role: user.role,
+        resourceType: "auth",
+        ip: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress,
+        userAgent: req.headers["user-agent"],
+        detail: "Session terminated by user",
+      });
+    }
     req.logout((err) => {
       if (err) {
         res.status(500).json({ message: "Failed to logout" });

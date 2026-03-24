@@ -307,16 +307,21 @@ export async function setupAuth(app: Express) {
   app.use(passport.session());
 
   // Local strategy: authenticate against env-var-defined users AND database users
+  // passReqToCallback=true gives the strategy access to req so IP and User-Agent
+  // can be included in HIPAA login audit events.
   passport.use(
-    new LocalStrategy(async (username, password, done) => {
+    new LocalStrategy({ passReqToCallback: true }, async (req: Request, username: string, password: string, done: any) => {
+      const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress;
+      const userAgent = req.headers["user-agent"];
       try {
         // HIPAA: Check account lockout before attempting authentication
         if (isAccountLocked(username)) {
           logPhiAccess({
-
             event: "login_locked",
             username,
             resourceType: "auth",
+            ip,
+            userAgent,
             detail: "Account locked due to excessive failed attempts",
           });
           return done(null, false, { message: "Account temporarily locked. Try again later." });
@@ -328,7 +333,7 @@ export async function setupAuth(app: Express) {
           const isValid = await comparePasswords(password, envUser.passwordHash);
           if (!isValid) {
             recordFailedAttempt(username);
-            logPhiAccess({ event: "login_failed", username, resourceType: "auth" });
+            logPhiAccess({ event: "login_failed", username, resourceType: "auth", ip, userAgent });
             return done(null, false, { message: "Invalid username or password" });
           }
           // Check if org enforces SSO login
@@ -347,6 +352,8 @@ export async function setupAuth(app: Express) {
             username: envUser.username,
             role: envUser.role,
             resourceType: "auth",
+            ip,
+            userAgent,
             detail: `org: ${envUser.orgSlug}`,
           });
           return done(null, {
@@ -391,6 +398,8 @@ export async function setupAuth(app: Express) {
           username: dbUser.username,
           role: dbUser.role,
           resourceType: "auth",
+          ip,
+          userAgent,
           detail: `org: ${orgSlug} (db user)`,
         });
         return done(null, {
