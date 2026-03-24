@@ -25,18 +25,18 @@ describe("PLAN_DEFINITIONS", () => {
     assert.strictEqual(PLAN_DEFINITIONS.free.yearlyPriceUsd, 0);
   });
 
-  it("pro plan costs more than free", () => {
-    assert.ok(PLAN_DEFINITIONS.pro.monthlyPriceUsd > 0);
-    assert.ok(PLAN_DEFINITIONS.pro.yearlyPriceUsd > 0);
+  it("starter plan costs more than free", () => {
+    assert.ok(PLAN_DEFINITIONS.starter.monthlyPriceUsd > 0);
+    assert.ok(PLAN_DEFINITIONS.starter.yearlyPriceUsd > 0);
   });
 
-  it("enterprise plan costs more than pro", () => {
-    assert.ok(PLAN_DEFINITIONS.enterprise.monthlyPriceUsd > PLAN_DEFINITIONS.pro.monthlyPriceUsd);
+  it("enterprise plan costs more than professional", () => {
+    assert.ok(PLAN_DEFINITIONS.enterprise.monthlyPriceUsd > PLAN_DEFINITIONS.professional.monthlyPriceUsd);
   });
 
   it("yearly pricing offers a discount over monthly", () => {
-    const proMonthlyAnnual = PLAN_DEFINITIONS.pro.monthlyPriceUsd * 12;
-    assert.ok(PLAN_DEFINITIONS.pro.yearlyPriceUsd < proMonthlyAnnual);
+    const starterMonthlyAnnual = PLAN_DEFINITIONS.starter.monthlyPriceUsd * 12;
+    assert.ok(PLAN_DEFINITIONS.starter.yearlyPriceUsd < starterMonthlyAnnual);
 
     const entMonthlyAnnual = PLAN_DEFINITIONS.enterprise.monthlyPriceUsd * 12;
     assert.ok(PLAN_DEFINITIONS.enterprise.yearlyPriceUsd < entMonthlyAnnual);

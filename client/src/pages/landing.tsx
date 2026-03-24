@@ -136,9 +136,10 @@ const STEPS = [
 ];
 
 const PLANS = [
-  { name: "Free", price: "$0", period: "/mo", calls: "50 calls/mo", highlight: false },
-  { name: "Pro", price: "$99", period: "/mo", calls: "1,000 calls/mo", highlight: true },
-  { name: "Enterprise", price: "$499", period: "/mo", calls: "Unlimited calls", highlight: false },
+  { name: "Free", price: "$0", period: "/mo", calls: "50 calls/mo · 3 seats", highlight: false },
+  { name: "Starter", price: "$79", period: "/mo", calls: "300 calls/mo · 5 seats included", highlight: false },
+  { name: "Professional", price: "$149", period: "/mo", calls: "1,000 calls/mo · Clinical docs included", highlight: true },
+  { name: "Enterprise", price: "$999", period: "/mo", calls: "Unlimited calls · SSO · Dedicated support", highlight: false },
 ];
 
 /** Fade-up animation wrapper — triggers when element enters viewport */
@@ -357,7 +358,7 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
             </div>
           </FadeUp>
 
-          <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-5xl mx-auto">
             {PLANS.map((plan, i) => (
               <FadeUp key={plan.name} delay={i * 0.08}>
                 <div

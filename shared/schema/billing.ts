@@ -68,7 +68,7 @@ export type InsertApiKey = z.infer<typeof insertApiKeySchema>;
 export type ApiKey = z.infer<typeof apiKeySchema>;
 
 // --- BILLING & SUBSCRIPTION SCHEMAS ---
-export const PLAN_TIERS = ["free", "pro", "enterprise", "clinical"] as const;
+export const PLAN_TIERS = ["free", "starter", "professional", "enterprise"] as const;
 export type PlanTier = (typeof PLAN_TIERS)[number];
 
 export const planLimitsSchema = z.object({
@@ -83,6 +83,9 @@ export const planLimitsSchema = z.object({
   prioritySupport: z.boolean(),
   clinicalDocumentationEnabled: z.boolean().default(false),
   abTestingEnabled: z.boolean().default(false),
+  baseSeats: z.number(),                    // seats included in base price
+  pricePerAdditionalSeatUsd: z.number(),    // $/seat/mo for additional seats; 0 = not applicable
+  overagePricePerCallUsd: z.number(),       // $/call over quota; 0 = hard block at limit
 });
 export type PlanLimits = z.infer<typeof planLimitsSchema>;
 
@@ -90,7 +93,7 @@ export type PlanLimits = z.infer<typeof planLimitsSchema>;
 export const PLAN_DEFINITIONS: Record<PlanTier, { name: string; description: string; monthlyPriceUsd: number; yearlyPriceUsd: number; limits: PlanLimits }> = {
   free: {
     name: "Free",
-    description: "For small teams getting started",
+    description: "Get started with 50 calls/month — no credit card required",
     monthlyPriceUsd: 0,
     yearlyPriceUsd: 0,
     limits: {
@@ -105,35 +108,63 @@ export const PLAN_DEFINITIONS: Record<PlanTier, { name: string; description: str
       prioritySupport: false,
       clinicalDocumentationEnabled: false,
       abTestingEnabled: false,
+      baseSeats: 3,
+      pricePerAdditionalSeatUsd: 0,
+      overagePricePerCallUsd: 0,
     },
   },
-  pro: {
-    name: "Pro",
-    description: "For growing teams with advanced needs",
-    monthlyPriceUsd: 99,
-    yearlyPriceUsd: 948, // $79/mo billed yearly
+  starter: {
+    name: "Starter",
+    description: "For growing teams that need smarter call insights",
+    monthlyPriceUsd: 79,
+    yearlyPriceUsd: 756, // $63/mo billed yearly
     limits: {
-      callsPerMonth: 1000,
-      storageMb: 10000,
-      aiAnalysesPerMonth: 1000,
-      apiCallsPerMonth: 50000,
+      callsPerMonth: 300,
+      storageMb: 5000,
+      aiAnalysesPerMonth: 300,
+      apiCallsPerMonth: 10000,
       maxUsers: 25,
       customPromptTemplates: true,
       ragEnabled: true,
       ssoEnabled: false,
       prioritySupport: false,
       clinicalDocumentationEnabled: false,
+      abTestingEnabled: false,
+      baseSeats: 5,
+      pricePerAdditionalSeatUsd: 12,
+      overagePricePerCallUsd: 0.35,
+    },
+  },
+  professional: {
+    name: "Professional",
+    description: "Full QA platform with clinical documentation for healthcare teams",
+    monthlyPriceUsd: 149,
+    yearlyPriceUsd: 1428, // $119/mo billed yearly
+    limits: {
+      callsPerMonth: 1000,
+      storageMb: 20000,
+      aiAnalysesPerMonth: 1000,
+      apiCallsPerMonth: 50000,
+      maxUsers: -1,
+      customPromptTemplates: true,
+      ragEnabled: true,
+      ssoEnabled: false,
+      prioritySupport: true,
+      clinicalDocumentationEnabled: true,
       abTestingEnabled: true,
+      baseSeats: 10,
+      pricePerAdditionalSeatUsd: 18,
+      overagePricePerCallUsd: 0.25,
     },
   },
   enterprise: {
     name: "Enterprise",
-    description: "For large organizations with custom requirements",
-    monthlyPriceUsd: 499,
-    yearlyPriceUsd: 4788, // $399/mo billed yearly
+    description: "Unlimited scale, SSO, and dedicated support for large organizations",
+    monthlyPriceUsd: 999,
+    yearlyPriceUsd: 9588, // $799/mo billed yearly
     limits: {
-      callsPerMonth: -1, // unlimited
-      storageMb: 100000,
+      callsPerMonth: -1,
+      storageMb: 512000,
       aiAnalysesPerMonth: -1,
       apiCallsPerMonth: -1,
       maxUsers: -1,
@@ -141,27 +172,11 @@ export const PLAN_DEFINITIONS: Record<PlanTier, { name: string; description: str
       ragEnabled: true,
       ssoEnabled: true,
       prioritySupport: true,
-      clinicalDocumentationEnabled: false,
-      abTestingEnabled: true,
-    },
-  },
-  clinical: {
-    name: "Clinical Documentation",
-    description: "AI-powered clinical note drafting for healthcare providers",
-    monthlyPriceUsd: 149,
-    yearlyPriceUsd: 1428, // $119/mo billed yearly
-    limits: {
-      callsPerMonth: 500, // encounters per month
-      storageMb: 5000,
-      aiAnalysesPerMonth: 500,
-      apiCallsPerMonth: 10000,
-      maxUsers: 10,
-      customPromptTemplates: true,
-      ragEnabled: true,
-      ssoEnabled: false,
-      prioritySupport: true,
       clinicalDocumentationEnabled: true,
-      abTestingEnabled: false,
+      abTestingEnabled: true,
+      baseSeats: 25,
+      pricePerAdditionalSeatUsd: 25,
+      overagePricePerCallUsd: 0.10,
     },
   },
 };

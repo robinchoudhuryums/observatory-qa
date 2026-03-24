@@ -54,6 +54,14 @@ export function enforceQuota(eventType: "transcription" | "ai_analysis" | "api_c
       const used = usage.find(u => u.eventType === eventType)?.totalQuantity || 0;
 
       if (used >= limit) {
+        const overagePrice = plan.limits.overagePricePerCallUsd;
+        if (overagePrice > 0) {
+          // Paid plan: allow overage, flag for usage-based billing
+          res.setHeader("X-Quota-Overage", "true");
+          res.setHeader("X-Overage-Price-Per-Call", overagePrice.toString());
+          (req as any).isOverQuota = true;
+          return next();
+        }
         return res.status(429).json({
           message: `Plan limit reached: ${used}/${limit} ${eventType} this month`,
           code: "QUOTA_EXCEEDED",
@@ -557,19 +565,19 @@ function resolveTierFromPriceId(priceId?: string): PlanTier {
   if (!priceId) return "free";
 
   const priceMap: Record<string, PlanTier> = {};
-  const proM = process.env.STRIPE_PRICE_PRO_MONTHLY;
-  const proY = process.env.STRIPE_PRICE_PRO_YEARLY;
+  const starterM = process.env.STRIPE_PRICE_STARTER_MONTHLY;
+  const starterY = process.env.STRIPE_PRICE_STARTER_YEARLY;
+  const proM = process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY;
+  const proY = process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY;
   const entM = process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY;
   const entY = process.env.STRIPE_PRICE_ENTERPRISE_YEARLY;
-  const clinM = process.env.STRIPE_PRICE_CLINICAL_MONTHLY;
-  const clinY = process.env.STRIPE_PRICE_CLINICAL_YEARLY;
 
-  if (proM) priceMap[proM] = "pro";
-  if (proY) priceMap[proY] = "pro";
+  if (starterM) priceMap[starterM] = "starter";
+  if (starterY) priceMap[starterY] = "starter";
+  if (proM) priceMap[proM] = "professional";
+  if (proY) priceMap[proY] = "professional";
   if (entM) priceMap[entM] = "enterprise";
   if (entY) priceMap[entY] = "enterprise";
-  if (clinM) priceMap[clinM] = "clinical";
-  if (clinY) priceMap[clinY] = "clinical";
 
   const resolved = priceMap[priceId];
   if (!resolved) {

@@ -216,9 +216,10 @@ export default function BillingTab() {
               <Badge className="ml-2 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 text-xs">Save 20%</Badge>
             </Button>
           </div>
+          <p className="text-xs text-muted-foreground mt-2">Annual plans billed at full year price upfront</p>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {(plans || Object.entries(PLAN_DEFINITIONS).map(([tier, def]) => ({ tier: tier as PlanTier, ...def, stripeConfigured: false }))).map((plan) => {
               const isCurrent = plan.tier === currentTier;
               const price = billingInterval === "monthly" ? plan.monthlyPriceUsd : Math.round(plan.yearlyPriceUsd / 12);
@@ -253,6 +254,15 @@ export default function BillingTab() {
                     {plan.limits.clinicalDocumentationEnabled && <PlanFeature label="Clinical documentation" />}
                     {plan.limits.ssoEnabled && <PlanFeature label="SSO / SAML" />}
                     {plan.limits.prioritySupport && <PlanFeature label="Priority support" />}
+                    {(plan.limits.baseSeats as number) > 0 && (
+                      <PlanFeature label={`${plan.limits.baseSeats} seats included`} />
+                    )}
+                    {(plan.limits.pricePerAdditionalSeatUsd as number) > 0 && (
+                      <PlanFeature label={`+$${plan.limits.pricePerAdditionalSeatUsd}/seat/mo`} />
+                    )}
+                    {(plan.limits.overagePricePerCallUsd as number) > 0 && (
+                      <PlanFeature label={`$${plan.limits.overagePricePerCallUsd}/call over quota`} />
+                    )}
                   </ul>
 
                   {!isCurrent && plan.tier !== "free" && (

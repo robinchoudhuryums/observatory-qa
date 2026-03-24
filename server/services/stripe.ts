@@ -4,8 +4,10 @@
  * Requires environment variables:
  * - STRIPE_SECRET_KEY: Stripe API secret key
  * - STRIPE_WEBHOOK_SECRET: Webhook signing secret for verifying events
- * - STRIPE_PRICE_PRO_MONTHLY: Price ID for Pro monthly plan
- * - STRIPE_PRICE_PRO_YEARLY: Price ID for Pro yearly plan
+ * - STRIPE_PRICE_STARTER_MONTHLY: Price ID for Starter monthly plan
+ * - STRIPE_PRICE_STARTER_YEARLY: Price ID for Starter yearly plan
+ * - STRIPE_PRICE_PROFESSIONAL_MONTHLY: Price ID for Professional monthly plan
+ * - STRIPE_PRICE_PROFESSIONAL_YEARLY: Price ID for Professional yearly plan
  * - STRIPE_PRICE_ENTERPRISE_MONTHLY: Price ID for Enterprise monthly plan
  * - STRIPE_PRICE_ENTERPRISE_YEARLY: Price ID for Enterprise yearly plan
  */
@@ -36,12 +38,12 @@ export function isStripeConfigured(): boolean {
 /** Map plan tier + interval to a Stripe Price ID */
 export function getPriceId(tier: PlanTier, interval: "monthly" | "yearly"): string | null {
   const priceMap: Record<string, string | undefined> = {
-    "pro_monthly": process.env.STRIPE_PRICE_PRO_MONTHLY,
-    "pro_yearly": process.env.STRIPE_PRICE_PRO_YEARLY,
+    "starter_monthly": process.env.STRIPE_PRICE_STARTER_MONTHLY,
+    "starter_yearly": process.env.STRIPE_PRICE_STARTER_YEARLY,
+    "professional_monthly": process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY,
+    "professional_yearly": process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY,
     "enterprise_monthly": process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY,
     "enterprise_yearly": process.env.STRIPE_PRICE_ENTERPRISE_YEARLY,
-    "clinical_monthly": process.env.STRIPE_PRICE_CLINICAL_MONTHLY,
-    "clinical_yearly": process.env.STRIPE_PRICE_CLINICAL_YEARLY,
   };
   return priceMap[`${tier}_${interval}`] || null;
 }
