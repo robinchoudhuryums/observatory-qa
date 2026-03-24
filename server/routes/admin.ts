@@ -617,4 +617,16 @@ export function registerAdminRoutes(app: Express): void {
     if (!report) { res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Breach report not found")); return; }
     res.json(report);
   });
+
+  // ==================== EDIT PATTERN INSIGHTS ====================
+
+  app.get("/api/admin/edit-insights", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
+    try {
+      const org = await storage.getOrganization(req.orgId!);
+      const insights = (org?.settings as any)?.editPatternInsights || null;
+      res.json({ insights });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch edit insights" });
+    }
+  });
 }

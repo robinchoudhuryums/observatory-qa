@@ -79,7 +79,7 @@ async function analyzeAndStoreEditPatterns(orgId: string): Promise<void> {
           totalEdits,
           insights,
         },
-      },
+      } as any,
     });
 
     logger.info({ orgId, insightCount: insights.length, totalEdits }, "Edit pattern insights updated");
