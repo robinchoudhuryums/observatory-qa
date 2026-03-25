@@ -435,10 +435,101 @@ export const coachingSessionSchema = insertCoachingSessionSchema.extend({
   orgId: z.string(),
   createdAt: z.string().optional(),
   completedAt: z.string().optional(),
+  // Automation
+  automatedTrigger: z.string().optional().nullable(),
+  automationRuleId: z.string().optional().nullable(),
+  // Self-assessment
+  selfAssessmentScore: z.number().optional().nullable(),
+  selfAssessmentNotes: z.string().optional().nullable(),
+  selfAssessedAt: z.string().optional().nullable(),
+  // Effectiveness snapshot
+  effectivenessSnapshot: z.any().optional().nullable(),
+  effectivenessCalculatedAt: z.string().optional().nullable(),
+  // Template
+  templateId: z.string().optional().nullable(),
 });
 
 export type InsertCoachingSession = z.infer<typeof insertCoachingSessionSchema>;
 export type CoachingSession = z.infer<typeof coachingSessionSchema>;
+
+// --- COACHING TEMPLATES ---
+export const insertCoachingTemplateSchema = z.object({
+  orgId: z.string(),
+  name: z.string().min(1),
+  category: z.string().default("general"),
+  description: z.string().optional(),
+  actionPlan: z.array(z.object({ task: z.string() })).default([]),
+  tags: z.array(z.string()).default([]),
+  createdBy: z.string(),
+});
+
+export const coachingTemplateSchema = insertCoachingTemplateSchema.extend({
+  id: z.string(),
+  usageCount: z.number().default(0),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+});
+
+export type InsertCoachingTemplate = z.infer<typeof insertCoachingTemplateSchema>;
+export type CoachingTemplate = z.infer<typeof coachingTemplateSchema>;
+
+// --- AUTOMATION RULES ---
+export const automationRuleConditionsSchema = z.object({
+  threshold: z.number().optional(),          // e.g. 6.0 — score below this triggers
+  consecutiveCount: z.number().optional(),   // e.g. 3 — consecutive calls required
+  flagType: z.string().optional(),           // for flag_recurring trigger
+  category: z.string().optional(),           // scope to a specific call category
+  sentimentThreshold: z.number().optional(), // 0-1 sentiment score threshold
+  lookbackDays: z.number().optional(),       // rolling window (default 30)
+});
+
+export const automationRuleActionsSchema = z.object({
+  createSession: z.boolean().default(true),
+  notifyManager: z.boolean().default(true),
+  sessionTitle: z.string().optional(),
+  sessionCategory: z.string().default("general"),
+  sessionNotes: z.string().optional(),
+  templateId: z.string().optional(),
+});
+
+export const insertAutomationRuleSchema = z.object({
+  orgId: z.string(),
+  name: z.string().min(1),
+  isEnabled: z.boolean().default(true),
+  triggerType: z.enum(["consecutive_low_score", "trend_decline", "flag_recurring", "low_sentiment"]),
+  conditions: automationRuleConditionsSchema,
+  actions: automationRuleActionsSchema,
+  createdBy: z.string(),
+});
+
+export const automationRuleSchema = insertAutomationRuleSchema.extend({
+  id: z.string(),
+  lastTriggeredAt: z.string().optional().nullable(),
+  triggerCount: z.number().default(0),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+});
+
+export type InsertAutomationRule = z.infer<typeof insertAutomationRuleSchema>;
+export type AutomationRule = z.infer<typeof automationRuleSchema>;
+export type AutomationRuleConditions = z.infer<typeof automationRuleConditionsSchema>;
+export type AutomationRuleActions = z.infer<typeof automationRuleActionsSchema>;
+
+// --- COACHING ANALYTICS ---
+export type CoachingAnalytics = {
+  totalSessions: number;
+  completedSessions: number;
+  dismissedSessions: number;
+  pendingSessions: number;
+  completionRate: number; // 0-1
+  avgTimeToCloseHours: number | null;
+  sessionsByCategory: Record<string, number>;
+  sessionsByManager: Record<string, { total: number; completed: number; rate: number }>;
+  improvementByCategory: Record<string, { before: number; after: number; delta: number; count: number }>;
+  topCoachingTopics: Array<{ topic: string; count: number }>;
+  overdueCount: number;
+  automatedCount: number; // sessions created by automation rules
+};
 
 // --- COACHING RECOMMENDATIONS ---
 export type CoachingRecommendationRecord = {

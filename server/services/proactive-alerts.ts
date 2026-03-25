@@ -6,7 +6,7 @@
  */
 import { storage } from "../storage";
 import { logger } from "./logger";
-import { generateRecommendations, saveRecommendations } from "./coaching-engine";
+import { generateRecommendations, saveRecommendations, runAutomationRules } from "./coaching-engine";
 import { sendSlackNotification, type SlackNotificationPayload } from "./notifications";
 import type { CallSummary, Employee } from "@shared/schema";
 
@@ -44,6 +44,11 @@ export async function onCallAnalysisComplete(
   } catch (error) {
     logger.warn({ err: error, orgId, callId, employeeId }, "Failed to auto-generate coaching recommendations");
   }
+
+  // Run automation rules for this employee (non-blocking)
+  runAutomationRules(orgId, employeeId).catch(err =>
+    logger.warn({ err, orgId, employeeId }, "Automation rules failed (non-blocking)"),
+  );
 }
 
 /**

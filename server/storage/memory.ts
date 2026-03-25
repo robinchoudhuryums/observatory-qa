@@ -491,6 +491,118 @@ export class MemStorage implements IStorage {
     return updated;
   }
 
+  async getCoachingAnalytics(orgId: string, from?: Date, to?: Date): Promise<import("@shared/schema").CoachingAnalytics> {
+    const sessions = (await this.getAllCoachingSessions(orgId)).filter(s => {
+      const t = new Date(s.createdAt || 0).getTime();
+      return (!from || t >= from.getTime()) && (!to || t <= to.getTime());
+    });
+    const completed = sessions.filter(s => s.status === "completed");
+    const dismissed = sessions.filter(s => s.status === "dismissed");
+    const pending = sessions.filter(s => s.status === "pending" || s.status === "in_progress");
+    const now = Date.now();
+    const overdue = sessions.filter(s => s.dueDate && new Date(s.dueDate).getTime() < now && s.status !== "completed" && s.status !== "dismissed");
+    const automated = sessions.filter(s => (s as any).automatedTrigger);
+
+    const avgClose = completed.length > 0
+      ? completed.reduce((sum, s) => {
+          if (!s.completedAt || !s.createdAt) return sum;
+          return sum + (new Date(s.completedAt).getTime() - new Date(s.createdAt).getTime()) / 3600000;
+        }, 0) / completed.length
+      : null;
+
+    const byCategory: Record<string, number> = {};
+    const byManager: Record<string, { total: number; completed: number; rate: number }> = {};
+    for (const s of sessions) {
+      byCategory[s.category] = (byCategory[s.category] || 0) + 1;
+      if (s.assignedBy) {
+        if (!byManager[s.assignedBy]) byManager[s.assignedBy] = { total: 0, completed: 0, rate: 0 };
+        byManager[s.assignedBy].total++;
+        if (s.status === "completed") byManager[s.assignedBy].completed++;
+      }
+    }
+    for (const m of Object.values(byManager)) m.rate = m.total > 0 ? m.completed / m.total : 0;
+
+    return {
+      totalSessions: sessions.length,
+      completedSessions: completed.length,
+      dismissedSessions: dismissed.length,
+      pendingSessions: pending.length,
+      completionRate: sessions.length > 0 ? completed.length / sessions.length : 0,
+      avgTimeToCloseHours: avgClose,
+      sessionsByCategory: byCategory,
+      sessionsByManager: byManager,
+      improvementByCategory: {},
+      topCoachingTopics: Object.entries(byCategory)
+        .map(([topic, count]) => ({ topic, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 10),
+      overdueCount: overdue.length,
+      automatedCount: automated.length,
+    };
+  }
+
+  // --- Coaching templates (in-memory) ---
+  private coachingTemplates = new Map<string, import("@shared/schema").CoachingTemplate>();
+
+  async createCoachingTemplate(orgId: string, template: import("@shared/schema").InsertCoachingTemplate): Promise<import("@shared/schema").CoachingTemplate> {
+    const id = randomUUID();
+    const t: import("@shared/schema").CoachingTemplate = { ...template, id, orgId, usageCount: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    this.coachingTemplates.set(id, t);
+    return t;
+  }
+  async getCoachingTemplate(orgId: string, id: string): Promise<import("@shared/schema").CoachingTemplate | undefined> {
+    const t = this.coachingTemplates.get(id);
+    return t?.orgId === orgId ? t : undefined;
+  }
+  async listCoachingTemplates(orgId: string, category?: string): Promise<import("@shared/schema").CoachingTemplate[]> {
+    return Array.from(this.coachingTemplates.values()).filter(
+      t => t.orgId === orgId && (!category || t.category === category)
+    );
+  }
+  async updateCoachingTemplate(orgId: string, id: string, updates: Partial<import("@shared/schema").CoachingTemplate>): Promise<import("@shared/schema").CoachingTemplate | undefined> {
+    const t = await this.getCoachingTemplate(orgId, id);
+    if (!t) return undefined;
+    const updated = { ...t, ...updates, orgId, updatedAt: new Date().toISOString() };
+    this.coachingTemplates.set(id, updated);
+    return updated;
+  }
+  async deleteCoachingTemplate(orgId: string, id: string): Promise<void> {
+    const t = this.coachingTemplates.get(id);
+    if (t?.orgId === orgId) this.coachingTemplates.delete(id);
+  }
+  async incrementTemplateUsage(orgId: string, id: string): Promise<void> {
+    const t = await this.getCoachingTemplate(orgId, id);
+    if (t) this.coachingTemplates.set(id, { ...t, usageCount: (t.usageCount || 0) + 1 });
+  }
+
+  // --- Automation rules (in-memory) ---
+  private automationRules = new Map<string, import("@shared/schema").AutomationRule>();
+
+  async createAutomationRule(orgId: string, rule: import("@shared/schema").InsertAutomationRule): Promise<import("@shared/schema").AutomationRule> {
+    const id = randomUUID();
+    const r: import("@shared/schema").AutomationRule = { ...rule, id, orgId, triggerCount: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    this.automationRules.set(id, r);
+    return r;
+  }
+  async getAutomationRule(orgId: string, id: string): Promise<import("@shared/schema").AutomationRule | undefined> {
+    const r = this.automationRules.get(id);
+    return r?.orgId === orgId ? r : undefined;
+  }
+  async listAutomationRules(orgId: string): Promise<import("@shared/schema").AutomationRule[]> {
+    return Array.from(this.automationRules.values()).filter(r => r.orgId === orgId);
+  }
+  async updateAutomationRule(orgId: string, id: string, updates: Partial<import("@shared/schema").AutomationRule>): Promise<import("@shared/schema").AutomationRule | undefined> {
+    const r = await this.getAutomationRule(orgId, id);
+    if (!r) return undefined;
+    const updated = { ...r, ...updates, orgId, updatedAt: new Date().toISOString() };
+    this.automationRules.set(id, updated);
+    return updated;
+  }
+  async deleteAutomationRule(orgId: string, id: string): Promise<void> {
+    const r = this.automationRules.get(id);
+    if (r?.orgId === orgId) this.automationRules.delete(id);
+  }
+
   private usageEvents: Array<{ orgId: string; eventType: string; quantity: number; metadata?: Record<string, unknown>; createdAt: Date }> = [];
 
   // --- Usage tracking ---

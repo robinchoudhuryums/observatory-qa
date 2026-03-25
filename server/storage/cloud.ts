@@ -573,6 +573,83 @@ export class CloudStorage implements IStorage {
     return updated;
   }
 
+  async getCoachingAnalytics(orgId: string, _from?: Date, _to?: Date): Promise<import("@shared/schema").CoachingAnalytics> {
+    // Cloud storage doesn't support aggregate queries efficiently — return minimal metrics
+    const sessions = await this.getAllCoachingSessions(orgId);
+    const completed = sessions.filter(s => s.status === "completed");
+    return {
+      totalSessions: sessions.length,
+      completedSessions: completed.length,
+      dismissedSessions: sessions.filter(s => s.status === "dismissed").length,
+      pendingSessions: sessions.filter(s => s.status === "pending" || s.status === "in_progress").length,
+      completionRate: sessions.length > 0 ? completed.length / sessions.length : 0,
+      avgTimeToCloseHours: null,
+      sessionsByCategory: {},
+      sessionsByManager: {},
+      improvementByCategory: {},
+      topCoachingTopics: [],
+      overdueCount: 0,
+      automatedCount: 0,
+    };
+  }
+
+  // --- Coaching Templates ---
+  private coachingTemplates = new Map<string, import("@shared/schema").CoachingTemplate>();
+
+  async createCoachingTemplate(orgId: string, template: import("@shared/schema").InsertCoachingTemplate): Promise<import("@shared/schema").CoachingTemplate> {
+    const { randomUUID } = await import("crypto");
+    const id = randomUUID();
+    const t: import("@shared/schema").CoachingTemplate = { ...template, id, orgId, usageCount: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    await this.client.uploadJson(`${this.orgPrefix(orgId)}/coaching-templates/${id}.json`, t);
+    return t;
+  }
+  async getCoachingTemplate(orgId: string, id: string): Promise<import("@shared/schema").CoachingTemplate | undefined> {
+    return this.client.downloadJson<import("@shared/schema").CoachingTemplate>(`${this.orgPrefix(orgId)}/coaching-templates/${id}.json`);
+  }
+  async listCoachingTemplates(orgId: string, category?: string): Promise<import("@shared/schema").CoachingTemplate[]> {
+    const all = await this.client.listAndDownloadJson<import("@shared/schema").CoachingTemplate>(`${this.orgPrefix(orgId)}/coaching-templates/`);
+    return category ? all.filter(t => t.category === category) : all;
+  }
+  async updateCoachingTemplate(orgId: string, id: string, updates: Partial<import("@shared/schema").CoachingTemplate>): Promise<import("@shared/schema").CoachingTemplate | undefined> {
+    const t = await this.getCoachingTemplate(orgId, id);
+    if (!t) return undefined;
+    const updated = { ...t, ...updates, orgId, updatedAt: new Date().toISOString() };
+    await this.client.uploadJson(`${this.orgPrefix(orgId)}/coaching-templates/${id}.json`, updated);
+    return updated;
+  }
+  async deleteCoachingTemplate(orgId: string, id: string): Promise<void> {
+    await this.client.deleteObject(`${this.orgPrefix(orgId)}/coaching-templates/${id}.json`).catch(() => {});
+  }
+  async incrementTemplateUsage(orgId: string, id: string): Promise<void> {
+    const t = await this.getCoachingTemplate(orgId, id);
+    if (t) await this.updateCoachingTemplate(orgId, id, { usageCount: (t.usageCount || 0) + 1 });
+  }
+
+  // --- Automation Rules ---
+  async createAutomationRule(orgId: string, rule: import("@shared/schema").InsertAutomationRule): Promise<import("@shared/schema").AutomationRule> {
+    const { randomUUID } = await import("crypto");
+    const id = randomUUID();
+    const r: import("@shared/schema").AutomationRule = { ...rule, id, orgId, triggerCount: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    await this.client.uploadJson(`${this.orgPrefix(orgId)}/automation-rules/${id}.json`, r);
+    return r;
+  }
+  async getAutomationRule(orgId: string, id: string): Promise<import("@shared/schema").AutomationRule | undefined> {
+    return this.client.downloadJson<import("@shared/schema").AutomationRule>(`${this.orgPrefix(orgId)}/automation-rules/${id}.json`);
+  }
+  async listAutomationRules(orgId: string): Promise<import("@shared/schema").AutomationRule[]> {
+    return this.client.listAndDownloadJson<import("@shared/schema").AutomationRule>(`${this.orgPrefix(orgId)}/automation-rules/`);
+  }
+  async updateAutomationRule(orgId: string, id: string, updates: Partial<import("@shared/schema").AutomationRule>): Promise<import("@shared/schema").AutomationRule | undefined> {
+    const r = await this.getAutomationRule(orgId, id);
+    if (!r) return undefined;
+    const updated = { ...r, ...updates, orgId, updatedAt: new Date().toISOString() };
+    await this.client.uploadJson(`${this.orgPrefix(orgId)}/automation-rules/${id}.json`, updated);
+    return updated;
+  }
+  async deleteAutomationRule(orgId: string, id: string): Promise<void> {
+    await this.client.deleteObject(`${this.orgPrefix(orgId)}/automation-rules/${id}.json`).catch(() => {});
+  }
+
   // --- Data Retention (org-scoped) ---
   async purgeExpiredCalls(orgId: string, retentionDays: number): Promise<number> {
     const cutoff = new Date();

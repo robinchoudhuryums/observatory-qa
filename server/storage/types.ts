@@ -59,6 +59,11 @@ import {
   type InsertMarketingCampaign,
   type CallAttribution,
   type InsertCallAttribution,
+  type CoachingTemplate,
+  type InsertCoachingTemplate,
+  type AutomationRule,
+  type InsertAutomationRule,
+  type CoachingAnalytics,
 } from "@shared/schema";
 
 /**
@@ -249,6 +254,22 @@ export interface IStorage {
   getAllCoachingSessions(orgId: string): Promise<CoachingSession[]>;
   getCoachingSessionsByEmployee(orgId: string, employeeId: string): Promise<CoachingSession[]>;
   updateCoachingSession(orgId: string, id: string, updates: Partial<CoachingSession>): Promise<CoachingSession | undefined>;
+  getCoachingAnalytics(orgId: string, from?: Date, to?: Date): Promise<CoachingAnalytics>;
+
+  // Coaching template operations (org-scoped)
+  createCoachingTemplate(orgId: string, template: InsertCoachingTemplate): Promise<CoachingTemplate>;
+  getCoachingTemplate(orgId: string, id: string): Promise<CoachingTemplate | undefined>;
+  listCoachingTemplates(orgId: string, category?: string): Promise<CoachingTemplate[]>;
+  updateCoachingTemplate(orgId: string, id: string, updates: Partial<CoachingTemplate>): Promise<CoachingTemplate | undefined>;
+  deleteCoachingTemplate(orgId: string, id: string): Promise<void>;
+  incrementTemplateUsage(orgId: string, id: string): Promise<void>;
+
+  // Automation rule operations (org-scoped)
+  createAutomationRule(orgId: string, rule: InsertAutomationRule): Promise<AutomationRule>;
+  getAutomationRule(orgId: string, id: string): Promise<AutomationRule | undefined>;
+  listAutomationRules(orgId: string): Promise<AutomationRule[]>;
+  updateAutomationRule(orgId: string, id: string, updates: Partial<AutomationRule>): Promise<AutomationRule | undefined>;
+  deleteAutomationRule(orgId: string, id: string): Promise<void>;
 
   // Data retention (org-scoped)
   purgeExpiredCalls(orgId: string, retentionDays: number): Promise<number>;

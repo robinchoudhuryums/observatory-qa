@@ -351,6 +351,57 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS coaching_rec_status_idx ON coaching_recommendations (org_id, status)`);
     await addRlsPolicy(db, "coaching_recommendations").catch(e => logger.warn({ err: e }, "RLS setup skipped for coaching_recommendations"));
 
+    // --- Coaching Sessions: new columns ---
+    await addColumnIfNotExists(db, "coaching_sessions", "automated_trigger", "TEXT");
+    await addColumnIfNotExists(db, "coaching_sessions", "automation_rule_id", "TEXT");
+    await addColumnIfNotExists(db, "coaching_sessions", "self_assessment_score", "REAL");
+    await addColumnIfNotExists(db, "coaching_sessions", "self_assessment_notes", "TEXT");
+    await addColumnIfNotExists(db, "coaching_sessions", "self_assessed_at", "TIMESTAMP");
+    await addColumnIfNotExists(db, "coaching_sessions", "effectiveness_snapshot", "JSONB");
+    await addColumnIfNotExists(db, "coaching_sessions", "effectiveness_calculated_at", "TIMESTAMP");
+    await addColumnIfNotExists(db, "coaching_sessions", "template_id", "TEXT");
+
+    // --- Coaching Templates ---
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS coaching_templates (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        category VARCHAR(50) NOT NULL DEFAULT 'general',
+        description TEXT,
+        action_plan JSONB NOT NULL DEFAULT '[]',
+        tags JSONB DEFAULT '[]',
+        created_by VARCHAR(255) NOT NULL,
+        usage_count INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS coaching_templates_org_idx ON coaching_templates (org_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS coaching_templates_org_category_idx ON coaching_templates (org_id, category)`);
+    await addRlsPolicy(db, "coaching_templates").catch(e => logger.warn({ err: e }, "RLS setup skipped for coaching_templates"));
+
+    // --- Automation Rules ---
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS automation_rules (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        trigger_type VARCHAR(50) NOT NULL,
+        conditions JSONB NOT NULL,
+        actions JSONB NOT NULL,
+        created_by VARCHAR(255) NOT NULL,
+        last_triggered_at TIMESTAMP,
+        trigger_count INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS automation_rules_org_idx ON automation_rules (org_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS automation_rules_org_enabled_idx ON automation_rules (org_id, is_enabled)`);
+    await addRlsPolicy(db, "automation_rules").catch(e => logger.warn({ err: e }, "RLS setup skipped for automation_rules"));
+
     // --- API Keys ---
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS api_keys (

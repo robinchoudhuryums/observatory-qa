@@ -376,3 +376,295 @@ async function getCoachingSession(orgId: string, sessionId: string): Promise<Coa
     return null;
   }
 }
+
+// =============================================================================
+// AUTOMATION RULES ENGINE
+// =============================================================================
+
+/**
+ * Run all enabled automation rules for an org.
+ * Checks each rule's trigger conditions against recent employee data
+ * and auto-creates coaching sessions when thresholds are breached.
+ *
+ * Called: after each call is analyzed (inline) + on a daily scheduled pass.
+ */
+export async function runAutomationRules(orgId: string, targetEmployeeId?: string): Promise<{ triggered: number; sessionsCreated: number }> {
+  let triggered = 0;
+  let sessionsCreated = 0;
+
+  try {
+    const rules = await storage.listAutomationRules(orgId);
+    const enabledRules = rules.filter(r => r.isEnabled);
+    if (enabledRules.length === 0) return { triggered: 0, sessionsCreated: 0 };
+
+    // Load employees to evaluate
+    const employees = targetEmployeeId
+      ? [await storage.getEmployee(orgId, targetEmployeeId)].filter(Boolean)
+      : await storage.getAllEmployees(orgId);
+
+    const activeEmployees = (employees as any[]).filter(e => e?.status === "active");
+
+    for (const rule of enabledRules) {
+      for (const employee of activeEmployees) {
+        const fired = await evaluateRule(orgId, rule as any, employee.id, employee.name);
+        if (fired) {
+          triggered++;
+          // Create the coaching session
+          const actions = rule.actions as any;
+          if (actions.createSession !== false) {
+            const template = actions.templateId
+              ? await storage.getCoachingTemplate(orgId, actions.templateId).catch(() => null)
+              : null;
+
+            const sessionTitle = (actions.sessionTitle || `Coaching: ${rule.name} — ${employee.name}`)
+              .replace("{employee}", employee.name)
+              .replace("{rule}", rule.name);
+
+            const sessionData = {
+              orgId,
+              employeeId: employee.id,
+              assignedBy: "Automation",
+              category: actions.sessionCategory || "general",
+              title: sessionTitle,
+              notes: actions.sessionNotes
+                ? actions.sessionNotes.replace("{employee}", employee.name).replace("{rule}", rule.name)
+                : `Auto-created by rule: ${rule.name}`,
+              actionPlan: template?.actionPlan?.map((t: any) => ({ task: t.task, completed: false })) || [],
+              status: "pending" as const,
+              automatedTrigger: rule.triggerType,
+              automationRuleId: rule.id,
+              templateId: actions.templateId || null,
+            } as any;
+
+            try {
+              await storage.createCoachingSession(orgId, sessionData);
+              sessionsCreated++;
+
+              // Update rule stats
+              await storage.updateAutomationRule(orgId, rule.id, {
+                lastTriggeredAt: new Date().toISOString(),
+                triggerCount: (rule.triggerCount || 0) + 1,
+              } as any);
+
+              logger.info({ orgId, ruleId: rule.id, employeeId: employee.id }, "Automation rule triggered coaching session");
+            } catch (err) {
+              logger.warn({ err, ruleId: rule.id, employeeId: employee.id }, "Failed to create automated coaching session");
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    logger.error({ err, orgId }, "Automation rules runner failed");
+  }
+
+  return { triggered, sessionsCreated };
+}
+
+/**
+ * Evaluate a single automation rule against an employee.
+ * Returns true if the rule should fire (trigger not already in cooldown).
+ */
+async function evaluateRule(orgId: string, rule: any, employeeId: string, employeeName: string): Promise<boolean> {
+  try {
+    const conditions = rule.conditions as any;
+    const lookbackDays = conditions.lookbackDays || 30;
+    const since = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
+
+    // Check cooldown: don't re-trigger for same employee if a pending/in_progress automated session exists
+    const existing = await storage.getCoachingSessionsByEmployee(orgId, employeeId);
+    const hasActiveCooldown = existing.some(s =>
+      s.status !== "completed" && s.status !== "dismissed" &&
+      (s as any).automationRuleId === rule.id &&
+      new Date(s.createdAt || 0) > since
+    );
+    if (hasActiveCooldown) return false;
+
+    // Load recent completed calls for this employee
+    const allCalls = await storage.getAllCalls(orgId);
+    const recentCalls = allCalls.filter(c =>
+      c.employeeId === employeeId &&
+      c.status === "completed" &&
+      new Date(c.uploadedAt || 0) >= since &&
+      (!conditions.category || c.callCategory === conditions.category)
+    );
+
+    if (recentCalls.length === 0) return false;
+
+    // Load analyses
+    const callsWithAnalysis = await Promise.all(
+      recentCalls.slice(-20).map(async (c) => {
+        const analysis = await storage.getCallAnalysis(orgId, c.id);
+        return { ...c, analysis };
+      })
+    );
+    const analyzed = callsWithAnalysis.filter(c => c.analysis);
+
+    switch (rule.triggerType) {
+      case "consecutive_low_score": {
+        const threshold = conditions.threshold ?? 6.0;
+        const needed = conditions.consecutiveCount ?? 3;
+        // Check last N calls in order
+        const sorted = analyzed.sort((a: any, b: any) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime());
+        const lastN = sorted.slice(0, needed);
+        if (lastN.length < needed) return false;
+        return lastN.every((c: any) => (c.analysis?.performanceScore || 0) < threshold);
+      }
+
+      case "trend_decline": {
+        const threshold = conditions.threshold ?? 1.0; // min score drop to be considered decline
+        if (analyzed.length < 4) return false;
+        const sorted = analyzed.sort((a: any, b: any) => new Date(a.uploadedAt || 0).getTime() - new Date(b.uploadedAt || 0).getTime());
+        const half = Math.floor(sorted.length / 2);
+        const older = average(sorted.slice(0, half).map((c: any) => c.analysis?.performanceScore || 0));
+        const newer = average(sorted.slice(half).map((c: any) => c.analysis?.performanceScore || 0));
+        return (older - newer) >= threshold;
+      }
+
+      case "flag_recurring": {
+        const flagType = conditions.flagType;
+        if (!flagType) return false;
+        const flaggedCalls = analyzed.filter((c: any) => {
+          const flags = c.analysis?.flags as string[] | undefined;
+          return flags?.includes(flagType);
+        });
+        const needed = conditions.consecutiveCount ?? 2;
+        return flaggedCalls.length >= needed;
+      }
+
+      case "low_sentiment": {
+        const threshold = conditions.sentimentThreshold ?? 0.35;
+        const needed = conditions.consecutiveCount ?? 3;
+        if (analyzed.length < needed) return false;
+        const callsWithSentiment = await Promise.all(
+          analyzed.slice(-needed).map(async (c) => {
+            const sentiment = await storage.getSentimentAnalysis(orgId, c.id);
+            return sentiment?.overallScore || 0;
+          })
+        );
+        return callsWithSentiment.every(s => s < threshold);
+      }
+
+      default:
+        return false;
+    }
+  } catch (err) {
+    logger.warn({ err, ruleId: rule.id, employeeId }, "Rule evaluation failed");
+    return false;
+  }
+}
+
+// =============================================================================
+// EFFECTIVENESS CACHING
+// =============================================================================
+
+/**
+ * Calculate effectiveness and cache the snapshot on the coaching session.
+ * Automatically called when a session is 30+ days old and has no snapshot.
+ */
+export async function calculateAndCacheEffectiveness(orgId: string, sessionId: string): Promise<void> {
+  try {
+    const session = await storage.getCoachingSession(orgId, sessionId);
+    if (!session) return;
+    if ((session as any).effectivenessSnapshot) return; // already cached
+
+    const result = await calculateEffectiveness(orgId, sessionId);
+    if (!result) return;
+
+    await storage.updateCoachingSession(orgId, sessionId, {
+      effectivenessSnapshot: result,
+      effectivenessCalculatedAt: new Date().toISOString(),
+    } as any);
+  } catch (err) {
+    logger.warn({ err, orgId, sessionId }, "Failed to cache effectiveness snapshot");
+  }
+}
+
+/**
+ * Sweep all completed sessions older than 30 days that haven't had effectiveness calculated.
+ * Run daily.
+ */
+export async function sweepEffectivenessSnapshots(orgId: string): Promise<number> {
+  let calculated = 0;
+  try {
+    const sessions = await storage.getAllCoachingSessions(orgId);
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const candidates = sessions.filter(s =>
+      s.status === "completed" &&
+      s.completedAt &&
+      new Date(s.completedAt) < thirtyDaysAgo &&
+      !(s as any).effectivenessSnapshot
+    );
+    for (const session of candidates) {
+      await calculateAndCacheEffectiveness(orgId, session.id);
+      calculated++;
+    }
+  } catch (err) {
+    logger.warn({ err, orgId }, "Effectiveness sweep failed");
+  }
+  return calculated;
+}
+
+// =============================================================================
+// FOLLOW-UP REMINDERS
+// =============================================================================
+
+/**
+ * Check for coaching sessions with action items approaching their due date.
+ * Returns sessions due within `windowHours` (default: 24) that aren't completed.
+ */
+export async function getDueSoonSessions(
+  orgId: string,
+  windowHours = 24,
+): Promise<Array<{ session: CoachingSession; employeeName: string; hoursUntilDue: number }>> {
+  try {
+    const sessions = await storage.getAllCoachingSessions(orgId);
+    const employees = await storage.getAllEmployees(orgId);
+    const empMap = new Map(employees.map(e => [e.id, e.name]));
+    const now = Date.now();
+    const windowMs = windowHours * 60 * 60 * 1000;
+
+    return sessions
+      .filter(s => {
+        if (s.status === "completed" || s.status === "dismissed" || !s.dueDate) return false;
+        const due = new Date(s.dueDate).getTime();
+        return due > now && due - now <= windowMs;
+      })
+      .map(s => ({
+        session: s,
+        employeeName: empMap.get(s.employeeId) || "Unknown",
+        hoursUntilDue: Math.round((new Date(s.dueDate!).getTime() - now) / 3600000),
+      }));
+  } catch (err) {
+    logger.warn({ err, orgId }, "Failed to get due-soon sessions");
+    return [];
+  }
+}
+
+/**
+ * Check for overdue coaching sessions.
+ */
+export async function getOverdueSessions(
+  orgId: string,
+): Promise<Array<{ session: CoachingSession; employeeName: string; daysOverdue: number }>> {
+  try {
+    const sessions = await storage.getAllCoachingSessions(orgId);
+    const employees = await storage.getAllEmployees(orgId);
+    const empMap = new Map(employees.map(e => [e.id, e.name]));
+    const now = Date.now();
+
+    return sessions
+      .filter(s => {
+        if (s.status === "completed" || s.status === "dismissed" || !s.dueDate) return false;
+        return new Date(s.dueDate).getTime() < now;
+      })
+      .map(s => ({
+        session: s,
+        employeeName: empMap.get(s.employeeId) || "Unknown",
+        daysOverdue: Math.round((now - new Date(s.dueDate!).getTime()) / 86400000),
+      }));
+  } catch (err) {
+    logger.warn({ err, orgId }, "Failed to get overdue sessions");
+    return [];
+  }
+}

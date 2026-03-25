@@ -245,6 +245,18 @@ export const coachingSessions = pgTable("coaching_sessions", {
   dueDate: timestamp("due_date"),
   createdAt: timestamp("created_at").defaultNow(),
   completedAt: timestamp("completed_at"),
+  // Automation
+  automatedTrigger: text("automated_trigger"), // set when auto-created by an automation rule
+  automationRuleId: text("automation_rule_id"), // which rule triggered this
+  // Self-assessment
+  selfAssessmentScore: real("self_assessment_score"), // employee's self-rated score (0-10)
+  selfAssessmentNotes: text("self_assessment_notes"),
+  selfAssessedAt: timestamp("self_assessed_at"),
+  // Effectiveness snapshot (cached 30-day pre/post comparison)
+  effectivenessSnapshot: jsonb("effectiveness_snapshot"),
+  effectivenessCalculatedAt: timestamp("effectiveness_calculated_at"),
+  // Template used
+  templateId: text("template_id"),
 }, (t) => [
   index("coaching_org_id_idx").on(t.orgId),
   index("coaching_employee_id_idx").on(t.employeeId),
@@ -270,6 +282,47 @@ export const coachingRecommendations = pgTable("coaching_recommendations", {
   index("coaching_rec_org_id_idx").on(t.orgId),
   index("coaching_rec_employee_idx").on(t.orgId, t.employeeId),
   index("coaching_rec_status_idx").on(t.orgId, t.status),
+]);
+
+// --- COACHING TEMPLATES (reusable action plans) ---
+export const coachingTemplates = pgTable("coaching_templates", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => organizations.id),
+  name: varchar("name", { length: 255 }).notNull(),
+  category: varchar("category", { length: 50 }).notNull().default("general"),
+  description: text("description"),
+  // Predefined action plan tasks: [{ task: string }]
+  actionPlan: jsonb("action_plan").notNull().default([]),
+  tags: jsonb("tags").$type<string[]>().default([]),
+  createdBy: varchar("created_by", { length: 255 }).notNull(),
+  usageCount: integer("usage_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("coaching_templates_org_idx").on(t.orgId),
+  index("coaching_templates_org_category_idx").on(t.orgId, t.category),
+]);
+
+// --- AUTOMATION RULES (auto-create coaching sessions) ---
+export const automationRules = pgTable("automation_rules", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => organizations.id),
+  name: varchar("name", { length: 255 }).notNull(),
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  // Trigger type: consecutive_low_score | trend_decline | flag_recurring | low_sentiment
+  triggerType: varchar("trigger_type", { length: 50 }).notNull(),
+  // Conditions: { threshold, consecutiveCount, flagType, category, sentimentThreshold, ... }
+  conditions: jsonb("conditions").notNull(),
+  // Actions: { createSession, notifyManager, sessionTitle, sessionCategory, sessionNotes, templateId }
+  actions: jsonb("actions").notNull(),
+  createdBy: varchar("created_by", { length: 255 }).notNull(),
+  lastTriggeredAt: timestamp("last_triggered_at"),
+  triggerCount: integer("trigger_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("automation_rules_org_idx").on(t.orgId),
+  index("automation_rules_org_enabled_idx").on(t.orgId, t.isEnabled),
 ]);
 
 // --- API KEYS ---
