@@ -452,6 +452,24 @@ export function registerAdminRoutes(app: Express): void {
       }
 
       const updatedSettings = { ...(org.settings || {}), ...parsed.data } as OrgSettings;
+
+      // When mfaRequired is first enabled: stamp mfaRequiredEnabledAt and apply enrollment deadlines to existing users
+      const wasMfaRequired = (org.settings as any)?.mfaRequired === true;
+      const isMfaRequired = (parsed.data as any)?.mfaRequired === true;
+      if (!wasMfaRequired && isMfaRequired) {
+        (updatedSettings as any).mfaRequiredEnabledAt = new Date().toISOString();
+        const graceDays = (updatedSettings as any).mfaGracePeriodDays ?? 7;
+        const deadline = new Date(Date.now() + graceDays * 24 * 60 * 60 * 1000).toISOString();
+        // Stamp each existing non-MFA user with an enrollment deadline
+        const users = await storage.listUsersByOrg(req.orgId!);
+        await Promise.all(
+          users
+            .filter((u) => !u.mfaEnabled && !(u as any).mfaEnrollmentDeadline)
+            .map((u) => storage.updateUser(req.orgId!, u.id, { mfaEnrollmentDeadline: deadline } as any))
+        );
+        logger.info({ orgId: req.orgId, deadline, graceDays }, "MFA enforcement enabled — enrollment deadlines applied");
+      }
+
       const updated = await storage.updateOrganization(req.orgId!, { settings: updatedSettings });
 
       // Audit log for HIPAA — track all org configuration changes
@@ -1067,6 +1085,133 @@ export function registerAdminRoutes(app: Express): void {
     } catch (err) {
       logger.error({ err }, "Org data purge failed");
       res.status(500).json({ message: "Purge failed" });
+    }
+  });
+
+  // ==================== MFA RECOVERY APPROVAL (admin) ====================
+  // Admins review and approve/deny emergency MFA bypass requests from users
+
+  // List pending/email_verified recovery requests for this org
+  app.get("/api/admin/mfa/recovery", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    try {
+      const recoveryStore: Map<string, any> | undefined = (app as any).__mfaRecoveryStore;
+      if (!recoveryStore) return res.json({ requests: [] });
+
+      const orgId = req.orgId!;
+      const requests: any[] = [];
+      for (const [tokenHash, record] of Array.from(recoveryStore)) {
+        if (record.orgId !== orgId) continue;
+        if (record.status !== "pending" && record.status !== "email_verified") continue;
+        const user = await storage.getUser(record.userId).catch(() => null);
+        requests.push({
+          tokenPrefix: tokenHash.substring(0, 16),
+          userId: record.userId,
+          username: user?.username,
+          name: user?.name,
+          role: user?.role,
+          emailVerified: record.emailVerified,
+          status: record.status,
+          createdAt: new Date(record.createdAt).toISOString(),
+        });
+      }
+
+      res.json({ requests });
+    } catch (err) {
+      logger.error({ err }, "Failed to list MFA recovery requests");
+      res.status(500).json({ message: "Failed to list recovery requests" });
+    }
+  });
+
+  // Approve a recovery request — generates a short-lived one-time use token
+  app.post("/api/admin/mfa/recovery/:tokenPrefix/approve", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    try {
+      const { tokenPrefix } = req.params;
+      const recoveryStore: Map<string, any> | undefined = (app as any).__mfaRecoveryStore;
+      if (!recoveryStore) return res.status(404).json({ message: "Recovery request not found" });
+
+      const orgId = req.orgId!;
+      let foundKey: string | undefined;
+      let record: any;
+      for (const [k, v] of Array.from(recoveryStore)) {
+        if (k.startsWith(tokenPrefix) && v.orgId === orgId && (v.status === "pending" || v.status === "email_verified")) {
+          foundKey = k;
+          record = v;
+          break;
+        }
+      }
+
+      if (!foundKey || !record) return res.status(404).json({ message: "Recovery request not found" });
+
+      const { randomBytes, createHash } = await import("crypto");
+      const useToken = randomBytes(32).toString("hex");
+      const useTokenHash = createHash("sha256").update(useToken).digest("hex");
+      record.status = "approved";
+      record.useTokenHash = useTokenHash;
+      record.useTokenExpiresAt = Date.now() + 30 * 60 * 1000; // 30-minute window
+      record.approvedBy = req.user!.id;
+      recoveryStore.set(foundKey, record);
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "mfa_recovery_approved",
+        resourceType: "auth",
+        detail: `MFA recovery approved for user ${record.userId}`,
+      });
+
+      // Notify the user via email
+      const user = await storage.getUser(record.userId).catch(() => null);
+      if (user?.username?.includes("@")) {
+        const { sendEmail } = await import("../services/email");
+        const loginLink = `${process.env.APP_BASE_URL || ""}/mfa-recovery/complete?useToken=${useToken}`;
+        await sendEmail({
+          to: user.username,
+          subject: "MFA Recovery Approved — Observatory QA",
+          text: `Your MFA recovery request has been approved.\n\nUse this one-time link to log in (expires in 30 minutes):\n${loginLink}\n\nAfter logging in, please re-enroll in MFA immediately.`,
+          html: `<p>Your MFA recovery request has been approved.</p><p><a href="${loginLink}">Click here to log in</a> (expires in 30 minutes).</p><p>After logging in, please re-enroll in MFA immediately.</p>`,
+        }).catch(() => {});
+      }
+
+      res.json({ message: "Recovery request approved. User will be notified via email." });
+    } catch (err) {
+      logger.error({ err }, "Failed to approve MFA recovery request");
+      res.status(500).json({ message: "Failed to approve recovery request" });
+    }
+  });
+
+  // Deny a recovery request
+  app.post("/api/admin/mfa/recovery/:tokenPrefix/deny", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    try {
+      const { tokenPrefix } = req.params;
+      const recoveryStore: Map<string, any> | undefined = (app as any).__mfaRecoveryStore;
+      if (!recoveryStore) return res.status(404).json({ message: "Recovery request not found" });
+
+      const orgId = req.orgId!;
+      let foundKey: string | undefined;
+      let record: any;
+      for (const [k, v] of Array.from(recoveryStore)) {
+        if (k.startsWith(tokenPrefix) && v.orgId === orgId && (v.status === "pending" || v.status === "email_verified")) {
+          foundKey = k;
+          record = v;
+          break;
+        }
+      }
+
+      if (!foundKey || !record) return res.status(404).json({ message: "Recovery request not found" });
+
+      record.status = "denied";
+      recoveryStore.set(foundKey, record);
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "mfa_recovery_denied",
+        resourceType: "auth",
+        detail: `MFA recovery denied for user ${record.userId}`,
+      });
+
+      res.json({ message: "Recovery request denied." });
+    } catch (err) {
+      logger.error({ err }, "Failed to deny MFA recovery request");
+      res.status(500).json({ message: "Failed to deny recovery request" });
     }
   });
 }

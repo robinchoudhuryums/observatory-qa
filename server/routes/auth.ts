@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import passport from "passport";
+import { createHash } from "crypto";
 import { storage } from "../storage";
 import { logger } from "../services/logger";
 import { logPhiAccess } from "../services/audit-log";
@@ -21,6 +22,37 @@ export function registerAuthRoutes(app: Express): void {
       try {
         const dbUser = await storage.getUser(user.id);
         if (dbUser?.mfaEnabled) {
+          // Check trusted device cookie — skip MFA challenge if device is trusted
+          const tdCookie = req.cookies?.mfa_td as string | undefined;
+          if (tdCookie) {
+            const colonIdx = tdCookie.indexOf(":");
+            if (colonIdx !== -1) {
+              const cookieUserId = tdCookie.substring(0, colonIdx);
+              const cookieToken = tdCookie.substring(colonIdx + 1);
+              if (cookieUserId === user.id) {
+                const tokenHash = createHash("sha256").update(cookieToken).digest("hex");
+                const devices: any[] = (dbUser as any).mfaTrustedDevices || [];
+                const trustedDevice = devices.find(
+                  (d: any) => d.tokenHash === tokenHash && new Date(d.expiresAt) > new Date()
+                );
+                if (trustedDevice) {
+                  // Trusted device — proceed to session creation directly
+                  req.login(user, (loginErr) => {
+                    if (loginErr) return next(loginErr);
+                    logPhiAccess({
+                      event: "session_created",
+                      orgId: user.orgId, userId: user.id, username: user.username,
+                      role: user.role, resourceType: "auth",
+                      ip: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress,
+                      detail: "Login via trusted device (MFA skipped)",
+                    });
+                    res.json({ id: user.id, username: user.username, name: user.name, role: user.role, orgId: user.orgId, orgSlug: user.orgSlug });
+                  });
+                  return;
+                }
+              }
+            }
+          }
           // Don't create a session yet — require MFA verification
           return res.json({
             mfaRequired: true,
@@ -32,6 +64,17 @@ export function registerAuthRoutes(app: Express): void {
         // Check if org enforces MFA and user hasn't set it up yet
         const org = await storage.getOrganization(user.orgId);
         if (org?.settings?.mfaRequired && !dbUser?.mfaEnabled) {
+          // Check grace period deadline
+          const enrollmentDeadline = (dbUser as any)?.mfaEnrollmentDeadline;
+          if (enrollmentDeadline && new Date(enrollmentDeadline) < new Date()) {
+            // Grace period expired — block login, force MFA enrollment
+            return res.status(403).json({
+              message: "MFA enrollment deadline has passed. You must enroll in MFA to continue. Contact your administrator.",
+              mfaEnrollmentExpired: true,
+              errorCode: "OBS-AUTH-007",
+            });
+          }
+
           // Allow login but flag that MFA setup is required
           // Note: passport 0.7+ handles session regeneration internally in req.login()
           req.login(user, (loginErr) => {
@@ -40,6 +83,7 @@ export function registerAuthRoutes(app: Express): void {
               id: user.id, username: user.username, name: user.name,
               role: user.role, orgId: user.orgId, orgSlug: user.orgSlug,
               mfaSetupRequired: true,
+              enrollmentDeadline: enrollmentDeadline || null,
               message: "Your organization requires MFA. Please set it up immediately.",
             });
           });
