@@ -101,6 +101,9 @@ export async function syncSchema(db: Database): Promise<void> {
     await addColumnIfNotExists(db, "users", "mfa_backup_codes", "JSONB");
     await addColumnIfNotExists(db, "users", "is_active", "BOOLEAN NOT NULL DEFAULT true");
     await addColumnIfNotExists(db, "users", "last_login_at", "TIMESTAMP");
+    await addColumnIfNotExists(db, "users", "webauthn_credentials", "JSONB");
+    await addColumnIfNotExists(db, "users", "mfa_trusted_devices", "JSONB");
+    await addColumnIfNotExists(db, "users", "mfa_enrollment_deadline", "TIMESTAMP");
     // Migrate from global username uniqueness to per-org uniqueness
     await db.execute(sql`DROP INDEX IF EXISTS users_username_idx`);
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS users_org_username_idx ON users (org_id, username)`);
@@ -473,6 +476,29 @@ export async function syncSchema(db: Database): Promise<void> {
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS password_reset_user_idx ON password_reset_tokens (user_id)`);
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS password_reset_token_hash_idx ON password_reset_tokens (token_hash)`);
+
+    // --- MFA Recovery Requests ---
+    // Emergency bypass when user loses TOTP device and has no backup codes.
+    // Requires email verification + admin approval. Time-limited (15 min after approval).
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS mfa_recovery_requests (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        token_hash VARCHAR(128) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        approved_by TEXT REFERENCES users(id),
+        approved_at TIMESTAMP,
+        use_token_hash VARCHAR(128),
+        use_token_expires_at TIMESTAMP,
+        used_at TIMESTAMP,
+        expires_at TIMESTAMP NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS mfa_recovery_org_idx ON mfa_recovery_requests (org_id, status)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS mfa_recovery_user_idx ON mfa_recovery_requests (user_id)`);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS mfa_recovery_token_hash_idx ON mfa_recovery_requests (token_hash)`);
 
     // --- Usage Events ---
     await db.execute(sql`

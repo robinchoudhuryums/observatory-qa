@@ -19,7 +19,7 @@ Observatory QA is a multi-tenant, HIPAA-compliant SaaS platform for call quality
 - **Sessions & Rate Limiting**: Redis (connect-redis, ioredis) — falls back to in-memory when unavailable
 - **Billing**: Stripe (subscriptions, checkout, customer portal, webhooks)
 - **Logging**: Pino + Betterstack (@logtail/pino) for structured log aggregation
-- **Auth**: Passport.js (local strategy + Google OAuth 2.0 + SAML SSO), session-based, role-based (viewer/manager/admin), MFA (TOTP)
+- **Auth**: Passport.js (local strategy + Google OAuth 2.0 + SAML 2.0 SSO + OIDC SSO), session-based, role-based (viewer/manager/admin), MFA (TOTP + WebAuthn/Passkeys), SCIM 2.0 provisioning
 - **Hosting**: EC2 with Caddy (production HIPAA), Render.com (staging/non-PHI)
 - **Font**: Poppins (primary), Inter (fallback) — chosen to match Observatory logo typeface
 
@@ -146,13 +146,14 @@ server/
   types.d.ts                 # Express type augmentations
   logger.ts                  # (Legacy) Logger — prefer server/services/logger.ts
 
-server/routes/               # Modular API route files (36 route files)
+server/routes/               # Modular API route files (38 route files)
   index.ts                   #   Route registration orchestrator
-  auth.ts                    #   Login/logout/me
+  auth.ts                    #   Login/logout/me (trusted-device cookie check, grace period logic)
   registration.ts            #   Self-service org + user registration (supports industryType)
   oauth.ts                   #   Google OAuth 2.0 flow
-  sso.ts                     #   SAML 2.0 SSO (per-org IDP, Enterprise plan)
-  mfa.ts                     #   MFA setup/verify/disable (TOTP)
+  sso.ts                     #   SAML 2.0 + OIDC SSO (per-org IDP, IDP-initiated, group-role map, SLO, cert rotation)
+  scim.ts                    #   SCIM 2.0 user provisioning (create/update/deactivate/delete, Bearer token auth)
+  mfa.ts                     #   MFA: TOTP setup/verify/disable + WebAuthn/Passkeys + trusted devices + email OTP + recovery
   password-reset.ts          #   Forgot-password + reset-password flow
   onboarding.ts              #   Logo upload, reference doc upload, RAG search, branding
   calls.ts                   #   Call CRUD, upload, audio streaming, transcript/sentiment/analysis + clinical notes
@@ -301,8 +302,8 @@ tests/e2e/                   # Playwright E2E tests (11 spec files)
 Every data entity has an `orgId` field. All storage methods take `orgId` as the first parameter. Data isolation is enforced at the storage layer — no method can access data without specifying the org.
 
 **Schemas in `shared/schema.ts`**:
-- `Organization` — id, name, slug, status, industryType, settings (departments, subTeams, branding, AI config, quotas, ehrConfig, providerStylePreferences)
-- `User` — id, orgId, username, passwordHash, name, role
+- `Organization` — id, name, slug, status, industryType, settings (departments, subTeams, branding, AI config, quotas, ehrConfig, providerStylePreferences). SSO settings: `ssoProvider` (saml|oidc), `ssoEntityId`, `ssoSignOnUrl`, `ssoCertificate`, `ssoEnforced`, `ssoGroupRoleMap` (group→role map), `ssoGroupAttribute`, `ssoSessionMaxHours`, `ssoLogoutUrl`, `ssoCertificateExpiry` (auto-computed), `ssoNewCertificate` (rotation dual-cert), `ssoNewCertificateExpiry`. OIDC: `oidcDiscoveryUrl`, `oidcClientId`, `oidcClientSecret`. SCIM: `scimEnabled`, `scimTokenHash`, `scimTokenPrefix`. MFA: `mfaRequired`, `mfaGracePeriodDays` (default 7), `mfaRequiredEnabledAt`.
+- `User` — id, orgId, username, passwordHash, name, role, mfaEnabled, mfaSecret (encrypted), mfaBackupCodes[], webauthnCredentials[] (credentialId/publicKey/counter/transports/name), mfaTrustedDevices[] (tokenHash/name/expiresAt), mfaEnrollmentDeadline
 - `Employee` — id, orgId, name, email, role, initials, status, subTeam
 - `Call` — id, orgId, employeeId, fileName, status, duration, callCategory, tags
 - `Transcript` — id, orgId, callId, text, confidence, words[]
@@ -822,7 +823,7 @@ DISABLE_SECURE_COOKIE           # Set to skip secure cookie flag (for non-TLS de
 | Table | Key Indexes | Notes |
 |-------|-------------|-------|
 | `organizations` | unique on `slug` | Org settings stored as JSONB (includes SSO config, MFA policy) |
-| `users` | unique on `(org_id, username)` | Per-org username uniqueness (composite index). Passwords hashed with scrypt. MFA fields: `mfa_enabled`, `mfa_secret`, `mfa_backup_codes` |
+| `users` | unique on `(org_id, username)` | Per-org username uniqueness (composite index). Passwords hashed with scrypt. MFA fields: `mfa_enabled`, `mfa_secret`, `mfa_backup_codes`, `webauthn_credentials` (JSONB), `mfa_trusted_devices` (JSONB), `mfa_enrollment_deadline` |
 | `employees` | unique on `(org_id, email)` | Per-org employee roster |
 | `calls` | index on `(org_id, status)`, `uploaded_at` | Links to employee. `file_hash` for dedup, `call_category`, `tags` (JSONB) |
 | `transcripts` | unique on `call_id` | Cascade delete with call. `corrections` JSONB, `corrected_text` TEXT for manual transcript corrections |
@@ -850,6 +851,7 @@ DISABLE_SECURE_COOKIE           # Set to skip secure cookie flag (for non-TLS de
 | `calibration_sessions` | index on `(org_id, status)` | Multi-evaluator QA alignment sessions |
 | `calibration_evaluations` | unique on `(session_id, evaluator_id)` | Individual evaluator scores, cascade delete with session |
 | `provider_templates` | index on `(org_id, user_id)`, `(org_id, specialty)` | Per-provider custom clinical note templates. JSONB sections, defaultCodes, tags |
+| `mfa_recovery_requests` | index on `(org_id, status)`, `user_id` | Emergency MFA bypass: user requests → email-verified → admin approves → time-limited use token (15 min). Cascade delete with user/org. |
 
 Requires pgvector extension: `CREATE EXTENSION IF NOT EXISTS vector;`
 
@@ -876,7 +878,9 @@ On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add mi
 | **Encryption at rest** | Infrastructure | EBS encryption (EC2), S3 SSE, PostgreSQL disk encryption |
 | **Encryption in transit** | Infrastructure | Caddy auto-TLS (EC2), Render managed TLS |
 | **Tenant isolation** | `server/storage/` | All storage methods require orgId — cross-org access structurally impossible. Per-org username uniqueness (composite index). WebSocket broadcasts require orgId. Rate limit keys include org context for authenticated routes |
-| **MFA** | `server/routes/mfa.ts` | TOTP-based MFA, per-org mandatory option (`mfaRequired` in org settings) |
+| **MFA** | `server/routes/mfa.ts` | TOTP + WebAuthn/Passkeys (FIDO2, phishing-resistant). Per-org enforcement with 7-day grace period (`mfaGracePeriodDays`). Trusted devices (30-day cookie, hashed token). Email OTP fallback for non-admin. Emergency recovery (email-verified + admin-approved bypass). |
+| **SCIM provisioning** | `server/routes/scim.ts` | SCIM 2.0 automated user lifecycle. Bearer token per org (SHA-256 hashed). Create/deactivate/delete via IDP. Enterprise plan only. |
+| **SSO session management** | `server/routes/sso.ts` + `server/auth.ts` | Per-org `ssoSessionMaxHours` forces SAML/OIDC re-auth. `ssoLoginAt` stamped on session. SLO (Single Logout) terminates session on IDP logout. Error code `OBS-AUTH-006`. |
 | **PHI encryption** | `server/services/phi-encryption.ts` | AES-256-GCM application-level encryption for sensitive fields |
 | **Tamper-evident audit** | `server/db/sync-schema.ts` | `audit_logs` table with integrity hashes and sequence numbers |
 | **PostgreSQL RLS** | `server/db/sync-schema.ts` | `ENABLE/FORCE ROW LEVEL SECURITY` on all 27 tenant-scoped tables. `org_isolation` policies using `current_setting('app.org_id')`. DO-block idempotency for PG15 compatibility. `app.bypass_rls` session var for schema-sync and super-admin operations |
@@ -906,6 +910,15 @@ On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add mi
 - **PostgreSQL RLS for defense-in-depth**: Row-Level Security policies enforce tenant isolation at the database layer — even if application code has a bug, the DB rejects cross-org queries. `withBypassRls()` and `withOrgContext()` helpers in pg-storage.ts manage the `app.bypass_rls` and `app.org_id` session settings
 - **KMS envelope encryption**: Per-org DEKs are generated by AWS KMS and stored encrypted in org settings. Actual PHI encryption uses the DEK (AES-256-GCM), not the master key — enabling efficient rotation. Format prefix (`enc_v1:` vs `enc_v2_{prefix}:`) allows per-field routing to the correct key
 - **Dual-path transcription**: When `APP_BASE_URL` is set, AssemblyAI uses webhooks; otherwise polls. `continueAfterTranscription()` in call-processing.ts handles steps 4–15 of the pipeline for both paths
+- **SCIM token architecture**: SCIM bearer tokens are never stored in plaintext — SHA-256 hash stored in org settings. `generateScimToken()` returns plaintext once (shown to admin), hash + prefix for storage. Token lookup scans `listOrganizations()` for hash match (suitable for current scale; add a DB index for high volume).
+- **OIDC without a library**: OIDC is implemented using native `fetch` (discovery + token exchange) and Node.js `crypto` for RS256/ES256 JWT signature verification via JWKS. No `openid-client` dependency. `isoBase64URL` from `@simplewebauthn/server/helpers` handles encoding.
+- **IDP-initiated SAML**: `validateInResponseTo: "IfPresent"` in `@node-saml/passport-saml` accepts assertions without a prior AuthnRequest. A second per-org ACS endpoint (`POST /api/auth/sso/callback/:orgSlug`) embeds the orgSlug in the URL so no RelayState is required. SP metadata advertises both ACS URLs.
+- **Certificate rotation dual-cert**: The `ssoNewCertificate` field allows a second IDP cert to be valid alongside `ssoCertificate` during the rotation window. `parseCertExpiry()` decodes the DER `notAfter` field directly from the PEM without any X.509 library. Expiry is auto-computed and stored on settings save.
+- **WebAuthn storage**: WebAuthn credentials (credentialId, COSE public key, sign counter) are stored as a JSONB array on the `users` row (`webauthn_credentials`). `@simplewebauthn/server` v13 is used; registration challenge is stored in the session (`req.session.webauthnChallenge`). Public keys are base64url-encoded for JSON storage.
+- **Trusted device cookies**: After successful MFA, `trustDevice: true` in the request body generates a random 32-byte token. SHA-256(token) is stored in `user.mfaTrustedDevices[]` with a 30-day expiry. The cookie `mfa_td` holds `{userId}:{token}`. On login, the trusted device check runs before the MFA challenge — if valid, MFA is skipped for this device.
+- **MFA grace period**: When an org first enables `mfaRequired`, `mfaRequiredEnabledAt` is stamped. Each user without MFA gets an `mfaEnrollmentDeadline` = `mfaRequiredEnabledAt + mfaGracePeriodDays` (default 7). During the grace period, login succeeds with `mfaSetupRequired: true`. After the deadline, login is rejected with a specific error code. Reminder emails are sent at 7, 3, and 1 day before the deadline.
+- **Email OTP for non-admins**: A 6-digit OTP (10-minute TTL, 3 attempts max) is sent to the user's username/email. Restricted to viewer/manager roles — admin users must use TOTP or WebAuthn. Stored in an in-memory map keyed by userId (TTL too short to warrant DB overhead).
+- **MFA recovery flow**: User submits a recovery request; server sends a time-limited verification token to the user's email. Admin sees pending requests in the admin panel and approves or denies. On approval, a use-token (15-min TTL) is emailed to the user, which completes login and clears MFA — forcing re-enrollment. All steps are HIPAA-audit-logged. Table: `mfa_recovery_requests`.
 
 ## Deployment
 
@@ -981,6 +994,110 @@ Server serves both API and static frontend from the same process.
 - **Org status gate adds latency**: `injectOrgContext` now does an async org status lookup on every authenticated request. For high-traffic deployments, consider a short-lived org status cache (TTL ~30s is already used in some implementations)
 - **GDPR purge is irreversible**: `deleteOrgData()` deletes employees, calls, and users but preserves the org record (status=deleted) for audit trail. The session is destroyed immediately after purge. Backups should be the recovery path
 - **AssemblyAI webhook verification**: `POST /api/webhooks/assemblyai` checks `X-Assembly-Webhook-Token` header against `ASSEMBLYAI_WEBHOOK_SECRET` (falls back to `SESSION_SECRET`). Register this endpoint as the webhook URL in your AssemblyAI account
+- **SCIM `listOrganizations()` scan**: SCIM auth scans all orgs to match the token hash. This is fine at current scale. For >1000 orgs, add a dedicated `scim_token_hash` index on the `organizations` table.
+- **OIDC state map is in-memory**: OIDC `state` → `{ orgSlug, nonce, expiresAt }` entries expire after 10 minutes and are purged every 5 minutes. In a multi-instance deployment, OIDC state must be moved to Redis (otherwise state from one instance won't be found by another).
+- **JWKS cache is in-memory per instance**: The `jwksCache` Map caches IDP public keys for 1 hour. Multi-instance deployments each maintain their own cache — this is fine since JWKS is public.
+- **WebAuthn rpID must match origin**: The `rpID` (relying party ID) in WebAuthn is derived from the hostname (e.g. `observatory-qa.com`). It must match what the browser sees. In development, `localhost` works. Behind a reverse proxy, ensure the correct hostname is used. The `expectedOrigin` (full URL) must also match exactly.
+- **WebAuthn challenge stored in session**: `req.session.webauthnChallenge` holds the current registration or authentication challenge. Sessions must be persistent (Redis or DB-backed) across the two WebAuthn round-trips. In-memory sessions will lose the challenge.
+- **Trusted device cookie `mfa_td`**: The cookie stores `{userId}:{base64url-token}` and is `httpOnly`, `sameSite=lax`, `secure` in production. Clearing this cookie or changing devices always prompts for MFA. `mfaTrustedDevices` entries are pruned on each login (expired ones removed automatically).
+- **MFA grace period deadline is per-user**: `mfaEnrollmentDeadline` is set on each user when the org enables `mfaRequired`. Users created *after* `mfaRequiredEnabledAt` have a deadline of `createdAt + mfaGracePeriodDays`. Admins are NOT subject to the grace period — they must enable MFA immediately.
+- **Email OTP is viewer/manager only**: Admin accounts cannot use email OTP as a fallback. This is intentional — email OTP is lower security than TOTP/WebAuthn and admins have higher privilege. If an admin loses their TOTP device, they must use the recovery flow (email verification + admin approval from another admin or super-admin).
+- **OBS-AUTH-006**: New error code returned when an SSO user's session exceeds `ssoSessionMaxHours`. The response includes `requiresSso: true` so the frontend can redirect directly to `/api/auth/sso/{orgSlug}` instead of the generic login page.
+
+## In-Progress Work (resume here in a new session)
+
+### Branch: `claude/audit-observatory-project-Axt5D`
+
+#### ✅ Completed & committed: SSO improvements
+- **SCIM 2.0** (`server/routes/scim.ts`) — full Users CRUD, ServiceProviderConfig, Schemas; Bearer token per org
+- **OIDC SSO** (`server/routes/sso.ts`) — discovery, auth URL, code exchange, RS256/ES256 JWT verification via JWKS
+- **Group-to-role mapping** — `ssoGroupRoleMap` + `ssoGroupAttribute` in org settings; role synced on every SSO login
+- **IDP-initiated SAML** — `validateInResponseTo:"IfPresent"`; per-org ACS at `POST /api/auth/sso/callback/:orgSlug`
+- **SSO session limits** — `ssoSessionMaxHours` enforced in `requireAuth`; `ssoLoginAt` stamped on session
+- **SLO** — `POST /api/auth/sso/logout` + `GET /api/auth/sso/logout`
+- **Cert rotation** — `parseCertExpiry()` decodes DER notAfter; dual-cert via `ssoNewCertificate`; `GET /api/auth/sso/cert-status/:orgSlug`
+- **Admin SCIM token management** — `GET/POST/DELETE /api/admin/scim/token`
+
+#### ✅ Completed (schema/DB only, not yet committed): MFA improvements
+Schema changes are staged but the implementation routes have not been written yet:
+- `shared/schema/org.ts` — new `User` fields: `webauthnCredentials[]`, `mfaTrustedDevices[]`, `mfaEnrollmentDeadline`
+- `shared/schema/org.ts` — new `OrgSettings` fields: `mfaGracePeriodDays`, `mfaRequiredEnabledAt`
+- `server/db/sync-schema.ts` — new columns on `users`: `webauthn_credentials`, `mfa_trusted_devices`, `mfa_enrollment_deadline`
+- `server/db/sync-schema.ts` — new table `mfa_recovery_requests`
+- `@simplewebauthn/server` v13.3.0 installed (ESM import: `import { ... } from '@simplewebauthn/server'`)
+
+#### ❌ Still needs implementing: MFA route code
+
+**1. `server/routes/mfa.ts`** — extend the existing file with:
+- **WebAuthn registration**: `POST /api/auth/mfa/webauthn/register-options` (generate challenge, store in `req.session.webauthnChallenge`) + `POST /api/auth/mfa/webauthn/register-verify` (verify with `@simplewebauthn/server` v13, store credential in `user.webauthnCredentials[]`)
+- **WebAuthn authentication**: `POST /api/auth/mfa/webauthn/authenticate-options` (generate challenge for login, requires `userId` in body) + `POST /api/auth/mfa/webauthn/authenticate-verify` (verify, complete login, support `trustDevice`)
+- **WebAuthn management**: `GET /api/auth/mfa/webauthn/credentials` (list, auth required) + `DELETE /api/auth/mfa/webauthn/credentials/:credentialId` (remove, auth required)
+- **Trusted devices**: `POST /api/auth/mfa/verify` — add `trustDevice?: boolean` param; if true, generate token, set `mfa_td` cookie, store hash in `user.mfaTrustedDevices[]`. `GET /api/auth/mfa/trusted-devices` (list) + `DELETE /api/auth/mfa/trusted-devices/:tokenPrefix` (revoke one) + `DELETE /api/auth/mfa/trusted-devices` (revoke all)
+- **Email OTP** (viewer/manager only, never admin): `POST /api/auth/mfa/email-otp/send` (requires `userId`, sends 6-digit code to user.username email) + `POST /api/auth/mfa/email-otp/verify` (verify + complete login)
+- **MFA enforcement with grace period**: Update `GET /api/auth/mfa/status` to return `enrollmentDeadline`, `gracePeriodDaysLeft`
+- **Recovery**: `POST /api/auth/mfa/recovery/request` (requires `userId`; emails verification link to user) + `POST /api/auth/mfa/recovery/:token/verify-email` (proves email ownership, moves request to `email_verified`) + `POST /api/auth/mfa/recovery/:useToken/use` (after admin approval: complete login, clear MFA, force re-enrollment)
+
+**2. `server/routes/auth.ts`** — update login handler:
+- **Trusted device check**: Before returning `mfaRequired: true`, check for `mfa_td` cookie. Parse `{userId}:{token}`, look up `user.mfaTrustedDevices[]`, check SHA-256(token) match + `expiresAt` not past. If valid, skip MFA and complete login directly.
+- **Grace period enforcement**: When org has `mfaRequired` and user has `mfaEnrollmentDeadline` in the past → return `401` with `mfaEnrollmentExpired: true`. When deadline is in the future → return `mfaSetupRequired: true` as before.
+
+**3. `server/routes/admin.ts`** — add recovery approval endpoints:
+- `GET /api/admin/mfa/recovery` — list pending/email_verified requests for org (admin only)
+- `POST /api/admin/mfa/recovery/:requestId/approve` — approve; generate use-token; email it to user (15 min TTL)
+- `POST /api/admin/mfa/recovery/:requestId/deny` — deny request
+
+#### Implementation notes for `@simplewebauthn/server` v13:
+```typescript
+// Registration options — user.id MUST be Uint8Array in v13
+import { generateRegistrationOptions, verifyRegistrationResponse,
+         generateAuthenticationOptions, verifyAuthenticationResponse } from '@simplewebauthn/server';
+import { isoBase64URL } from '@simplewebauthn/server/helpers';
+
+const options = await generateRegistrationOptions({
+  rpName: orgName,
+  rpID: hostname,          // e.g. "observatory-qa.com" or "localhost"
+  user: {
+    id: isoBase64URL.toBuffer(user.id),   // Uint8Array from user ID string
+    name: user.username,
+    displayName: user.name,
+  },
+  attestationType: 'none',
+  authenticatorSelection: { residentKey: 'preferred', userVerification: 'preferred' },
+  excludeCredentials: user.webauthnCredentials?.map(c => ({ id: c.credentialId })),
+});
+req.session.webauthnChallenge = options.challenge;  // store for verification
+
+// Registration verification
+const verification = await verifyRegistrationResponse({
+  response: req.body,                         // RegistrationResponseJSON from browser
+  expectedChallenge: session.webauthnChallenge,
+  expectedOrigin: origin,                     // e.g. "https://observatory-qa.com"
+  expectedRPID: rpID,
+});
+// On success: verification.registrationInfo.credential has { id, publicKey (Uint8Array), counter, transports }
+// Store: credentialId = cred.id, publicKey = isoBase64URL.fromBuffer(cred.publicKey), counter = cred.counter
+
+// Authentication verification
+const credential: WebAuthnCredential = {
+  id: storedCred.credentialId,
+  publicKey: isoBase64URL.toBuffer(storedCred.publicKey),  // Uint8Array from stored base64url
+  counter: storedCred.counter,
+  transports: storedCred.transports as AuthenticatorTransportFuture[],
+};
+const authVerification = await verifyAuthenticationResponse({
+  response: req.body,
+  expectedChallenge: session.webauthnChallenge,
+  expectedOrigin: origin,
+  expectedRPID: rpID,
+  credential,
+});
+// After success: update stored counter to authVerification.authenticationInfo.newCounter
+```
+
+#### Recovery request storage pattern (mirror password-reset.ts):
+- In-memory Map `<tokenHash, { userId, orgId, status, expiresAt, emailVerified }>` as fallback
+- PostgreSQL `mfa_recovery_requests` table (already created in sync-schema.ts) as primary
+- Use `randomBytes(32).toString('hex')` for all tokens, store SHA-256 hash
 
 ## Future Plans / Roadmap
 See `HEALTHCARE_EXPANSION_PLAN.md` for the full 4-phase healthcare expansion roadmap.

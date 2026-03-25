@@ -25,8 +25,9 @@ AI-powered call quality analysis and clinical documentation for healthcare and c
 - **Spend tracking** — per-call cost breakdown for transcription and AI analysis
 - **Coaching system** — create coaching sessions from call analysis, track action plans
 - **Role-based access** — viewer / manager / admin with hierarchical permissions
-- **SSO** — SAML 2.0 single sign-on (Enterprise plan, per-org IDP configuration)
-- **MFA** — TOTP-based multi-factor authentication, optional per-org enforcement
+- **SSO** — SAML 2.0 + OIDC single sign-on (Enterprise plan). IDP-initiated login, group-to-role mapping, per-org session limits, SLO sync logout, certificate rotation workflow with dual-cert support
+- **SCIM 2.0** — Automated user lifecycle management (Enterprise plan). Okta/Azure AD provisioning: create users when they join, deactivate when they leave. Bearer token auth, full Users CRUD, ServiceProviderConfig endpoint
+- **MFA** — TOTP + WebAuthn/Passkeys (FIDO2, phishing-resistant). Trusted device management ("remember this device 30 days"). Email OTP fallback for clinical staff without smartphones. Emergency recovery workflow (email-verified + admin-approved bypass). Per-org enforcement with configurable grace period (default 7 days)
 - **Billing** — Stripe integration with Free / Clinical Documentation ($49/mo) / Pro ($99/mo) / Enterprise ($499/mo) tiers
 - **HIPAA compliant** — session timeouts, session fixation prevention, audit logging (PHI access on all sensitive endpoints), MFA, PHI field encryption (AES-256-GCM), PostgreSQL Row-Level Security (RLS) on all tenant-scoped tables, per-org KMS envelope encryption, org-scoped rate limiting, data retention, GDPR/CCPA data export and right-to-erasure
 - **Learning Management System** — AI-generated training courses from call analysis, lesson tracking
@@ -55,7 +56,7 @@ AI-powered call quality analysis and clinical documentation for healthcare and c
 | Transcription | AssemblyAI |
 | RAG | pgvector, Amazon Titan Embed V2, BM25 hybrid search |
 | Jobs | BullMQ (Redis-backed) |
-| Auth | Passport.js (local + Google OAuth + SAML SSO), MFA (TOTP), session-based |
+| Auth | Passport.js (local + Google OAuth + SAML 2.0 + OIDC SSO), MFA (TOTP + WebAuthn/Passkeys), SCIM 2.0, session-based |
 | Billing | Stripe |
 | Logging | Pino + Betterstack |
 | Error Tracking | Sentry (client + server) |
@@ -206,7 +207,8 @@ Configure with `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_REGION`. P
 | RAG Knowledge Base | - | Yes | Yes | Yes |
 | Custom Templates | - | Yes | Yes | Yes |
 | Clinical Notes (AI Scribe) | - | - | Yes | Yes |
-| SSO | - | - | - | Yes |
+| SSO (SAML + OIDC) | - | - | - | Yes |
+| SCIM Provisioning | - | - | - | Yes |
 
 ## Deployment
 
