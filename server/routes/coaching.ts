@@ -3,7 +3,11 @@ import { storage } from "../storage";
 import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { insertCoachingSessionSchema } from "@shared/schema";
 import { z } from "zod";
-import { generateRecommendations, saveRecommendations, generateCoachingPlan, calculateEffectiveness } from "../services/coaching-engine";
+import {
+  generateRecommendations, saveRecommendations, generateCoachingPlan, calculateEffectiveness,
+  runAutomationRules, calculateAndCacheEffectiveness, getDueSoonSessions, getOverdueSessions,
+} from "../services/coaching-engine";
+import { insertCoachingTemplateSchema, insertAutomationRuleSchema } from "@shared/schema";
 import { getManagerReviewQueue, generateWeeklyDigest } from "../services/proactive-alerts";
 import { sendDigestNotification } from "../services/notifications";
 import { logger } from "../services/logger";
@@ -303,6 +307,238 @@ export function registerCoachingRoutes(app: Express): void {
     } catch (error) {
       logger.error({ err: error }, "Failed to send digest");
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to send digest"));
+    }
+  });
+
+  // ==================== COACHING ANALYTICS ====================
+
+  app.get("/api/coaching/analytics", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
+    try {
+      const { from, to } = req.query;
+      const fromDate = from ? new Date(from as string) : undefined;
+      const toDate = to ? new Date(to as string) : undefined;
+      const analytics = await storage.getCoachingAnalytics(req.orgId!, fromDate, toDate);
+      res.json(analytics);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to get coaching analytics");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get coaching analytics"));
+    }
+  });
+
+  // ==================== COACHING TEMPLATES ====================
+
+  app.get("/api/coaching/templates", requireAuth, injectOrgContext, async (req, res) => {
+    try {
+      const { category } = req.query;
+      const templates = await storage.listCoachingTemplates(req.orgId!, category as string | undefined);
+      res.json(templates);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to list coaching templates");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to list coaching templates"));
+    }
+  });
+
+  app.post("/api/coaching/templates", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
+    try {
+      const parsed = insertCoachingTemplateSchema.safeParse({
+        ...req.body,
+        orgId: req.orgId!,
+        createdBy: req.user?.name || req.user?.username || "Unknown",
+      });
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid template data", errors: parsed.error.flatten() });
+      }
+      const template = await storage.createCoachingTemplate(req.orgId!, parsed.data);
+      logPhiAccess({ ...auditContext(req), event: "create_coaching_template", resourceType: "coaching_template", resourceId: template.id, detail: template.name });
+      res.status(201).json(template);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to create coaching template");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to create coaching template"));
+    }
+  });
+
+  app.patch("/api/coaching/templates/:id", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
+    try {
+      const updated = await storage.updateCoachingTemplate(req.orgId!, req.params.id, req.body);
+      if (!updated) return res.status(404).json({ message: "Template not found" });
+      res.json(updated);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to update coaching template");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update coaching template"));
+    }
+  });
+
+  app.delete("/api/coaching/templates/:id", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
+    try {
+      await storage.deleteCoachingTemplate(req.orgId!, req.params.id);
+      logPhiAccess({ ...auditContext(req), event: "delete_coaching_template", resourceType: "coaching_template", resourceId: req.params.id });
+      res.json({ message: "Template deleted." });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to delete coaching template");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to delete coaching template"));
+    }
+  });
+
+  // ==================== AUTOMATION RULES ====================
+
+  app.get("/api/coaching/automation-rules", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    try {
+      const rules = await storage.listAutomationRules(req.orgId!);
+      res.json(rules);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to list automation rules");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to list automation rules"));
+    }
+  });
+
+  app.post("/api/coaching/automation-rules", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    try {
+      const parsed = insertAutomationRuleSchema.safeParse({
+        ...req.body,
+        orgId: req.orgId!,
+        createdBy: req.user?.name || req.user?.username || "Unknown",
+      });
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid rule data", errors: parsed.error.flatten() });
+      }
+      const rule = await storage.createAutomationRule(req.orgId!, parsed.data);
+      logPhiAccess({ ...auditContext(req), event: "create_automation_rule", resourceType: "coaching", resourceId: rule.id, detail: rule.name });
+      res.status(201).json(rule);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to create automation rule");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to create automation rule"));
+    }
+  });
+
+  app.patch("/api/coaching/automation-rules/:id", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    try {
+      const updated = await storage.updateAutomationRule(req.orgId!, req.params.id, req.body);
+      if (!updated) return res.status(404).json({ message: "Rule not found" });
+      res.json(updated);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to update automation rule");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update automation rule"));
+    }
+  });
+
+  app.delete("/api/coaching/automation-rules/:id", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    try {
+      await storage.deleteAutomationRule(req.orgId!, req.params.id);
+      res.json({ message: "Rule deleted." });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to delete automation rule");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to delete automation rule"));
+    }
+  });
+
+  // Manually trigger automation rule evaluation for an org or specific employee
+  app.post("/api/coaching/automation-rules/run", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    try {
+      const { employeeId } = req.body;
+      const result = await runAutomationRules(req.orgId!, employeeId);
+      res.json(result);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to run automation rules");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to run automation rules"));
+    }
+  });
+
+  // ==================== SELF-ASSESSMENT ====================
+
+  const selfAssessSchema = z.object({
+    score: z.number().min(0).max(10),
+    notes: z.string().optional(),
+  });
+
+  // Employee submits self-assessment before seeing AI analysis
+  app.post("/api/coaching/:id/self-assess", requireAuth, injectOrgContext, async (req, res) => {
+    try {
+      const session = await storage.getCoachingSession(req.orgId!, req.params.id);
+      if (!session) return res.status(404).json({ message: "Coaching session not found" });
+
+      // Ensure the requesting user is the employee being coached (or a manager/admin can also submit)
+      const parsedBody = selfAssessSchema.safeParse(req.body);
+      if (!parsedBody.success) {
+        return res.status(400).json({ message: "Invalid self-assessment data", errors: parsedBody.error.flatten() });
+      }
+
+      if ((session as any).selfAssessedAt) {
+        return res.status(409).json({ message: "Self-assessment already submitted for this session." });
+      }
+
+      const updated = await storage.updateCoachingSession(req.orgId!, req.params.id, {
+        selfAssessmentScore: parsedBody.data.score,
+        selfAssessmentNotes: parsedBody.data.notes,
+        selfAssessedAt: new Date().toISOString(),
+      } as any);
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "self_assessment_submitted",
+        resourceType: "coaching",
+        resourceId: req.params.id,
+        detail: `Self-assessment score: ${parsedBody.data.score}`,
+      });
+
+      res.json(updated);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to submit self-assessment");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to submit self-assessment"));
+    }
+  });
+
+  // Get self-assessment for a session (managers/admins see full data; employee sees own)
+  app.get("/api/coaching/:id/self-assessment", requireAuth, injectOrgContext, async (req, res) => {
+    try {
+      const session = await storage.getCoachingSession(req.orgId!, req.params.id);
+      if (!session) return res.status(404).json({ message: "Coaching session not found" });
+      res.json({
+        submitted: !!(session as any).selfAssessedAt,
+        score: (session as any).selfAssessmentScore ?? null,
+        notes: (session as any).selfAssessmentNotes ?? null,
+        submittedAt: (session as any).selfAssessedAt ?? null,
+      });
+    } catch (error) {
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get self-assessment"));
+    }
+  });
+
+  // ==================== FOLLOW-UP & OVERDUE ====================
+
+  // Sessions due soon (configurable window, default 24h)
+  app.get("/api/coaching/due-soon", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
+    try {
+      const windowHours = req.query.windowHours ? parseInt(req.query.windowHours as string, 10) : 24;
+      const dueSoon = await getDueSoonSessions(req.orgId!, windowHours);
+      res.json(dueSoon);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to get due-soon sessions");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get due-soon sessions"));
+    }
+  });
+
+  // Overdue sessions
+  app.get("/api/coaching/overdue", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
+    try {
+      const overdue = await getOverdueSessions(req.orgId!);
+      res.json(overdue);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to get overdue sessions");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get overdue sessions"));
+    }
+  });
+
+  // Force-compute and cache effectiveness for a session
+  app.post("/api/coaching/:id/effectiveness/snapshot", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
+    try {
+      const session = await storage.getCoachingSession(req.orgId!, req.params.id);
+      if (!session) return res.status(404).json({ message: "Session not found" });
+      await calculateAndCacheEffectiveness(req.orgId!, req.params.id);
+      const updated = await storage.getCoachingSession(req.orgId!, req.params.id);
+      res.json({ effectivenessSnapshot: (updated as any)?.effectivenessSnapshot || null });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to compute effectiveness snapshot");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to compute effectiveness snapshot"));
     }
   });
 }

@@ -11,7 +11,7 @@
  * - Full-text search via PostgreSQL (no need to load all transcripts into memory)
  * - Proper indexing for dashboard metrics
  */
-import { eq, and, or, desc, sql, ilike, lt, inArray } from "drizzle-orm";
+import { eq, and, or, desc, sql, ilike, lt, gte, lte, inArray } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import type { Database } from "./index";
 import type { ObjectStorageClient } from "../storage";
@@ -1048,12 +1048,229 @@ export class PostgresStorage implements IStorage {
     if (updates.actionPlan !== undefined) setClause.actionPlan = updates.actionPlan;
     if (updates.dueDate !== undefined) setClause.dueDate = updates.dueDate ? new Date(updates.dueDate) : null;
     if (updates.completedAt !== undefined) setClause.completedAt = updates.completedAt ? new Date(updates.completedAt) : null;
+    if ((updates as any).selfAssessmentScore !== undefined) setClause.selfAssessmentScore = (updates as any).selfAssessmentScore;
+    if ((updates as any).selfAssessmentNotes !== undefined) setClause.selfAssessmentNotes = (updates as any).selfAssessmentNotes;
+    if ((updates as any).selfAssessedAt !== undefined) setClause.selfAssessedAt = (updates as any).selfAssessedAt ? new Date((updates as any).selfAssessedAt) : null;
+    if ((updates as any).effectivenessSnapshot !== undefined) setClause.effectivenessSnapshot = (updates as any).effectivenessSnapshot;
+    if ((updates as any).effectivenessCalculatedAt !== undefined) setClause.effectivenessCalculatedAt = (updates as any).effectivenessCalculatedAt ? new Date((updates as any).effectivenessCalculatedAt) : null;
+    if ((updates as any).templateId !== undefined) setClause.templateId = (updates as any).templateId;
 
     const [row] = await this.db.update(tables.coachingSessions)
       .set(setClause)
       .where(and(eq(tables.coachingSessions.id, id), eq(tables.coachingSessions.orgId, orgId)))
       .returning();
     return row ? this.mapCoachingSession(row) : undefined;
+  }
+
+  async getCoachingAnalytics(orgId: string, from?: Date, to?: Date): Promise<import("@shared/schema").CoachingAnalytics> {
+    const conditions: any[] = [eq(tables.coachingSessions.orgId, orgId)];
+    if (from) conditions.push(gte(tables.coachingSessions.createdAt, from));
+    if (to) conditions.push(lte(tables.coachingSessions.createdAt, to));
+
+    const sessions = await this.db.select().from(tables.coachingSessions).where(and(...conditions));
+    const mapped = sessions.map(r => this.mapCoachingSession(r));
+
+    const completed = mapped.filter(s => s.status === "completed");
+    const dismissed = mapped.filter(s => s.status === "dismissed");
+    const pending = mapped.filter(s => s.status === "pending" || s.status === "in_progress");
+    const now = Date.now();
+    const overdue = mapped.filter(s => s.dueDate && new Date(s.dueDate).getTime() < now && s.status !== "completed" && s.status !== "dismissed");
+    const automated = mapped.filter(s => (s as any).automatedTrigger);
+
+    const avgClose = completed.length > 0
+      ? completed.reduce((sum, s) => {
+          if (!s.completedAt || !s.createdAt) return sum;
+          return sum + (new Date(s.completedAt).getTime() - new Date(s.createdAt).getTime()) / 3600000;
+        }, 0) / completed.length
+      : null;
+
+    const byCategory: Record<string, number> = {};
+    const byManager: Record<string, { total: number; completed: number; rate: number }> = {};
+    for (const s of mapped) {
+      byCategory[s.category] = (byCategory[s.category] || 0) + 1;
+      if (s.assignedBy) {
+        if (!byManager[s.assignedBy]) byManager[s.assignedBy] = { total: 0, completed: 0, rate: 0 };
+        byManager[s.assignedBy].total++;
+        if (s.status === "completed") byManager[s.assignedBy].completed++;
+      }
+    }
+    for (const m of Object.values(byManager)) m.rate = m.total > 0 ? m.completed / m.total : 0;
+
+    // Improvement by category: sessions with effectiveness snapshots
+    const improvementByCategory: Record<string, { before: number; after: number; delta: number; count: number }> = {};
+    for (const s of mapped) {
+      const snap = (s as any).effectivenessSnapshot as any;
+      if (!snap?.preCoaching?.avgScore || !snap?.postCoaching?.avgScore) continue;
+      const cat = s.category;
+      if (!improvementByCategory[cat]) improvementByCategory[cat] = { before: 0, after: 0, delta: 0, count: 0 };
+      improvementByCategory[cat].before += snap.preCoaching.avgScore;
+      improvementByCategory[cat].after += snap.postCoaching.avgScore;
+      improvementByCategory[cat].count++;
+    }
+    for (const cat of Object.values(improvementByCategory)) {
+      if (cat.count > 0) {
+        cat.before /= cat.count;
+        cat.after /= cat.count;
+        cat.delta = cat.after - cat.before;
+      }
+    }
+
+    return {
+      totalSessions: mapped.length,
+      completedSessions: completed.length,
+      dismissedSessions: dismissed.length,
+      pendingSessions: pending.length,
+      completionRate: mapped.length > 0 ? completed.length / mapped.length : 0,
+      avgTimeToCloseHours: avgClose,
+      sessionsByCategory: byCategory,
+      sessionsByManager: byManager,
+      improvementByCategory,
+      topCoachingTopics: Object.entries(byCategory)
+        .map(([topic, count]) => ({ topic, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 10),
+      overdueCount: overdue.length,
+      automatedCount: automated.length,
+    };
+  }
+
+  // --- Coaching templates ---
+  async createCoachingTemplate(orgId: string, template: import("@shared/schema").InsertCoachingTemplate): Promise<import("@shared/schema").CoachingTemplate> {
+    const id = randomUUID();
+    const [row] = await this.db.execute(sql`
+      INSERT INTO coaching_templates (id, org_id, name, category, description, action_plan, tags, created_by, usage_count)
+      VALUES (${id}, ${orgId}, ${template.name}, ${template.category || "general"}, ${template.description || null},
+              ${JSON.stringify(template.actionPlan || [])}, ${JSON.stringify(template.tags || [])},
+              ${template.createdBy}, 0)
+      RETURNING *
+    `) as any;
+    return this.mapCoachingTemplate(row.rows ? row.rows[0] : row);
+  }
+
+  async getCoachingTemplate(orgId: string, id: string): Promise<import("@shared/schema").CoachingTemplate | undefined> {
+    const result = await this.db.execute(sql`SELECT * FROM coaching_templates WHERE id = ${id} AND org_id = ${orgId} LIMIT 1`) as any;
+    const rows = result.rows || result;
+    return rows[0] ? this.mapCoachingTemplate(rows[0]) : undefined;
+  }
+
+  async listCoachingTemplates(orgId: string, category?: string): Promise<import("@shared/schema").CoachingTemplate[]> {
+    const result = category
+      ? await this.db.execute(sql`SELECT * FROM coaching_templates WHERE org_id = ${orgId} AND category = ${category} ORDER BY usage_count DESC, created_at DESC`) as any
+      : await this.db.execute(sql`SELECT * FROM coaching_templates WHERE org_id = ${orgId} ORDER BY usage_count DESC, created_at DESC`) as any;
+    const rows = result.rows || result;
+    return Array.isArray(rows) ? rows.map((r: any) => this.mapCoachingTemplate(r)) : [];
+  }
+
+  async updateCoachingTemplate(orgId: string, id: string, updates: Partial<import("@shared/schema").CoachingTemplate>): Promise<import("@shared/schema").CoachingTemplate | undefined> {
+    const result = await this.db.execute(sql`
+      UPDATE coaching_templates SET
+        name = COALESCE(${updates.name ?? null}, name),
+        category = COALESCE(${updates.category ?? null}, category),
+        description = COALESCE(${updates.description ?? null}, description),
+        action_plan = COALESCE(${updates.actionPlan != null ? JSON.stringify(updates.actionPlan) : null}::jsonb, action_plan),
+        tags = COALESCE(${updates.tags != null ? JSON.stringify(updates.tags) : null}::jsonb, tags),
+        updated_at = NOW()
+      WHERE id = ${id} AND org_id = ${orgId}
+      RETURNING *
+    `) as any;
+    const rows = result.rows || result;
+    return rows[0] ? this.mapCoachingTemplate(rows[0]) : undefined;
+  }
+
+  async deleteCoachingTemplate(orgId: string, id: string): Promise<void> {
+    await this.db.execute(sql`DELETE FROM coaching_templates WHERE id = ${id} AND org_id = ${orgId}`);
+  }
+
+  async incrementTemplateUsage(orgId: string, id: string): Promise<void> {
+    await this.db.execute(sql`UPDATE coaching_templates SET usage_count = usage_count + 1 WHERE id = ${id} AND org_id = ${orgId}`);
+  }
+
+  private mapCoachingTemplate(row: any): import("@shared/schema").CoachingTemplate {
+    return {
+      id: row.id,
+      orgId: row.org_id || row.orgId,
+      name: row.name,
+      category: row.category || "general",
+      description: row.description,
+      actionPlan: row.action_plan || row.actionPlan || [],
+      tags: row.tags || [],
+      createdBy: row.created_by || row.createdBy,
+      usageCount: row.usage_count ?? row.usageCount ?? 0,
+      createdAt: toISOString(row.created_at || row.createdAt),
+      updatedAt: toISOString(row.updated_at || row.updatedAt),
+    };
+  }
+
+  // --- Automation rules ---
+  async createAutomationRule(orgId: string, rule: import("@shared/schema").InsertAutomationRule): Promise<import("@shared/schema").AutomationRule> {
+    const id = randomUUID();
+    const result = await this.db.execute(sql`
+      INSERT INTO automation_rules (id, org_id, name, is_enabled, trigger_type, conditions, actions, created_by, trigger_count)
+      VALUES (${id}, ${orgId}, ${rule.name}, ${rule.isEnabled !== false}, ${rule.triggerType},
+              ${JSON.stringify(rule.conditions)}, ${JSON.stringify(rule.actions)}, ${rule.createdBy}, 0)
+      RETURNING *
+    `) as any;
+    const rows = result.rows || result;
+    return this.mapAutomationRule(rows[0] || rows);
+  }
+
+  async getAutomationRule(orgId: string, id: string): Promise<import("@shared/schema").AutomationRule | undefined> {
+    const result = await this.db.execute(sql`SELECT * FROM automation_rules WHERE id = ${id} AND org_id = ${orgId} LIMIT 1`) as any;
+    const rows = result.rows || result;
+    return rows[0] ? this.mapAutomationRule(rows[0]) : undefined;
+  }
+
+  async listAutomationRules(orgId: string): Promise<import("@shared/schema").AutomationRule[]> {
+    const result = await this.db.execute(sql`SELECT * FROM automation_rules WHERE org_id = ${orgId} ORDER BY created_at DESC`) as any;
+    const rows = result.rows || result;
+    return Array.isArray(rows) ? rows.map((r: any) => this.mapAutomationRule(r)) : [];
+  }
+
+  async updateAutomationRule(orgId: string, id: string, updates: Partial<import("@shared/schema").AutomationRule>): Promise<import("@shared/schema").AutomationRule | undefined> {
+    const setClause: Record<string, unknown> = {};
+    if (updates.name !== undefined) setClause.is_enabled = updates.isEnabled;
+    if (updates.isEnabled !== undefined) setClause.is_enabled = updates.isEnabled;
+    if (updates.conditions !== undefined) setClause.conditions = JSON.stringify(updates.conditions);
+    if (updates.actions !== undefined) setClause.actions = JSON.stringify(updates.actions);
+    if ((updates as any).lastTriggeredAt !== undefined) setClause.last_triggered_at = (updates as any).lastTriggeredAt ? new Date((updates as any).lastTriggeredAt) : null;
+    if ((updates as any).triggerCount !== undefined) setClause.trigger_count = (updates as any).triggerCount;
+    setClause.updated_at = new Date();
+    // Build SET via raw SQL to handle JSONB properly
+    const result = await this.db.execute(sql`
+      UPDATE automation_rules SET
+        is_enabled = COALESCE(${updates.isEnabled ?? null}, is_enabled),
+        name = COALESCE(${(updates as any).name ?? null}, name),
+        conditions = COALESCE(${updates.conditions ? JSON.stringify(updates.conditions) : null}::jsonb, conditions),
+        actions = COALESCE(${updates.actions ? JSON.stringify(updates.actions) : null}::jsonb, actions),
+        last_triggered_at = COALESCE(${(updates as any).lastTriggeredAt ? new Date((updates as any).lastTriggeredAt) : null}, last_triggered_at),
+        trigger_count = COALESCE(${(updates as any).triggerCount ?? null}, trigger_count),
+        updated_at = NOW()
+      WHERE id = ${id} AND org_id = ${orgId}
+      RETURNING *
+    `) as any;
+    const rows = result.rows || result;
+    return rows[0] ? this.mapAutomationRule(rows[0]) : undefined;
+  }
+
+  async deleteAutomationRule(orgId: string, id: string): Promise<void> {
+    await this.db.execute(sql`DELETE FROM automation_rules WHERE id = ${id} AND org_id = ${orgId}`);
+  }
+
+  private mapAutomationRule(row: any): import("@shared/schema").AutomationRule {
+    return {
+      id: row.id,
+      orgId: row.org_id || row.orgId,
+      name: row.name,
+      isEnabled: row.is_enabled ?? row.isEnabled ?? true,
+      triggerType: row.trigger_type || row.triggerType,
+      conditions: row.conditions || {},
+      actions: row.actions || {},
+      createdBy: row.created_by || row.createdBy,
+      lastTriggeredAt: toISOString(row.last_triggered_at || row.lastTriggeredAt),
+      triggerCount: row.trigger_count ?? row.triggerCount ?? 0,
+      createdAt: toISOString(row.created_at || row.createdAt),
+      updatedAt: toISOString(row.updated_at || row.updatedAt),
+    };
   }
 
   // --- Data retention ---
@@ -1436,6 +1653,14 @@ export class PostgresStorage implements IStorage {
       dueDate: toISOString(row.dueDate),
       createdAt: toISOString(row.createdAt),
       completedAt: toISOString(row.completedAt),
+      automatedTrigger: row.automatedTrigger ?? null,
+      automationRuleId: row.automationRuleId ?? null,
+      selfAssessmentScore: row.selfAssessmentScore ?? null,
+      selfAssessmentNotes: row.selfAssessmentNotes ?? null,
+      selfAssessedAt: toISOString(row.selfAssessedAt),
+      effectivenessSnapshot: row.effectivenessSnapshot ?? null,
+      effectivenessCalculatedAt: toISOString(row.effectivenessCalculatedAt),
+      templateId: row.templateId ?? null,
     };
   }
 
