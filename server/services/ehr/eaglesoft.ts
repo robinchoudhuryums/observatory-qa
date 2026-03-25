@@ -25,6 +25,8 @@ import type {
   EhrClinicalNote,
   EhrTreatmentPlan,
   EhrSyncResult,
+  EhrAppointmentCreate,
+  EhrTreatmentPlanUpdate,
 } from "./types.js";
 import { ehrRequest } from "./request.js";
 
@@ -114,35 +116,58 @@ export class EaglesoftAdapter implements IEhrAdapter {
   }
 
   async pushClinicalNote(config: EhrConnectionConfig, note: EhrClinicalNote): Promise<EhrSyncResult> {
-    // Eaglesoft write access is limited — clinical notes typically require
-    // Smart Doc integration or direct database bridge. For now, we attempt
-    // the eDex notes endpoint, but this may not be available on all installations.
+    // Eaglesoft eDex supports clinical note write via /clinical-notes (eDex v2+)
+    // or /patient-notes on older installations. The Smart Doc integration is required
+    // for structured note formats; plain text works on both.
     try {
-      const result = await this.request<{ noteId?: string }>(
+      const result = await this.request<{ noteId?: string; id?: string }>(
         config, "POST", "/clinical-notes", {
           patientId: note.patientId,
           providerId: note.providerId,
           date: note.date,
           type: note.noteType,
           content: note.content,
+          procedureCodes: note.procedureCodes?.map(c => c.code),
+          diagnosisCodes: note.diagnosisCodes?.map(c => c.code),
         }
       );
 
       return {
         success: true,
-        ehrRecordId: result?.noteId || "",
+        ehrRecordId: result?.noteId || result?.id || "",
         timestamp: new Date().toISOString(),
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to push note";
 
-      // Eaglesoft may not support write operations — provide helpful guidance
-      if (message.includes("405") || message.includes("403")) {
-        return {
-          success: false,
-          error: "Clinical note push not available — Eaglesoft eDex may require Smart Doc integration for write access. Contact Patterson Dental for API write permissions.",
-          timestamp: new Date().toISOString(),
-        };
+      // Fall back to /patient-notes endpoint (legacy eDex installations)
+      if (message.includes("404") || message.includes("405")) {
+        try {
+          const fallback = await this.request<{ noteId?: string; id?: string }>(
+            config, "POST", "/patient-notes", {
+              patientId: note.patientId,
+              providerId: note.providerId,
+              date: note.date,
+              noteType: note.noteType,
+              noteText: note.content,
+            }
+          );
+          return {
+            success: true,
+            ehrRecordId: fallback?.noteId || fallback?.id || "",
+            timestamp: new Date().toISOString(),
+          };
+        } catch (fallbackErr) {
+          const fallbackMsg = fallbackErr instanceof Error ? fallbackErr.message : "";
+          if (fallbackMsg.includes("403") || fallbackMsg.includes("405")) {
+            return {
+              success: false,
+              error: "Clinical note push not available — Eaglesoft eDex requires Smart Doc integration for write access. Contact Patterson Dental for API write permissions.",
+              timestamp: new Date().toISOString(),
+            };
+          }
+          return { success: false, error: fallbackMsg, timestamp: new Date().toISOString() };
+        }
       }
 
       return {
@@ -150,6 +175,75 @@ export class EaglesoftAdapter implements IEhrAdapter {
         error: message,
         timestamp: new Date().toISOString(),
       };
+    }
+  }
+
+  async createAppointment(config: EhrConnectionConfig, apt: EhrAppointmentCreate): Promise<EhrSyncResult> {
+    try {
+      const result = await this.request<{ appointmentId?: string; id?: string }>(
+        config, "POST", "/appointments", {
+          patientId: apt.patientId,
+          providerId: apt.providerId,
+          date: apt.date,
+          startTime: apt.startTime,
+          duration: apt.duration,
+          procedures: apt.procedures,
+          notes: apt.notes,
+        }
+      );
+
+      return {
+        success: true,
+        ehrRecordId: result?.appointmentId || result?.id || "",
+        timestamp: new Date().toISOString(),
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to create appointment";
+
+      if (message.includes("403") || message.includes("405")) {
+        return {
+          success: false,
+          error: "Appointment creation not available — Eaglesoft eDex write access required. Contact Patterson Dental to enable appointment write permissions.",
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      return { success: false, error: message, timestamp: new Date().toISOString() };
+    }
+  }
+
+  async updateTreatmentPlan(
+    config: EhrConnectionConfig,
+    planId: string,
+    update: EhrTreatmentPlanUpdate,
+  ): Promise<EhrSyncResult> {
+    try {
+      const body: Record<string, unknown> = {};
+      if (update.status) body.status = update.status;
+      if (update.notes) body.notes = update.notes;
+      if (update.phaseUpdates) body.phaseUpdates = update.phaseUpdates;
+
+      await this.request<{ id?: string }>(
+        config, "PATCH", `/treatment-plans/${planId}`, body
+      );
+
+      return {
+        success: true,
+        ehrRecordId: planId,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to update treatment plan";
+
+      if (message.includes("403") || message.includes("405")) {
+        return {
+          success: false,
+          error: "Treatment plan write not available — Eaglesoft eDex write access required.",
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      return { success: false, error: message, timestamp: new Date().toISOString() };
     }
   }
 

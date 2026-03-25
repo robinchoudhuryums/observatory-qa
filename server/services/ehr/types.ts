@@ -6,6 +6,7 @@
  * - Appointment data retrieval (for call context enrichment)
  * - Clinical note push (write completed notes back to EHR)
  * - Treatment plan sync (read/write treatment plans)
+ * - Bidirectional appointment scheduling (optional, adapter-specific)
  *
  * Per-org EHR configuration is stored in org settings.
  */
@@ -80,15 +81,21 @@ export interface EhrTreatmentPlan {
 
 export interface EhrConnectionConfig {
   /** EHR system type */
-  system: "open_dental" | "eaglesoft" | "dentrix" | "mock";
+  system: "open_dental" | "eaglesoft" | "dentrix" | "fhir_r4" | "mock";
   /** API base URL or server address */
   baseUrl: string;
-  /** API key, token, or credentials */
+  /** API key, token, or credentials (encrypted at rest) */
   apiKey?: string;
   /** Additional system-specific configuration */
   options?: Record<string, string>;
   /** Whether this integration is active */
   enabled?: boolean;
+  /**
+   * AWS Secrets Manager ARN for storing EHR credentials.
+   * When set, the apiKey is fetched from Secrets Manager at runtime
+   * rather than being stored (even encrypted) in org settings.
+   */
+  secretArn?: string;
 }
 
 export interface EhrSyncResult {
@@ -96,6 +103,58 @@ export interface EhrSyncResult {
   ehrRecordId?: string;
   error?: string;
   timestamp: string;
+}
+
+/**
+ * Health status for an EHR integration.
+ * Stored in org settings and updated by the health monitor worker.
+ */
+export interface EhrHealthStatus {
+  orgId: string;
+  system: string;
+  connected: boolean;
+  lastChecked: string;
+  lastError?: string;
+  consecutiveFailures: number;
+  /** ISO timestamp when the connection first went down (for alert dedup) */
+  downSince?: string;
+  /** ISO timestamp of last successful connection */
+  lastSuccessAt?: string;
+}
+
+/**
+ * Result of attempting to match an inbound call to a scheduled EHR appointment.
+ */
+export interface AppointmentMatchResult {
+  matched: boolean;
+  appointment?: EhrAppointment;
+  patient?: EhrPatient;
+  /** Confidence in the match */
+  confidence: "high" | "medium" | "low";
+  /** Human-readable reason for the match (or non-match) */
+  matchReason?: string;
+}
+
+/** Fields for creating a new appointment in an EHR system */
+export interface EhrAppointmentCreate {
+  patientId: string;
+  providerId: string;
+  date: string;        // ISO date: YYYY-MM-DD
+  startTime: string;   // HH:mm
+  duration: number;    // minutes
+  procedures?: Array<{ code: string; description: string }>;
+  notes?: string;
+}
+
+/** Fields for updating a treatment plan in an EHR system */
+export interface EhrTreatmentPlanUpdate {
+  status?: EhrTreatmentPlan["status"];
+  notes?: string;
+  /** Accept or decline a specific phase */
+  phaseUpdates?: Array<{
+    phase: number;
+    status: "accepted" | "declined";
+  }>;
 }
 
 /**
@@ -125,6 +184,12 @@ export interface IEhrAdapter {
   /** Get today's appointments (convenience) */
   getTodayAppointments(config: EhrConnectionConfig, providerId?: string): Promise<EhrAppointment[]>;
 
+  /**
+   * Create a new appointment in the EHR system.
+   * Optional — not all adapters support write operations.
+   */
+  createAppointment?(config: EhrConnectionConfig, appointment: EhrAppointmentCreate): Promise<EhrSyncResult>;
+
   // --- Clinical Note Operations ---
 
   /** Push a clinical note to the EHR */
@@ -134,4 +199,10 @@ export interface IEhrAdapter {
 
   /** Get treatment plans for a patient */
   getPatientTreatmentPlans(config: EhrConnectionConfig, patientId: string): Promise<EhrTreatmentPlan[]>;
+
+  /**
+   * Update a treatment plan in the EHR system.
+   * Optional — not all adapters support write operations.
+   */
+  updateTreatmentPlan?(config: EhrConnectionConfig, planId: string, update: EhrTreatmentPlanUpdate): Promise<EhrSyncResult>;
 }

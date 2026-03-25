@@ -129,7 +129,9 @@ describe("EHR Integration", () => {
 
     it("returns null for unsupported systems", async () => {
       const { getEhrAdapter } = await import("../server/services/ehr/index.js");
-      assert.equal(getEhrAdapter("dentrix"), null);
+      // dentrix and fhir_r4 are now implemented adapters
+      assert.ok(getEhrAdapter("dentrix"), "dentrix adapter should be available");
+      assert.ok(getEhrAdapter("fhir_r4" as any), "fhir_r4 adapter should be available");
       assert.equal(getEhrAdapter("epic" as any), null);
     });
 
