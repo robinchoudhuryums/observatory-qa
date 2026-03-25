@@ -60,6 +60,24 @@ export interface DeadLetterJob {
   data: Record<string, unknown>;
 }
 
+/**
+ * EHR note push job — queued when an immediate push fails so it can be
+ * retried with exponential backoff without requiring the user to retry manually.
+ * Note content is pre-formatted text (PHI is not stored in the queue).
+ */
+export interface EhrNotePushJob {
+  orgId: string;
+  callId: string;
+  ehrPatientId: string;
+  ehrProviderId?: string;
+  /** Pre-formatted note text (already decrypted from PHI storage; do not store raw PHI) */
+  noteContent: string;
+  noteType: string;
+  procedureCodes?: Array<{ code: string; description: string }>;
+  diagnosisCodes?: Array<{ code: string; description: string }>;
+  queuedAt: string;
+}
+
 // Queue instances
 let audioQueue: Queue<AudioProcessingJob> | null = null;
 let reanalysisQueue: Queue<BulkReanalysisJob> | null = null;
@@ -67,6 +85,7 @@ let retentionQueue: Queue<DataRetentionJob> | null = null;
 let usageQueue: Queue<UsageMeteringJob> | null = null;
 let indexingQueue: Queue<DocumentIndexingJob> | null = null;
 let deadLetterQueue: Queue<DeadLetterJob> | null = null;
+let ehrNotePushQueue: Queue<EhrNotePushJob> | null = null;
 
 // Connection config
 let connection: ConnectionOptions | null = null;
@@ -154,7 +173,20 @@ export function initQueues(): boolean {
       },
     });
 
-    logger.info("BullMQ queues initialized (including dead letter queue)");
+    // EHR note push queue — retries failed EHR note pushes with exponential backoff
+    // 5 attempts: ~1min, ~2min, ~4min, ~8min, ~16min
+    ehrNotePushQueue = new Queue<EhrNotePushJob>("ehr-note-push", {
+      ...defaultOpts,
+      defaultJobOptions: {
+        ...defaultOpts.defaultJobOptions,
+        attempts: 5,
+        backoff: { type: "exponential", delay: 60_000 }, // 1 minute base
+        removeOnComplete: { count: 200 },
+        removeOnFail: { count: 500 },
+      },
+    });
+
+    logger.info("BullMQ queues initialized (including dead letter queue and EHR note push queue)");
     return true;
   } catch (error) {
     logger.error({ err: error }, "Failed to initialize BullMQ queues");
@@ -186,6 +218,31 @@ export function getIndexingQueue(): Queue<DocumentIndexingJob> | null {
 
 export function getDeadLetterQueue(): Queue<DeadLetterJob> | null {
   return deadLetterQueue;
+}
+
+export function getEhrNotePushQueue(): Queue<EhrNotePushJob> | null {
+  return ehrNotePushQueue;
+}
+
+/**
+ * Enqueue a failed EHR note push for background retry.
+ * The note content should already be formatted (not raw PHI).
+ * Falls back to logging when queues are unavailable.
+ */
+export async function enqueueEhrNotePush(job: EhrNotePushJob): Promise<boolean> {
+  if (ehrNotePushQueue) {
+    try {
+      const jobId = `ehr-push-${job.orgId}-${job.callId}-${Date.now()}`;
+      await ehrNotePushQueue.add("push-note", job, { jobId });
+      logger.info({ callId: job.callId, orgId: job.orgId }, "EHR note push job enqueued for retry");
+      return true;
+    } catch (error) {
+      logger.error({ err: error, callId: job.callId }, "Failed to enqueue EHR note push job");
+      return false;
+    }
+  }
+  logger.warn({ callId: job.callId }, "EHR note push queue unavailable — retry not queued");
+  return false;
 }
 
 /**
@@ -301,7 +358,7 @@ export async function enqueueReanalysis(job: BulkReanalysisJob): Promise<boolean
  * Close all queues on shutdown.
  */
 export async function closeQueues(): Promise<void> {
-  const queues = [audioQueue, reanalysisQueue, retentionQueue, usageQueue, indexingQueue, deadLetterQueue];
+  const queues = [audioQueue, reanalysisQueue, retentionQueue, usageQueue, indexingQueue, deadLetterQueue, ehrNotePushQueue];
   await Promise.all(queues.filter(Boolean).map((q) => q!.close()));
   audioQueue = null;
   reanalysisQueue = null;

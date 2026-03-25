@@ -19,6 +19,8 @@ import { createRetentionWorker } from "./retention.worker";
 import { createUsageWorker } from "./usage.worker";
 import { createReanalysisWorker } from "./reanalysis.worker";
 import { createIndexingWorker } from "./indexing.worker";
+import { createEhrNotePushWorker } from "./ehr-note-push.worker";
+import { startEhrHealthMonitor } from "../services/ehr/health-monitor";
 import type { Worker } from "bullmq";
 
 async function main() {
@@ -103,11 +105,20 @@ async function main() {
   workers.push(indexingWorker);
   logger.info("Document indexing worker started");
 
+  // 5. EHR note push retry worker
+  const ehrNotePushWorker = createEhrNotePushWorker(connection, getStorage);
+  workers.push(ehrNotePushWorker);
+  logger.info("EHR note push retry worker started");
+
+  // Start EHR health monitor (periodic connection checks + alerting)
+  const healthMonitorInterval = startEhrHealthMonitor();
+
   logger.info({ count: workers.length }, "All workers started. Waiting for jobs...");
 
   // Graceful shutdown
   const shutdown = async () => {
     logger.info("Shutting down workers...");
+    clearInterval(healthMonitorInterval);
     await Promise.all(workers.map(w => w.close()));
     logger.info("All workers stopped");
     process.exit(0);

@@ -402,6 +402,15 @@ export const insertCallAnalysisSchema = z.object({
   speakerRoleMap: z.object({ agentSpeaker: z.string() }).optional(),
   // Detected language from AssemblyAI language detection (ISO code, e.g., "en", "es")
   detectedLanguage: z.string().optional(),
+  // EHR note push status — updated by push route and ehr-note-push worker
+  ehrPushStatus: z.object({
+    success: z.boolean(),
+    ehrRecordId: z.string().optional(),
+    error: z.string().optional(),
+    timestamp: z.string(),
+    retriedViaQueue: z.boolean().optional(),
+    requiresManualRetry: z.boolean().optional(),
+  }).optional(),
 });
 
 export const callAnalysisSchema = insertCallAnalysisSchema.extend({
