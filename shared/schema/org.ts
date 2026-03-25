@@ -45,6 +45,29 @@ export const orgSettingsSchema = z.object({
   ssoSignOnUrl: z.string().url().optional(),
   ssoCertificate: z.string().optional(),
   ssoEnforced: z.boolean().optional(), // When true, only SSO login allowed
+  // Group-to-role mapping: IDP group name → Observatory role
+  // e.g. { "observatory-admins": "admin", "observatory-managers": "manager" }
+  ssoGroupRoleMap: z.record(z.string(), z.enum(["admin", "manager", "viewer"])).optional(),
+  // SSO attribute name that contains group membership (default: "groups")
+  ssoGroupAttribute: z.string().optional(),
+  // Per-org SSO session max age (hours). Overrides the platform 8-hour max.
+  // SSO users must re-authenticate after this many hours regardless of activity.
+  ssoSessionMaxHours: z.number().min(1).max(72).optional(),
+  // IDP SLO (Single Logout) endpoint — enables sync logout
+  ssoLogoutUrl: z.string().url().optional(),
+  // Certificate expiry (ISO date string, auto-computed from ssoCertificate PEM on save)
+  ssoCertificateExpiry: z.string().optional(),
+  // Secondary certificate for rotation: both old and new certs valid simultaneously
+  ssoNewCertificate: z.string().optional(),
+  ssoNewCertificateExpiry: z.string().optional(),
+  // OIDC configuration (when ssoProvider = "oidc")
+  oidcDiscoveryUrl: z.string().url().optional(), // e.g. https://accounts.google.com
+  oidcClientId: z.string().optional(),
+  oidcClientSecret: z.string().optional(),
+  // SCIM 2.0 provisioning (Enterprise plan only)
+  scimEnabled: z.boolean().optional(),
+  scimTokenHash: z.string().optional(),   // SHA-256 hash of the bearer token
+  scimTokenPrefix: z.string().optional(), // First 8 chars for identification
   // MFA enforcement (HIPAA recommended safeguard)
   mfaRequired: z.boolean().optional(), // When true, all users in this org must enable MFA
   // EHR integration configuration

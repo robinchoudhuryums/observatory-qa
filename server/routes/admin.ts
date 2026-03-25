@@ -19,6 +19,8 @@ import {
   updateActionItem, updateIncident, getIncident, listIncidents,
   createBreachReport, updateBreachReport, listBreachReports, getBreachReport,
 } from "../services/incident-response";
+import { generateScimToken } from "./scim";
+import { parseCertExpiry } from "./sso";
 
 export function registerAdminRoutes(app: Express): void {
   // ==================== PROMPT TEMPLATE ROUTES (admin only) ====================
@@ -410,8 +412,13 @@ export function registerAdminRoutes(app: Express): void {
         return res.status(400).json({ message: "Invalid settings", errors: parsed.error.flatten() });
       }
 
-      // Gate SSO configuration to Enterprise plan
-      const ssoFields = ["ssoProvider", "ssoSignOnUrl", "ssoCertificate", "ssoEntityId", "ssoEnforced"] as const;
+      // Gate SSO / SCIM configuration to Enterprise plan
+      const ssoFields = [
+        "ssoProvider", "ssoSignOnUrl", "ssoCertificate", "ssoEntityId", "ssoEnforced",
+        "ssoGroupRoleMap", "ssoGroupAttribute", "ssoSessionMaxHours", "ssoLogoutUrl",
+        "ssoNewCertificate", "oidcDiscoveryUrl", "oidcClientId", "oidcClientSecret",
+        "scimEnabled",
+      ] as const;
       const isSettingSso = ssoFields.some(f => f in parsed.data && (parsed.data as Record<string, unknown>)[f]);
       if (isSettingSso) {
         const sub = await storage.getSubscription(req.orgId!);
@@ -419,13 +426,29 @@ export function registerAdminRoutes(app: Express): void {
         const plan = PLAN_DEFINITIONS[tier];
         if (!plan?.limits.ssoEnabled) {
           return res.status(403).json({
-            message: "SSO requires an Enterprise plan",
+            message: "SSO and SCIM require an Enterprise plan",
             code: "PLAN_FEATURE_REQUIRED",
             feature: "ssoEnabled",
             currentPlan: tier,
             upgradeUrl: "/settings?tab=billing",
           });
         }
+      }
+
+      // Auto-compute certificate expiry dates when certs are set
+      const data = parsed.data as Record<string, unknown>;
+      if (typeof data.ssoCertificate === "string" && data.ssoCertificate) {
+        const expiry = parseCertExpiry(data.ssoCertificate);
+        if (expiry) data.ssoCertificateExpiry = expiry;
+      }
+      if (typeof data.ssoNewCertificate === "string" && data.ssoNewCertificate) {
+        const expiry = parseCertExpiry(data.ssoNewCertificate);
+        if (expiry) data.ssoNewCertificateExpiry = expiry;
+      }
+      // If new cert is being cleared, also clear its expiry
+      if (data.ssoNewCertificate === null || data.ssoNewCertificate === "") {
+        data.ssoNewCertificate = undefined;
+        data.ssoNewCertificateExpiry = undefined;
       }
 
       const updatedSettings = { ...(org.settings || {}), ...parsed.data } as OrgSettings;
@@ -447,6 +470,91 @@ export function registerAdminRoutes(app: Express): void {
       res.status(500).json(errorResponse(ERROR_CODES.ADMIN_SETTINGS_FAILED, "Failed to update settings"));
     }
   });
+
+  // ============================================================
+  // SCIM TOKEN MANAGEMENT (admin only, Enterprise)
+  // ============================================================
+
+  // Get SCIM token status (prefix and whether SCIM is enabled)
+  app.get("/api/admin/scim/token", requireAuth, requireRole("admin"), injectOrgContext,
+    requirePlanFeature("ssoEnabled"),
+    async (req, res) => {
+      const org = await storage.getOrganization(req.orgId!);
+      if (!org) return res.status(404).json({ message: "Organization not found" });
+      const settings = org.settings as OrgSettings | undefined;
+      res.json({
+        scimEnabled: settings?.scimEnabled || false,
+        hasToken: !!settings?.scimTokenHash,
+        tokenPrefix: settings?.scimTokenPrefix || null,
+        // Service endpoint for IDP configuration
+        scimBaseUrl: `${req.protocol}://${req.headers.host}/api/scim/v2`,
+      });
+    }
+  );
+
+  // Generate / rotate SCIM bearer token (token shown exactly once)
+  app.post("/api/admin/scim/token/rotate", requireAuth, requireRole("admin"), injectOrgContext,
+    requirePlanFeature("ssoEnabled"),
+    async (req, res) => {
+      const org = await storage.getOrganization(req.orgId!);
+      if (!org) return res.status(404).json({ message: "Organization not found" });
+
+      const { token, hash, prefix } = generateScimToken();
+
+      const updatedSettings: OrgSettings = {
+        ...(org.settings || {}) as OrgSettings,
+        scimEnabled: true,
+        scimTokenHash: hash,
+        scimTokenPrefix: prefix,
+      };
+      await storage.updateOrganization(req.orgId!, { settings: updatedSettings });
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "org_settings_update",
+        resourceType: "organization",
+        resourceId: req.orgId!,
+        detail: "SCIM token rotated",
+      });
+
+      logger.info({ orgId: req.orgId, prefix }, "SCIM token rotated");
+
+      // Return the plaintext token exactly once — it cannot be recovered after this
+      res.json({
+        token,
+        prefix,
+        message: "Store this token securely — it will not be shown again.",
+        scimBaseUrl: `${req.protocol}://${req.headers.host}/api/scim/v2`,
+      });
+    }
+  );
+
+  // Disable SCIM (revoke token, disable provisioning)
+  app.delete("/api/admin/scim/token", requireAuth, requireRole("admin"), injectOrgContext,
+    requirePlanFeature("ssoEnabled"),
+    async (req, res) => {
+      const org = await storage.getOrganization(req.orgId!);
+      if (!org) return res.status(404).json({ message: "Organization not found" });
+
+      const updatedSettings: OrgSettings = {
+        ...(org.settings || {}) as OrgSettings,
+        scimEnabled: false,
+        scimTokenHash: undefined,
+        scimTokenPrefix: undefined,
+      };
+      await storage.updateOrganization(req.orgId!, { settings: updatedSettings });
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "org_settings_update",
+        resourceType: "organization",
+        resourceId: req.orgId!,
+        detail: "SCIM token revoked, provisioning disabled",
+      });
+
+      res.json({ message: "SCIM provisioning disabled and token revoked." });
+    }
+  );
 
   // ============================================================
   // AUDIT LOG VIEWER (admin only)

@@ -18,7 +18,8 @@ import { registerBillingRoutes } from "./billing";
 import { registerOnboardingRoutes } from "./onboarding";
 import { registerPasswordResetRoutes } from "./password-reset";
 import { registerExportRoutes } from "./export";
-import { registerSsoRoutes, setupSamlAuth } from "./sso";
+import { registerSsoRoutes, setupSamlAuth, setupOidcAuth } from "./sso";
+import { registerScimRoutes } from "./scim";
 import { registerMfaRoutes } from "./mfa";
 import { registerABTestRoutes } from "./ab-testing";
 import { registerSpendTrackingRoutes } from "./spend-tracking";
@@ -63,11 +64,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Set up SAML SSO (per-org IDP configuration)
   await setupSamlAuth();
+  // Set up OIDC (per-org discovery; no global passport strategy needed)
+  setupOidcAuth();
 
   registerHealthRoutes(app);
   registerAuthRoutes(app);
   registerOAuthRoutes(app);
   registerSsoRoutes(app);
+  registerScimRoutes(app);
   registerRegistrationRoutes(app);
   registerPasswordResetRoutes(app);
   registerMfaRoutes(app);

@@ -41,6 +41,8 @@ declare namespace Express {
     role: string;
     orgId: string;
     orgSlug?: string;
+    /** Unix ms timestamp of SSO login. Set by SAML/OIDC callbacks; used for per-org session max age. */
+    ssoLoginAt?: number;
   }
 
   interface Request {
