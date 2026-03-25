@@ -469,27 +469,49 @@ export async function setupAuth(app: Express) {
 const SESSION_ABSOLUTE_MAX_MS = 8 * 60 * 60 * 1000;
 
 // Middleware to require authentication on API routes
-export const requireAuth: RequestHandler = (req, res, next) => {
+export const requireAuth: RequestHandler = async (req, res, next) => {
   if (!req.isAuthenticated()) {
     return res.status(401).json({ message: "Authentication required", errorCode: "OBS-AUTH-003" });
   }
 
-  // Enforce absolute session timeout (8 hours from login)
   const session = req.session as any;
-  if (session?.createdAt) {
-    const sessionAge = Date.now() - session.createdAt;
-    if (sessionAge > SESSION_ABSOLUTE_MAX_MS) {
-      req.logout(() => {
-        req.session?.destroy(() => {});
-      });
-      return res.status(401).json({
-        message: "Session expired (maximum duration exceeded). Please log in again.",
-        errorCode: "OBS-AUTH-005",
-      });
-    }
-  } else {
-    // Stamp the session creation time (first authenticated request)
+
+  // Stamp session creation time on first authenticated request
+  if (!session?.createdAt) {
     session.createdAt = Date.now();
+  }
+
+  // Enforce absolute session timeout (8 hours from login — platform-wide HIPAA requirement)
+  const sessionAge = Date.now() - session.createdAt;
+  if (sessionAge > SESSION_ABSOLUTE_MAX_MS) {
+    req.logout(() => { req.session?.destroy(() => {}); });
+    return res.status(401).json({
+      message: "Session expired (maximum duration exceeded). Please log in again.",
+      errorCode: "OBS-AUTH-005",
+    });
+  }
+
+  // Enforce per-org SSO session max age (ssoSessionMaxHours).
+  // For SSO users the org may require re-authentication sooner than 8 hours.
+  // The ssoLoginAt timestamp is stamped by the SAML/OIDC callback handlers.
+  if (session.ssoLoginAt && req.user?.orgId) {
+    try {
+      const org = await storage.getOrganization(req.user.orgId);
+      const maxHours = (org?.settings as any)?.ssoSessionMaxHours;
+      if (typeof maxHours === "number" && maxHours > 0) {
+        const ssoSessionAge = Date.now() - session.ssoLoginAt;
+        if (ssoSessionAge > maxHours * 60 * 60 * 1000) {
+          req.logout(() => { req.session?.destroy(() => {}); });
+          return res.status(401).json({
+            message: `SSO session expired (your organization requires re-authentication every ${maxHours} hour(s)). Please sign in again.`,
+            errorCode: "OBS-AUTH-006",
+            requiresSso: true,
+          });
+        }
+      }
+    } catch {
+      // Non-fatal: if org lookup fails, fall through and allow the request
+    }
   }
 
   return next();

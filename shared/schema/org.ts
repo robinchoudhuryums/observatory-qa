@@ -45,8 +45,35 @@ export const orgSettingsSchema = z.object({
   ssoSignOnUrl: z.string().url().optional(),
   ssoCertificate: z.string().optional(),
   ssoEnforced: z.boolean().optional(), // When true, only SSO login allowed
+  // Group-to-role mapping: IDP group name → Observatory role
+  // e.g. { "observatory-admins": "admin", "observatory-managers": "manager" }
+  ssoGroupRoleMap: z.record(z.string(), z.enum(["admin", "manager", "viewer"])).optional(),
+  // SSO attribute name that contains group membership (default: "groups")
+  ssoGroupAttribute: z.string().optional(),
+  // Per-org SSO session max age (hours). Overrides the platform 8-hour max.
+  // SSO users must re-authenticate after this many hours regardless of activity.
+  ssoSessionMaxHours: z.number().min(1).max(72).optional(),
+  // IDP SLO (Single Logout) endpoint — enables sync logout
+  ssoLogoutUrl: z.string().url().optional(),
+  // Certificate expiry (ISO date string, auto-computed from ssoCertificate PEM on save)
+  ssoCertificateExpiry: z.string().optional(),
+  // Secondary certificate for rotation: both old and new certs valid simultaneously
+  ssoNewCertificate: z.string().optional(),
+  ssoNewCertificateExpiry: z.string().optional(),
+  // OIDC configuration (when ssoProvider = "oidc")
+  oidcDiscoveryUrl: z.string().url().optional(), // e.g. https://accounts.google.com
+  oidcClientId: z.string().optional(),
+  oidcClientSecret: z.string().optional(),
+  // SCIM 2.0 provisioning (Enterprise plan only)
+  scimEnabled: z.boolean().optional(),
+  scimTokenHash: z.string().optional(),   // SHA-256 hash of the bearer token
+  scimTokenPrefix: z.string().optional(), // First 8 chars for identification
   // MFA enforcement (HIPAA recommended safeguard)
   mfaRequired: z.boolean().optional(), // When true, all users in this org must enable MFA
+  // Grace period: days users have to enroll after mfaRequired is first turned on
+  mfaGracePeriodDays: z.number().min(1).max(30).optional(), // default 7
+  // ISO timestamp when mfaRequired was first enabled (used to compute deadlines)
+  mfaRequiredEnabledAt: z.string().optional(),
   // EHR integration configuration
   ehrConfig: z.object({
     system: z.enum(["open_dental", "eaglesoft", "dentrix"]),
@@ -130,6 +157,24 @@ export const insertUserSchema = z.object({
   mfaEnabled: z.boolean().optional(),
   mfaSecret: z.string().optional(),
   mfaBackupCodes: z.array(z.string()).optional(),
+  // WebAuthn/Passkey credentials (each user can have multiple hardware keys / passkeys)
+  webauthnCredentials: z.array(z.object({
+    credentialId: z.string(),     // base64url-encoded credential ID
+    publicKey: z.string(),        // base64url-encoded COSE public key
+    counter: z.number(),          // signature counter for replay protection
+    transports: z.array(z.string()).optional(), // usb, nfc, ble, internal
+    name: z.string(),             // user-assigned device name
+    createdAt: z.string(),
+  })).optional(),
+  // Trusted device tokens — hashed bearer tokens set after MFA, exempt for N days
+  mfaTrustedDevices: z.array(z.object({
+    tokenHash: z.string(),        // SHA-256 of the cookie value
+    name: z.string(),             // device name / browser info
+    createdAt: z.string(),
+    expiresAt: z.string(),
+  })).optional(),
+  // Grace period deadline for MFA enrollment (set when org enables mfaRequired)
+  mfaEnrollmentDeadline: z.string().optional(), // ISO date
 });
 
 export const userSchema = insertUserSchema.extend({
