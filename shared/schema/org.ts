@@ -92,6 +92,16 @@ export const orgSettingsSchema = z.object({
     /** ISO timestamp of the last quota alert email sent (prevents flooding) */
     lastQuotaAlertSentAt: z.string().optional(),
   }).optional(),
+  // Budget alerts: admin-configurable spend thresholds
+  budgetAlerts: z.object({
+    enabled: z.boolean().default(false),
+    /** Monthly spend threshold in USD — alert when estimated spend exceeds this */
+    monthlyBudgetUsd: z.number().min(0).optional(),
+    /** Email address for budget alerts */
+    alertEmail: z.string().email().optional(),
+    /** ISO timestamp of last budget alert sent (prevents flooding, max 1/day) */
+    lastBudgetAlertSentAt: z.string().optional(),
+  }).optional(),
   // Provider-specific clinical note style preferences (self-learning feature)
   providerStylePreferences: z.record(z.string(), z.object({
     noteFormat: z.string().optional(),
