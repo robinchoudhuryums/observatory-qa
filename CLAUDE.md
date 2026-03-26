@@ -74,7 +74,7 @@ npx vite build         # Frontend-only build (quick verification)
 - **Unit tests**: Node.js built-in `test` module via `tsx` — `npm run test`
 - **E2E tests**: Playwright (Chromium) — `npm run test:e2e` or `npm run test:e2e:ui`
 - **Location**: `tests/` (unit), `tests/e2e/` (E2E)
-- **Unit test files** (27 files):
+- **Unit test files** (28 files):
   - `tests/schema.test.ts` — Zod schema validation (orgId on all entities, organization schemas)
   - `tests/ai-provider.test.ts` — AI provider utilities (parseJsonResponse, buildAnalysisPrompt, smartTruncate)
   - `tests/routes.test.ts` — API route handler tests
@@ -92,6 +92,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/webhook.test.ts` — Webhook delivery
   - `tests/audit-log.test.ts` — HIPAA audit logging
   - `tests/chunker.test.ts` — Document chunking
+  - `tests/rag-features.test.ts` — RAG Knowledge Base improvements (versioning, citations, indexing status, URL sources)
   - `tests/clinical-templates.test.ts` — Clinical note templates
   - `tests/clinical-validation.test.ts` — Clinical data validation
   - `tests/clinical-workflow.test.ts` — Clinical documentation workflow
@@ -321,7 +322,7 @@ Every data entity has an `orgId` field. All storage methods take `orgId` as the 
 - `Invitation` — id, orgId, email, role, token, status, expiresAt
 - `ApiKey` — id, orgId, name, keyHash, keyPrefix, permissions, status
 - `Subscription` — id, orgId, planTier, status, stripeCustomerId, billingInterval
-- `ReferenceDocument` — id, orgId, name, category, fileName, extractedText, appliesTo, isActive
+- `ReferenceDocument` — id, orgId, name, category, fileName, extractedText, appliesTo, isActive, `version` (integer, monotonically increasing), `previousVersionId` (text, links to prior version), `indexingStatus` (pending/indexing/indexed/failed), `indexingError` (text), `sourceType` (upload/url), `sourceUrl` (text), `retrievalCount` (integer, auto-incremented on RAG retrieval)
 - `Feedback` — id, orgId, userId, type (feature_rating/bug_report/suggestion/nps/general), context (page/feature), rating (1-10), comment, metadata, status, adminResponse
 - `EmployeeBadge` — id, orgId, employeeId, badgeId, awardedAt, awardedFor. 12 badge definitions: milestone (first_call, ten_calls, hundred_calls), performance (perfect_score, high_performer, consistency_king), improvement (most_improved, comeback_kid), engagement (self_reviewer, coaching_champion), streak (streak_7, streak_30)
 - `InsuranceNarrative` — id, orgId, callId, patientName, insurerName, letterType (prior_auth/appeal/predetermination/medical_necessity/peer_to_peer), diagnosisCodes, procedureCodes, clinicalJustification, generatedNarrative, status (draft/finalized/submitted)
@@ -518,11 +519,19 @@ Uses AWS Bedrock (Claude) for AI analysis. Per-org `bedrockModel` can be configu
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
 | POST | `/api/onboarding/logo` | admin | Upload org logo |
-| POST | `/api/onboarding/reference-docs` | admin | Upload reference document |
-| GET | `/api/onboarding/reference-docs` | authenticated | List reference documents |
-| DELETE | `/api/onboarding/reference-docs/:id` | admin | Delete reference document |
-| POST | `/api/onboarding/rag/search` | authenticated | RAG knowledge base search |
-| GET | `/api/onboarding/rag/status` | authenticated | RAG indexing status |
+| POST | `/api/reference-documents` | admin | Upload reference document |
+| GET | `/api/reference-documents` | authenticated | List reference documents (with indexingStatus) |
+| GET | `/api/reference-documents/:id` | authenticated | Get document details |
+| PATCH | `/api/reference-documents/:id` | admin | Update document metadata |
+| DELETE | `/api/reference-documents/:id` | admin | Delete reference document |
+| POST | `/api/reference-documents/:id/version` | admin | Create new version (deactivates old, re-indexes) |
+| GET | `/api/reference-documents/:id/versions` | authenticated | Get version history chain |
+| POST | `/api/reference-documents/:id/reindex` | admin | Re-index document |
+| GET | `/api/reference-documents/:id/chunks` | authenticated | Paginated chunk preview |
+| POST | `/api/reference-documents/url` | admin | Add web URL as knowledge base source |
+| POST | `/api/reference-documents/rag/search` | authenticated | RAG knowledge base search |
+| GET | `/api/reference-documents/rag/status` | authenticated | RAG indexing status |
+| GET | `/api/reference-documents/rag/analytics` | admin | Knowledge base analytics |
 
 ### Clinical Documentation (org-scoped, requires Clinical Documentation plan)
 | Method | Path | Role | Description |
@@ -839,7 +848,7 @@ DISABLE_SECURE_COOKIE           # Set to skip secure cookie flag (for non-TLS de
 | `api_keys` | unique on `key_hash` | SHA-256 hashed, never plaintext |
 | `invitations` | unique on `token` | Expirable team invitations |
 | `subscriptions` | unique on `org_id` | Stripe integration |
-| `reference_documents` | index on `(org_id, category)` | RAG source documents |
+| `reference_documents` | index on `(org_id, category)` | RAG source documents. Versioning: `version`, `previous_version_id`. Indexing: `indexing_status`, `indexing_error`. Sources: `source_type` (upload/url), `source_url`. Analytics: `retrieval_count` |
 | `document_chunks` | index on `org_id`, `document_id` | pgvector(1024) embeddings |
 | `usage_events` | index on `(org_id, event_type)`, `created_at` | Billing metering |
 | `password_reset_tokens` | unique on `token` | Expirable reset tokens |
@@ -985,6 +994,9 @@ Server serves both API and static frontend from the same process.
 - **Landing page wave animation**: Uses SVG SMIL `<animate>` elements on `<linearGradient>` stops for a traveling spark effect. CSS only handles `wave-drift` for gentle positional movement
 - **Clinical note PHI encryption**: PHI fields (subjective, objective, assessment, HPI) are encrypted with AES-256-GCM before storage and decrypted on retrieval in clinical routes
 - **EHR adapters**: Open Dental uses developer key + customer key auth; Eaglesoft uses eDex API with X-API-Key header. Config stored in `org.settings.ehrConfig`
+- **Document versioning is a linked list**: Each `ReferenceDocument` has `previousVersionId` pointing to its predecessor. Creating a new version deactivates the old one (`isActive: false`) and purges its chunks. Version history is reconstructed by walking `previousVersionId` chain + scanning for forward references
+- **RAG citations are fire-and-forget**: `consumeRagCitations()` returns the last citations produced by `loadReferenceContext()` and clears them. This avoids passing citation data through the entire prompt template pipeline. Citations are attached to `confidenceFactors.ragCitations[]` in the analysis
+- **Web URL sources use native fetch**: No Cheerio/Puppeteer dependency — HTML is stripped via regex (script/style/nav/footer/header tags removed, then all tags stripped). Sufficient for most documentation pages. 15-second timeout prevents hanging on slow servers
 - **Clinical templates are in-memory**: `clinical-templates.ts` is a static library of pre-built templates, not database-stored. Templates cover 10+ specialties across SOAP, DAP, BIRP, and procedure note formats
 - **A/B tests run models in parallel**: Uses `Promise.allSettled()` so one model failure doesn't block the other
 - When adding new storage methods for A/B tests or usage records: update `IStorage` interface in `types.ts`, then implement in `memory.ts`, `cloud.ts`, and `pg-storage.ts`
@@ -1052,17 +1064,13 @@ Server serves both API and static frontend from the same process.
 - **API key resource scopes** — `permissions[]` accepts `"calls:read"`, `"employees:read"`, etc. alongside broad `read`/`write`/`admin`; `checkApiKeyScope(scope)` middleware factory enforces per-route; `write` implies `read`, `admin` implies both; `req.apiKeyScopes` only set for keys with zero broad permissions
 - **Viewer coaching self-service** — `GET /api/coaching/my` auto-discovers the caller's employee record by email/username then name fallback; no employee ID required
 
-#### ❌ Next up: RAG Knowledge Base improvements
-
-**Priority: Critical**
-1. **Document versioning** — add `version` (integer), `previousVersionId` (text), `indexingStatus` (pending/indexing/indexed/failed), `indexingError` (text) fields to `ReferenceDocument` schema + DB; `POST /api/onboarding/reference-docs/:id/version` creates a new version; old version chunks purged and re-indexed
-2. **Citation tracking** — when RAG chunks are injected into analysis prompt, store the chunk IDs used in `confidenceFactors.ragCitations[]`; return citations in `GET /api/calls/:id/analysis` response
-
-**Priority: High-impact**
-3. **Indexing error handling** — surface `indexingStatus` + `indexingError` in `GET /api/onboarding/reference-docs` response; show indexing progress in UI; retry endpoint `POST /api/onboarding/reference-docs/:id/reindex`
-4. **Chunk preview** — `GET /api/onboarding/reference-docs/:id/chunks` returns paginated list of stored chunks with text previews, vector dimensions, relevance metadata
-5. **Knowledge base analytics** — track retrieval counts per chunk/document; `GET /api/onboarding/rag/analytics` returns most-retrieved docs, average relevance scores, query→citation mapping
-6. **Web URL sources** — `POST /api/onboarding/reference-docs/url` accepts a URL, crawls the page (Cheerio or `node-fetch`), chunks + indexes it like an uploaded document; stored as `sourceType: "url"` with `sourceUrl` field
+#### ✅ Completed & committed: RAG Knowledge Base improvements
+- **Document versioning** — `version` (integer), `previousVersionId` (text), `indexingStatus` (pending/indexing/indexed/failed), `indexingError` (text) fields on `ReferenceDocument` schema + DB; `POST /api/reference-documents/:id/version` creates a new version (deactivates old, purges old chunks, re-indexes new); `GET /api/reference-documents/:id/versions` returns version chain history
+- **Citation tracking** — when RAG chunks are injected into analysis prompt, chunk IDs are stored in `confidenceFactors.ragCitations[]` (chunkId, documentId, documentName, chunkIndex, score); returned in `GET /api/calls/:id/analysis` response via existing confidenceFactors JSONB
+- **Indexing status tracking** — `indexingStatus` (pending→indexing→indexed/failed) and `indexingError` surfaced in `GET /api/reference-documents` response; `indexDocument()` auto-updates status on success/failure; worker `on("failed")` handler also updates status; `POST /api/reference-documents/:id/reindex` resets status before re-enqueueing
+- **Chunk preview** — `GET /api/reference-documents/:id/chunks?limit=20&offset=0` returns paginated chunks with text, sectionHeader, tokenCount, charStart/charEnd, hasEmbedding flag, total count
+- **Knowledge base analytics** — `GET /api/reference-documents/rag/analytics` (admin) returns totalDocuments, totalChunks, indexedDocuments, failedDocuments, pendingDocuments, mostRetrievedDocs (top 10 by retrievalCount), avgChunksPerDocument; `retrievalCount` field on `reference_documents` auto-incremented on each RAG retrieval
+- **Web URL sources** — `POST /api/reference-documents/url` (admin) accepts `{ url, name?, category?, description?, appliesTo? }`, fetches page via `fetch()` (15s timeout), strips HTML (script/style/nav/footer/header tags), extracts text (50K char cap), creates doc with `sourceType: "url"` + `sourceUrl`, enqueues RAG indexing; validates HTTP/HTTPS only, rejects non-text content types
 
 ## Future Plans / Roadmap
 See `HEALTHCARE_EXPANSION_PLAN.md` for the full 4-phase healthcare expansion roadmap.

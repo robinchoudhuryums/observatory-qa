@@ -420,6 +420,13 @@ export const referenceDocuments = pgTable("reference_documents", {
   isActive: boolean("is_active").notNull().default(true),
   uploadedBy: varchar("uploaded_by", { length: 255 }),
   createdAt: timestamp("created_at").defaultNow(),
+  version: integer("version").notNull().default(1),
+  previousVersionId: text("previous_version_id"),
+  indexingStatus: varchar("indexing_status", { length: 20 }).notNull().default("pending"),
+  indexingError: text("indexing_error"),
+  sourceType: varchar("source_type", { length: 20 }).notNull().default("upload"),
+  sourceUrl: text("source_url"),
+  retrievalCount: integer("retrieval_count").notNull().default(0),
 }, (t) => [
   index("ref_docs_org_id_idx").on(t.orgId),
   index("ref_docs_category_idx").on(t.orgId, t.category),

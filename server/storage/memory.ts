@@ -785,7 +785,15 @@ export class MemStorage implements IStorage {
 
   async createReferenceDocument(orgId: string, doc: InsertReferenceDocument): Promise<ReferenceDocument> {
     const id = randomUUID();
-    const record: ReferenceDocument = { ...doc, id, orgId, isActive: doc.isActive ?? true, createdAt: new Date().toISOString() };
+    const record: ReferenceDocument = {
+      ...doc, id, orgId,
+      isActive: doc.isActive ?? true,
+      version: doc.version ?? 1,
+      indexingStatus: doc.indexingStatus || "pending",
+      sourceType: doc.sourceType || "upload",
+      retrievalCount: 0,
+      createdAt: new Date().toISOString(),
+    };
     this.referenceDocuments.set(id, record);
     return record;
   }

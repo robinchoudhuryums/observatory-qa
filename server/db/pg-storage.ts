@@ -1858,6 +1858,13 @@ export class PostgresStorage implements IStorage {
       appliesTo: doc.appliesTo || null,
       isActive: doc.isActive ?? true,
       uploadedBy: doc.uploadedBy || null,
+      version: doc.version ?? 1,
+      previousVersionId: doc.previousVersionId || null,
+      indexingStatus: doc.indexingStatus || "pending",
+      indexingError: null,
+      sourceType: doc.sourceType || "upload",
+      sourceUrl: doc.sourceUrl || null,
+      retrievalCount: 0,
     }).returning();
     return this.mapReferenceDocument(row);
   }
@@ -1899,6 +1906,9 @@ export class PostgresStorage implements IStorage {
     if (updates.extractedText !== undefined) setValues.extractedText = updates.extractedText;
     if (updates.appliesTo !== undefined) setValues.appliesTo = updates.appliesTo;
     if (updates.isActive !== undefined) setValues.isActive = updates.isActive;
+    if (updates.indexingStatus !== undefined) setValues.indexingStatus = updates.indexingStatus;
+    if (updates.indexingError !== undefined) setValues.indexingError = updates.indexingError;
+    if (updates.retrievalCount !== undefined) setValues.retrievalCount = updates.retrievalCount;
 
     const [row] = await this.db.update(tables.referenceDocuments).set(setValues)
       .where(and(eq(tables.referenceDocuments.orgId, orgId), eq(tables.referenceDocuments.id, id)))
@@ -1927,6 +1937,13 @@ export class PostgresStorage implements IStorage {
       isActive: row.isActive,
       uploadedBy: row.uploadedBy || undefined,
       createdAt: toISOString(row.createdAt),
+      version: row.version ?? 1,
+      previousVersionId: row.previousVersionId || undefined,
+      indexingStatus: row.indexingStatus || "pending",
+      indexingError: row.indexingError || undefined,
+      sourceType: row.sourceType || "upload",
+      sourceUrl: row.sourceUrl || undefined,
+      retrievalCount: row.retrievalCount ?? 0,
     };
   }
 

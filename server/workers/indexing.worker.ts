@@ -8,7 +8,7 @@
 import { Worker, type ConnectionOptions, type Job } from "bullmq";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
-import { indexDocument } from "../services/rag";
+import { indexDocument, updateIndexingStatus } from "../services/rag";
 import { logger } from "../services/logger";
 import type { DocumentIndexingJob } from "../services/queue";
 
@@ -46,8 +46,18 @@ export function createIndexingWorker(connection: ConnectionOptions): Worker<Docu
     },
   );
 
-  worker.on("failed", (job, err) => {
+  worker.on("failed", async (job, err) => {
     logger.error({ jobId: job?.id, err }, "Indexing worker: job failed");
+    // Update document indexing status to failed
+    if (job?.data) {
+      try {
+        const db = await getDb();
+        const errorMsg = err?.message || "Unknown indexing error";
+        await updateIndexingStatus(db as any, job.data.orgId, job.data.documentId, "failed", errorMsg);
+      } catch (updateErr) {
+        logger.warn({ updateErr }, "Failed to update indexing status after worker failure");
+      }
+    }
   });
 
   return worker;
