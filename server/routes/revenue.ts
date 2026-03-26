@@ -19,6 +19,15 @@ const updateRevenueSchema = z.object({
   })).optional(),
   conversionStatus: z.enum(["converted", "pending", "lost", "unknown"]).optional(),
   notes: z.string().max(2000).optional(),
+  attributionStage: z.enum(["call_identified", "appointment_scheduled", "appointment_completed", "treatment_accepted", "payment_collected"]).optional(),
+  appointmentDate: z.string().optional(),
+  appointmentCompleted: z.boolean().optional(),
+  treatmentAccepted: z.boolean().optional(),
+  paymentCollected: z.number().min(0).optional(),
+  payerType: z.enum(["insurance", "cash", "mixed", "unknown"]).optional(),
+  insuranceCarrier: z.string().optional(),
+  insuranceAmount: z.number().min(0).optional(),
+  patientAmount: z.number().min(0).optional(),
 });
 
 export function registerRevenueRoutes(app: Express) {
@@ -171,6 +180,326 @@ export function registerRevenueRoutes(app: Express) {
     } catch (error) {
       logger.error({ err: error }, "Failed to get revenue by employee");
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get revenue by employee"));
+    }
+  });
+
+  // --- Revenue forecasting ---
+  app.get("/api/revenue/forecast", requireAuth, injectOrgContext, async (req, res) => {
+    try {
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
+
+      const revenues = await storage.listCallRevenues(orgId);
+      const calls = await storage.getAllCalls(orgId);
+      const callDateMap = new Map(calls.map(c => [c.id, c.uploadedAt]));
+
+      // Current month data
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const currentMonthRevs = revenues.filter(r => {
+        const date = callDateMap.get(r.callId);
+        return date && new Date(date) >= monthStart;
+      });
+
+      const currentMonthEstimated = currentMonthRevs.reduce((s, r) => s + (r.estimatedRevenue || 0), 0);
+      const currentMonthActual = currentMonthRevs.reduce((s, r) => s + (r.actualRevenue || 0), 0);
+
+      // Historical conversion rate (last 90 days)
+      const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+      const recentRevs = revenues.filter(r => {
+        const date = callDateMap.get(r.callId);
+        return date && new Date(date) >= ninetyDaysAgo;
+      });
+      const tracked = recentRevs.filter(r => r.conversionStatus !== "unknown");
+      const converted = tracked.filter(r => r.conversionStatus === "converted");
+      const conversionRate = tracked.length > 0 ? converted.length / tracked.length : 0;
+
+      // Pending pipeline: pending calls * conversion rate * avg deal value
+      const pendingRevs = revenues.filter(r => r.conversionStatus === "pending");
+      const convertedAvgValue = converted.length > 0
+        ? converted.reduce((s, r) => s + (r.actualRevenue || r.estimatedRevenue || 0), 0) / converted.length
+        : 0;
+      const pipelineValue = pendingRevs.reduce((s, r) => s + (r.estimatedRevenue || 0), 0);
+      const projectedFromPipeline = Math.round(pipelineValue * conversionRate * 100) / 100;
+
+      // Monthly run rate based on current month progress
+      const dayOfMonth = now.getDate();
+      const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      const dailyRate = dayOfMonth > 0 ? currentMonthActual / dayOfMonth : 0;
+      const projectedMonthlyActual = Math.round(dailyRate * daysInMonth * 100) / 100;
+
+      res.json({
+        currentMonth: {
+          estimated: Math.round(currentMonthEstimated * 100) / 100,
+          actual: Math.round(currentMonthActual * 100) / 100,
+          callCount: currentMonthRevs.length,
+          projectedTotal: projectedMonthlyActual,
+        },
+        pipeline: {
+          pendingCount: pendingRevs.length,
+          pendingValue: Math.round(pipelineValue * 100) / 100,
+          projectedConversion: projectedFromPipeline,
+          conversionRate: Math.round(conversionRate * 10000) / 100,
+          avgDealValue: Math.round(convertedAvgValue * 100) / 100,
+        },
+        historicalConversionRate: Math.round(conversionRate * 10000) / 100,
+        trackedCallCount: tracked.length,
+        convertedCallCount: converted.length,
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to compute revenue forecast");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to compute forecast"));
+    }
+  });
+
+  // --- Attribution funnel: call → appointment → treatment → payment ---
+  app.get("/api/revenue/attribution", requireAuth, injectOrgContext, async (req, res) => {
+    try {
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
+
+      const revenues = await storage.listCallRevenues(orgId);
+
+      const funnel = {
+        callIdentified: revenues.length,
+        appointmentScheduled: revenues.filter(r => r.appointmentDate || r.attributionStage === "appointment_scheduled" || r.attributionStage === "appointment_completed" || r.attributionStage === "treatment_accepted" || r.attributionStage === "payment_collected").length,
+        appointmentCompleted: revenues.filter(r => r.appointmentCompleted === true || r.attributionStage === "appointment_completed" || r.attributionStage === "treatment_accepted" || r.attributionStage === "payment_collected").length,
+        treatmentAccepted: revenues.filter(r => r.treatmentAccepted === true || r.attributionStage === "treatment_accepted" || r.attributionStage === "payment_collected").length,
+        paymentCollected: revenues.filter(r => (r.paymentCollected && r.paymentCollected > 0) || r.attributionStage === "payment_collected").length,
+      };
+
+      // Conversion rates between stages
+      const rates = {
+        callToAppointment: funnel.callIdentified > 0 ? Math.round((funnel.appointmentScheduled / funnel.callIdentified) * 10000) / 100 : 0,
+        appointmentToCompletion: funnel.appointmentScheduled > 0 ? Math.round((funnel.appointmentCompleted / funnel.appointmentScheduled) * 10000) / 100 : 0,
+        completionToTreatment: funnel.appointmentCompleted > 0 ? Math.round((funnel.treatmentAccepted / funnel.appointmentCompleted) * 10000) / 100 : 0,
+        treatmentToPayment: funnel.treatmentAccepted > 0 ? Math.round((funnel.paymentCollected / funnel.treatmentAccepted) * 10000) / 100 : 0,
+        overallConversion: funnel.callIdentified > 0 ? Math.round((funnel.paymentCollected / funnel.callIdentified) * 10000) / 100 : 0,
+      };
+
+      // Revenue at each stage
+      const revenueByStage = {
+        estimated: Math.round(revenues.reduce((s, r) => s + (r.estimatedRevenue || 0), 0) * 100) / 100,
+        scheduled: Math.round(revenues.filter(r => r.appointmentDate).reduce((s, r) => s + (r.treatmentValue || r.estimatedRevenue || 0), 0) * 100) / 100,
+        collected: Math.round(revenues.reduce((s, r) => s + (r.paymentCollected || r.actualRevenue || 0), 0) * 100) / 100,
+      };
+
+      res.json({ funnel, conversionRates: rates, revenueByStage });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to get attribution funnel");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get attribution data"));
+    }
+  });
+
+  // --- Payer mix analysis ---
+  app.get("/api/revenue/payer-mix", requireAuth, injectOrgContext, async (req, res) => {
+    try {
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
+
+      const revenues = await storage.listCallRevenues(orgId);
+      const calls = await storage.getAllCalls(orgId);
+      const employees = await storage.getAllEmployees(orgId);
+      const callMap = new Map(calls.map(c => [c.id, c]));
+      const employeeMap = new Map(employees.map(e => [e.id, e]));
+
+      // Overall payer mix
+      const payerCounts: Record<string, { count: number; totalRevenue: number; insuranceRevenue: number; patientRevenue: number }> = {};
+      for (const rev of revenues) {
+        const payer = rev.payerType || "unknown";
+        if (!payerCounts[payer]) payerCounts[payer] = { count: 0, totalRevenue: 0, insuranceRevenue: 0, patientRevenue: 0 };
+        payerCounts[payer].count++;
+        payerCounts[payer].totalRevenue += rev.actualRevenue || rev.estimatedRevenue || 0;
+        payerCounts[payer].insuranceRevenue += rev.insuranceAmount || 0;
+        payerCounts[payer].patientRevenue += rev.patientAmount || 0;
+      }
+
+      // Insurance carrier breakdown
+      const carriers: Record<string, { count: number; totalRevenue: number }> = {};
+      for (const rev of revenues) {
+        if (!rev.insuranceCarrier) continue;
+        if (!carriers[rev.insuranceCarrier]) carriers[rev.insuranceCarrier] = { count: 0, totalRevenue: 0 };
+        carriers[rev.insuranceCarrier].count++;
+        carriers[rev.insuranceCarrier].totalRevenue += rev.insuranceAmount || rev.actualRevenue || 0;
+      }
+
+      // By employee
+      const byEmployee: Record<string, { employeeName: string; insurance: number; cash: number; mixed: number; unknown: number; total: number }> = {};
+      for (const rev of revenues) {
+        const call = callMap.get(rev.callId);
+        if (!call?.employeeId) continue;
+        const emp = employeeMap.get(call.employeeId);
+        if (!emp) continue;
+        if (!byEmployee[emp.id]) {
+          byEmployee[emp.id] = { employeeName: emp.name, insurance: 0, cash: 0, mixed: 0, unknown: 0, total: 0 };
+        }
+        const payer = rev.payerType || "unknown";
+        const amount = rev.actualRevenue || rev.estimatedRevenue || 0;
+        byEmployee[emp.id][payer as "insurance" | "cash" | "mixed" | "unknown"] += amount;
+        byEmployee[emp.id].total += amount;
+      }
+
+      const totalRevenue = revenues.reduce((s, r) => s + (r.actualRevenue || r.estimatedRevenue || 0), 0);
+
+      res.json({
+        overall: Object.entries(payerCounts).map(([type, data]) => ({
+          payerType: type,
+          count: data.count,
+          totalRevenue: Math.round(data.totalRevenue * 100) / 100,
+          insuranceRevenue: Math.round(data.insuranceRevenue * 100) / 100,
+          patientRevenue: Math.round(data.patientRevenue * 100) / 100,
+          percentOfTotal: totalRevenue > 0 ? Math.round((data.totalRevenue / totalRevenue) * 10000) / 100 : 0,
+        })),
+        carriers: Object.entries(carriers)
+          .map(([name, data]) => ({ carrier: name, ...data, totalRevenue: Math.round(data.totalRevenue * 100) / 100 }))
+          .sort((a, b) => b.totalRevenue - a.totalRevenue),
+        byEmployee: Object.values(byEmployee)
+          .map(e => ({ ...e, insurance: Math.round(e.insurance * 100) / 100, cash: Math.round(e.cash * 100) / 100, total: Math.round(e.total * 100) / 100 }))
+          .sort((a, b) => b.total - a.total),
+        totalRecords: revenues.length,
+        totalRevenue: Math.round(totalRevenue * 100) / 100,
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to compute payer mix");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to compute payer mix"));
+    }
+  });
+
+  // --- EHR revenue sync: pull treatment/payment data from EHR ---
+  app.post("/api/revenue/ehr-sync/:callId", requireAuth, requireRole("manager"), injectOrgContext, validateUUIDParam("callId"), async (req, res) => {
+    try {
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
+
+      const { callId } = req.params;
+      const call = await storage.getCall(orgId, callId);
+      if (!call) return res.status(404).json({ message: "Call not found" });
+
+      // Check EHR configuration
+      const org = await storage.getOrganization(orgId);
+      const ehrConfig = (org?.settings as any)?.ehrConfig;
+      if (!ehrConfig?.enabled || !ehrConfig?.system) {
+        return res.status(400).json({ message: "EHR integration not configured. Set up EHR in org settings first." });
+      }
+
+      // Get or create revenue record
+      let revenue = await storage.getCallRevenue(orgId, callId);
+      if (!revenue) {
+        revenue = await storage.createCallRevenue(orgId, {
+          orgId, callId, conversionStatus: "unknown",
+        });
+      }
+
+      // Try to find matching patient/appointment from the request body or existing data
+      const { ehrPatientId } = req.body;
+
+      if (!ehrPatientId) {
+        return res.status(400).json({
+          message: "ehrPatientId is required to sync revenue data from EHR",
+          hint: "Use GET /api/ehr/patients to search for the patient first",
+        });
+      }
+
+      // Attempt to pull treatment plans from EHR
+      let treatmentPlans: any[] = [];
+      try {
+        const { getEhrAdapter } = await import("../services/ehr/index");
+        const { decryptField } = await import("../services/phi-encryption");
+        const adapter = getEhrAdapter(ehrConfig.system);
+        if (!adapter) {
+          return res.status(400).json({ message: `Unsupported EHR system: ${ehrConfig.system}` });
+        }
+        const config = {
+          ...ehrConfig,
+          apiKey: ehrConfig.apiKey ? decryptField(ehrConfig.apiKey) : undefined,
+        };
+        treatmentPlans = await adapter.getPatientTreatmentPlans(config, ehrPatientId);
+      } catch (ehrErr) {
+        logger.warn({ err: ehrErr, callId }, "EHR treatment plan fetch failed");
+        return res.status(502).json({ message: "Failed to fetch data from EHR. Check connection settings." });
+      }
+
+      // Find relevant treatment plan (most recent accepted or in-progress)
+      const relevantPlan = treatmentPlans.find(p =>
+        p.status === "accepted" || p.status === "in_progress" || p.status === "completed"
+      ) || treatmentPlans[0];
+
+      if (!relevantPlan) {
+        return res.json({
+          message: "No treatment plans found for this patient in EHR",
+          revenue,
+          ehrSynced: false,
+        });
+      }
+
+      // Map EHR data to revenue fields
+      const updates: Record<string, any> = {
+        ehrSyncedAt: new Date().toISOString(),
+        updatedBy: `ehr-sync:${req.user!.username}`,
+      };
+
+      if (relevantPlan.totalFee) {
+        updates.treatmentValue = relevantPlan.totalFee;
+        updates.estimatedRevenue = relevantPlan.totalFee;
+      }
+      if (relevantPlan.totalInsurance !== undefined) updates.insuranceAmount = relevantPlan.totalInsurance;
+      if (relevantPlan.totalPatient !== undefined) updates.patientAmount = relevantPlan.totalPatient;
+
+      // Determine payer type
+      if (relevantPlan.totalInsurance > 0 && relevantPlan.totalPatient > 0) {
+        updates.payerType = "mixed";
+      } else if (relevantPlan.totalInsurance > 0) {
+        updates.payerType = "insurance";
+      } else if (relevantPlan.totalPatient > 0) {
+        updates.payerType = "cash";
+      }
+
+      // Map treatment plan status to attribution stage
+      if (relevantPlan.status === "completed") {
+        updates.treatmentAccepted = true;
+        updates.attributionStage = "treatment_accepted";
+        updates.conversionStatus = "converted";
+        updates.actualRevenue = relevantPlan.totalFee || updates.treatmentValue;
+      } else if (relevantPlan.status === "accepted" || relevantPlan.status === "in_progress") {
+        updates.treatmentAccepted = true;
+        updates.attributionStage = "treatment_accepted";
+        updates.conversionStatus = "pending";
+      } else if (relevantPlan.status === "proposed") {
+        updates.attributionStage = "appointment_completed";
+        updates.conversionStatus = "pending";
+      }
+
+      // Map scheduled procedures
+      if (relevantPlan.phases?.length > 0) {
+        const procedures: Array<{ code: string; description: string; estimatedValue: number }> = [];
+        for (const phase of relevantPlan.phases) {
+          if (phase.procedures) {
+            for (const proc of phase.procedures) {
+              procedures.push({
+                code: proc.code || "",
+                description: proc.description || "",
+                estimatedValue: proc.fee || 0,
+              });
+            }
+          }
+        }
+        if (procedures.length > 0) updates.scheduledProcedures = procedures;
+      }
+
+      const updated = await storage.updateCallRevenue(orgId, callId, updates);
+
+      logPhiAccess({ ...auditContext(req), event: "ehr_revenue_sync", resourceType: "revenue", resourceId: callId });
+      logger.info({ orgId, callId, ehrPatientId }, "Revenue synced from EHR");
+
+      res.json({
+        revenue: updated,
+        ehrSynced: true,
+        treatmentPlanStatus: relevantPlan.status,
+        treatmentPlansFound: treatmentPlans.length,
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to sync revenue from EHR");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to sync from EHR"));
     }
   });
 

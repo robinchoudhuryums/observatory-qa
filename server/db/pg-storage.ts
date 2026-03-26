@@ -2388,6 +2388,16 @@ export class PostgresStorage implements IStorage {
       notes: revenue.notes || null,
       updatedBy: revenue.updatedBy || null,
       createdAt: now, updatedAt: now,
+      attributionStage: revenue.attributionStage || null,
+      appointmentDate: revenue.appointmentDate ? new Date(revenue.appointmentDate) : null,
+      appointmentCompleted: revenue.appointmentCompleted ?? null,
+      treatmentAccepted: revenue.treatmentAccepted ?? null,
+      paymentCollected: revenue.paymentCollected ?? null,
+      payerType: revenue.payerType || null,
+      insuranceCarrier: revenue.insuranceCarrier || null,
+      insuranceAmount: revenue.insuranceAmount ?? null,
+      patientAmount: revenue.patientAmount ?? null,
+      ehrSyncedAt: null,
     });
     return { ...revenue, id, orgId, createdAt: now.toISOString(), updatedAt: now.toISOString() };
   }
@@ -2416,6 +2426,16 @@ export class PostgresStorage implements IStorage {
     if (updates.conversionStatus !== undefined) dbUpdates.conversionStatus = updates.conversionStatus;
     if (updates.notes !== undefined) dbUpdates.notes = updates.notes;
     if (updates.updatedBy !== undefined) dbUpdates.updatedBy = updates.updatedBy;
+    if (updates.attributionStage !== undefined) dbUpdates.attributionStage = updates.attributionStage;
+    if (updates.appointmentDate !== undefined) dbUpdates.appointmentDate = updates.appointmentDate ? new Date(updates.appointmentDate) : null;
+    if (updates.appointmentCompleted !== undefined) dbUpdates.appointmentCompleted = updates.appointmentCompleted;
+    if (updates.treatmentAccepted !== undefined) dbUpdates.treatmentAccepted = updates.treatmentAccepted;
+    if (updates.paymentCollected !== undefined) dbUpdates.paymentCollected = updates.paymentCollected;
+    if (updates.payerType !== undefined) dbUpdates.payerType = updates.payerType;
+    if (updates.insuranceCarrier !== undefined) dbUpdates.insuranceCarrier = updates.insuranceCarrier;
+    if (updates.insuranceAmount !== undefined) dbUpdates.insuranceAmount = updates.insuranceAmount;
+    if (updates.patientAmount !== undefined) dbUpdates.patientAmount = updates.patientAmount;
+    if (updates.ehrSyncedAt !== undefined) dbUpdates.ehrSyncedAt = updates.ehrSyncedAt ? new Date(updates.ehrSyncedAt) : null;
     const rows = await this.db.update(tables.callRevenues).set(dbUpdates)
       .where(and(eq(tables.callRevenues.orgId, orgId), eq(tables.callRevenues.callId, callId)))
       .returning();
@@ -2447,6 +2467,16 @@ export class PostgresStorage implements IStorage {
       conversionStatus: r.conversionStatus as CallRevenue["conversionStatus"],
       notes: r.notes || undefined, updatedBy: r.updatedBy || undefined,
       createdAt: toISOString(r.createdAt), updatedAt: toISOString(r.updatedAt),
+      attributionStage: r.attributionStage as CallRevenue["attributionStage"],
+      appointmentDate: toISOString(r.appointmentDate),
+      appointmentCompleted: r.appointmentCompleted ?? undefined,
+      treatmentAccepted: r.treatmentAccepted ?? undefined,
+      paymentCollected: r.paymentCollected ?? undefined,
+      payerType: r.payerType as CallRevenue["payerType"],
+      insuranceCarrier: r.insuranceCarrier || undefined,
+      insuranceAmount: r.insuranceAmount ?? undefined,
+      patientAmount: r.patientAmount ?? undefined,
+      ehrSyncedAt: toISOString(r.ehrSyncedAt),
     };
   }
 

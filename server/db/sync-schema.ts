@@ -743,6 +743,16 @@ export async function syncSchema(db: Database): Promise<void> {
         UNIQUE(org_id, call_id)
       )
     `);
+    await addColumnIfNotExists(db, "call_revenues", "attribution_stage", "VARCHAR(30)");
+    await addColumnIfNotExists(db, "call_revenues", "appointment_date", "TIMESTAMP");
+    await addColumnIfNotExists(db, "call_revenues", "appointment_completed", "BOOLEAN");
+    await addColumnIfNotExists(db, "call_revenues", "treatment_accepted", "BOOLEAN");
+    await addColumnIfNotExists(db, "call_revenues", "payment_collected", "REAL");
+    await addColumnIfNotExists(db, "call_revenues", "payer_type", "VARCHAR(20)");
+    await addColumnIfNotExists(db, "call_revenues", "insurance_carrier", "VARCHAR(255)");
+    await addColumnIfNotExists(db, "call_revenues", "insurance_amount", "REAL");
+    await addColumnIfNotExists(db, "call_revenues", "patient_amount", "REAL");
+    await addColumnIfNotExists(db, "call_revenues", "ehr_synced_at", "TIMESTAMP");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS call_revenues_org_idx ON call_revenues (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS call_revenues_conversion_idx ON call_revenues (org_id, conversion_status)`);
     await addRlsPolicy(db, "call_revenues").catch(e => logger.warn({ err: e }, "RLS setup skipped for call_revenues"));
