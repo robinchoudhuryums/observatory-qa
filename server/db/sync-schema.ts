@@ -594,8 +594,10 @@ export async function syncSchema(db: Database): Promise<void> {
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
+    await addColumnIfNotExists(db, "ab_tests", "batch_id", "TEXT");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS ab_tests_org_id_idx ON ab_tests (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS ab_tests_status_idx ON ab_tests (org_id, status)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS ab_tests_batch_id_idx ON ab_tests (org_id, batch_id)`).catch(() => {});
     await addRlsPolicy(db, "ab_tests").catch(e => logger.warn({ err: e }, "RLS setup skipped for ab_tests"));
 
     // --- Spend Records ---

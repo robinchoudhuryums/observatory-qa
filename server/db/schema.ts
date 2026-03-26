@@ -493,6 +493,7 @@ export const abTests = pgTable("ab_tests", {
   notes: text("notes"),
   createdBy: varchar("created_by", { length: 255 }).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
+  batchId: text("batch_id"),
 }, (t) => [
   index("ab_tests_org_id_idx").on(t.orgId),
   index("ab_tests_status_idx").on(t.orgId, t.status),

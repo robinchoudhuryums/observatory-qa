@@ -314,13 +314,15 @@ export const BEDROCK_MODEL_PRESETS = [
 ] as const;
 
 // --- A/B MODEL TEST SCHEMAS ---
+export const AB_TEST_STATUSES = ["processing", "analyzing", "completed", "partial", "failed"] as const;
+
 export const insertABTestSchema = z.object({
   orgId: z.string(),
   fileName: z.string(),
   callCategory: z.string().optional(),
   baselineModel: z.string(),
   testModel: z.string(),
-  status: z.enum(["processing", "analyzing", "completed", "partial", "failed"]).default("processing"),
+  status: z.enum(AB_TEST_STATUSES).default("processing"),
   transcriptText: z.string().optional(),
   baselineAnalysis: z.record(z.unknown()).optional(),
   testAnalysis: z.record(z.unknown()).optional(),
@@ -328,6 +330,8 @@ export const insertABTestSchema = z.object({
   testLatencyMs: z.number().optional(),
   notes: z.string().optional(),
   createdBy: z.string(),
+  /** Batch ID for grouping multiple tests together */
+  batchId: z.string().optional(),
 });
 
 export const abTestSchema = insertABTestSchema.extend({

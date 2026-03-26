@@ -1980,6 +1980,7 @@ export class PostgresStorage implements IStorage {
       testLatencyMs: test.testLatencyMs || null,
       notes: test.notes || null,
       createdBy: test.createdBy,
+      batchId: test.batchId || null,
     }).returning();
     return this.mapABTest(row);
   }
@@ -2038,6 +2039,7 @@ export class PostgresStorage implements IStorage {
       notes: row.notes || undefined,
       createdBy: row.createdBy,
       createdAt: toISOString(row.createdAt),
+      batchId: row.batchId || undefined,
     };
   }
 

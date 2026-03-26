@@ -74,7 +74,7 @@ npx vite build         # Frontend-only build (quick verification)
 - **Unit tests**: Node.js built-in `test` module via `tsx` — `npm run test`
 - **E2E tests**: Playwright (Chromium) — `npm run test:e2e` or `npm run test:e2e:ui`
 - **Location**: `tests/` (unit), `tests/e2e/` (E2E)
-- **Unit test files** (29 files):
+- **Unit test files** (30 files):
   - `tests/schema.test.ts` — Zod schema validation (orgId on all entities, organization schemas)
   - `tests/ai-provider.test.ts` — AI provider utilities (parseJsonResponse, buildAnalysisPrompt, smartTruncate)
   - `tests/routes.test.ts` — API route handler tests
@@ -100,6 +100,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/calibration-improvements.test.ts` — Calibration improvements (blind mode, IRR metrics, certification)
   - `tests/ehr.test.ts` — EHR integration adapters
   - `tests/error-codes.test.ts` — Error code system
+  - `tests/ab-testing-improvements.test.ts` — A/B testing improvements (t-test, batch, segments, recommendations)
   - `tests/error-handling.test.ts` — Error handling patterns
   - `tests/phi-encryption.test.ts` — PHI field encryption
   - `tests/sso.test.ts` — SAML SSO
@@ -315,7 +316,7 @@ Every data entity has an `orgId` field. All storage methods take `orgId` as the 
 - `SentimentAnalysis` — id, orgId, callId, overallSentiment, overallScore, segments[]
 - `CallAnalysis` — id, orgId, callId, performanceScore, subScores, summary, topics, feedback, flags, clinicalNote (optional)
 - `ClinicalNote` — embedded in CallAnalysis: format (SOAP/DAP/BIRP/HPI/procedure), specialty, subjective, objective, assessment, plan, HPI, ROS, differentialDiagnoses, icd10Codes, cptCodes, cdtCodes, toothNumbers, periodontalFindings, treatmentPhases, providerAttested, attestedBy, editHistory, consentObtained, documentationCompleteness (0-10), clinicalAccuracy (0-10), `amendments[]` — array of post-attestation amendment snapshots (reason, changedBy, timestamp, fieldsChanged), `cosignature` — supervising provider co-signature (signedBy, signedAt, providerName, credentials), `cosignatureRequired` — boolean flag, `structuredData` — extracted vitals (BP, HR, RR, temp, O2sat, pain, weight), medications[], allergies[], `qualityScoreBreakdown` — icd10Specificity, requiredElementsPresent, planDiagnosisAlignment, overallQuality (all 0-10)
-- `ABTest` — id, orgId, fileName, baselineModel, testModel, transcriptText, baselineAnalysis, testAnalysis, baselineLatencyMs, testLatencyMs, status, createdBy
+- `ABTest` — id, orgId, fileName, baselineModel, testModel, transcriptText, baselineAnalysis, testAnalysis, baselineLatencyMs, testLatencyMs, status, createdBy, `batchId` (text, groups tests in a batch upload)
 - `UsageRecord` — id, orgId, callId, type (transcription/ai_analysis/ab-test), services (assemblyai/bedrock cost breakdown), totalEstimatedCost
 - `AccessRequest` — id, orgId, name, email, requestedRole, status
 - `CoachingSession` — id, orgId, employeeId, callId, category, title, notes, actionPlan, status
@@ -587,6 +588,12 @@ Uses AWS Bedrock (Claude) for AI analysis. Per-org `bedrockModel` can be configu
 | GET | `/api/ab-tests` | List all A/B tests |
 | GET | `/api/ab-tests/:id` | Get test with results |
 | POST | `/api/ab-tests/upload` | Upload audio for dual-model comparison |
+| POST | `/api/ab-tests/batch` | Batch upload (up to 50 files) for aggregate comparison |
+| GET | `/api/ab-tests/batch/:batchId` | Get batch status and all test results |
+| GET | `/api/ab-tests/stats` | Aggregate statistics with Welch's t-test significance |
+| GET | `/api/ab-tests/segments` | Segment analysis by call category and model pair |
+| GET | `/api/ab-tests/recommend` | Automated model recommendation with per-category breakdown |
+| GET | `/api/ab-tests/:id/export` | Export test results as JSON |
 | DELETE | `/api/ab-tests/:id` | Delete test |
 
 ### Usage & Spend Tracking (org-scoped, admin only)
@@ -1005,6 +1012,9 @@ Server serves both API and static frontend from the same process.
 - **Evaluator certification thresholds**: Certified = 5+ sessions with avgDeviation < 1.0 from consensus. Probationary = 3+ sessions with avgDeviation < 2.0. Flagged = 3+ sessions with avgDeviation >= 2.0. Trend detection compares last 3 deviations vs prior 3 (±0.3 threshold)
 - **IRR metrics are computed on-the-fly**: Krippendorff's alpha and ICC are calculated per-request, not stored. For orgs with < 100 completed sessions, this is fast enough. Consider caching in org settings for larger volumes
 - **Automated call selection is heuristic-based**: Calibration value scoring uses weighted criteria (borderline AI scores = 5 points, manual edits = 4, recency = 3, etc.) rather than ML. This is transparent and explainable to QA managers
+- **A/B test statistical significance uses Welch's t-test**: Handles unequal sample sizes and variances. P-value approximated via Abramowitz & Stegun normal CDF complement. 95% CI uses t-critical ≈ 2.0 (conservative for small samples). Tests with p < 0.05 marked as significant
+- **A/B batch tests share a batchId**: Each file in a batch creates a separate ABTest record linked by `batchId` (UUID). Files are processed in parallel (async). Batch status endpoint aggregates counts across all records
+- **A/B recommendations require 3+ completed tests per model pair**: Below this threshold, the system advises "continue testing". At 10+ tests, confidence is "high". Cost and latency comparisons included in recommendation text
 - **Clinical templates are in-memory**: `clinical-templates.ts` is a static library of pre-built templates, not database-stored. Templates cover 10+ specialties across SOAP, DAP, BIRP, and procedure note formats
 - **A/B tests run models in parallel**: Uses `Promise.allSettled()` so one model failure doesn't block the other
 - When adding new storage methods for A/B tests or usage records: update `IStorage` interface in `types.ts`, then implement in `memory.ts`, `cloud.ts`, and `pg-storage.ts`
@@ -1086,6 +1096,13 @@ Server serves both API and static frontend from the same process.
 - **Automated call selection** — `GET /api/calibration/suggest-calls?limit=10` scores calls by calibration value: borderline AI scores (4-6, +5), manual edits (+4), flagged calls (+3), recency within 14 days (+3), low outlier scores (+3), high outlier scores (+2); excludes already-calibrated calls; returns sorted suggestions with reasons
 - **Calibration report export** — `GET /api/calibration/:id/export` returns CSV with session metadata, scores summary (AI, consensus, average, std dev, Krippendorff's alpha, ICC), evaluator breakdown (score, deviation, sub-scores, notes), and consensus notes
 - **Evaluator certification** — `GET /api/calibration/certifications` returns per-evaluator certification status: `certified` (5+ sessions, avgDeviation < 1.0), `probationary` (3+ sessions, avgDeviation < 2.0), `flagged` (3+ sessions, avgDeviation >= 2.0), `needs_calibration` (< 3 sessions); includes `consistencyScore` (0-1), `trendDirection` (improving/declining/stable based on last 3 vs prior 3 deviations), `lastSessionDate`
+
+#### ✅ Completed & committed: A/B Model Testing improvements
+- **Statistical significance** — Welch's t-test computes p-value and confidence level for score differences between models; 95% confidence interval for mean score difference; `GET /api/ab-tests/stats` returns `significance` (tStatistic, degreesOfFreedom, pValue, isSignificant, confidenceLevel) and `confidenceInterval` (lower, upper, level)
+- **Batch testing** — `POST /api/ab-tests/batch` accepts up to 50 audio files via multipart upload; creates individual ABTest records with shared `batchId` (UUID); each file processed asynchronously in parallel; `GET /api/ab-tests/batch/:batchId` returns batch status (completed/processing/failed counts) and all test results
+- **Automated recommendation** — `GET /api/ab-tests/recommend` analyzes completed tests per model pair; generates natural-language recommendations based on score difference significance, cost comparison, and latency; includes per-category recommendations (e.g., "use Model B for compliance calls"); confidence levels: high (10+ tests), moderate (3-9), low (not significant)
+- **Segment analysis** — `GET /api/ab-tests/segments` breaks down results by call category and model pair; each segment gets its own aggregate stats with t-test significance; reveals where each model excels (e.g., "Haiku is 0.8 points better for inbound calls but 0.3 worse for outbound")
+- **Aggregate stats** — `GET /api/ab-tests/stats` with optional filters (batchId, baselineModel, testModel); returns avg scores, sub-score breakdown (compliance, customerExperience, communication, resolution), cost comparison (percent diff), latency comparison, Welch's t-test results, 95% CI
 
 ## Future Plans / Roadmap
 See `HEALTHCARE_EXPANSION_PLAN.md` for the full 4-phase healthcare expansion roadmap.
