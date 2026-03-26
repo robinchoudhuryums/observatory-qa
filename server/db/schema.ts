@@ -563,6 +563,8 @@ export const employeeBadges = pgTable("employee_badges", {
   badgeId: varchar("badge_id", { length: 50 }).notNull(),
   awardedAt: timestamp("awarded_at").defaultNow(),
   awardedFor: text("awarded_for"), // callId or event description
+  awardedBy: text("awarded_by"), // manager userId for custom badges
+  customMessage: text("custom_message"), // manager's message for recognition badges
 }, (t) => [
   index("employee_badges_org_idx").on(t.orgId),
   index("employee_badges_employee_idx").on(t.orgId, t.employeeId),

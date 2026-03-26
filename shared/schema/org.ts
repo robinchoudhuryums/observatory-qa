@@ -92,6 +92,17 @@ export const orgSettingsSchema = z.object({
     /** ISO timestamp of the last quota alert email sent (prevents flooding) */
     lastQuotaAlertSentAt: z.string().optional(),
   }).optional(),
+  // Gamification settings
+  gamification: z.object({
+    /** Global enable/disable for gamification features */
+    enabled: z.boolean().default(true),
+    /** Roles that are opted out of leaderboards/badges (e.g., ["viewer"] for clinical settings) */
+    optedOutRoles: z.array(z.string()).optional(),
+    /** Individual employee IDs opted out of gamification */
+    optedOutEmployeeIds: z.array(z.string()).optional(),
+    /** Enable team/department competitions */
+    teamCompetitionsEnabled: z.boolean().default(false),
+  }).optional(),
   // Budget alerts: admin-configurable spend thresholds
   budgetAlerts: z.object({
     enabled: z.boolean().default(false),

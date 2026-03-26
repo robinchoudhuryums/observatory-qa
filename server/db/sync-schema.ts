@@ -673,6 +673,8 @@ export async function syncSchema(db: Database): Promise<void> {
         UNIQUE(org_id, employee_id, badge_id)
       )
     `);
+    await addColumnIfNotExists(db, "employee_badges", "awarded_by", "TEXT");
+    await addColumnIfNotExists(db, "employee_badges", "custom_message", "TEXT");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS employee_badges_org_idx ON employee_badges (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS employee_badges_employee_idx ON employee_badges (org_id, employee_id)`);
     await addRlsPolicy(db, "employee_badges").catch(e => logger.warn({ err: e }, "RLS setup skipped for employee_badges"));

@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { storage } from "../storage";
-import { requireAuth, injectOrgContext } from "../auth";
+import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { logger } from "../services/logger";
 import { validateUUIDParam } from "./helpers";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
@@ -148,6 +148,13 @@ export function registerGamificationRoutes(app: Express) {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
+      // Check if gamification is globally enabled
+      const org = await storage.getOrganization(orgId);
+      const gamSettings = (org?.settings as any)?.gamification;
+      if (gamSettings?.enabled === false) {
+        return res.json([]);
+      }
+
       const limit = parseInt(req.query.limit as string) || 20;
       const leaderboardData = await storage.getLeaderboard(orgId, limit);
 
@@ -160,7 +167,18 @@ export function registerGamificationRoutes(app: Express) {
         employeeResults.filter(Boolean).map(e => [e!.id, e!])
       );
 
-      const leaderboard = leaderboardData.map((entry, idx) => {
+      // Filter out opted-out employees
+      const optedOutIds = new Set(gamSettings?.optedOutEmployeeIds || []);
+      const optedOutRoles = new Set(gamSettings?.optedOutRoles || []);
+
+      const filteredData = leaderboardData.filter(entry => {
+        if (optedOutIds.has(entry.employeeId)) return false;
+        const emp = employeeMap.get(entry.employeeId);
+        if (emp && optedOutRoles.has((emp as any).role)) return false;
+        return true;
+      });
+
+      const leaderboard = filteredData.map((entry, idx) => {
         const employee = employeeMap.get(entry.employeeId);
         return {
           ...entry,
@@ -217,5 +235,246 @@ export function registerGamificationRoutes(app: Express) {
   // Get all badge definitions
   app.get("/api/gamification/badges", requireAuth, async (_req, res) => {
     res.json(BADGE_DEFINITIONS);
+  });
+
+  // --- Gamification settings (opt-out configuration) ---
+  app.get("/api/gamification/settings", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      const org = await storage.getOrganization(req.orgId!);
+      const gamification = (org?.settings as any)?.gamification || { enabled: true };
+      res.json(gamification);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get gamification settings" });
+    }
+  });
+
+  app.put("/api/gamification/settings", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      const orgId = req.orgId!;
+      const { enabled, optedOutRoles, optedOutEmployeeIds, teamCompetitionsEnabled } = req.body;
+
+      const org = await storage.getOrganization(orgId);
+      const settings = (org?.settings || {}) as Record<string, any>;
+
+      const gamification = {
+        enabled: enabled !== false,
+        optedOutRoles: Array.isArray(optedOutRoles) ? optedOutRoles : settings.gamification?.optedOutRoles,
+        optedOutEmployeeIds: Array.isArray(optedOutEmployeeIds) ? optedOutEmployeeIds : settings.gamification?.optedOutEmployeeIds,
+        teamCompetitionsEnabled: teamCompetitionsEnabled === true,
+      };
+
+      await storage.updateOrganization(orgId, {
+        settings: { ...settings, gamification } as any,
+      });
+
+      logger.info({ orgId, gamification: { enabled: gamification.enabled } }, "Gamification settings updated");
+      res.json(gamification);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update gamification settings" });
+    }
+  });
+
+  // --- Manager-awarded custom recognition badges ---
+  app.post("/api/gamification/recognize", requireAuth, requireRole("manager"), injectOrgContext, async (req, res) => {
+    try {
+      const orgId = req.orgId!;
+      const { employeeId, badgeId, message, callId } = req.body;
+
+      if (!employeeId || !badgeId) {
+        return res.status(400).json({ message: "employeeId and badgeId are required" });
+      }
+
+      // Verify employee exists
+      const employee = await storage.getEmployee(orgId, employeeId);
+      if (!employee) return res.status(404).json({ message: "Employee not found" });
+
+      // Check if gamification is enabled and employee isn't opted out
+      const org = await storage.getOrganization(orgId);
+      const gamSettings = (org?.settings as any)?.gamification;
+      if (gamSettings?.enabled === false) {
+        return res.status(403).json({ message: "Gamification is disabled for this organization" });
+      }
+      if (gamSettings?.optedOutEmployeeIds?.includes(employeeId)) {
+        return res.status(403).json({ message: "This employee has opted out of gamification" });
+      }
+
+      // For custom badges, use "custom_recognition" as the badgeId prefix
+      const customBadgeId = badgeId.startsWith("custom_") ? badgeId : `custom_${badgeId}`;
+
+      const badge = await storage.awardBadge(orgId, {
+        orgId,
+        employeeId,
+        badgeId: customBadgeId,
+        awardedAt: new Date().toISOString(),
+        awardedFor: callId || undefined,
+        awardedBy: req.user!.id,
+        customMessage: message || undefined,
+      });
+
+      // Award bonus points for receiving recognition
+      try {
+        const profile = await storage.getGamificationProfile(orgId, employeeId);
+        await storage.updateGamificationProfile(orgId, employeeId, {
+          totalPoints: profile.totalPoints + 30, // Recognition bonus
+        });
+      } catch { /* non-critical */ }
+
+      logger.info({ orgId, employeeId, badgeId: customBadgeId, awardedBy: req.user!.id }, "Custom recognition badge awarded");
+      res.status(201).json(badge);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to award recognition badge");
+      res.status(500).json({ message: "Failed to award recognition badge" });
+    }
+  });
+
+  // --- Team competitions ---
+  app.get("/api/gamification/team-leaderboard", requireAuth, injectOrgContext, async (req, res) => {
+    try {
+      const orgId = req.orgId!;
+
+      // Check if team competitions are enabled
+      const org = await storage.getOrganization(orgId);
+      const gamSettings = (org?.settings as any)?.gamification;
+      if (!gamSettings?.teamCompetitionsEnabled) {
+        return res.json({ enabled: false, teams: [], message: "Team competitions are not enabled" });
+      }
+
+      const employees = await storage.getAllEmployees(orgId);
+      const leaderboardData = await storage.getLeaderboard(orgId, 500); // Get all
+
+      // Group by subTeam
+      const employeeMap = new Map(employees.map(e => [e.id, e]));
+      const teams: Record<string, { totalPoints: number; memberCount: number; avgPoints: number; topPerformer: string | null; badges: number }> = {};
+
+      for (const entry of leaderboardData) {
+        const emp = employeeMap.get(entry.employeeId);
+        const team = (emp as any)?.subTeam || "Unassigned";
+
+        if (!teams[team]) {
+          teams[team] = { totalPoints: 0, memberCount: 0, avgPoints: 0, topPerformer: null, badges: 0 };
+        }
+        teams[team].totalPoints += entry.totalPoints;
+        teams[team].memberCount++;
+        teams[team].badges += entry.badgeCount;
+        if (!teams[team].topPerformer || entry.totalPoints > 0) {
+          teams[team].topPerformer = emp?.name || null;
+        }
+      }
+
+      // Compute averages and rank
+      const teamList = Object.entries(teams).map(([name, data]) => ({
+        team: name,
+        totalPoints: data.totalPoints,
+        memberCount: data.memberCount,
+        avgPointsPerMember: data.memberCount > 0 ? Math.round(data.totalPoints / data.memberCount) : 0,
+        totalBadges: data.badges,
+        topPerformer: data.topPerformer,
+      }));
+
+      teamList.sort((a, b) => b.totalPoints - a.totalPoints);
+
+      res.json({
+        enabled: true,
+        teams: teamList.map((t, i) => ({ ...t, rank: i + 1 })),
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get team leaderboard" });
+    }
+  });
+
+  // --- Effectiveness measurement ---
+  app.get("/api/gamification/effectiveness", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      const orgId = req.orgId!;
+      const employees = await storage.getAllEmployees(orgId);
+      const calls = await storage.getCallSummaries(orgId, { status: "completed" });
+
+      // Get badge counts and points for each employee
+      const stats: Array<{
+        employeeId: string;
+        employeeName: string;
+        badgeCount: number;
+        totalPoints: number;
+        avgPerformanceScore: number;
+        totalCalls: number;
+      }> = [];
+
+      for (const emp of employees) {
+        const empCalls = calls.filter(c => c.employeeId === emp.id);
+        if (empCalls.length === 0) continue;
+
+        const badges = await storage.getEmployeeBadges(orgId, emp.id);
+        const profile = await storage.getGamificationProfile(orgId, emp.id);
+
+        const scores = empCalls
+          .filter(c => c.analysis?.performanceScore)
+          .map(c => parseFloat(String(c.analysis!.performanceScore)));
+        const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+
+        stats.push({
+          employeeId: emp.id,
+          employeeName: emp.name,
+          badgeCount: badges.length,
+          totalPoints: profile.totalPoints,
+          avgPerformanceScore: Math.round(avgScore * 100) / 100,
+          totalCalls: empCalls.length,
+        });
+      }
+
+      if (stats.length < 2) {
+        return res.json({ correlation: null, message: "Need at least 2 employees with calls for analysis" });
+      }
+
+      // Compute Pearson correlation between badge count and avg performance score
+      const n = stats.length;
+      const meanBadges = stats.reduce((s, e) => s + e.badgeCount, 0) / n;
+      const meanScore = stats.reduce((s, e) => s + e.avgPerformanceScore, 0) / n;
+
+      let numerator = 0;
+      let denomBadges = 0;
+      let denomScore = 0;
+      for (const e of stats) {
+        const bDiff = e.badgeCount - meanBadges;
+        const sDiff = e.avgPerformanceScore - meanScore;
+        numerator += bDiff * sDiff;
+        denomBadges += bDiff * bDiff;
+        denomScore += sDiff * sDiff;
+      }
+      const denom = Math.sqrt(denomBadges * denomScore);
+      const correlation = denom > 0 ? Math.round((numerator / denom) * 1000) / 1000 : 0;
+
+      // Group by badge count ranges
+      const highBadge = stats.filter(e => e.badgeCount >= 3);
+      const lowBadge = stats.filter(e => e.badgeCount < 3);
+
+      const avgScoreHighBadge = highBadge.length > 0
+        ? Math.round((highBadge.reduce((s, e) => s + e.avgPerformanceScore, 0) / highBadge.length) * 100) / 100
+        : null;
+      const avgScoreLowBadge = lowBadge.length > 0
+        ? Math.round((lowBadge.reduce((s, e) => s + e.avgPerformanceScore, 0) / lowBadge.length) * 100) / 100
+        : null;
+
+      res.json({
+        correlation,
+        interpretation: correlation > 0.5 ? "Strong positive correlation — badges correlate with higher performance"
+          : correlation > 0.2 ? "Moderate positive correlation"
+          : correlation > -0.2 ? "No significant correlation between badges and performance"
+          : "Negative correlation — more badges don't predict higher scores",
+        employeeCount: n,
+        comparison: {
+          highBadgeEmployees: highBadge.length,
+          highBadgeAvgScore: avgScoreHighBadge,
+          lowBadgeEmployees: lowBadge.length,
+          lowBadgeAvgScore: avgScoreLowBadge,
+          scoreDifference: avgScoreHighBadge !== null && avgScoreLowBadge !== null
+            ? Math.round((avgScoreHighBadge - avgScoreLowBadge) * 100) / 100
+            : null,
+        },
+        employees: stats.sort((a, b) => b.badgeCount - a.badgeCount),
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to compute gamification effectiveness");
+      res.status(500).json({ message: "Failed to compute effectiveness" });
+    }
   });
 }

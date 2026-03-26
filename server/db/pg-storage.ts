@@ -2224,6 +2224,8 @@ export class PostgresStorage implements IStorage {
       id: r.id, orgId: r.orgId, employeeId: r.employeeId, badgeId: r.badgeId,
       awardedAt: toISOString(r.awardedAt) || new Date().toISOString(),
       awardedFor: r.awardedFor || undefined,
+      awardedBy: r.awardedBy || undefined,
+      customMessage: r.customMessage || undefined,
     }));
   }
 
@@ -2233,6 +2235,8 @@ export class PostgresStorage implements IStorage {
       await this.db.insert(tables.employeeBadges).values({
         id, orgId, employeeId: badge.employeeId, badgeId: badge.badgeId,
         awardedFor: badge.awardedFor || null,
+        awardedBy: badge.awardedBy || null,
+        customMessage: badge.customMessage || null,
       });
     } catch (e: unknown) {
       // Unique constraint violation — badge already awarded

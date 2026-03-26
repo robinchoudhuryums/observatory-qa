@@ -59,6 +59,10 @@ export const employeeBadgeSchema = z.object({
   badgeId: z.string(),
   awardedAt: z.string(),
   awardedFor: z.string().optional(), // specific call/event that triggered
+  /** For manager-awarded custom badges: the manager's user ID */
+  awardedBy: z.string().optional(),
+  /** For custom badges: the display message (e.g., "Great empathy today!") */
+  customMessage: z.string().optional(),
 });
 
 export type EmployeeBadge = z.infer<typeof employeeBadgeSchema>;

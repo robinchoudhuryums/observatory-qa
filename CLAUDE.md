@@ -74,7 +74,7 @@ npx vite build         # Frontend-only build (quick verification)
 - **Unit tests**: Node.js built-in `test` module via `tsx` — `npm run test`
 - **E2E tests**: Playwright (Chromium) — `npm run test:e2e` or `npm run test:e2e:ui`
 - **Location**: `tests/` (unit), `tests/e2e/` (E2E)
-- **Unit test files** (31 files):
+- **Unit test files** (32 files):
   - `tests/schema.test.ts` — Zod schema validation (orgId on all entities, organization schemas)
   - `tests/ai-provider.test.ts` — AI provider utilities (parseJsonResponse, buildAnalysisPrompt, smartTruncate)
   - `tests/routes.test.ts` — API route handler tests
@@ -102,6 +102,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/error-codes.test.ts` — Error code system
   - `tests/ab-testing-improvements.test.ts` — A/B testing improvements (t-test, batch, segments, recommendations)
   - `tests/spend-tracking-improvements.test.ts` — Spend tracking improvements (forecasting, anomalies, budget, departments)
+  - `tests/gamification-improvements.test.ts` — Gamification improvements (opt-out, recognition badges, effectiveness, teams)
   - `tests/error-handling.test.ts` — Error handling patterns
   - `tests/phi-encryption.test.ts` — PHI field encryption
   - `tests/sso.test.ts` — SAML SSO
@@ -619,9 +620,14 @@ Uses AWS Bedrock (Claude) for AI analysis. Per-org `bedrockModel` can be configu
 ### Gamification (org-scoped)
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/gamification/leaderboard` | Org leaderboard (points, streaks, badges) |
+| GET | `/api/gamification/leaderboard` | Org leaderboard (filters opted-out employees) |
 | GET | `/api/gamification/profile/:employeeId` | Employee gamification profile with badges |
 | GET | `/api/gamification/badges` | List all badge definitions |
+| GET | `/api/gamification/settings` | Get gamification opt-out settings (admin) |
+| PUT | `/api/gamification/settings` | Configure opt-out roles/employees, team competitions (admin) |
+| POST | `/api/gamification/recognize` | Award custom recognition badge (manager+) |
+| GET | `/api/gamification/team-leaderboard` | Team/department competition leaderboard |
+| GET | `/api/gamification/effectiveness` | Badge-performance correlation analysis (admin) |
 
 ### Insurance Narratives (org-scoped)
 | Method | Path | Role | Description |
@@ -1117,6 +1123,13 @@ Server serves both API and static frontend from the same process.
 - **Budget alerts** — `budgetAlerts` object in OrgSettings: `monthlyBudgetUsd`, `alertEmail`, `enabled`; `GET/PUT /api/usage/budget` for configuration; forecast endpoint returns `budgetStatus` (percentUsed, isOverBudget, projectedOverBudget) when budget is configured
 - **Department allocation** — `GET /api/usage/by-department` maps callId → call → employee → subTeam; returns per-department breakdown: totalCost, callCount, avgCostPerCall, employeeCount, percentOfTotal; sorted by cost descending
 - **Cost anomaly detection** — `GET /api/usage/anomalies` flags records > max(mean + 3σ, 5× mean); also flags unusually long audio (3× average and > 300s), multiple AI invocations on single call; returns anomaly details with multiplier, reason, and stats (mean, stdDev, threshold)
+
+#### ✅ Completed & committed: Gamification improvements
+- **Opt-out mechanism** — `gamification` object in OrgSettings: `enabled` (global toggle), `optedOutRoles` (e.g., `["viewer"]` for clinical settings), `optedOutEmployeeIds` (individual opt-out); leaderboard endpoint filters out opted-out employees/roles; `GET/PUT /api/gamification/settings` for admin configuration
+- **Team competitions** — `GET /api/gamification/team-leaderboard` groups employees by `subTeam`, computes per-team: totalPoints, memberCount, avgPointsPerMember, totalBadges, topPerformer; requires `teamCompetitionsEnabled: true` in gamification settings; sorted by total points
+- **Manager-awarded recognition badges** — `POST /api/gamification/recognize` (manager+) accepts `employeeId`, `badgeId`, `message`, optional `callId`; creates badge with `custom_` prefix, `awardedBy` (manager userId), `customMessage`; awards 30 bonus points; respects opt-out settings; `awardedBy` and `customMessage` fields added to `employee_badges` table
+- **Effectiveness measurement** — `GET /api/gamification/effectiveness` (admin) computes Pearson correlation between badge count and avg performance score across all employees; returns correlation coefficient, natural-language interpretation, comparison of high-badge (3+) vs low-badge employees (avg score difference)
+- **Opt-out in leaderboard** — Leaderboard returns empty array when gamification disabled globally; filters employees by optedOutRoles (matching employee.role) and optedOutEmployeeIds before ranking
 
 ## Future Plans / Roadmap
 See `HEALTHCARE_EXPANSION_PLAN.md` for the full 4-phase healthcare expansion roadmap.
