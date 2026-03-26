@@ -21,11 +21,22 @@ function generateApiKey(): { key: string; keyHash: string; keyPrefix: string } {
 }
 
 /**
+ * Valid broad permission levels (backward compatible).
+ * Resource-scoped permissions follow the pattern "<resource>:<action>",
+ * e.g. "calls:read", "employees:read", "coaching:read", "reports:read".
+ */
+const BROAD_PERMISSIONS = ["read", "write", "admin"] as const;
+
+/**
  * Middleware that authenticates via API key in Authorization header.
  * Format: Authorization: Bearer obs_k_<key>
  *
  * Sets req.orgId and req.user if valid key found.
  * Falls through to session auth if no Bearer token present.
+ *
+ * Resource-scoped permissions: if the key only has resource-scoped perms
+ * (no broad "read"/"write"/"admin"), req.apiKeyScopes is set. Downstream
+ * routes can call checkApiKeyScope(scope) to enforce per-resource access.
  */
 export const apiKeyAuth: RequestHandler = async (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -55,10 +66,15 @@ export const apiKeyAuth: RequestHandler = async (req, res, next) => {
     // Set org context
     req.orgId = apiKey.orgId;
 
-    // Derive a virtual user for API key requests
-    const permLevel = apiKey.permissions.includes("admin")
+    // Split broad vs resource-scoped permissions
+    const permissions: string[] = apiKey.permissions || [];
+    const broadPerms = permissions.filter((p) => (BROAD_PERMISSIONS as readonly string[]).includes(p));
+    const resourceScopes = permissions.filter((p) => p.includes(":"));
+
+    // Derive role from broad permissions (backward compat)
+    const permLevel = broadPerms.includes("admin")
       ? "admin"
-      : apiKey.permissions.includes("write")
+      : broadPerms.includes("write")
         ? "manager"
         : "viewer";
 
@@ -70,6 +86,12 @@ export const apiKeyAuth: RequestHandler = async (req, res, next) => {
       orgId: apiKey.orgId,
       orgSlug: "",
     };
+
+    // Set resource scopes only when the key has NO broad permission.
+    // Keys with a broad perm are treated as having full access at that level.
+    if (resourceScopes.length > 0 && broadPerms.length === 0) {
+      req.apiKeyScopes = resourceScopes;
+    }
 
     // Update last used (fire and forget)
     storage.updateApiKey(apiKey.orgId, apiKey.id, {
@@ -84,6 +106,44 @@ export const apiKeyAuth: RequestHandler = async (req, res, next) => {
     res.status(500).json({ message: "Authentication error" });
   }
 };
+
+/**
+ * Middleware factory that checks whether the requesting API key has a specific
+ * resource scope. No-op for session-authenticated users and API keys with broad
+ * permissions — only enforces when req.apiKeyScopes is set (resource-scoped key).
+ *
+ * Usage:
+ *   app.get("/api/calls", requireAuth, injectOrgContext, checkApiKeyScope("calls:read"), handler)
+ *
+ * Accepted scope format: "<resource>:<action>" (e.g. "calls:read", "employees:write")
+ * A key with "calls:write" also satisfies "calls:read" checks (write implies read).
+ */
+export function checkApiKeyScope(requiredScope: string): RequestHandler {
+  return (req, res, next) => {
+    const scopes: string[] | undefined = (req as any).apiKeyScopes;
+    if (!scopes) return next(); // Not a resource-scoped key — skip check
+
+    const [reqResource, reqAction] = requiredScope.split(":");
+
+    const hasScope = scopes.some((s) => {
+      const [resource, action] = s.split(":");
+      if (resource !== reqResource) return false;
+      if (action === reqAction) return true;
+      // write implies read; admin implies both
+      if (reqAction === "read" && (action === "write" || action === "admin")) return true;
+      if (reqAction === "write" && action === "admin") return true;
+      return false;
+    });
+
+    if (!hasScope) {
+      return res.status(403).json({
+        message: `API key lacks required scope: ${requiredScope}`,
+        errorCode: "OBS-AUTH-008",
+      });
+    }
+    return next();
+  };
+}
 
 export function registerApiKeyRoutes(app: Express): void {
   // List API keys for current org (admin only, paginated)
@@ -100,11 +160,17 @@ export function registerApiKeyRoutes(app: Express): void {
           : 0;
         // Warn if key has no expiry and was created more than KEY_ROTATION_DAYS ago
         const rotationWarning = !k.expiresAt && staleDays >= KEY_ROTATION_DAYS;
+        // Show resource scopes in response
+        const permissions: string[] = k.permissions || [];
+        const broadPerms = permissions.filter((p) => (BROAD_PERMISSIONS as readonly string[]).includes(p));
+        const resourceScopes = permissions.filter((p) => p.includes(":"));
         return {
           id: k.id,
           name: k.name,
           keyPrefix: k.keyPrefix,
           permissions: k.permissions,
+          broadPermissions: broadPerms,
+          resourceScopes,
           createdBy: k.createdBy,
           status: k.status,
           expiresAt: k.expiresAt,
@@ -121,19 +187,31 @@ export function registerApiKeyRoutes(app: Express): void {
   });
 
   // Create a new API key (admin only)
+  // Accepts either broad permissions OR resource scopes (or both, though mixing is unusual)
+  // broad: ["read"] | ["write"] | ["admin"]
+  // resource scopes: ["calls:read", "employees:read"] — enforced per-route
   app.post("/api/api-keys", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
     try {
-      const { name, permissions, expiresInDays } = req.body;
+      const { name, permissions, resourceScopes, expiresInDays } = req.body;
       if (!name) {
         return res.status(400).json({ message: "Name is required" });
       }
 
-      const validPerms = ["read", "write", "admin"];
-      const perms: string[] = Array.isArray(permissions)
-        ? permissions.filter((p: string) => validPerms.includes(p))
-        : ["read"];
+      // Merge broad permissions + resource scopes into a single permissions array
+      const validBroad = ["read", "write", "admin"];
+      const broadPerms: string[] = Array.isArray(permissions)
+        ? permissions.filter((p: string) => validBroad.includes(p))
+        : [];
 
-      if (perms.length === 0) perms.push("read");
+      // Resource scopes must match "<word>:<read|write|admin>" pattern
+      const SCOPE_PATTERN = /^[a-z][a-z0-9_-]*:(read|write|admin)$/;
+      const scopePerms: string[] = Array.isArray(resourceScopes)
+        ? resourceScopes.filter((s: string) => typeof s === "string" && SCOPE_PATTERN.test(s))
+        : [];
+
+      let perms: string[] = [...broadPerms, ...scopePerms];
+      // Default to read if nothing valid was supplied
+      if (perms.length === 0) perms = ["read"];
 
       const { key, keyHash, keyPrefix } = generateApiKey();
 
@@ -167,6 +245,7 @@ export function registerApiKeyRoutes(app: Express): void {
         key, // Only time the full key is returned
         keyPrefix: apiKey.keyPrefix,
         permissions: apiKey.permissions,
+        resourceScopes: apiKey.permissions.filter((p) => p.includes(":")),
         expiresAt: apiKey.expiresAt,
         createdAt: apiKey.createdAt,
       });

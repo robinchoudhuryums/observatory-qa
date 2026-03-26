@@ -46,6 +46,7 @@ import type {
   LearningProgress, InsertLearningProgress,
   MarketingCampaign, InsertMarketingCampaign,
   CallAttribution, InsertCallAttribution,
+  CallShare, InsertCallShare,
 } from "@shared/schema";
 import * as tables from "./schema";
 import { normalizeAnalysis } from "../storage";
@@ -528,6 +529,60 @@ export class PostgresStorage implements IStorage {
     }
 
     return results;
+  }
+
+  // --- Call share operations ---
+  private mapCallShare(r: typeof tables.callShares.$inferSelect): CallShare {
+    return {
+      id: r.id,
+      orgId: r.orgId,
+      callId: r.callId,
+      tokenHash: r.tokenHash,
+      tokenPrefix: r.tokenPrefix,
+      viewerLabel: r.viewerLabel ?? undefined,
+      expiresAt: toISOString(r.expiresAt)!,
+      createdBy: r.createdBy,
+      createdAt: toISOString(r.createdAt),
+    };
+  }
+
+  async createCallShare(orgId: string, share: InsertCallShare): Promise<CallShare> {
+    const id = randomUUID();
+    const row = await this.db.insert(tables.callShares).values({
+      id,
+      orgId,
+      callId: share.callId,
+      tokenHash: share.tokenHash,
+      tokenPrefix: share.tokenPrefix,
+      viewerLabel: share.viewerLabel ?? null,
+      expiresAt: new Date(share.expiresAt),
+      createdBy: share.createdBy,
+    }).returning();
+    return this.mapCallShare(row[0]);
+  }
+
+  async getCallShareByToken(tokenHash: string): Promise<CallShare | undefined> {
+    const rows = await this.db.select().from(tables.callShares)
+      .where(eq(tables.callShares.tokenHash, tokenHash))
+      .limit(1);
+    return rows[0] ? this.mapCallShare(rows[0]) : undefined;
+  }
+
+  async listCallShares(orgId: string, callId: string): Promise<CallShare[]> {
+    const rows = await this.db.select().from(tables.callShares)
+      .where(and(eq(tables.callShares.orgId, orgId), eq(tables.callShares.callId, callId)))
+      .orderBy(desc(tables.callShares.createdAt));
+    return rows.map((r) => this.mapCallShare(r));
+  }
+
+  async deleteCallShare(orgId: string, id: string): Promise<void> {
+    await this.db.delete(tables.callShares)
+      .where(and(eq(tables.callShares.id, id), eq(tables.callShares.orgId, orgId)));
+  }
+
+  async deleteExpiredCallShares(orgId: string): Promise<void> {
+    await this.db.delete(tables.callShares)
+      .where(and(eq(tables.callShares.orgId, orgId), lt(tables.callShares.expiresAt, new Date())));
   }
 
   // --- Transcript operations ---

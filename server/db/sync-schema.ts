@@ -104,6 +104,7 @@ export async function syncSchema(db: Database): Promise<void> {
     await addColumnIfNotExists(db, "users", "webauthn_credentials", "JSONB");
     await addColumnIfNotExists(db, "users", "mfa_trusted_devices", "JSONB");
     await addColumnIfNotExists(db, "users", "mfa_enrollment_deadline", "TIMESTAMP");
+    await addColumnIfNotExists(db, "users", "sub_team", "VARCHAR(255)");
     // Migrate from global username uniqueness to per-org uniqueness
     await db.execute(sql`DROP INDEX IF EXISTS users_username_idx`);
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS users_org_username_idx ON users (org_id, username)`);
@@ -941,6 +942,25 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS provider_templates_org_user_idx ON provider_templates (org_id, user_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS provider_templates_org_specialty_idx ON provider_templates (org_id, specialty)`);
     await addRlsPolicy(db, "provider_templates").catch(e => logger.warn({ err: e }, "RLS setup skipped for provider_templates"));
+
+    // --- Call Shares (resource-level sharing with external reviewers) ---
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS call_shares (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        call_id TEXT NOT NULL REFERENCES calls(id) ON DELETE CASCADE,
+        token_hash VARCHAR(128) NOT NULL,
+        token_prefix VARCHAR(16) NOT NULL,
+        viewer_label VARCHAR(255),
+        expires_at TIMESTAMP NOT NULL,
+        created_by VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS call_shares_token_hash_idx ON call_shares (token_hash)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS call_shares_org_idx ON call_shares (org_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS call_shares_call_idx ON call_shares (org_id, call_id)`);
+    await addRlsPolicy(db, "call_shares").catch(e => logger.warn({ err: e }, "RLS setup skipped for call_shares"));
 
     // ── One-time data migrations ─────────────────────────────────────────────
     // These use runOnceMigration() to ensure they execute exactly once even

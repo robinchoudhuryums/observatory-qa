@@ -419,6 +419,25 @@ export const callAnalysisSchema = insertCallAnalysisSchema.extend({
   createdAt: z.string().optional(),
 });
 
+// --- CALL SHARE SCHEMAS (resource-level sharing for external reviewers) ---
+export const insertCallShareSchema = z.object({
+  orgId: z.string(),
+  callId: z.string(),
+  tokenHash: z.string(),       // SHA-256 of the plaintext share token
+  tokenPrefix: z.string(),     // First 8 chars for display/revocation
+  viewerLabel: z.string().optional(), // Human label, e.g. "Dr. Smith review"
+  expiresAt: z.string(),       // ISO date — when the link expires
+  createdBy: z.string(),       // userId who created the share
+});
+
+export const callShareSchema = insertCallShareSchema.extend({
+  id: z.string(),
+  createdAt: z.string().optional(),
+});
+
+export type InsertCallShare = z.infer<typeof insertCallShareSchema>;
+export type CallShare = z.infer<typeof callShareSchema>;
+
 // --- TYPES ---
 export type InsertCall = z.infer<typeof insertCallSchema>;
 export type Call = z.infer<typeof callSchema>;

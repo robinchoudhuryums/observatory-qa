@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { storage } from "../storage";
-import { requireAuth, requireRole, injectOrgContext } from "../auth";
+import { requireAuth, requireRole, injectOrgContext, getTeamScopedEmployeeIds } from "../auth";
 import { insertCoachingSessionSchema } from "@shared/schema";
 import { z } from "zod";
 import {
@@ -18,13 +18,21 @@ import { parsePagination, paginateArray } from "./helpers";
 export function registerCoachingRoutes(app: Express): void {
   // ==================== COACHING ROUTES ====================
 
-  // List all coaching sessions (managers and admins)
+  // List all coaching sessions (managers and admins) — filtered by subTeam when applicable
   app.get("/api/coaching", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
     try {
       const { limit, offset } = parsePagination(req.query);
-      const sessions = await storage.getAllCoachingSessions(req.orgId!);
+      let sessions = await storage.getAllCoachingSessions(req.orgId!);
+
+      // Team-scoped filtering: managers with a subTeam see only their team's sessions
+      const teamEmployeeIds = req.user
+        ? await getTeamScopedEmployeeIds(req.orgId!, req.user)
+        : null;
+      if (teamEmployeeIds !== null) {
+        sessions = sessions.filter((s) => teamEmployeeIds.has(s.employeeId));
+      }
+
       // Batch-load employee names instead of N+1
-      const empIds = Array.from(new Set(sessions.map(s => s.employeeId).filter(Boolean)));
       const employees = await storage.getAllEmployees(req.orgId!);
       const empMap = new Map(employees.map(e => [e.id, e.name]));
       const enriched = sessions.map(s => ({
@@ -41,6 +49,40 @@ export function registerCoachingRoutes(app: Express): void {
       res.json(sorted);
     } catch (error) {
       logger.error({ err: error }, "Failed to fetch coaching sessions");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to fetch coaching sessions"));
+    }
+  });
+
+  // Get coaching sessions for the currently authenticated user (viewer self-service)
+  // Looks up the employee record matching the user's email/username and returns their sessions.
+  app.get("/api/coaching/my", requireAuth, injectOrgContext, async (req, res) => {
+    try {
+      const username = req.user!.username;
+      // Try to find the matching employee by email (username is usually email)
+      let employee = await storage.getEmployeeByEmail(req.orgId!, username);
+      // Fallback: search all employees for a name match (case-insensitive)
+      if (!employee) {
+        const all = await storage.getAllEmployees(req.orgId!);
+        const nameLower = req.user!.name?.toLowerCase();
+        employee = all.find((e) =>
+          e.name?.toLowerCase() === nameLower ||
+          e.email?.toLowerCase() === username.toLowerCase()
+        );
+      }
+      if (!employee) {
+        return res.json([]); // No employee record linked — return empty
+      }
+      const sessions = await storage.getCoachingSessionsByEmployee(req.orgId!, employee.id);
+      logPhiAccess({
+        ...auditContext(req),
+        event: "view_own_coaching_sessions",
+        resourceType: "coaching",
+        resourceId: employee.id,
+        detail: `${sessions.length} sessions for self`,
+      });
+      res.json(sessions.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()));
+    } catch (error) {
+      logger.error({ err: error }, "Failed to fetch own coaching sessions");
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to fetch coaching sessions"));
     }
   });

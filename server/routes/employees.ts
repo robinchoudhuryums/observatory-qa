@@ -3,7 +3,7 @@ import path from "path";
 import fs from "fs";
 import csv from "csv-parser";
 import { storage } from "../storage";
-import { requireAuth, requireRole, injectOrgContext } from "../auth";
+import { requireAuth, requireRole, injectOrgContext, getTeamScopedEmployeeIds } from "../auth";
 import { insertEmployeeSchema } from "@shared/schema";
 import { z } from "zod";
 import { logger } from "../services/logger";
@@ -11,10 +11,19 @@ import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import { parsePagination, paginateArray } from "./helpers";
 
 export function registerEmployeeRoutes(app: Express): void {
-  // Get all employees (paginated)
+  // Get all employees (paginated) — filtered by manager's subTeam if set
   app.get("/api/employees", requireAuth, injectOrgContext, async (req, res) => {
     try {
-      const employees = await storage.getAllEmployees(req.orgId!);
+      let employees = await storage.getAllEmployees(req.orgId!);
+
+      // Team-scoped filtering: managers with a subTeam see only their team
+      const teamEmployeeIds = req.user
+        ? await getTeamScopedEmployeeIds(req.orgId!, req.user)
+        : null;
+      if (teamEmployeeIds !== null) {
+        employees = employees.filter((e) => teamEmployeeIds.has(e.id));
+      }
+
       res.json(employees);
     } catch (error) {
       logger.error({ err: error }, "Failed to get employees");
