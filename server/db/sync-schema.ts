@@ -760,6 +760,7 @@ export async function syncSchema(db: Database): Promise<void> {
         completed_at TIMESTAMP
       )
     `);
+    await addColumnIfNotExists(db, "calibration_sessions", "blind_mode", "BOOLEAN NOT NULL DEFAULT false");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS calibration_sessions_org_idx ON calibration_sessions (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS calibration_sessions_status_idx ON calibration_sessions (org_id, status)`);
     await addRlsPolicy(db, "calibration_sessions").catch(e => logger.warn({ err: e }, "RLS setup skipped for calibration_sessions"));

@@ -643,6 +643,7 @@ export const calibrationSessions = pgTable("calibration_sessions", {
   consensusNotes: text("consensus_notes"),
   createdAt: timestamp("created_at").defaultNow(),
   completedAt: timestamp("completed_at"),
+  blindMode: boolean("blind_mode").notNull().default(false),
 }, (t) => [
   index("calibration_sessions_org_idx").on(t.orgId),
   index("calibration_sessions_status_idx").on(t.orgId, t.status),

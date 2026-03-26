@@ -2457,8 +2457,9 @@ export class PostgresStorage implements IStorage {
       targetScore: session.targetScore ?? null,
       consensusNotes: session.consensusNotes || null,
       createdAt: now,
+      blindMode: session.blindMode ?? false,
     });
-    return { ...session, id, orgId, createdAt: now.toISOString() };
+    return { ...session, id, orgId, blindMode: session.blindMode ?? false, createdAt: now.toISOString() };
   }
 
   async getCalibrationSession(orgId: string, id: string): Promise<CalibrationSession | undefined> {
@@ -2543,6 +2544,7 @@ export class PostgresStorage implements IStorage {
       targetScore: r.targetScore ?? undefined,
       consensusNotes: r.consensusNotes || undefined,
       createdAt: toISOString(r.createdAt), completedAt: toISOString(r.completedAt),
+      blindMode: r.blindMode ?? false,
     };
   }
 

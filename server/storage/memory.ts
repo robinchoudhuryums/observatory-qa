@@ -1064,7 +1064,7 @@ export class MemStorage implements IStorage {
 
   async createCalibrationSession(orgId: string, session: InsertCalibrationSession): Promise<CalibrationSession> {
     const id = randomUUID();
-    const s: CalibrationSession = { ...session, id, orgId, createdAt: new Date().toISOString() };
+    const s: CalibrationSession = { ...session, id, orgId, blindMode: session.blindMode ?? false, createdAt: new Date().toISOString() };
     this.calibrationSessionsStore.set(id, s);
     return s;
   }

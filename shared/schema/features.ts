@@ -166,6 +166,8 @@ export const insertCalibrationSessionSchema = z.object({
   status: z.enum(CALIBRATION_STATUSES).default("scheduled"),
   targetScore: z.number().min(0).max(10).optional(), // "correct" score after discussion
   consensusNotes: z.string().optional(),
+  /** Blind mode: evaluators cannot see others' scores until session is completed */
+  blindMode: z.boolean().default(false),
 });
 
 export const calibrationSessionSchema = insertCalibrationSessionSchema.extend({
