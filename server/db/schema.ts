@@ -420,6 +420,13 @@ export const referenceDocuments = pgTable("reference_documents", {
   isActive: boolean("is_active").notNull().default(true),
   uploadedBy: varchar("uploaded_by", { length: 255 }),
   createdAt: timestamp("created_at").defaultNow(),
+  version: integer("version").notNull().default(1),
+  previousVersionId: text("previous_version_id"),
+  indexingStatus: varchar("indexing_status", { length: 20 }).notNull().default("pending"),
+  indexingError: text("indexing_error"),
+  sourceType: varchar("source_type", { length: 20 }).notNull().default("upload"),
+  sourceUrl: text("source_url"),
+  retrievalCount: integer("retrieval_count").notNull().default(0),
 }, (t) => [
   index("ref_docs_org_id_idx").on(t.orgId),
   index("ref_docs_category_idx").on(t.orgId, t.category),
@@ -486,6 +493,7 @@ export const abTests = pgTable("ab_tests", {
   notes: text("notes"),
   createdBy: varchar("created_by", { length: 255 }).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
+  batchId: text("batch_id"),
 }, (t) => [
   index("ab_tests_org_id_idx").on(t.orgId),
   index("ab_tests_status_idx").on(t.orgId, t.status),
@@ -555,6 +563,8 @@ export const employeeBadges = pgTable("employee_badges", {
   badgeId: varchar("badge_id", { length: 50 }).notNull(),
   awardedAt: timestamp("awarded_at").defaultNow(),
   awardedFor: text("awarded_for"), // callId or event description
+  awardedBy: text("awarded_by"), // manager userId for custom badges
+  customMessage: text("custom_message"), // manager's message for recognition badges
 }, (t) => [
   index("employee_badges_org_idx").on(t.orgId),
   index("employee_badges_employee_idx").on(t.orgId, t.employeeId),
@@ -616,6 +626,16 @@ export const callRevenues = pgTable("call_revenues", {
   updatedBy: varchar("updated_by", { length: 255 }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+  attributionStage: varchar("attribution_stage", { length: 30 }),
+  appointmentDate: timestamp("appointment_date"),
+  appointmentCompleted: boolean("appointment_completed"),
+  treatmentAccepted: boolean("treatment_accepted"),
+  paymentCollected: real("payment_collected"),
+  payerType: varchar("payer_type", { length: 20 }),
+  insuranceCarrier: varchar("insurance_carrier", { length: 255 }),
+  insuranceAmount: real("insurance_amount"),
+  patientAmount: real("patient_amount"),
+  ehrSyncedAt: timestamp("ehr_synced_at"),
 }, (t) => [
   index("call_revenues_org_idx").on(t.orgId),
   uniqueIndex("call_revenues_call_idx").on(t.orgId, t.callId),
@@ -636,6 +656,7 @@ export const calibrationSessions = pgTable("calibration_sessions", {
   consensusNotes: text("consensus_notes"),
   createdAt: timestamp("created_at").defaultNow(),
   completedAt: timestamp("completed_at"),
+  blindMode: boolean("blind_mode").notNull().default(false),
 }, (t) => [
   index("calibration_sessions_org_idx").on(t.orgId),
   index("calibration_sessions_status_idx").on(t.orgId, t.status),
@@ -674,6 +695,8 @@ export const learningModules = pgTable("learning_modules", {
   isPlatformContent: boolean("is_platform_content").notNull().default(false),
   createdBy: varchar("created_by", { length: 255 }).notNull(),
   sortOrder: integer("sort_order"),
+  prerequisiteModuleIds: jsonb("prerequisite_module_ids").$type<string[]>(),
+  passingScore: integer("passing_score"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => [
@@ -694,6 +717,8 @@ export const learningPaths = pgTable("learning_paths", {
   assignedTo: jsonb("assigned_to").$type<string[]>(),
   estimatedMinutes: integer("estimated_minutes"),
   createdBy: varchar("created_by", { length: 255 }).notNull(),
+  dueDate: timestamp("due_date"),
+  enforceOrder: boolean("enforce_order").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => [

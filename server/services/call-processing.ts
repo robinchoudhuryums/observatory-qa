@@ -23,7 +23,7 @@ import { notifyFlaggedCall } from "./notifications";
 import { onCallAnalysisComplete } from "./proactive-alerts";
 import { trackUsage } from "./queue";
 import { logger } from "./logger";
-import { searchRelevantChunks, formatRetrievedContext } from "./rag";
+import { searchRelevantChunks, formatRetrievedContext, incrementRetrievalCounts } from "./rag";
 import { encryptField } from "./phi-encryption";
 import { calibrateAnalysis } from "./scoring-calibration";
 import { validateClinicalNote, sanitizeStylePreferences } from "./clinical-validation";
@@ -326,12 +326,33 @@ async function loadPromptTemplate(
   return template;
 }
 
+/** RAG citations stored in confidenceFactors */
+export interface RAGCitation {
+  chunkId: string;
+  documentId: string;
+  documentName: string;
+  chunkIndex: number;
+  score: number;
+}
+
+/** Last RAG citations produced during reference context loading (per-call) */
+let lastRagCitations: RAGCitation[] | null = null;
+
+/** Retrieve and clear the last RAG citations (called after loadReferenceContext) */
+export function consumeRagCitations(): RAGCitation[] | null {
+  const citations = lastRagCitations;
+  lastRagCitations = null;
+  return citations;
+}
+
 async function loadReferenceContext(
   orgId: string,
   callId: string,
   docsWithText: Array<{ name: string; category: string; extractedText?: string | null; id: string }>,
   transcriptText: string | undefined,
 ): Promise<Array<{ name: string; category: string; text: string }>> {
+  lastRagCitations = null;
+
   // Check RAG eligibility
   let useRag = false;
   try {
@@ -355,6 +376,21 @@ async function loadReferenceContext(
         if (chunks.length > 0) {
           const ragContext = formatRetrievedContext(chunks);
           logger.info({ callId, chunkCount: chunks.length }, "RAG: injecting relevant chunks");
+
+          // Store citations for later attachment to confidenceFactors
+          lastRagCitations = chunks.map(c => ({
+            chunkId: c.id,
+            documentId: c.documentId,
+            documentName: c.documentName,
+            chunkIndex: c.chunkIndex,
+            score: Math.round(c.score * 1000) / 1000,
+          }));
+
+          // Increment retrieval counts (fire-and-forget)
+          incrementRetrievalCounts(db as any, chunks.map(c => c.documentId)).catch(err => {
+            logger.debug({ err }, "Failed to increment retrieval counts");
+          });
+
           return [{ name: "Retrieved Knowledge Base Context", category: "rag_retrieval", text: ragContext }];
         }
       }
@@ -498,7 +534,11 @@ export async function continueAfterTranscription(
     const confidence = computeConfidence(transcriptResponse.confidence || 0, wordCount, callDuration, aiAnalysis !== null);
     confidence.factors.transcriptLength = (transcriptResponse.text || "").length;
     analysis.confidenceScore = confidence.score.toFixed(3);
-    analysis.confidenceFactors = confidence.factors;
+    const ragCitations = consumeRagCitations();
+    analysis.confidenceFactors = {
+      ...confidence.factors,
+      ...(ragCitations ? { ragCitations } : {}),
+    };
 
     // Sub-scores
     if (aiAnalysis?.sub_scores) {

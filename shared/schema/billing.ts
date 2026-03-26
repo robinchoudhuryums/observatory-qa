@@ -224,6 +224,9 @@ export const REFERENCE_DOC_CATEGORIES = [
 ] as const;
 export type ReferenceDocCategory = (typeof REFERENCE_DOC_CATEGORIES)[number];
 
+export const INDEXING_STATUSES = ["pending", "indexing", "indexed", "failed"] as const;
+export type IndexingStatus = (typeof INDEXING_STATUSES)[number];
+
 export const referenceDocumentSchema = z.object({
   id: z.string(),
   orgId: z.string(),
@@ -241,10 +244,35 @@ export const referenceDocumentSchema = z.object({
   isActive: z.boolean().default(true),
   uploadedBy: z.string().optional(),
   createdAt: z.string().optional(),
+  /** Document version number (monotonically increasing) */
+  version: z.number().int().default(1),
+  /** ID of the document this version replaces (null for first version) */
+  previousVersionId: z.string().optional(),
+  /** RAG indexing status */
+  indexingStatus: z.enum(INDEXING_STATUSES).default("pending"),
+  /** Error message if indexing failed */
+  indexingError: z.string().optional(),
+  /** Source type: "upload" for file uploads, "url" for web crawled content */
+  sourceType: z.enum(["upload", "url"]).default("upload"),
+  /** Source URL when sourceType is "url" */
+  sourceUrl: z.string().optional(),
+  /** Number of times this document's chunks have been retrieved in RAG queries */
+  retrievalCount: z.number().int().default(0),
 });
 export type ReferenceDocument = z.infer<typeof referenceDocumentSchema>;
 
-export const insertReferenceDocumentSchema = referenceDocumentSchema.omit({ id: true, createdAt: true });
+export const insertReferenceDocumentSchema = referenceDocumentSchema
+  .omit({ id: true, createdAt: true })
+  .extend({
+    // Make new fields optional for insert (they have DB/app-level defaults)
+    version: z.number().int().optional(),
+    previousVersionId: z.string().optional(),
+    indexingStatus: z.enum(INDEXING_STATUSES).optional(),
+    indexingError: z.string().optional(),
+    sourceType: z.enum(["upload", "url"]).optional(),
+    sourceUrl: z.string().optional(),
+    retrievalCount: z.number().int().optional(),
+  });
 export type InsertReferenceDocument = z.infer<typeof insertReferenceDocumentSchema>;
 
 // --- PROMPT TEMPLATE SCHEMAS ---
@@ -286,13 +314,15 @@ export const BEDROCK_MODEL_PRESETS = [
 ] as const;
 
 // --- A/B MODEL TEST SCHEMAS ---
+export const AB_TEST_STATUSES = ["processing", "analyzing", "completed", "partial", "failed"] as const;
+
 export const insertABTestSchema = z.object({
   orgId: z.string(),
   fileName: z.string(),
   callCategory: z.string().optional(),
   baselineModel: z.string(),
   testModel: z.string(),
-  status: z.enum(["processing", "analyzing", "completed", "partial", "failed"]).default("processing"),
+  status: z.enum(AB_TEST_STATUSES).default("processing"),
   transcriptText: z.string().optional(),
   baselineAnalysis: z.record(z.unknown()).optional(),
   testAnalysis: z.record(z.unknown()).optional(),
@@ -300,6 +330,8 @@ export const insertABTestSchema = z.object({
   testLatencyMs: z.number().optional(),
   notes: z.string().optional(),
   createdBy: z.string(),
+  /** Batch ID for grouping multiple tests together */
+  batchId: z.string().optional(),
 });
 
 export const abTestSchema = insertABTestSchema.extend({

@@ -59,6 +59,10 @@ export const employeeBadgeSchema = z.object({
   badgeId: z.string(),
   awardedAt: z.string(),
   awardedFor: z.string().optional(), // specific call/event that triggered
+  /** For manager-awarded custom badges: the manager's user ID */
+  awardedBy: z.string().optional(),
+  /** For custom badges: the display message (e.g., "Great empathy today!") */
+  customMessage: z.string().optional(),
 });
 
 export type EmployeeBadge = z.infer<typeof employeeBadgeSchema>;
@@ -127,21 +131,49 @@ export type InsertInsuranceNarrative = z.infer<typeof insertInsuranceNarrativeSc
 export type InsuranceNarrative = z.infer<typeof insuranceNarrativeSchema>;
 
 // --- REVENUE TRACKING SCHEMAS ---
+export const REVENUE_TYPES = ["production", "collection", "scheduled", "lost"] as const;
+export const CONVERSION_STATUSES = ["converted", "pending", "lost", "unknown"] as const;
+export const PAYER_TYPES = ["insurance", "cash", "mixed", "unknown"] as const;
+export const ATTRIBUTION_STAGES = ["call_identified", "appointment_scheduled", "appointment_completed", "treatment_accepted", "payment_collected"] as const;
+
 export const insertCallRevenueSchema = z.object({
   orgId: z.string(),
   callId: z.string(),
   estimatedRevenue: z.number().optional(), // dollar value estimated from call
   actualRevenue: z.number().optional(), // confirmed revenue (entered manually or from EHR)
-  revenueType: z.enum(["production", "collection", "scheduled", "lost"]).optional(),
+  revenueType: z.enum(REVENUE_TYPES).optional(),
   treatmentValue: z.number().optional(), // total treatment plan value discussed
   scheduledProcedures: z.array(z.object({
     code: z.string(),
     description: z.string(),
     estimatedValue: z.number(),
   })).optional(),
-  conversionStatus: z.enum(["converted", "pending", "lost", "unknown"]).default("unknown"),
+  conversionStatus: z.enum(CONVERSION_STATUSES).default("unknown"),
   notes: z.string().optional(),
   updatedBy: z.string().optional(),
+  // --- Attribution chain fields ---
+  /** Current stage in the conversion funnel */
+  attributionStage: z.enum(ATTRIBUTION_STAGES).optional(),
+  /** ISO timestamp of scheduled appointment */
+  appointmentDate: z.string().optional(),
+  /** Whether appointment was completed */
+  appointmentCompleted: z.boolean().optional(),
+  /** Whether patient accepted the treatment plan */
+  treatmentAccepted: z.boolean().optional(),
+  /** Amount collected (may differ from actualRevenue due to insurance adjustments) */
+  paymentCollected: z.number().optional(),
+  // --- Payer mix fields ---
+  /** Payment type: insurance, cash, mixed, unknown */
+  payerType: z.enum(PAYER_TYPES).optional(),
+  /** Insurance carrier name (e.g., "Delta Dental", "Blue Cross") */
+  insuranceCarrier: z.string().optional(),
+  /** Insurance reimbursement amount */
+  insuranceAmount: z.number().optional(),
+  /** Patient out-of-pocket amount */
+  patientAmount: z.number().optional(),
+  // --- EHR sync ---
+  /** ISO timestamp of last EHR sync for this revenue record */
+  ehrSyncedAt: z.string().optional(),
 });
 
 export const callRevenueSchema = insertCallRevenueSchema.extend({
@@ -166,6 +198,8 @@ export const insertCalibrationSessionSchema = z.object({
   status: z.enum(CALIBRATION_STATUSES).default("scheduled"),
   targetScore: z.number().min(0).max(10).optional(), // "correct" score after discussion
   consensusNotes: z.string().optional(),
+  /** Blind mode: evaluators cannot see others' scores until session is completed */
+  blindMode: z.boolean().default(false),
 });
 
 export const calibrationSessionSchema = insertCalibrationSessionSchema.extend({
@@ -256,6 +290,10 @@ export const insertLearningModuleSchema = z.object({
   isPlatformContent: z.boolean().optional(), // true = Observatory-curated content
   createdBy: z.string(),
   sortOrder: z.number().optional(),
+  /** Module IDs that must be completed before starting this module */
+  prerequisiteModuleIds: z.array(z.string()).optional(),
+  /** Minimum quiz score (0-100) required to pass; default 70 */
+  passingScore: z.number().min(0).max(100).optional(),
 });
 
 export const learningModuleSchema = insertLearningModuleSchema.extend({
@@ -278,6 +316,10 @@ export const insertLearningPathSchema = z.object({
   assignedTo: z.array(z.string()).optional(), // specific employee IDs (empty = all)
   estimatedMinutes: z.number().optional(), // total estimated time
   createdBy: z.string(),
+  /** ISO timestamp deadline for completing this path */
+  dueDate: z.string().optional(),
+  /** Enable prerequisite gating: modules must be completed in order */
+  enforceOrder: z.boolean().optional(),
 });
 
 export const learningPathSchema = insertLearningPathSchema.extend({

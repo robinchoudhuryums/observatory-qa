@@ -74,7 +74,7 @@ npx vite build         # Frontend-only build (quick verification)
 - **Unit tests**: Node.js built-in `test` module via `tsx` — `npm run test`
 - **E2E tests**: Playwright (Chromium) — `npm run test:e2e` or `npm run test:e2e:ui`
 - **Location**: `tests/` (unit), `tests/e2e/` (E2E)
-- **Unit test files** (27 files):
+- **Unit test files** (34 files):
   - `tests/schema.test.ts` — Zod schema validation (orgId on all entities, organization schemas)
   - `tests/ai-provider.test.ts` — AI provider utilities (parseJsonResponse, buildAnalysisPrompt, smartTruncate)
   - `tests/routes.test.ts` — API route handler tests
@@ -92,12 +92,19 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/webhook.test.ts` — Webhook delivery
   - `tests/audit-log.test.ts` — HIPAA audit logging
   - `tests/chunker.test.ts` — Document chunking
+  - `tests/rag-features.test.ts` — RAG Knowledge Base improvements (versioning, citations, indexing status, URL sources)
   - `tests/clinical-templates.test.ts` — Clinical note templates
   - `tests/clinical-validation.test.ts` — Clinical data validation
   - `tests/clinical-workflow.test.ts` — Clinical documentation workflow
   - `tests/coaching-engine.test.ts` — Coaching recommendation engine
+  - `tests/calibration-improvements.test.ts` — Calibration improvements (blind mode, IRR metrics, certification)
   - `tests/ehr.test.ts` — EHR integration adapters
   - `tests/error-codes.test.ts` — Error code system
+  - `tests/ab-testing-improvements.test.ts` — A/B testing improvements (t-test, batch, segments, recommendations)
+  - `tests/spend-tracking-improvements.test.ts` — Spend tracking improvements (forecasting, anomalies, budget, departments)
+  - `tests/gamification-improvements.test.ts` — Gamification improvements (opt-out, recognition badges, effectiveness, teams)
+  - `tests/lms-improvements.test.ts` — LMS improvements (prerequisites, deadlines, certificates, coaching recommendations)
+  - `tests/revenue-improvements.test.ts` — Revenue improvements (attribution funnel, payer mix, forecasting, EHR sync)
   - `tests/error-handling.test.ts` — Error handling patterns
   - `tests/phi-encryption.test.ts` — PHI field encryption
   - `tests/sso.test.ts` — SAML SSO
@@ -313,7 +320,7 @@ Every data entity has an `orgId` field. All storage methods take `orgId` as the 
 - `SentimentAnalysis` — id, orgId, callId, overallSentiment, overallScore, segments[]
 - `CallAnalysis` — id, orgId, callId, performanceScore, subScores, summary, topics, feedback, flags, clinicalNote (optional)
 - `ClinicalNote` — embedded in CallAnalysis: format (SOAP/DAP/BIRP/HPI/procedure), specialty, subjective, objective, assessment, plan, HPI, ROS, differentialDiagnoses, icd10Codes, cptCodes, cdtCodes, toothNumbers, periodontalFindings, treatmentPhases, providerAttested, attestedBy, editHistory, consentObtained, documentationCompleteness (0-10), clinicalAccuracy (0-10), `amendments[]` — array of post-attestation amendment snapshots (reason, changedBy, timestamp, fieldsChanged), `cosignature` — supervising provider co-signature (signedBy, signedAt, providerName, credentials), `cosignatureRequired` — boolean flag, `structuredData` — extracted vitals (BP, HR, RR, temp, O2sat, pain, weight), medications[], allergies[], `qualityScoreBreakdown` — icd10Specificity, requiredElementsPresent, planDiagnosisAlignment, overallQuality (all 0-10)
-- `ABTest` — id, orgId, fileName, baselineModel, testModel, transcriptText, baselineAnalysis, testAnalysis, baselineLatencyMs, testLatencyMs, status, createdBy
+- `ABTest` — id, orgId, fileName, baselineModel, testModel, transcriptText, baselineAnalysis, testAnalysis, baselineLatencyMs, testLatencyMs, status, createdBy, `batchId` (text, groups tests in a batch upload)
 - `UsageRecord` — id, orgId, callId, type (transcription/ai_analysis/ab-test), services (assemblyai/bedrock cost breakdown), totalEstimatedCost
 - `AccessRequest` — id, orgId, name, email, requestedRole, status
 - `CoachingSession` — id, orgId, employeeId, callId, category, title, notes, actionPlan, status
@@ -321,12 +328,12 @@ Every data entity has an `orgId` field. All storage methods take `orgId` as the 
 - `Invitation` — id, orgId, email, role, token, status, expiresAt
 - `ApiKey` — id, orgId, name, keyHash, keyPrefix, permissions, status
 - `Subscription` — id, orgId, planTier, status, stripeCustomerId, billingInterval
-- `ReferenceDocument` — id, orgId, name, category, fileName, extractedText, appliesTo, isActive
+- `ReferenceDocument` — id, orgId, name, category, fileName, extractedText, appliesTo, isActive, `version` (integer, monotonically increasing), `previousVersionId` (text, links to prior version), `indexingStatus` (pending/indexing/indexed/failed), `indexingError` (text), `sourceType` (upload/url), `sourceUrl` (text), `retrievalCount` (integer, auto-incremented on RAG retrieval)
 - `Feedback` — id, orgId, userId, type (feature_rating/bug_report/suggestion/nps/general), context (page/feature), rating (1-10), comment, metadata, status, adminResponse
 - `EmployeeBadge` — id, orgId, employeeId, badgeId, awardedAt, awardedFor. 12 badge definitions: milestone (first_call, ten_calls, hundred_calls), performance (perfect_score, high_performer, consistency_king), improvement (most_improved, comeback_kid), engagement (self_reviewer, coaching_champion), streak (streak_7, streak_30)
 - `InsuranceNarrative` — id, orgId, callId, patientName, insurerName, letterType (prior_auth/appeal/predetermination/medical_necessity/peer_to_peer), diagnosisCodes, procedureCodes, clinicalJustification, generatedNarrative, status (draft/finalized/submitted)
-- `CallRevenue` — id, orgId, callId, estimatedRevenue, actualRevenue, revenueType (production/collection/scheduled/lost), treatmentValue, scheduledProcedures, conversionStatus (converted/pending/lost/unknown)
-- `CalibrationSession` — id, orgId, title, callId, facilitatorId, evaluatorIds, status (scheduled/in_progress/completed), targetScore, consensusNotes
+- `CallRevenue` — id, orgId, callId, estimatedRevenue, actualRevenue, revenueType (production/collection/scheduled/lost), treatmentValue, scheduledProcedures, conversionStatus (converted/pending/lost/unknown), `attributionStage` (call_identified/appointment_scheduled/appointment_completed/treatment_accepted/payment_collected), `appointmentDate`, `appointmentCompleted`, `treatmentAccepted`, `paymentCollected`, `payerType` (insurance/cash/mixed/unknown), `insuranceCarrier`, `insuranceAmount`, `patientAmount`, `ehrSyncedAt`
+- `CalibrationSession` — id, orgId, title, callId, facilitatorId, evaluatorIds, status (scheduled/in_progress/completed), targetScore, consensusNotes, `blindMode` (boolean, evaluators can't see others' scores until session completed)
 - `CalibrationEvaluation` — id, orgId, sessionId, evaluatorId, performanceScore, subScores, notes
 
 **Industry types** (set at registration): `general`, `dental`, `medical`, `behavioral_health`, `veterinary`
@@ -518,11 +525,19 @@ Uses AWS Bedrock (Claude) for AI analysis. Per-org `bedrockModel` can be configu
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
 | POST | `/api/onboarding/logo` | admin | Upload org logo |
-| POST | `/api/onboarding/reference-docs` | admin | Upload reference document |
-| GET | `/api/onboarding/reference-docs` | authenticated | List reference documents |
-| DELETE | `/api/onboarding/reference-docs/:id` | admin | Delete reference document |
-| POST | `/api/onboarding/rag/search` | authenticated | RAG knowledge base search |
-| GET | `/api/onboarding/rag/status` | authenticated | RAG indexing status |
+| POST | `/api/reference-documents` | admin | Upload reference document |
+| GET | `/api/reference-documents` | authenticated | List reference documents (with indexingStatus) |
+| GET | `/api/reference-documents/:id` | authenticated | Get document details |
+| PATCH | `/api/reference-documents/:id` | admin | Update document metadata |
+| DELETE | `/api/reference-documents/:id` | admin | Delete reference document |
+| POST | `/api/reference-documents/:id/version` | admin | Create new version (deactivates old, re-indexes) |
+| GET | `/api/reference-documents/:id/versions` | authenticated | Get version history chain |
+| POST | `/api/reference-documents/:id/reindex` | admin | Re-index document |
+| GET | `/api/reference-documents/:id/chunks` | authenticated | Paginated chunk preview |
+| POST | `/api/reference-documents/url` | admin | Add web URL as knowledge base source |
+| POST | `/api/reference-documents/rag/search` | authenticated | RAG knowledge base search |
+| GET | `/api/reference-documents/rag/status` | authenticated | RAG indexing status |
+| GET | `/api/reference-documents/rag/analytics` | admin | Knowledge base analytics |
 
 ### Clinical Documentation (org-scoped, requires Clinical Documentation plan)
 | Method | Path | Role | Description |
@@ -577,12 +592,24 @@ Uses AWS Bedrock (Claude) for AI analysis. Per-org `bedrockModel` can be configu
 | GET | `/api/ab-tests` | List all A/B tests |
 | GET | `/api/ab-tests/:id` | Get test with results |
 | POST | `/api/ab-tests/upload` | Upload audio for dual-model comparison |
+| POST | `/api/ab-tests/batch` | Batch upload (up to 50 files) for aggregate comparison |
+| GET | `/api/ab-tests/batch/:batchId` | Get batch status and all test results |
+| GET | `/api/ab-tests/stats` | Aggregate statistics with Welch's t-test significance |
+| GET | `/api/ab-tests/segments` | Segment analysis by call category and model pair |
+| GET | `/api/ab-tests/recommend` | Automated model recommendation with per-category breakdown |
+| GET | `/api/ab-tests/:id/export` | Export test results as JSON |
 | DELETE | `/api/ab-tests/:id` | Delete test |
 
 ### Usage & Spend Tracking (org-scoped, admin only)
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/usage` | Get all usage/cost records |
+| GET | `/api/usage` | Get usage/cost records (with date filtering, pagination) |
+| GET | `/api/usage/forecast` | Cost forecasting: projected monthly spend, daily rate, trend, budget status |
+| GET | `/api/usage/cost-per-outcome` | Cost per scored call, per coaching session, per converted call |
+| GET | `/api/usage/by-department` | Department/team cost allocation breakdown |
+| GET | `/api/usage/anomalies` | Cost anomaly detection (3-sigma + 5x mean threshold) |
+| GET | `/api/usage/budget` | Get budget alert configuration |
+| PUT | `/api/usage/budget` | Set budget alert threshold and email |
 
 ### User Feedback (org-scoped)
 | Method | Path | Role | Description |
@@ -595,9 +622,14 @@ Uses AWS Bedrock (Claude) for AI analysis. Per-org `bedrockModel` can be configu
 ### Gamification (org-scoped)
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/gamification/leaderboard` | Org leaderboard (points, streaks, badges) |
+| GET | `/api/gamification/leaderboard` | Org leaderboard (filters opted-out employees) |
 | GET | `/api/gamification/profile/:employeeId` | Employee gamification profile with badges |
 | GET | `/api/gamification/badges` | List all badge definitions |
+| GET | `/api/gamification/settings` | Get gamification opt-out settings (admin) |
+| PUT | `/api/gamification/settings` | Configure opt-out roles/employees, team competitions (admin) |
+| POST | `/api/gamification/recognize` | Award custom recognition badge (manager+) |
+| GET | `/api/gamification/team-leaderboard` | Team/department competition leaderboard |
+| GET | `/api/gamification/effectiveness` | Badge-performance correlation analysis (admin) |
 
 ### Insurance Narratives (org-scoped)
 | Method | Path | Role | Description |
@@ -616,19 +648,27 @@ Uses AWS Bedrock (Claude) for AI analysis. Per-org `bedrockModel` can be configu
 | GET | `/api/revenue/metrics` | authenticated | Revenue summary (totals, conversion rate, avg deal) |
 | GET | `/api/revenue` | authenticated | List all call revenue records |
 | GET | `/api/revenue/call/:callId` | authenticated | Get revenue for specific call |
-| PUT | `/api/revenue/call/:callId` | manager+ | Create/update call revenue |
+| PUT | `/api/revenue/call/:callId` | manager+ | Create/update call revenue (supports attribution + payer fields) |
 | GET | `/api/revenue/by-employee` | authenticated | Revenue aggregated by employee |
+| GET | `/api/revenue/forecast` | authenticated | Revenue forecasting: pipeline value, conversion projection, monthly run rate |
+| GET | `/api/revenue/attribution` | authenticated | Attribution funnel: call → appointment → treatment → payment conversion rates |
+| GET | `/api/revenue/payer-mix` | authenticated | Payer mix analysis: insurance vs cash breakdown by carrier and employee |
+| POST | `/api/revenue/ehr-sync/:callId` | manager+ | Pull treatment/payment data from EHR into revenue record |
+| GET | `/api/revenue/trend` | authenticated | Weekly revenue trend (12 weeks) |
 
 ### Calibration Sessions (org-scoped)
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
-| POST | `/api/calibration` | manager+ | Create calibration session |
+| POST | `/api/calibration` | manager+ | Create calibration session (supports `blindMode: true`) |
 | GET | `/api/calibration` | manager+ | List sessions with stats |
-| GET | `/api/calibration/:id` | manager+ | Get session with all evaluations |
+| GET | `/api/calibration/:id` | manager+ | Get session with evaluations (blind mode hides others' scores until completed) |
 | POST | `/api/calibration/:id/evaluate` | authenticated | Submit evaluation (evaluators only) |
-| POST | `/api/calibration/:id/complete` | manager+ | Complete session (set consensus) |
+| POST | `/api/calibration/:id/complete` | manager+ | Complete session (set consensus, reveals blind scores) |
 | DELETE | `/api/calibration/:id` | manager+ | Delete session |
-| GET | `/api/calibration/analytics` | manager+ | Variance trends, evaluator alignment |
+| GET | `/api/calibration/:id/export` | manager+ | Export calibration report as CSV |
+| GET | `/api/calibration/analytics` | manager+ | Variance trends, IRR metrics (Krippendorff's alpha, ICC), evaluator certification |
+| GET | `/api/calibration/suggest-calls` | manager+ | Automated call selection for calibration (borderline, flagged, recent) |
+| GET | `/api/calibration/certifications` | manager+ | Evaluator certification status with consistency scores and trends |
 
 ### Live Sessions (org-scoped, requires Clinical Documentation plan)
 | Method | Path | Role | Description |
@@ -644,15 +684,20 @@ Uses AWS Bedrock (Claude) for AI analysis. Per-org `bedrockModel` can be configu
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
 | GET | `/api/lms/modules` | authenticated | List learning modules |
-| POST | `/api/lms/modules` | manager+ | Create module |
+| POST | `/api/lms/modules` | manager+ | Create module (supports prerequisiteModuleIds, passingScore) |
 | GET | `/api/lms/modules/:id` | authenticated | Get module content |
 | POST | `/api/lms/modules/generate` | manager+ | AI-generate module from call analysis |
+| GET | `/api/lms/modules/:id/prerequisites` | authenticated | Check prerequisite completion for employee |
+| GET | `/api/lms/modules/:id/certificate` | authenticated | Generate completion certificate data |
+| POST | `/api/lms/modules/:id/submit-quiz` | authenticated | Submit quiz answers (uses module passingScore) |
 | GET | `/api/lms/paths` | authenticated | List learning paths |
-| POST | `/api/lms/paths` | manager+ | Create learning path |
+| POST | `/api/lms/paths` | manager+ | Create learning path (supports dueDate, enforceOrder) |
 | GET | `/api/lms/paths/:id` | authenticated | Get learning path |
+| GET | `/api/lms/paths/:id/deadlines` | manager+ | Deadline status for all assigned employees |
 | GET | `/api/lms/progress` | authenticated | User progress |
 | GET | `/api/lms/progress/:employeeId` | authenticated | Employee progress |
 | GET | `/api/lms/stats` | manager+ | LMS statistics |
+| GET | `/api/lms/coaching-recommendations` | authenticated | Recommend modules based on coaching/weak areas |
 | GET | `/api/lms/knowledge-search` | authenticated | Search knowledge base |
 
 ### Marketing Attribution (org-scoped)
@@ -839,7 +884,7 @@ DISABLE_SECURE_COOKIE           # Set to skip secure cookie flag (for non-TLS de
 | `api_keys` | unique on `key_hash` | SHA-256 hashed, never plaintext |
 | `invitations` | unique on `token` | Expirable team invitations |
 | `subscriptions` | unique on `org_id` | Stripe integration |
-| `reference_documents` | index on `(org_id, category)` | RAG source documents |
+| `reference_documents` | index on `(org_id, category)` | RAG source documents. Versioning: `version`, `previous_version_id`. Indexing: `indexing_status`, `indexing_error`. Sources: `source_type` (upload/url), `source_url`. Analytics: `retrieval_count` |
 | `document_chunks` | index on `org_id`, `document_id` | pgvector(1024) embeddings |
 | `usage_events` | index on `(org_id, event_type)`, `created_at` | Billing metering |
 | `password_reset_tokens` | unique on `token` | Expirable reset tokens |
@@ -985,6 +1030,16 @@ Server serves both API and static frontend from the same process.
 - **Landing page wave animation**: Uses SVG SMIL `<animate>` elements on `<linearGradient>` stops for a traveling spark effect. CSS only handles `wave-drift` for gentle positional movement
 - **Clinical note PHI encryption**: PHI fields (subjective, objective, assessment, HPI) are encrypted with AES-256-GCM before storage and decrypted on retrieval in clinical routes
 - **EHR adapters**: Open Dental uses developer key + customer key auth; Eaglesoft uses eDex API with X-API-Key header. Config stored in `org.settings.ehrConfig`
+- **Document versioning is a linked list**: Each `ReferenceDocument` has `previousVersionId` pointing to its predecessor. Creating a new version deactivates the old one (`isActive: false`) and purges its chunks. Version history is reconstructed by walking `previousVersionId` chain + scanning for forward references
+- **RAG citations are fire-and-forget**: `consumeRagCitations()` returns the last citations produced by `loadReferenceContext()` and clears them. This avoids passing citation data through the entire prompt template pipeline. Citations are attached to `confidenceFactors.ragCitations[]` in the analysis
+- **Web URL sources use native fetch**: No Cheerio/Puppeteer dependency — HTML is stripped via regex (script/style/nav/footer/header tags removed, then all tags stripped). Sufficient for most documentation pages. 15-second timeout prevents hanging on slow servers
+- **Blind calibration is route-level enforcement**: `blindMode` is stored on the session, but score visibility is enforced in the GET endpoint — if `blindMode && status !== "completed"`, only the requesting user's evaluation is returned. This avoids needing separate database queries or access control tables
+- **Evaluator certification thresholds**: Certified = 5+ sessions with avgDeviation < 1.0 from consensus. Probationary = 3+ sessions with avgDeviation < 2.0. Flagged = 3+ sessions with avgDeviation >= 2.0. Trend detection compares last 3 deviations vs prior 3 (±0.3 threshold)
+- **IRR metrics are computed on-the-fly**: Krippendorff's alpha and ICC are calculated per-request, not stored. For orgs with < 100 completed sessions, this is fast enough. Consider caching in org settings for larger volumes
+- **Automated call selection is heuristic-based**: Calibration value scoring uses weighted criteria (borderline AI scores = 5 points, manual edits = 4, recency = 3, etc.) rather than ML. This is transparent and explainable to QA managers
+- **A/B test statistical significance uses Welch's t-test**: Handles unequal sample sizes and variances. P-value approximated via Abramowitz & Stegun normal CDF complement. 95% CI uses t-critical ≈ 2.0 (conservative for small samples). Tests with p < 0.05 marked as significant
+- **A/B batch tests share a batchId**: Each file in a batch creates a separate ABTest record linked by `batchId` (UUID). Files are processed in parallel (async). Batch status endpoint aggregates counts across all records
+- **A/B recommendations require 3+ completed tests per model pair**: Below this threshold, the system advises "continue testing". At 10+ tests, confidence is "high". Cost and latency comparisons included in recommendation text
 - **Clinical templates are in-memory**: `clinical-templates.ts` is a static library of pre-built templates, not database-stored. Templates cover 10+ specialties across SOAP, DAP, BIRP, and procedure note formats
 - **A/B tests run models in parallel**: Uses `Promise.allSettled()` so one model failure doesn't block the other
 - When adding new storage methods for A/B tests or usage records: update `IStorage` interface in `types.ts`, then implement in `memory.ts`, `cloud.ts`, and `pg-storage.ts`
@@ -1052,17 +1107,56 @@ Server serves both API and static frontend from the same process.
 - **API key resource scopes** — `permissions[]` accepts `"calls:read"`, `"employees:read"`, etc. alongside broad `read`/`write`/`admin`; `checkApiKeyScope(scope)` middleware factory enforces per-route; `write` implies `read`, `admin` implies both; `req.apiKeyScopes` only set for keys with zero broad permissions
 - **Viewer coaching self-service** — `GET /api/coaching/my` auto-discovers the caller's employee record by email/username then name fallback; no employee ID required
 
-#### ❌ Next up: RAG Knowledge Base improvements
+#### ✅ Completed & committed: RAG Knowledge Base improvements
+- **Document versioning** — `version` (integer), `previousVersionId` (text), `indexingStatus` (pending/indexing/indexed/failed), `indexingError` (text) fields on `ReferenceDocument` schema + DB; `POST /api/reference-documents/:id/version` creates a new version (deactivates old, purges old chunks, re-indexes new); `GET /api/reference-documents/:id/versions` returns version chain history
+- **Citation tracking** — when RAG chunks are injected into analysis prompt, chunk IDs are stored in `confidenceFactors.ragCitations[]` (chunkId, documentId, documentName, chunkIndex, score); returned in `GET /api/calls/:id/analysis` response via existing confidenceFactors JSONB
+- **Indexing status tracking** — `indexingStatus` (pending→indexing→indexed/failed) and `indexingError` surfaced in `GET /api/reference-documents` response; `indexDocument()` auto-updates status on success/failure; worker `on("failed")` handler also updates status; `POST /api/reference-documents/:id/reindex` resets status before re-enqueueing
+- **Chunk preview** — `GET /api/reference-documents/:id/chunks?limit=20&offset=0` returns paginated chunks with text, sectionHeader, tokenCount, charStart/charEnd, hasEmbedding flag, total count
+- **Knowledge base analytics** — `GET /api/reference-documents/rag/analytics` (admin) returns totalDocuments, totalChunks, indexedDocuments, failedDocuments, pendingDocuments, mostRetrievedDocs (top 10 by retrievalCount), avgChunksPerDocument; `retrievalCount` field on `reference_documents` auto-incremented on each RAG retrieval
+- **Web URL sources** — `POST /api/reference-documents/url` (admin) accepts `{ url, name?, category?, description?, appliesTo? }`, fetches page via `fetch()` (15s timeout), strips HTML (script/style/nav/footer/header tags), extracts text (50K char cap), creates doc with `sourceType: "url"` + `sourceUrl`, enqueues RAG indexing; validates HTTP/HTTPS only, rejects non-text content types
 
-**Priority: Critical**
-1. **Document versioning** — add `version` (integer), `previousVersionId` (text), `indexingStatus` (pending/indexing/indexed/failed), `indexingError` (text) fields to `ReferenceDocument` schema + DB; `POST /api/onboarding/reference-docs/:id/version` creates a new version; old version chunks purged and re-indexed
-2. **Citation tracking** — when RAG chunks are injected into analysis prompt, store the chunk IDs used in `confidenceFactors.ragCitations[]`; return citations in `GET /api/calls/:id/analysis` response
+#### ✅ Completed & committed: Calibration Session improvements
+- **Blind calibration** — `blindMode` (boolean) on `CalibrationSession`; when active, `GET /api/calibration/:id` only returns the requesting user's own evaluation until session is completed; aggregate stats (variance, IRR) also hidden during blind phase; `evaluationCount`/`expectedEvaluations` still visible so evaluators know submission progress
+- **Inter-rater reliability metrics** — `computeKrippendorffAlpha()` and `computeICC()` (Intraclass Correlation Coefficient) added to session detail and analytics endpoints; Krippendorff's alpha measures agreement accounting for chance; ICC measures absolute agreement across raters; both returned as -1 to 1 / 0 to 1 values
+- **Automated call selection** — `GET /api/calibration/suggest-calls?limit=10` scores calls by calibration value: borderline AI scores (4-6, +5), manual edits (+4), flagged calls (+3), recency within 14 days (+3), low outlier scores (+3), high outlier scores (+2); excludes already-calibrated calls; returns sorted suggestions with reasons
+- **Calibration report export** — `GET /api/calibration/:id/export` returns CSV with session metadata, scores summary (AI, consensus, average, std dev, Krippendorff's alpha, ICC), evaluator breakdown (score, deviation, sub-scores, notes), and consensus notes
+- **Evaluator certification** — `GET /api/calibration/certifications` returns per-evaluator certification status: `certified` (5+ sessions, avgDeviation < 1.0), `probationary` (3+ sessions, avgDeviation < 2.0), `flagged` (3+ sessions, avgDeviation >= 2.0), `needs_calibration` (< 3 sessions); includes `consistencyScore` (0-1), `trendDirection` (improving/declining/stable based on last 3 vs prior 3 deviations), `lastSessionDate`
 
-**Priority: High-impact**
-3. **Indexing error handling** — surface `indexingStatus` + `indexingError` in `GET /api/onboarding/reference-docs` response; show indexing progress in UI; retry endpoint `POST /api/onboarding/reference-docs/:id/reindex`
-4. **Chunk preview** — `GET /api/onboarding/reference-docs/:id/chunks` returns paginated list of stored chunks with text previews, vector dimensions, relevance metadata
-5. **Knowledge base analytics** — track retrieval counts per chunk/document; `GET /api/onboarding/rag/analytics` returns most-retrieved docs, average relevance scores, query→citation mapping
-6. **Web URL sources** — `POST /api/onboarding/reference-docs/url` accepts a URL, crawls the page (Cheerio or `node-fetch`), chunks + indexes it like an uploaded document; stored as `sourceType: "url"` with `sourceUrl` field
+#### ✅ Completed & committed: A/B Model Testing improvements
+- **Statistical significance** — Welch's t-test computes p-value and confidence level for score differences between models; 95% confidence interval for mean score difference; `GET /api/ab-tests/stats` returns `significance` (tStatistic, degreesOfFreedom, pValue, isSignificant, confidenceLevel) and `confidenceInterval` (lower, upper, level)
+- **Batch testing** — `POST /api/ab-tests/batch` accepts up to 50 audio files via multipart upload; creates individual ABTest records with shared `batchId` (UUID); each file processed asynchronously in parallel; `GET /api/ab-tests/batch/:batchId` returns batch status (completed/processing/failed counts) and all test results
+- **Automated recommendation** — `GET /api/ab-tests/recommend` analyzes completed tests per model pair; generates natural-language recommendations based on score difference significance, cost comparison, and latency; includes per-category recommendations (e.g., "use Model B for compliance calls"); confidence levels: high (10+ tests), moderate (3-9), low (not significant)
+- **Segment analysis** — `GET /api/ab-tests/segments` breaks down results by call category and model pair; each segment gets its own aggregate stats with t-test significance; reveals where each model excels (e.g., "Haiku is 0.8 points better for inbound calls but 0.3 worse for outbound")
+- **Aggregate stats** — `GET /api/ab-tests/stats` with optional filters (batchId, baselineModel, testModel); returns avg scores, sub-score breakdown (compliance, customerExperience, communication, resolution), cost comparison (percent diff), latency comparison, Welch's t-test results, 95% CI
+
+#### ✅ Completed & committed: Spend Tracking improvements
+- **Cost forecasting** — `GET /api/usage/forecast` returns currentMonthSpend, projectedMonthlySpend (daily rate × days in month), dailyRate, last7Days trend (daily cost + count), previousMonthSpend, monthOverMonthChange percentage, daysRemaining, budgetStatus (if configured)
+- **Cost per outcome** — `GET /api/usage/cost-per-outcome` returns costPerScoredCall, costPerCoachingSession (total call cost / coaching sessions triggered), costPerConvertedCall (total call cost / converted calls from revenue tracking), serviceBreakdown (assemblyai/bedrock split with percentages)
+- **Budget alerts** — `budgetAlerts` object in OrgSettings: `monthlyBudgetUsd`, `alertEmail`, `enabled`; `GET/PUT /api/usage/budget` for configuration; forecast endpoint returns `budgetStatus` (percentUsed, isOverBudget, projectedOverBudget) when budget is configured
+- **Department allocation** — `GET /api/usage/by-department` maps callId → call → employee → subTeam; returns per-department breakdown: totalCost, callCount, avgCostPerCall, employeeCount, percentOfTotal; sorted by cost descending
+- **Cost anomaly detection** — `GET /api/usage/anomalies` flags records > max(mean + 3σ, 5× mean); also flags unusually long audio (3× average and > 300s), multiple AI invocations on single call; returns anomaly details with multiplier, reason, and stats (mean, stdDev, threshold)
+
+#### ✅ Completed & committed: Gamification improvements
+- **Opt-out mechanism** — `gamification` object in OrgSettings: `enabled` (global toggle), `optedOutRoles` (e.g., `["viewer"]` for clinical settings), `optedOutEmployeeIds` (individual opt-out); leaderboard endpoint filters out opted-out employees/roles; `GET/PUT /api/gamification/settings` for admin configuration
+- **Team competitions** — `GET /api/gamification/team-leaderboard` groups employees by `subTeam`, computes per-team: totalPoints, memberCount, avgPointsPerMember, totalBadges, topPerformer; requires `teamCompetitionsEnabled: true` in gamification settings; sorted by total points
+- **Manager-awarded recognition badges** — `POST /api/gamification/recognize` (manager+) accepts `employeeId`, `badgeId`, `message`, optional `callId`; creates badge with `custom_` prefix, `awardedBy` (manager userId), `customMessage`; awards 30 bonus points; respects opt-out settings; `awardedBy` and `customMessage` fields added to `employee_badges` table
+- **Effectiveness measurement** — `GET /api/gamification/effectiveness` (admin) computes Pearson correlation between badge count and avg performance score across all employees; returns correlation coefficient, natural-language interpretation, comparison of high-badge (3+) vs low-badge employees (avg score difference)
+- **Opt-out in leaderboard** — Leaderboard returns empty array when gamification disabled globally; filters employees by optedOutRoles (matching employee.role) and optedOutEmployeeIds before ranking
+
+#### ✅ Completed & committed: LMS improvements
+- **Prerequisite gating** — `prerequisiteModuleIds` field on `LearningModule`; `GET /api/lms/modules/:id/prerequisites?employeeId=X` checks which prerequisites are met/unmet; returns `{ met, prerequisites, unmetPrerequisites }` for UI to block access to locked modules
+- **Completion certificates** — `GET /api/lms/modules/:id/certificate?employeeId=X` returns structured certificate data (employeeName, moduleName, completedAt, quizScore, organizationName, certificateId, difficulty); requires module status = "completed"; client-side PDF rendering
+- **Configurable passing scores** — `passingScore` field on `LearningModule` (0-100, default 70 if not set); quiz submission endpoint uses module-specific passing score instead of hardcoded 70; response includes `passingScore` field
+- **Deadline enforcement** — `dueDate` (ISO timestamp) and `enforceOrder` (boolean) fields on `LearningPath`; `GET /api/lms/paths/:id/deadlines` returns per-employee status: completed/overdue/at_risk/on_track with percentComplete, daysRemaining, counts
+- **Coaching-tied recommendations** — `GET /api/lms/coaching-recommendations?employeeId=X&coachingSessionId=Y` analyzes employee's weak sub-score areas (compliance, customerExperience, communication, resolution < 7.0), matches coaching session category/notes keywords, and ranks uncompleted published modules by relevance; returns top 5 with reasons
+- **Prerequisite order in paths** — `enforceOrder` field on `LearningPath` signals that modules must be completed sequentially (index N requires index N-1 completed); combined with per-module `prerequisiteModuleIds` for flexible gating
+
+#### ✅ Completed & committed: Revenue Tracking improvements
+- **Revenue forecasting** — `GET /api/revenue/forecast` returns currentMonth spend (estimated + actual), pipeline value (pending calls × historical conversion rate), projectedConversion, monthly run rate (dailyRate × daysInMonth), historical conversion rate and avg deal value
+- **Attribution funnel** — `GET /api/revenue/attribution` tracks the full conversion chain: call_identified → appointment_scheduled → appointment_completed → treatment_accepted → payment_collected; returns counts at each stage, stage-to-stage conversion rates, overall conversion rate, and revenue by stage (estimated → scheduled → collected)
+- **Payer mix analysis** — `GET /api/revenue/payer-mix` returns: overall breakdown by payerType (insurance/cash/mixed/unknown) with counts and revenue totals; per-carrier breakdown sorted by revenue; per-employee payer split; schema adds `payerType`, `insuranceCarrier`, `insuranceAmount`, `patientAmount` fields to CallRevenue
+- **EHR revenue sync** — `POST /api/revenue/ehr-sync/:callId` pulls treatment plan data from configured EHR (Open Dental/Eaglesoft) using `ehrPatientId`; maps treatment plan fees → treatmentValue, insurance/patient splits → payerType, plan status → attributionStage/conversionStatus; stores `ehrSyncedAt` timestamp; scheduled procedures extracted from plan phases
+- **Attribution chain schema** — new fields on `CallRevenue`: `attributionStage` (5-stage funnel enum), `appointmentDate`, `appointmentCompleted`, `treatmentAccepted`, `paymentCollected`, `payerType`, `insuranceCarrier`, `insuranceAmount`, `patientAmount`, `ehrSyncedAt`; all fields added to DB sync, Drizzle schema, pg-storage mapping
 
 ## Future Plans / Roadmap
 See `HEALTHCARE_EXPANSION_PLAN.md` for the full 4-phase healthcare expansion roadmap.

@@ -1858,6 +1858,13 @@ export class PostgresStorage implements IStorage {
       appliesTo: doc.appliesTo || null,
       isActive: doc.isActive ?? true,
       uploadedBy: doc.uploadedBy || null,
+      version: doc.version ?? 1,
+      previousVersionId: doc.previousVersionId || null,
+      indexingStatus: doc.indexingStatus || "pending",
+      indexingError: null,
+      sourceType: doc.sourceType || "upload",
+      sourceUrl: doc.sourceUrl || null,
+      retrievalCount: 0,
     }).returning();
     return this.mapReferenceDocument(row);
   }
@@ -1899,6 +1906,9 @@ export class PostgresStorage implements IStorage {
     if (updates.extractedText !== undefined) setValues.extractedText = updates.extractedText;
     if (updates.appliesTo !== undefined) setValues.appliesTo = updates.appliesTo;
     if (updates.isActive !== undefined) setValues.isActive = updates.isActive;
+    if (updates.indexingStatus !== undefined) setValues.indexingStatus = updates.indexingStatus;
+    if (updates.indexingError !== undefined) setValues.indexingError = updates.indexingError;
+    if (updates.retrievalCount !== undefined) setValues.retrievalCount = updates.retrievalCount;
 
     const [row] = await this.db.update(tables.referenceDocuments).set(setValues)
       .where(and(eq(tables.referenceDocuments.orgId, orgId), eq(tables.referenceDocuments.id, id)))
@@ -1927,6 +1937,13 @@ export class PostgresStorage implements IStorage {
       isActive: row.isActive,
       uploadedBy: row.uploadedBy || undefined,
       createdAt: toISOString(row.createdAt),
+      version: row.version ?? 1,
+      previousVersionId: row.previousVersionId || undefined,
+      indexingStatus: row.indexingStatus || "pending",
+      indexingError: row.indexingError || undefined,
+      sourceType: row.sourceType || "upload",
+      sourceUrl: row.sourceUrl || undefined,
+      retrievalCount: row.retrievalCount ?? 0,
     };
   }
 
@@ -1963,6 +1980,7 @@ export class PostgresStorage implements IStorage {
       testLatencyMs: test.testLatencyMs || null,
       notes: test.notes || null,
       createdBy: test.createdBy,
+      batchId: test.batchId || null,
     }).returning();
     return this.mapABTest(row);
   }
@@ -2021,6 +2039,7 @@ export class PostgresStorage implements IStorage {
       notes: row.notes || undefined,
       createdBy: row.createdBy,
       createdAt: toISOString(row.createdAt),
+      batchId: row.batchId || undefined,
     };
   }
 
@@ -2205,6 +2224,8 @@ export class PostgresStorage implements IStorage {
       id: r.id, orgId: r.orgId, employeeId: r.employeeId, badgeId: r.badgeId,
       awardedAt: toISOString(r.awardedAt) || new Date().toISOString(),
       awardedFor: r.awardedFor || undefined,
+      awardedBy: r.awardedBy || undefined,
+      customMessage: r.customMessage || undefined,
     }));
   }
 
@@ -2214,6 +2235,8 @@ export class PostgresStorage implements IStorage {
       await this.db.insert(tables.employeeBadges).values({
         id, orgId, employeeId: badge.employeeId, badgeId: badge.badgeId,
         awardedFor: badge.awardedFor || null,
+        awardedBy: badge.awardedBy || null,
+        customMessage: badge.customMessage || null,
       });
     } catch (e: unknown) {
       // Unique constraint violation — badge already awarded
@@ -2365,6 +2388,16 @@ export class PostgresStorage implements IStorage {
       notes: revenue.notes || null,
       updatedBy: revenue.updatedBy || null,
       createdAt: now, updatedAt: now,
+      attributionStage: revenue.attributionStage || null,
+      appointmentDate: revenue.appointmentDate ? new Date(revenue.appointmentDate) : null,
+      appointmentCompleted: revenue.appointmentCompleted ?? null,
+      treatmentAccepted: revenue.treatmentAccepted ?? null,
+      paymentCollected: revenue.paymentCollected ?? null,
+      payerType: revenue.payerType || null,
+      insuranceCarrier: revenue.insuranceCarrier || null,
+      insuranceAmount: revenue.insuranceAmount ?? null,
+      patientAmount: revenue.patientAmount ?? null,
+      ehrSyncedAt: null,
     });
     return { ...revenue, id, orgId, createdAt: now.toISOString(), updatedAt: now.toISOString() };
   }
@@ -2393,6 +2426,16 @@ export class PostgresStorage implements IStorage {
     if (updates.conversionStatus !== undefined) dbUpdates.conversionStatus = updates.conversionStatus;
     if (updates.notes !== undefined) dbUpdates.notes = updates.notes;
     if (updates.updatedBy !== undefined) dbUpdates.updatedBy = updates.updatedBy;
+    if (updates.attributionStage !== undefined) dbUpdates.attributionStage = updates.attributionStage;
+    if (updates.appointmentDate !== undefined) dbUpdates.appointmentDate = updates.appointmentDate ? new Date(updates.appointmentDate) : null;
+    if (updates.appointmentCompleted !== undefined) dbUpdates.appointmentCompleted = updates.appointmentCompleted;
+    if (updates.treatmentAccepted !== undefined) dbUpdates.treatmentAccepted = updates.treatmentAccepted;
+    if (updates.paymentCollected !== undefined) dbUpdates.paymentCollected = updates.paymentCollected;
+    if (updates.payerType !== undefined) dbUpdates.payerType = updates.payerType;
+    if (updates.insuranceCarrier !== undefined) dbUpdates.insuranceCarrier = updates.insuranceCarrier;
+    if (updates.insuranceAmount !== undefined) dbUpdates.insuranceAmount = updates.insuranceAmount;
+    if (updates.patientAmount !== undefined) dbUpdates.patientAmount = updates.patientAmount;
+    if (updates.ehrSyncedAt !== undefined) dbUpdates.ehrSyncedAt = updates.ehrSyncedAt ? new Date(updates.ehrSyncedAt) : null;
     const rows = await this.db.update(tables.callRevenues).set(dbUpdates)
       .where(and(eq(tables.callRevenues.orgId, orgId), eq(tables.callRevenues.callId, callId)))
       .returning();
@@ -2424,6 +2467,16 @@ export class PostgresStorage implements IStorage {
       conversionStatus: r.conversionStatus as CallRevenue["conversionStatus"],
       notes: r.notes || undefined, updatedBy: r.updatedBy || undefined,
       createdAt: toISOString(r.createdAt), updatedAt: toISOString(r.updatedAt),
+      attributionStage: r.attributionStage as CallRevenue["attributionStage"],
+      appointmentDate: toISOString(r.appointmentDate),
+      appointmentCompleted: r.appointmentCompleted ?? undefined,
+      treatmentAccepted: r.treatmentAccepted ?? undefined,
+      paymentCollected: r.paymentCollected ?? undefined,
+      payerType: r.payerType as CallRevenue["payerType"],
+      insuranceCarrier: r.insuranceCarrier || undefined,
+      insuranceAmount: r.insuranceAmount ?? undefined,
+      patientAmount: r.patientAmount ?? undefined,
+      ehrSyncedAt: toISOString(r.ehrSyncedAt),
     };
   }
 
@@ -2440,8 +2493,9 @@ export class PostgresStorage implements IStorage {
       targetScore: session.targetScore ?? null,
       consensusNotes: session.consensusNotes || null,
       createdAt: now,
+      blindMode: session.blindMode ?? false,
     });
-    return { ...session, id, orgId, createdAt: now.toISOString() };
+    return { ...session, id, orgId, blindMode: session.blindMode ?? false, createdAt: now.toISOString() };
   }
 
   async getCalibrationSession(orgId: string, id: string): Promise<CalibrationSession | undefined> {
@@ -2526,6 +2580,7 @@ export class PostgresStorage implements IStorage {
       targetScore: r.targetScore ?? undefined,
       consensusNotes: r.consensusNotes || undefined,
       createdAt: toISOString(r.createdAt), completedAt: toISOString(r.completedAt),
+      blindMode: r.blindMode ?? false,
     };
   }
 
@@ -2541,6 +2596,8 @@ export class PostgresStorage implements IStorage {
       tags: module.tags || null, sourceDocumentId: module.sourceDocumentId || null,
       isPublished: module.isPublished ?? false, isPlatformContent: module.isPlatformContent ?? false,
       createdBy: module.createdBy, sortOrder: module.sortOrder || null,
+      prerequisiteModuleIds: module.prerequisiteModuleIds || null,
+      passingScore: module.passingScore || null,
     }).returning();
     return this.mapLearningModule(row);
   }
@@ -2572,6 +2629,8 @@ export class PostgresStorage implements IStorage {
     if (updates.tags !== undefined) setClause.tags = updates.tags;
     if (updates.isPublished !== undefined) setClause.isPublished = updates.isPublished;
     if (updates.sortOrder !== undefined) setClause.sortOrder = updates.sortOrder;
+    if (updates.prerequisiteModuleIds !== undefined) setClause.prerequisiteModuleIds = updates.prerequisiteModuleIds;
+    if (updates.passingScore !== undefined) setClause.passingScore = updates.passingScore;
     const rows = await this.db.update(tables.learningModules).set(setClause)
       .where(and(eq(tables.learningModules.orgId, orgId), eq(tables.learningModules.id, id))).returning();
     return rows[0] ? this.mapLearningModule(rows[0]) : undefined;
@@ -2591,6 +2650,8 @@ export class PostgresStorage implements IStorage {
       category: path.category || null, moduleIds: path.moduleIds,
       isRequired: path.isRequired ?? false, assignedTo: path.assignedTo || null,
       estimatedMinutes: path.estimatedMinutes || null, createdBy: path.createdBy,
+      dueDate: path.dueDate ? new Date(path.dueDate) : null,
+      enforceOrder: path.enforceOrder ?? false,
     }).returning();
     return this.mapLearningPath(row);
   }
@@ -2695,6 +2756,8 @@ export class PostgresStorage implements IStorage {
       tags: r.tags as string[] || undefined, sourceDocumentId: r.sourceDocumentId || undefined,
       isPublished: r.isPublished, isPlatformContent: r.isPlatformContent,
       createdBy: r.createdBy, sortOrder: r.sortOrder || undefined,
+      prerequisiteModuleIds: r.prerequisiteModuleIds as string[] || undefined,
+      passingScore: r.passingScore || undefined,
       createdAt: toISOString(r.createdAt), updatedAt: toISOString(r.updatedAt),
     };
   }
@@ -2705,6 +2768,7 @@ export class PostgresStorage implements IStorage {
       category: r.category || undefined, moduleIds: r.moduleIds as string[],
       isRequired: r.isRequired, assignedTo: r.assignedTo as string[] || undefined,
       estimatedMinutes: r.estimatedMinutes || undefined, createdBy: r.createdBy,
+      dueDate: toISOString(r.dueDate), enforceOrder: r.enforceOrder ?? false,
       createdAt: toISOString(r.createdAt), updatedAt: toISOString(r.updatedAt),
     };
   }

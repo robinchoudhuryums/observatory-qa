@@ -488,6 +488,13 @@ export async function syncSchema(db: Database): Promise<void> {
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
+    await addColumnIfNotExists(db, "reference_documents", "version", "INTEGER NOT NULL DEFAULT 1");
+    await addColumnIfNotExists(db, "reference_documents", "previous_version_id", "TEXT");
+    await addColumnIfNotExists(db, "reference_documents", "indexing_status", "VARCHAR(20) NOT NULL DEFAULT 'pending'");
+    await addColumnIfNotExists(db, "reference_documents", "indexing_error", "TEXT");
+    await addColumnIfNotExists(db, "reference_documents", "source_type", "VARCHAR(20) NOT NULL DEFAULT 'upload'");
+    await addColumnIfNotExists(db, "reference_documents", "source_url", "TEXT");
+    await addColumnIfNotExists(db, "reference_documents", "retrieval_count", "INTEGER NOT NULL DEFAULT 0");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS ref_docs_org_id_idx ON reference_documents (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS ref_docs_category_idx ON reference_documents (org_id, category)`);
     await addRlsPolicy(db, "reference_documents").catch(e => logger.warn({ err: e }, "RLS setup skipped for reference_documents"));
@@ -587,8 +594,10 @@ export async function syncSchema(db: Database): Promise<void> {
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
+    await addColumnIfNotExists(db, "ab_tests", "batch_id", "TEXT");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS ab_tests_org_id_idx ON ab_tests (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS ab_tests_status_idx ON ab_tests (org_id, status)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS ab_tests_batch_id_idx ON ab_tests (org_id, batch_id)`).catch(() => {});
     await addRlsPolicy(db, "ab_tests").catch(e => logger.warn({ err: e }, "RLS setup skipped for ab_tests"));
 
     // --- Spend Records ---
@@ -664,6 +673,8 @@ export async function syncSchema(db: Database): Promise<void> {
         UNIQUE(org_id, employee_id, badge_id)
       )
     `);
+    await addColumnIfNotExists(db, "employee_badges", "awarded_by", "TEXT");
+    await addColumnIfNotExists(db, "employee_badges", "custom_message", "TEXT");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS employee_badges_org_idx ON employee_badges (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS employee_badges_employee_idx ON employee_badges (org_id, employee_id)`);
     await addRlsPolicy(db, "employee_badges").catch(e => logger.warn({ err: e }, "RLS setup skipped for employee_badges"));
@@ -732,6 +743,16 @@ export async function syncSchema(db: Database): Promise<void> {
         UNIQUE(org_id, call_id)
       )
     `);
+    await addColumnIfNotExists(db, "call_revenues", "attribution_stage", "VARCHAR(30)");
+    await addColumnIfNotExists(db, "call_revenues", "appointment_date", "TIMESTAMP");
+    await addColumnIfNotExists(db, "call_revenues", "appointment_completed", "BOOLEAN");
+    await addColumnIfNotExists(db, "call_revenues", "treatment_accepted", "BOOLEAN");
+    await addColumnIfNotExists(db, "call_revenues", "payment_collected", "REAL");
+    await addColumnIfNotExists(db, "call_revenues", "payer_type", "VARCHAR(20)");
+    await addColumnIfNotExists(db, "call_revenues", "insurance_carrier", "VARCHAR(255)");
+    await addColumnIfNotExists(db, "call_revenues", "insurance_amount", "REAL");
+    await addColumnIfNotExists(db, "call_revenues", "patient_amount", "REAL");
+    await addColumnIfNotExists(db, "call_revenues", "ehr_synced_at", "TIMESTAMP");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS call_revenues_org_idx ON call_revenues (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS call_revenues_conversion_idx ON call_revenues (org_id, conversion_status)`);
     await addRlsPolicy(db, "call_revenues").catch(e => logger.warn({ err: e }, "RLS setup skipped for call_revenues"));
@@ -753,6 +774,7 @@ export async function syncSchema(db: Database): Promise<void> {
         completed_at TIMESTAMP
       )
     `);
+    await addColumnIfNotExists(db, "calibration_sessions", "blind_mode", "BOOLEAN NOT NULL DEFAULT false");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS calibration_sessions_org_idx ON calibration_sessions (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS calibration_sessions_status_idx ON calibration_sessions (org_id, status)`);
     await addRlsPolicy(db, "calibration_sessions").catch(e => logger.warn({ err: e }, "RLS setup skipped for calibration_sessions"));
@@ -797,6 +819,8 @@ export async function syncSchema(db: Database): Promise<void> {
         updated_at TIMESTAMP DEFAULT NOW()
       )
     `);
+    await addColumnIfNotExists(db, "learning_modules", "prerequisite_module_ids", "JSONB");
+    await addColumnIfNotExists(db, "learning_modules", "passing_score", "INTEGER");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS learning_modules_org_idx ON learning_modules (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS learning_modules_category_idx ON learning_modules (org_id, category)`);
 
@@ -817,6 +841,8 @@ export async function syncSchema(db: Database): Promise<void> {
         updated_at TIMESTAMP DEFAULT NOW()
       )
     `);
+    await addColumnIfNotExists(db, "learning_paths", "due_date", "TIMESTAMP");
+    await addColumnIfNotExists(db, "learning_paths", "enforce_order", "BOOLEAN NOT NULL DEFAULT false");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS learning_paths_org_idx ON learning_paths (org_id)`);
 
     // --- LMS: Learning Progress ---

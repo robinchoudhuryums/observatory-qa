@@ -179,6 +179,510 @@ export function registerABTestRoutes(app: Express): void {
       res.status(500).json({ message: "Failed to delete A/B test" });
     }
   });
+
+  // --- Batch upload: test multiple calls at once ---
+  app.post("/api/ab-tests/batch", requireAuth, requireRole("admin"), injectOrgContext,
+    requireActiveSubscription(), requirePlanFeature("abTestingEnabled", "A/B model testing requires a Pro or Enterprise plan"),
+    upload.array("audioFiles", 50),
+    async (req, res) => {
+      try {
+        const files = req.files as any[] | undefined;
+        if (!files || files.length === 0) {
+          return res.status(400).json({ message: "No audio files provided" });
+        }
+        if (files.length > 50) {
+          for (const f of files) await cleanupFile(f.path);
+          return res.status(400).json({ message: "Maximum 50 files per batch" });
+        }
+
+        const { testModel } = req.body;
+        const validModels = BEDROCK_MODEL_PRESETS.map(m => m.value) as string[];
+        if (!testModel || !validModels.includes(testModel)) {
+          for (const f of files) await cleanupFile(f.path);
+          return res.status(400).json({ message: `Invalid model. Must be one of: ${validModels.join(", ")}` });
+        }
+
+        const abValidCategories = CALL_CATEGORIES.map(c => c.value) as string[];
+        const callCategory = abValidCategories.includes(req.body.callCategory) ? req.body.callCategory : undefined;
+        const orgId = req.orgId!;
+        const baselineModel = process.env.BEDROCK_MODEL || "us.anthropic.claude-sonnet-4-6";
+        const batchId = randomUUID();
+        const userName = req.user?.username || "admin";
+
+        const tests: any[] = [];
+        for (const file of files) {
+          const abTest = await storage.createABTest(orgId, {
+            orgId,
+            fileName: file.originalname,
+            callCategory,
+            baselineModel,
+            testModel,
+            status: "processing",
+            createdBy: userName,
+            batchId,
+          });
+          tests.push(abTest);
+
+          // Process each file asynchronously
+          processABTest(orgId, abTest.id, file.path, callCategory, userName).catch(async (error) => {
+            logger.error({ testId: abTest.id, err: error }, "Batch A/B test processing failed");
+            try {
+              await storage.updateABTest(orgId, abTest.id, { status: "failed" });
+            } catch (err) { logger.warn({ err }, "Failed to update batch test status"); }
+          });
+        }
+
+        logger.info({ orgId, batchId, fileCount: files.length }, "A/B test batch started");
+        res.status(201).json({ batchId, tests, totalFiles: files.length });
+      } catch (error) {
+        logger.error({ err: error }, "Error starting A/B test batch");
+        const files = req.files as any[] | undefined;
+        if (files) for (const f of files) await cleanupFile(f.path);
+        res.status(500).json({ message: "Failed to start A/B test batch" });
+      }
+    },
+  );
+
+  // --- Get batch status and aggregate results ---
+  app.get("/api/ab-tests/batch/:batchId", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      const orgId = req.orgId!;
+      const allTests = await storage.getAllABTests(orgId);
+      const batchTests = allTests.filter(t => t.batchId === req.params.batchId);
+
+      if (batchTests.length === 0) {
+        return res.status(404).json({ message: "Batch not found" });
+      }
+
+      const completed = batchTests.filter(t => t.status === "completed");
+      const processing = batchTests.filter(t => t.status === "processing" || t.status === "analyzing");
+      const failed = batchTests.filter(t => t.status === "failed");
+
+      res.json({
+        batchId: req.params.batchId,
+        totalTests: batchTests.length,
+        completedCount: completed.length,
+        processingCount: processing.length,
+        failedCount: failed.length,
+        partialCount: batchTests.filter(t => t.status === "partial").length,
+        isComplete: processing.length === 0,
+        tests: batchTests,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get batch status" });
+    }
+  });
+
+  // --- Aggregate statistics with statistical significance ---
+  app.get("/api/ab-tests/stats", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      const orgId = req.orgId!;
+      const allTests = await storage.getAllABTests(orgId);
+      const { batchId, baselineModel, testModel } = req.query;
+
+      let tests = allTests.filter(t => t.status === "completed");
+      if (batchId) tests = tests.filter(t => t.batchId === batchId);
+      if (baselineModel) tests = tests.filter(t => t.baselineModel === baselineModel);
+      if (testModel) tests = tests.filter(t => t.testModel === testModel);
+
+      if (tests.length === 0) {
+        return res.json({ testCount: 0, message: "No completed tests found matching filters" });
+      }
+
+      const stats = computeAggregateStats(tests);
+      res.json(stats);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to compute A/B test statistics" });
+    }
+  });
+
+  // --- Segment analysis: breakdown by call category ---
+  app.get("/api/ab-tests/segments", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      const orgId = req.orgId!;
+      const allTests = await storage.getAllABTests(orgId);
+      const completed = allTests.filter(t => t.status === "completed");
+
+      // Group by call category
+      const segments: Record<string, typeof completed> = {};
+      for (const test of completed) {
+        const cat = test.callCategory || "uncategorized";
+        if (!segments[cat]) segments[cat] = [];
+        segments[cat].push(test);
+      }
+
+      // Also group by model pair
+      const modelPairs: Record<string, typeof completed> = {};
+      for (const test of completed) {
+        const pair = `${test.baselineModel} vs ${test.testModel}`;
+        if (!modelPairs[pair]) modelPairs[pair] = [];
+        modelPairs[pair].push(test);
+      }
+
+      const categoryBreakdown: Record<string, any> = {};
+      for (const [cat, catTests] of Object.entries(segments)) {
+        if (catTests.length >= 2) {
+          categoryBreakdown[cat] = computeAggregateStats(catTests);
+        } else {
+          categoryBreakdown[cat] = { testCount: catTests.length, message: "Insufficient data (need 2+ tests)" };
+        }
+      }
+
+      const modelPairBreakdown: Record<string, any> = {};
+      for (const [pair, pairTests] of Object.entries(modelPairs)) {
+        if (pairTests.length >= 2) {
+          modelPairBreakdown[pair] = computeAggregateStats(pairTests);
+        } else {
+          modelPairBreakdown[pair] = { testCount: pairTests.length, message: "Insufficient data" };
+        }
+      }
+
+      res.json({
+        totalCompletedTests: completed.length,
+        byCategory: categoryBreakdown,
+        byModelPair: modelPairBreakdown,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to compute segment analysis" });
+    }
+  });
+
+  // --- Automated recommendation ---
+  app.get("/api/ab-tests/recommend", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      const orgId = req.orgId!;
+      const allTests = await storage.getAllABTests(orgId);
+      const completed = allTests.filter(t => t.status === "completed");
+
+      if (completed.length < 5) {
+        return res.json({
+          recommendation: null,
+          message: `Need at least 5 completed tests for recommendations (have ${completed.length})`,
+        });
+      }
+
+      // Group by model pair
+      const modelPairs: Record<string, typeof completed> = {};
+      for (const test of completed) {
+        const pair = `${test.baselineModel}::${test.testModel}`;
+        if (!modelPairs[pair]) modelPairs[pair] = [];
+        modelPairs[pair].push(test);
+      }
+
+      const recommendations: Array<{
+        baselineModel: string;
+        testModel: string;
+        baselineLabel: string;
+        testLabel: string;
+        testCount: number;
+        recommendation: string;
+        confidence: string;
+        details: {
+          scoreDiff: number;
+          costDiff: number;
+          latencyDiff: number;
+          pValue: number | null;
+          isSignificant: boolean;
+        };
+        categoryRecommendations?: Array<{
+          category: string;
+          winner: string;
+          scoreDiff: number;
+          testCount: number;
+        }>;
+      }> = [];
+
+      for (const [pairKey, pairTests] of Object.entries(modelPairs)) {
+        if (pairTests.length < 3) continue;
+        const [bModel, tModel] = pairKey.split("::");
+        const stats = computeAggregateStats(pairTests);
+
+        const baselineLabel = BEDROCK_MODEL_PRESETS.find(m => m.value === bModel)?.label || bModel;
+        const testLabel = BEDROCK_MODEL_PRESETS.find(m => m.value === tModel)?.label || tModel;
+
+        let recommendation: string;
+        let confidence: string;
+
+        const scoreDiff = stats.avgScoreDiff;
+        const isSignificant = stats.significance?.isSignificant ?? false;
+        const costDiff = stats.costComparison?.percentDiff ?? 0;
+
+        if (!isSignificant) {
+          recommendation = `No statistically significant difference between ${baselineLabel} and ${testLabel}. Continue testing to gather more data.`;
+          confidence = "low";
+        } else if (scoreDiff > 0.5) {
+          const costNote = costDiff > 5 ? ` (${costDiff.toFixed(0)}% more expensive)` : costDiff < -5 ? ` (${Math.abs(costDiff).toFixed(0)}% cheaper)` : "";
+          recommendation = `Consider switching to ${testLabel} — scores ${scoreDiff.toFixed(1)} points higher on average${costNote}.`;
+          confidence = pairTests.length >= 10 ? "high" : "moderate";
+        } else if (scoreDiff < -0.5) {
+          recommendation = `Keep ${baselineLabel} — it scores ${Math.abs(scoreDiff).toFixed(1)} points higher than ${testLabel}.`;
+          confidence = pairTests.length >= 10 ? "high" : "moderate";
+        } else if (costDiff < -10) {
+          recommendation = `Consider ${testLabel} — similar quality but ${Math.abs(costDiff).toFixed(0)}% cheaper.`;
+          confidence = "moderate";
+        } else {
+          recommendation = `Both models perform similarly. ${baselineLabel} is the safer choice as the current production model.`;
+          confidence = "moderate";
+        }
+
+        // Per-category recommendations
+        const categories: Record<string, typeof pairTests> = {};
+        for (const t of pairTests) {
+          const cat = t.callCategory || "uncategorized";
+          if (!categories[cat]) categories[cat] = [];
+          categories[cat].push(t);
+        }
+
+        const categoryRecs: typeof recommendations[0]["categoryRecommendations"] = [];
+        for (const [cat, catTests] of Object.entries(categories)) {
+          if (catTests.length < 2) continue;
+          const catStats = computeAggregateStats(catTests);
+          if (Math.abs(catStats.avgScoreDiff) >= 0.5) {
+            categoryRecs.push({
+              category: cat,
+              winner: catStats.avgScoreDiff > 0 ? tModel : bModel,
+              scoreDiff: catStats.avgScoreDiff,
+              testCount: catTests.length,
+            });
+          }
+        }
+
+        recommendations.push({
+          baselineModel: bModel,
+          testModel: tModel,
+          baselineLabel,
+          testLabel,
+          testCount: pairTests.length,
+          recommendation,
+          confidence,
+          details: {
+            scoreDiff,
+            costDiff,
+            latencyDiff: stats.latencyComparison?.percentDiff ?? 0,
+            pValue: stats.significance?.pValue ?? null,
+            isSignificant,
+          },
+          categoryRecommendations: categoryRecs.length > 0 ? categoryRecs : undefined,
+        });
+      }
+
+      res.json({ recommendations });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate recommendations" });
+    }
+  });
+}
+
+// ==================== STATISTICAL ANALYSIS HELPERS ====================
+
+function extractScore(analysis: any): number | null {
+  if (!analysis || analysis.error) return null;
+  const score = analysis.performance_score ?? analysis.performanceScore;
+  if (score === undefined || score === null) return null;
+  const num = typeof score === "number" ? score : parseFloat(String(score));
+  return isNaN(num) ? null : num;
+}
+
+function extractSubScore(analysis: any, field: string): number | null {
+  const sub = analysis?.sub_scores ?? analysis?.subScores;
+  if (!sub) return null;
+  const val = sub[field];
+  if (val === undefined || val === null) return null;
+  const num = typeof val === "number" ? val : parseFloat(String(val));
+  return isNaN(num) ? null : num;
+}
+
+/**
+ * Welch's t-test for two independent samples (unequal variance).
+ * Returns { tStatistic, degreesOfFreedom, pValue }.
+ */
+function welchTTest(sample1: number[], sample2: number[]): { tStatistic: number; degreesOfFreedom: number; pValue: number } | null {
+  if (sample1.length < 2 || sample2.length < 2) return null;
+
+  const n1 = sample1.length;
+  const n2 = sample2.length;
+  const mean1 = sample1.reduce((a, b) => a + b, 0) / n1;
+  const mean2 = sample2.reduce((a, b) => a + b, 0) / n2;
+  const var1 = sample1.reduce((sum, x) => sum + Math.pow(x - mean1, 2), 0) / (n1 - 1);
+  const var2 = sample2.reduce((sum, x) => sum + Math.pow(x - mean2, 2), 0) / (n2 - 1);
+
+  const se = Math.sqrt(var1 / n1 + var2 / n2);
+  if (se === 0) return { tStatistic: 0, degreesOfFreedom: n1 + n2 - 2, pValue: 1 };
+
+  const t = (mean1 - mean2) / se;
+
+  // Welch-Satterthwaite degrees of freedom
+  const num = Math.pow(var1 / n1 + var2 / n2, 2);
+  const den = Math.pow(var1 / n1, 2) / (n1 - 1) + Math.pow(var2 / n2, 2) / (n2 - 1);
+  const df = den > 0 ? num / den : n1 + n2 - 2;
+
+  // Approximate two-tailed p-value using the t-distribution CDF
+  // Use the regularized incomplete beta function approximation
+  const pValue = tDistPValue(Math.abs(t), df);
+
+  return {
+    tStatistic: Math.round(t * 1000) / 1000,
+    degreesOfFreedom: Math.round(df * 10) / 10,
+    pValue: Math.round(pValue * 10000) / 10000,
+  };
+}
+
+/**
+ * Approximate two-tailed p-value for t-distribution.
+ * Uses the approximation: p ≈ 2 * (1 - Φ(|t| * sqrt(df / (df - 2 + t²))))
+ * where Φ is the standard normal CDF.
+ */
+function tDistPValue(absT: number, df: number): number {
+  if (df <= 0) return 1;
+  // Transform t to approximate normal z
+  const x = df / (df + absT * absT);
+  // Regularized incomplete beta function approximation
+  // For large df, t approaches normal: use normal CDF
+  if (df > 100) {
+    return 2 * normalCdfComplement(absT);
+  }
+  // For smaller df, use adjusted t → z mapping
+  const z = absT * Math.sqrt((df - 2 > 0 ? df / (df - 2) : 1));
+  const adjustedZ = absT * Math.pow(1 + absT * absT / df, -0.5) * Math.sqrt(df);
+  // Satterthwaite approximation for p-value
+  return Math.min(1, 2 * normalCdfComplement(adjustedZ / Math.sqrt(df)));
+}
+
+/** Standard normal CDF complement: P(Z > z) */
+function normalCdfComplement(z: number): number {
+  // Abramowitz & Stegun approximation 26.2.17
+  const p = 0.2316419;
+  const b1 = 0.319381530;
+  const b2 = -0.356563782;
+  const b3 = 1.781477937;
+  const b4 = -1.821255978;
+  const b5 = 1.330274429;
+
+  const t = 1 / (1 + p * Math.abs(z));
+  const phi = Math.exp(-z * z / 2) / Math.sqrt(2 * Math.PI);
+  const cdf = phi * (b1 * t + b2 * t * t + b3 * Math.pow(t, 3) + b4 * Math.pow(t, 4) + b5 * Math.pow(t, 5));
+  return z >= 0 ? cdf : 1 - cdf;
+}
+
+/**
+ * Compute aggregate statistics across multiple A/B tests.
+ */
+function computeAggregateStats(tests: any[]) {
+  const baselineScores: number[] = [];
+  const testScores: number[] = [];
+  const baselineLatencies: number[] = [];
+  const testLatencies: number[] = [];
+  const baselineCosts: number[] = [];
+  const testCosts: number[] = [];
+  const subScoreFields = ["compliance", "customerExperience", "communication", "resolution"];
+  const baselineSubScores: Record<string, number[]> = {};
+  const testSubScores: Record<string, number[]> = {};
+  for (const f of subScoreFields) {
+    baselineSubScores[f] = [];
+    testSubScores[f] = [];
+  }
+
+  for (const test of tests) {
+    const bScore = extractScore(test.baselineAnalysis);
+    const tScore = extractScore(test.testAnalysis);
+    if (bScore !== null) baselineScores.push(bScore);
+    if (tScore !== null) testScores.push(tScore);
+
+    if (test.baselineLatencyMs) baselineLatencies.push(test.baselineLatencyMs);
+    if (test.testLatencyMs) testLatencies.push(test.testLatencyMs);
+
+    // Estimate costs
+    const wordCount = test.transcriptText ? test.transcriptText.split(/\s+/).length : 0;
+    const inputTokens = Math.ceil(wordCount * 1.3) + 500;
+    if (bScore !== null) baselineCosts.push(estimateBedrockCost(test.baselineModel, inputTokens, 900));
+    if (tScore !== null) testCosts.push(estimateBedrockCost(test.testModel, inputTokens, 900));
+
+    // Sub-scores
+    for (const f of subScoreFields) {
+      const bSub = extractSubScore(test.baselineAnalysis, f);
+      const tSub = extractSubScore(test.testAnalysis, f);
+      if (bSub !== null) baselineSubScores[f].push(bSub);
+      if (tSub !== null) testSubScores[f].push(tSub);
+    }
+  }
+
+  const avg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+
+  const avgBaseline = avg(baselineScores);
+  const avgTest = avg(testScores);
+  const avgScoreDiff = round2(avgTest - avgBaseline);
+
+  // Statistical significance via Welch's t-test
+  const tTest = welchTTest(baselineScores, testScores);
+  const significance = tTest ? {
+    tStatistic: tTest.tStatistic,
+    degreesOfFreedom: tTest.degreesOfFreedom,
+    pValue: tTest.pValue,
+    isSignificant: tTest.pValue < 0.05,
+    confidenceLevel: tTest.pValue < 0.01 ? "99%" : tTest.pValue < 0.05 ? "95%" : "not significant",
+  } : null;
+
+  // Confidence interval for score difference (bootstrap-free, using t-distribution)
+  let confidenceInterval: { lower: number; upper: number; level: string } | null = null;
+  if (baselineScores.length >= 2 && testScores.length >= 2) {
+    const n1 = baselineScores.length;
+    const n2 = testScores.length;
+    const var1 = baselineScores.reduce((sum, x) => sum + Math.pow(x - avgBaseline, 2), 0) / (n1 - 1);
+    const var2 = testScores.reduce((sum, x) => sum + Math.pow(x - avgTest, 2), 0) / (n2 - 1);
+    const se = Math.sqrt(var1 / n1 + var2 / n2);
+    // Use t-critical ≈ 2.0 for 95% CI (conservative for small samples)
+    const tCrit = 2.0;
+    confidenceInterval = {
+      lower: round2(avgScoreDiff - tCrit * se),
+      upper: round2(avgScoreDiff + tCrit * se),
+      level: "95%",
+    };
+  }
+
+  // Sub-score comparison
+  const subScoreComparison: Record<string, { baseline: number; test: number; diff: number }> = {};
+  for (const f of subScoreFields) {
+    if (baselineSubScores[f].length > 0 && testSubScores[f].length > 0) {
+      subScoreComparison[f] = {
+        baseline: round2(avg(baselineSubScores[f])),
+        test: round2(avg(testSubScores[f])),
+        diff: round2(avg(testSubScores[f]) - avg(baselineSubScores[f])),
+      };
+    }
+  }
+
+  // Cost comparison
+  const avgBaselineCost = avg(baselineCosts);
+  const avgTestCost = avg(testCosts);
+  const costComparison = {
+    avgBaselineCost: Math.round(avgBaselineCost * 10000) / 10000,
+    avgTestCost: Math.round(avgTestCost * 10000) / 10000,
+    percentDiff: avgBaselineCost > 0 ? round2(((avgTestCost - avgBaselineCost) / avgBaselineCost) * 100) : 0,
+  };
+
+  // Latency comparison
+  const latencyComparison = {
+    avgBaselineMs: Math.round(avg(baselineLatencies)),
+    avgTestMs: Math.round(avg(testLatencies)),
+    percentDiff: avg(baselineLatencies) > 0
+      ? round2(((avg(testLatencies) - avg(baselineLatencies)) / avg(baselineLatencies)) * 100)
+      : 0,
+  };
+
+  return {
+    testCount: tests.length,
+    baselineModel: tests[0]?.baselineModel,
+    testModel: tests[0]?.testModel,
+    avgBaselineScore: round2(avgBaseline),
+    avgTestScore: round2(avgTest),
+    avgScoreDiff,
+    significance,
+    confidenceInterval,
+    subScoreComparison,
+    costComparison,
+    latencyComparison,
+  };
 }
 
 // --- A/B test processing pipeline ---

@@ -785,7 +785,15 @@ export class MemStorage implements IStorage {
 
   async createReferenceDocument(orgId: string, doc: InsertReferenceDocument): Promise<ReferenceDocument> {
     const id = randomUUID();
-    const record: ReferenceDocument = { ...doc, id, orgId, isActive: doc.isActive ?? true, createdAt: new Date().toISOString() };
+    const record: ReferenceDocument = {
+      ...doc, id, orgId,
+      isActive: doc.isActive ?? true,
+      version: doc.version ?? 1,
+      indexingStatus: doc.indexingStatus || "pending",
+      sourceType: doc.sourceType || "upload",
+      retrievalCount: 0,
+      createdAt: new Date().toISOString(),
+    };
     this.referenceDocuments.set(id, record);
     return record;
   }
@@ -1056,7 +1064,7 @@ export class MemStorage implements IStorage {
 
   async createCalibrationSession(orgId: string, session: InsertCalibrationSession): Promise<CalibrationSession> {
     const id = randomUUID();
-    const s: CalibrationSession = { ...session, id, orgId, createdAt: new Date().toISOString() };
+    const s: CalibrationSession = { ...session, id, orgId, blindMode: session.blindMode ?? false, createdAt: new Date().toISOString() };
     this.calibrationSessionsStore.set(id, s);
     return s;
   }

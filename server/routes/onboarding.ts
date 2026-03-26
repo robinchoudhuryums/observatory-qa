@@ -14,7 +14,7 @@ import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { REFERENCE_DOC_CATEGORIES, PLAN_DEFINITIONS, type PlanTier } from "@shared/schema";
 import { enqueueDocumentIndexing } from "../services/queue";
-import { removeDocumentChunks, searchRelevantChunks, formatRetrievedContext, hasIndexedChunks } from "../services/rag";
+import { removeDocumentChunks, searchRelevantChunks, formatRetrievedContext, hasIndexedChunks, getDocumentChunks, getKnowledgeBaseAnalytics } from "../services/rag";
 import { isEmbeddingAvailable } from "../services/embeddings";
 import { invalidateRefDocCache } from "./calls";
 
@@ -374,6 +374,9 @@ export function registerOnboardingRoutes(app: Express): void {
           appliesTo: parsedAppliesTo,
           isActive: true,
           uploadedBy: req.user?.username,
+          indexingStatus: extractedText ? "pending" : "failed",
+          indexingError: extractedText ? undefined : "No text could be extracted from file",
+          sourceType: "upload",
         });
 
         logger.info({ orgId, docId: doc.id, name: doc.name, category: doc.category }, "Reference document uploaded");
@@ -405,7 +408,10 @@ export function registerOnboardingRoutes(app: Express): void {
     try {
       const docs = await storage.listReferenceDocuments(req.orgId!);
       // Don't send extractedText in list response (can be large)
-      res.json(docs.map(d => ({ ...d, extractedText: d.extractedText ? `[${d.extractedText.length} chars]` : undefined })));
+      res.json(docs.map(d => ({
+        ...d,
+        extractedText: d.extractedText ? `[${d.extractedText.length} chars]` : undefined,
+      })));
     } catch (error) {
       res.status(500).json({ message: "Failed to list documents" });
     }
@@ -531,6 +537,9 @@ export function registerOnboardingRoutes(app: Express): void {
         return res.status(400).json({ message: "Document has no extracted text to index" });
       }
 
+      // Reset indexing status
+      await storage.updateReferenceDocument(orgId, doc.id, { indexingStatus: "pending", indexingError: undefined });
+
       await enqueueDocumentIndexing({
         orgId,
         documentId: doc.id,
@@ -586,6 +595,323 @@ export function registerOnboardingRoutes(app: Express): void {
     } catch (error) {
       logger.error({ err: error }, "RAG search failed");
       res.status(500).json({ message: "RAG search failed" });
+    }
+  });
+
+  // --- Document versioning: create a new version of a document ---
+  app.post("/api/reference-documents/:id/version", requireAuth, requireRole("admin"), injectOrgContext,
+    docUpload.single("document"),
+    async (req, res) => {
+      if (!req.file) {
+        return res.status(400).json({ message: "No document file provided" });
+      }
+
+      const filePath = req.file.path;
+      try {
+        const orgId = req.orgId!;
+        const previousDoc = await storage.getReferenceDocument(orgId, req.params.id);
+        if (!previousDoc) {
+          return res.status(404).json({ message: "Document not found" });
+        }
+
+        const buffer = await fs.promises.readFile(filePath);
+        const docId = randomUUID();
+        const ext = path.extname(req.file.originalname).toLowerCase();
+        const storagePath = `orgs/${orgId}/reference-documents/${docId}${ext}`;
+
+        // Upload to cloud storage
+        if (objectStorage) {
+          await objectStorage.uploadFile(storagePath, buffer, req.file.mimetype);
+        }
+
+        // Extract text content
+        const extractedText = await extractTextFromFile(buffer, req.file.mimetype);
+
+        // Deactivate previous version
+        await storage.updateReferenceDocument(orgId, previousDoc.id, { isActive: false });
+
+        // Create new version document
+        const newVersion = (previousDoc.version ?? 1) + 1;
+        const newDoc = await storage.createReferenceDocument(orgId, {
+          orgId,
+          name: req.body.name || previousDoc.name,
+          category: previousDoc.category,
+          description: req.body.description || previousDoc.description,
+          fileName: req.file.originalname,
+          fileSize: req.file.size,
+          mimeType: req.file.mimetype,
+          storagePath,
+          extractedText: extractedText || undefined,
+          appliesTo: previousDoc.appliesTo,
+          isActive: true,
+          uploadedBy: req.user?.username,
+          version: newVersion,
+          previousVersionId: previousDoc.id,
+          indexingStatus: "pending",
+          sourceType: previousDoc.sourceType || "upload",
+        });
+
+        logger.info({ orgId, docId: newDoc.id, previousId: previousDoc.id, version: newVersion }, "Document version created");
+        invalidateRefDocCache(orgId);
+
+        // Purge old version's chunks and enqueue indexing for new version
+        if (process.env.DATABASE_URL) {
+          try {
+            const { getDatabase } = await import("../db/index");
+            const db = getDatabase();
+            if (db) {
+              await removeDocumentChunks(db as any, previousDoc.id);
+            }
+          } catch (err) { logger.warn({ err }, "Failed to remove old version chunks"); }
+        }
+
+        if (extractedText && extractedText.length > 0) {
+          enqueueDocumentIndexing({
+            orgId,
+            documentId: newDoc.id,
+            extractedText,
+          }).catch((err) => {
+            logger.warn({ err, docId: newDoc.id }, "Failed to enqueue RAG indexing for new version");
+          });
+        }
+
+        res.status(201).json(newDoc);
+      } catch (error) {
+        logger.error({ err: error }, "Document versioning failed");
+        res.status(500).json({ message: "Failed to create document version" });
+      } finally {
+        cleanupFile(filePath);
+      }
+    },
+  );
+
+  // --- Get version history for a document ---
+  app.get("/api/reference-documents/:id/versions", requireAuth, injectOrgContext, async (req, res) => {
+    try {
+      const orgId = req.orgId!;
+      const doc = await storage.getReferenceDocument(orgId, req.params.id);
+      if (!doc) return res.status(404).json({ message: "Document not found" });
+
+      // Walk the version chain backwards
+      const versions: Array<{ id: string; version: number; name: string; fileName: string; fileSize: number; createdAt?: string; isActive: boolean; indexingStatus?: string }> = [];
+      let currentDoc = doc;
+      versions.push({
+        id: currentDoc.id,
+        version: currentDoc.version ?? 1,
+        name: currentDoc.name,
+        fileName: currentDoc.fileName,
+        fileSize: currentDoc.fileSize,
+        createdAt: currentDoc.createdAt,
+        isActive: currentDoc.isActive,
+        indexingStatus: currentDoc.indexingStatus,
+      });
+
+      // Walk backwards through previousVersionId
+      let prevId = currentDoc.previousVersionId;
+      const seen = new Set<string>([currentDoc.id]);
+      while (prevId && !seen.has(prevId)) {
+        seen.add(prevId);
+        const prevDoc = await storage.getReferenceDocument(orgId, prevId);
+        if (!prevDoc) break;
+        versions.push({
+          id: prevDoc.id,
+          version: prevDoc.version ?? 1,
+          name: prevDoc.name,
+          fileName: prevDoc.fileName,
+          fileSize: prevDoc.fileSize,
+          createdAt: prevDoc.createdAt,
+          isActive: prevDoc.isActive,
+          indexingStatus: prevDoc.indexingStatus,
+        });
+        prevId = prevDoc.previousVersionId;
+      }
+
+      // Also find any documents that list this doc as their previousVersionId
+      const allDocs = await storage.listReferenceDocuments(orgId);
+      for (const d of allDocs) {
+        if (d.previousVersionId === req.params.id && !seen.has(d.id)) {
+          versions.push({
+            id: d.id,
+            version: d.version ?? 1,
+            name: d.name,
+            fileName: d.fileName,
+            fileSize: d.fileSize,
+            createdAt: d.createdAt,
+            isActive: d.isActive,
+            indexingStatus: d.indexingStatus,
+          });
+        }
+      }
+
+      // Sort by version descending
+      versions.sort((a, b) => b.version - a.version);
+      res.json(versions);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get version history" });
+    }
+  });
+
+  // --- Chunk preview: view how a document was chunked ---
+  app.get("/api/reference-documents/:id/chunks", requireAuth, injectOrgContext, async (req, res) => {
+    try {
+      const orgId = req.orgId!;
+      const doc = await storage.getReferenceDocument(orgId, req.params.id);
+      if (!doc) return res.status(404).json({ message: "Document not found" });
+
+      if (!process.env.DATABASE_URL) {
+        return res.status(503).json({ message: "Database not configured" });
+      }
+
+      const { getDatabase } = await import("../db/index");
+      const db = getDatabase();
+      if (!db) return res.status(503).json({ message: "Database not available" });
+
+      const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+      const offset = parseInt(req.query.offset as string) || 0;
+
+      const result = await getDocumentChunks(db as any, orgId, req.params.id, { limit, offset });
+      res.json({
+        documentId: doc.id,
+        documentName: doc.name,
+        ...result,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get document chunks" });
+    }
+  });
+
+  // --- Knowledge base analytics ---
+  app.get("/api/reference-documents/rag/analytics", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      const orgId = req.orgId!;
+
+      if (!process.env.DATABASE_URL) {
+        return res.status(503).json({ message: "Database not configured" });
+      }
+
+      const { getDatabase } = await import("../db/index");
+      const db = getDatabase();
+      if (!db) return res.status(503).json({ message: "Database not available" });
+
+      const analytics = await getKnowledgeBaseAnalytics(db as any, orgId);
+      res.json(analytics);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get analytics" });
+    }
+  });
+
+  // --- Web URL source: crawl a URL and add as reference document ---
+  app.post("/api/reference-documents/url", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      const orgId = req.orgId!;
+      const { url, name, category, description, appliesTo } = req.body;
+
+      if (!url || typeof url !== "string") {
+        return res.status(400).json({ message: "URL is required" });
+      }
+
+      // Basic URL validation
+      let parsedUrl: URL;
+      try {
+        parsedUrl = new URL(url);
+        if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+          return res.status(400).json({ message: "Only HTTP/HTTPS URLs are supported" });
+        }
+      } catch {
+        return res.status(400).json({ message: "Invalid URL format" });
+      }
+
+      // Fetch the page
+      let pageText: string;
+      try {
+        const response = await fetch(url, {
+          headers: { "User-Agent": "ObservatoryQA-Bot/1.0" },
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!response.ok) {
+          return res.status(400).json({ message: `Failed to fetch URL: HTTP ${response.status}` });
+        }
+        const contentType = response.headers.get("content-type") || "";
+        if (!contentType.includes("text/html") && !contentType.includes("text/plain") && !contentType.includes("application/json")) {
+          return res.status(400).json({ message: `Unsupported content type: ${contentType}` });
+        }
+        const html = await response.text();
+
+        if (contentType.includes("text/plain") || contentType.includes("application/json")) {
+          pageText = html.slice(0, 50000);
+        } else {
+          // Strip HTML tags and extract text content
+          pageText = html
+            .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+            .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, "")
+            .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, "")
+            .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, "")
+            .replace(/<[^>]+>/g, " ")
+            .replace(/&nbsp;/g, " ")
+            .replace(/&amp;/g, "&")
+            .replace(/&lt;/g, "<")
+            .replace(/&gt;/g, ">")
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 50000);
+        }
+      } catch (fetchErr: any) {
+        if (fetchErr?.name === "TimeoutError" || fetchErr?.name === "AbortError") {
+          return res.status(408).json({ message: "URL fetch timed out (15s limit)" });
+        }
+        return res.status(400).json({ message: `Failed to fetch URL: ${fetchErr?.message || "Unknown error"}` });
+      }
+
+      if (!pageText || pageText.trim().length < 10) {
+        return res.status(400).json({ message: "URL returned no extractable text content" });
+      }
+
+      let parsedAppliesTo: string[] | undefined;
+      if (appliesTo) {
+        try {
+          const parsed = JSON.parse(typeof appliesTo === "string" ? appliesTo : JSON.stringify(appliesTo));
+          if (Array.isArray(parsed)) parsedAppliesTo = parsed;
+        } catch { /* ignore */ }
+      }
+
+      const docId = randomUUID();
+      const doc = await storage.createReferenceDocument(orgId, {
+        orgId,
+        name: name || parsedUrl.hostname + parsedUrl.pathname,
+        category: REFERENCE_DOC_CATEGORIES.includes(category) ? category : "other",
+        description: description || `Web page: ${url}`,
+        fileName: parsedUrl.hostname + parsedUrl.pathname.replace(/\//g, "_"),
+        fileSize: Buffer.byteLength(pageText, "utf-8"),
+        mimeType: "text/html",
+        storagePath: `orgs/${orgId}/reference-documents/${docId}.url`,
+        extractedText: pageText,
+        appliesTo: parsedAppliesTo,
+        isActive: true,
+        uploadedBy: req.user?.username,
+        sourceType: "url",
+        sourceUrl: url,
+        indexingStatus: "pending",
+      });
+
+      logger.info({ orgId, docId: doc.id, url }, "Web URL reference document created");
+      invalidateRefDocCache(orgId);
+
+      // Enqueue RAG indexing
+      enqueueDocumentIndexing({
+        orgId,
+        documentId: doc.id,
+        extractedText: pageText,
+      }).catch((err) => {
+        logger.warn({ err, docId: doc.id }, "Failed to enqueue RAG indexing for URL doc");
+      });
+
+      res.status(201).json(doc);
+    } catch (error) {
+      logger.error({ err: error }, "URL source creation failed");
+      res.status(500).json({ message: "Failed to create URL source" });
     }
   });
 

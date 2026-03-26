@@ -9,7 +9,7 @@
  * 2. On call analysis: embed query → pgvector search → inject relevant chunks
  */
 import { randomUUID } from "crypto";
-import { sql, eq, and } from "drizzle-orm";
+import { sql, eq, and, inArray } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { chunkDocument, type DocumentChunk } from "./chunker";
 import { generateEmbedding, generateEmbeddingsBatch, isEmbeddingAvailable } from "./embeddings";
@@ -34,6 +34,25 @@ export interface RAGSearchOptions {
 }
 
 /**
+ * Update the indexing status of a reference document.
+ */
+export async function updateIndexingStatus(
+  db: NodePgDatabase,
+  orgId: string,
+  documentId: string,
+  status: "pending" | "indexing" | "indexed" | "failed",
+  error?: string,
+): Promise<void> {
+  const setValues: Record<string, unknown> = { indexingStatus: status };
+  if (error !== undefined) setValues.indexingError = error;
+  else if (status !== "failed") setValues.indexingError = null;
+
+  await db.update(tables.referenceDocuments)
+    .set(setValues)
+    .where(and(eq(tables.referenceDocuments.orgId, orgId), eq(tables.referenceDocuments.id, documentId)));
+}
+
+/**
  * Process a reference document: chunk its text and store embeddings.
  * Called after a document is uploaded and text is extracted.
  */
@@ -43,52 +62,69 @@ export async function indexDocument(
   documentId: string,
   extractedText: string,
 ): Promise<number> {
+  // Mark as indexing
+  await updateIndexingStatus(db, orgId, documentId, "indexing").catch(() => {});
+
   if (!isEmbeddingAvailable()) {
     logger.warn("Embedding service unavailable — skipping RAG indexing");
+    await updateIndexingStatus(db, orgId, documentId, "failed", "Embedding service unavailable").catch(() => {});
     return 0;
   }
 
   if (!extractedText || extractedText.trim().length === 0) {
     logger.warn({ documentId }, "No text to index for RAG");
+    await updateIndexingStatus(db, orgId, documentId, "failed", "No text content to index").catch(() => {});
     return 0;
   }
 
-  // Remove old chunks for this document (handles re-indexing)
-  await db.delete(tables.documentChunks)
-    .where(eq(tables.documentChunks.documentId, documentId));
+  try {
+    // Remove old chunks for this document (handles re-indexing)
+    await db.delete(tables.documentChunks)
+      .where(eq(tables.documentChunks.documentId, documentId));
 
-  // Chunk the document
-  const chunks = chunkDocument(documentId, extractedText);
-  if (chunks.length === 0) return 0;
+    // Chunk the document
+    const chunks = chunkDocument(documentId, extractedText);
+    if (chunks.length === 0) {
+      await updateIndexingStatus(db, orgId, documentId, "failed", "Document produced no chunks");
+      return 0;
+    }
 
-  logger.info({ documentId, chunkCount: chunks.length }, "Chunking complete, generating embeddings");
+    logger.info({ documentId, chunkCount: chunks.length }, "Chunking complete, generating embeddings");
 
-  // Generate embeddings in batches
-  const texts = chunks.map((c) => c.text);
-  const embeddings = await generateEmbeddingsBatch(texts);
+    // Generate embeddings in batches
+    const texts = chunks.map((c) => c.text);
+    const embeddings = await generateEmbeddingsBatch(texts);
 
-  // Store chunks with embeddings
-  const rows = chunks.map((chunk, i) => ({
-    id: randomUUID(),
-    orgId,
-    documentId: chunk.documentId,
-    chunkIndex: chunk.chunkIndex,
-    text: chunk.text,
-    sectionHeader: chunk.sectionHeader,
-    tokenCount: chunk.tokenCount,
-    charStart: chunk.charStart,
-    charEnd: chunk.charEnd,
-    embedding: embeddings[i],
-  }));
+    // Store chunks with embeddings
+    const rows = chunks.map((chunk, i) => ({
+      id: randomUUID(),
+      orgId,
+      documentId: chunk.documentId,
+      chunkIndex: chunk.chunkIndex,
+      text: chunk.text,
+      sectionHeader: chunk.sectionHeader,
+      tokenCount: chunk.tokenCount,
+      charStart: chunk.charStart,
+      charEnd: chunk.charEnd,
+      embedding: embeddings[i],
+    }));
 
-  // Insert in batches of 100 to avoid exceeding query parameter limits
-  for (let i = 0; i < rows.length; i += 100) {
-    const batch = rows.slice(i, i + 100);
-    await db.insert(tables.documentChunks).values(batch);
+    // Insert in batches of 100 to avoid exceeding query parameter limits
+    for (let i = 0; i < rows.length; i += 100) {
+      const batch = rows.slice(i, i + 100);
+      await db.insert(tables.documentChunks).values(batch);
+    }
+
+    // Mark as indexed
+    await updateIndexingStatus(db, orgId, documentId, "indexed");
+
+    logger.info({ documentId, chunksStored: rows.length }, "RAG indexing complete");
+    return rows.length;
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : "Unknown indexing error";
+    await updateIndexingStatus(db, orgId, documentId, "failed", errorMsg).catch(() => {});
+    throw err;
   }
-
-  logger.info({ documentId, chunksStored: rows.length }, "RAG indexing complete");
-  return rows.length;
 }
 
 /**
@@ -209,6 +245,122 @@ export async function hasIndexedChunks(
     ) AS has_chunks
   `);
   return (result.rows as any[])[0]?.has_chunks === true;
+}
+
+/**
+ * Increment retrieval counts for documents whose chunks were used.
+ * Fire-and-forget — does not block the caller.
+ */
+export async function incrementRetrievalCounts(
+  db: NodePgDatabase,
+  documentIds: string[],
+): Promise<void> {
+  if (documentIds.length === 0) return;
+  const uniqueIds = Array.from(new Set(documentIds));
+  await db.execute(sql`
+    UPDATE reference_documents
+    SET retrieval_count = retrieval_count + 1
+    WHERE id = ANY(${uniqueIds}::text[])
+  `);
+}
+
+/**
+ * Get paginated chunks for a document (for chunk preview UI).
+ */
+export async function getDocumentChunks(
+  db: NodePgDatabase,
+  orgId: string,
+  documentId: string,
+  options: { limit?: number; offset?: number } = {},
+): Promise<{ chunks: Array<{ id: string; chunkIndex: number; text: string; sectionHeader: string | null; tokenCount: number; charStart: number; charEnd: number; hasEmbedding: boolean }>; total: number }> {
+  const limit = options.limit ?? 20;
+  const offset = options.offset ?? 0;
+
+  const [countResult, rows] = await Promise.all([
+    db.execute(sql`
+      SELECT COUNT(*) as total FROM document_chunks
+      WHERE org_id = ${orgId} AND document_id = ${documentId}
+    `),
+    db.execute(sql`
+      SELECT id, chunk_index, text, section_header, token_count, char_start, char_end,
+             (embedding IS NOT NULL) as has_embedding
+      FROM document_chunks
+      WHERE org_id = ${orgId} AND document_id = ${documentId}
+      ORDER BY chunk_index ASC
+      LIMIT ${limit} OFFSET ${offset}
+    `),
+  ]);
+
+  const total = parseInt((countResult.rows as any[])[0]?.total || "0");
+  const chunks = (rows.rows as any[]).map(r => ({
+    id: r.id,
+    chunkIndex: r.chunk_index,
+    text: r.text,
+    sectionHeader: r.section_header || null,
+    tokenCount: r.token_count,
+    charStart: r.char_start,
+    charEnd: r.char_end,
+    hasEmbedding: r.has_embedding === true,
+  }));
+
+  return { chunks, total };
+}
+
+/**
+ * Get knowledge base analytics for an org.
+ */
+export async function getKnowledgeBaseAnalytics(
+  db: NodePgDatabase,
+  orgId: string,
+): Promise<{
+  totalDocuments: number;
+  totalChunks: number;
+  indexedDocuments: number;
+  failedDocuments: number;
+  pendingDocuments: number;
+  mostRetrievedDocs: Array<{ documentId: string; name: string; category: string; retrievalCount: number }>;
+  avgChunksPerDocument: number;
+}> {
+  const [docStats, chunkCount, topDocs] = await Promise.all([
+    db.execute(sql`
+      SELECT
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE indexing_status = 'indexed') as indexed,
+        COUNT(*) FILTER (WHERE indexing_status = 'failed') as failed,
+        COUNT(*) FILTER (WHERE indexing_status = 'pending' OR indexing_status = 'indexing') as pending_count
+      FROM reference_documents
+      WHERE org_id = ${orgId} AND is_active = true
+    `),
+    db.execute(sql`
+      SELECT COUNT(*) as total FROM document_chunks WHERE org_id = ${orgId}
+    `),
+    db.execute(sql`
+      SELECT id, name, category, retrieval_count
+      FROM reference_documents
+      WHERE org_id = ${orgId} AND is_active = true AND retrieval_count > 0
+      ORDER BY retrieval_count DESC
+      LIMIT 10
+    `),
+  ]);
+
+  const stats = (docStats.rows as any[])[0] || {};
+  const totalDocs = parseInt(stats.total || "0");
+  const totalChunks = parseInt((chunkCount.rows as any[])[0]?.total || "0");
+
+  return {
+    totalDocuments: totalDocs,
+    totalChunks,
+    indexedDocuments: parseInt(stats.indexed || "0"),
+    failedDocuments: parseInt(stats.failed || "0"),
+    pendingDocuments: parseInt(stats.pending_count || "0"),
+    mostRetrievedDocs: (topDocs.rows as any[]).map(r => ({
+      documentId: r.id,
+      name: r.name,
+      category: r.category,
+      retrievalCount: r.retrieval_count,
+    })),
+    avgChunksPerDocument: totalDocs > 0 ? Math.round(totalChunks / totalDocs) : 0,
+  };
 }
 
 // --- BM25-style keyword scoring (simplified, no corpus IDF) ---
