@@ -2566,6 +2566,8 @@ export class PostgresStorage implements IStorage {
       tags: module.tags || null, sourceDocumentId: module.sourceDocumentId || null,
       isPublished: module.isPublished ?? false, isPlatformContent: module.isPlatformContent ?? false,
       createdBy: module.createdBy, sortOrder: module.sortOrder || null,
+      prerequisiteModuleIds: module.prerequisiteModuleIds || null,
+      passingScore: module.passingScore || null,
     }).returning();
     return this.mapLearningModule(row);
   }
@@ -2597,6 +2599,8 @@ export class PostgresStorage implements IStorage {
     if (updates.tags !== undefined) setClause.tags = updates.tags;
     if (updates.isPublished !== undefined) setClause.isPublished = updates.isPublished;
     if (updates.sortOrder !== undefined) setClause.sortOrder = updates.sortOrder;
+    if (updates.prerequisiteModuleIds !== undefined) setClause.prerequisiteModuleIds = updates.prerequisiteModuleIds;
+    if (updates.passingScore !== undefined) setClause.passingScore = updates.passingScore;
     const rows = await this.db.update(tables.learningModules).set(setClause)
       .where(and(eq(tables.learningModules.orgId, orgId), eq(tables.learningModules.id, id))).returning();
     return rows[0] ? this.mapLearningModule(rows[0]) : undefined;
@@ -2616,6 +2620,8 @@ export class PostgresStorage implements IStorage {
       category: path.category || null, moduleIds: path.moduleIds,
       isRequired: path.isRequired ?? false, assignedTo: path.assignedTo || null,
       estimatedMinutes: path.estimatedMinutes || null, createdBy: path.createdBy,
+      dueDate: path.dueDate ? new Date(path.dueDate) : null,
+      enforceOrder: path.enforceOrder ?? false,
     }).returning();
     return this.mapLearningPath(row);
   }
@@ -2720,6 +2726,8 @@ export class PostgresStorage implements IStorage {
       tags: r.tags as string[] || undefined, sourceDocumentId: r.sourceDocumentId || undefined,
       isPublished: r.isPublished, isPlatformContent: r.isPlatformContent,
       createdBy: r.createdBy, sortOrder: r.sortOrder || undefined,
+      prerequisiteModuleIds: r.prerequisiteModuleIds as string[] || undefined,
+      passingScore: r.passingScore || undefined,
       createdAt: toISOString(r.createdAt), updatedAt: toISOString(r.updatedAt),
     };
   }
@@ -2730,6 +2738,7 @@ export class PostgresStorage implements IStorage {
       category: r.category || undefined, moduleIds: r.moduleIds as string[],
       isRequired: r.isRequired, assignedTo: r.assignedTo as string[] || undefined,
       estimatedMinutes: r.estimatedMinutes || undefined, createdBy: r.createdBy,
+      dueDate: toISOString(r.dueDate), enforceOrder: r.enforceOrder ?? false,
       createdAt: toISOString(r.createdAt), updatedAt: toISOString(r.updatedAt),
     };
   }

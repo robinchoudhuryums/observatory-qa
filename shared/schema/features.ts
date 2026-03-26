@@ -262,6 +262,10 @@ export const insertLearningModuleSchema = z.object({
   isPlatformContent: z.boolean().optional(), // true = Observatory-curated content
   createdBy: z.string(),
   sortOrder: z.number().optional(),
+  /** Module IDs that must be completed before starting this module */
+  prerequisiteModuleIds: z.array(z.string()).optional(),
+  /** Minimum quiz score (0-100) required to pass; default 70 */
+  passingScore: z.number().min(0).max(100).optional(),
 });
 
 export const learningModuleSchema = insertLearningModuleSchema.extend({
@@ -284,6 +288,10 @@ export const insertLearningPathSchema = z.object({
   assignedTo: z.array(z.string()).optional(), // specific employee IDs (empty = all)
   estimatedMinutes: z.number().optional(), // total estimated time
   createdBy: z.string(),
+  /** ISO timestamp deadline for completing this path */
+  dueDate: z.string().optional(),
+  /** Enable prerequisite gating: modules must be completed in order */
+  enforceOrder: z.boolean().optional(),
 });
 
 export const learningPathSchema = insertLearningPathSchema.extend({

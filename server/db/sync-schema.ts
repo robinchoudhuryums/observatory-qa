@@ -809,6 +809,8 @@ export async function syncSchema(db: Database): Promise<void> {
         updated_at TIMESTAMP DEFAULT NOW()
       )
     `);
+    await addColumnIfNotExists(db, "learning_modules", "prerequisite_module_ids", "JSONB");
+    await addColumnIfNotExists(db, "learning_modules", "passing_score", "INTEGER");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS learning_modules_org_idx ON learning_modules (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS learning_modules_category_idx ON learning_modules (org_id, category)`);
 
@@ -829,6 +831,8 @@ export async function syncSchema(db: Database): Promise<void> {
         updated_at TIMESTAMP DEFAULT NOW()
       )
     `);
+    await addColumnIfNotExists(db, "learning_paths", "due_date", "TIMESTAMP");
+    await addColumnIfNotExists(db, "learning_paths", "enforce_order", "BOOLEAN NOT NULL DEFAULT false");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS learning_paths_org_idx ON learning_paths (org_id)`);
 
     // --- LMS: Learning Progress ---

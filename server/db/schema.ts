@@ -685,6 +685,8 @@ export const learningModules = pgTable("learning_modules", {
   isPlatformContent: boolean("is_platform_content").notNull().default(false),
   createdBy: varchar("created_by", { length: 255 }).notNull(),
   sortOrder: integer("sort_order"),
+  prerequisiteModuleIds: jsonb("prerequisite_module_ids").$type<string[]>(),
+  passingScore: integer("passing_score"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => [
@@ -705,6 +707,8 @@ export const learningPaths = pgTable("learning_paths", {
   assignedTo: jsonb("assigned_to").$type<string[]>(),
   estimatedMinutes: integer("estimated_minutes"),
   createdBy: varchar("created_by", { length: 255 }).notNull(),
+  dueDate: timestamp("due_date"),
+  enforceOrder: boolean("enforce_order").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => [

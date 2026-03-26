@@ -74,7 +74,7 @@ npx vite build         # Frontend-only build (quick verification)
 - **Unit tests**: Node.js built-in `test` module via `tsx` — `npm run test`
 - **E2E tests**: Playwright (Chromium) — `npm run test:e2e` or `npm run test:e2e:ui`
 - **Location**: `tests/` (unit), `tests/e2e/` (E2E)
-- **Unit test files** (32 files):
+- **Unit test files** (33 files):
   - `tests/schema.test.ts` — Zod schema validation (orgId on all entities, organization schemas)
   - `tests/ai-provider.test.ts` — AI provider utilities (parseJsonResponse, buildAnalysisPrompt, smartTruncate)
   - `tests/routes.test.ts` — API route handler tests
@@ -103,6 +103,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/ab-testing-improvements.test.ts` — A/B testing improvements (t-test, batch, segments, recommendations)
   - `tests/spend-tracking-improvements.test.ts` — Spend tracking improvements (forecasting, anomalies, budget, departments)
   - `tests/gamification-improvements.test.ts` — Gamification improvements (opt-out, recognition badges, effectiveness, teams)
+  - `tests/lms-improvements.test.ts` — LMS improvements (prerequisites, deadlines, certificates, coaching recommendations)
   - `tests/error-handling.test.ts` — Error handling patterns
   - `tests/phi-encryption.test.ts` — PHI field encryption
   - `tests/sso.test.ts` — SAML SSO
@@ -677,15 +678,20 @@ Uses AWS Bedrock (Claude) for AI analysis. Per-org `bedrockModel` can be configu
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
 | GET | `/api/lms/modules` | authenticated | List learning modules |
-| POST | `/api/lms/modules` | manager+ | Create module |
+| POST | `/api/lms/modules` | manager+ | Create module (supports prerequisiteModuleIds, passingScore) |
 | GET | `/api/lms/modules/:id` | authenticated | Get module content |
 | POST | `/api/lms/modules/generate` | manager+ | AI-generate module from call analysis |
+| GET | `/api/lms/modules/:id/prerequisites` | authenticated | Check prerequisite completion for employee |
+| GET | `/api/lms/modules/:id/certificate` | authenticated | Generate completion certificate data |
+| POST | `/api/lms/modules/:id/submit-quiz` | authenticated | Submit quiz answers (uses module passingScore) |
 | GET | `/api/lms/paths` | authenticated | List learning paths |
-| POST | `/api/lms/paths` | manager+ | Create learning path |
+| POST | `/api/lms/paths` | manager+ | Create learning path (supports dueDate, enforceOrder) |
 | GET | `/api/lms/paths/:id` | authenticated | Get learning path |
+| GET | `/api/lms/paths/:id/deadlines` | manager+ | Deadline status for all assigned employees |
 | GET | `/api/lms/progress` | authenticated | User progress |
 | GET | `/api/lms/progress/:employeeId` | authenticated | Employee progress |
 | GET | `/api/lms/stats` | manager+ | LMS statistics |
+| GET | `/api/lms/coaching-recommendations` | authenticated | Recommend modules based on coaching/weak areas |
 | GET | `/api/lms/knowledge-search` | authenticated | Search knowledge base |
 
 ### Marketing Attribution (org-scoped)
@@ -1130,6 +1136,14 @@ Server serves both API and static frontend from the same process.
 - **Manager-awarded recognition badges** — `POST /api/gamification/recognize` (manager+) accepts `employeeId`, `badgeId`, `message`, optional `callId`; creates badge with `custom_` prefix, `awardedBy` (manager userId), `customMessage`; awards 30 bonus points; respects opt-out settings; `awardedBy` and `customMessage` fields added to `employee_badges` table
 - **Effectiveness measurement** — `GET /api/gamification/effectiveness` (admin) computes Pearson correlation between badge count and avg performance score across all employees; returns correlation coefficient, natural-language interpretation, comparison of high-badge (3+) vs low-badge employees (avg score difference)
 - **Opt-out in leaderboard** — Leaderboard returns empty array when gamification disabled globally; filters employees by optedOutRoles (matching employee.role) and optedOutEmployeeIds before ranking
+
+#### ✅ Completed & committed: LMS improvements
+- **Prerequisite gating** — `prerequisiteModuleIds` field on `LearningModule`; `GET /api/lms/modules/:id/prerequisites?employeeId=X` checks which prerequisites are met/unmet; returns `{ met, prerequisites, unmetPrerequisites }` for UI to block access to locked modules
+- **Completion certificates** — `GET /api/lms/modules/:id/certificate?employeeId=X` returns structured certificate data (employeeName, moduleName, completedAt, quizScore, organizationName, certificateId, difficulty); requires module status = "completed"; client-side PDF rendering
+- **Configurable passing scores** — `passingScore` field on `LearningModule` (0-100, default 70 if not set); quiz submission endpoint uses module-specific passing score instead of hardcoded 70; response includes `passingScore` field
+- **Deadline enforcement** — `dueDate` (ISO timestamp) and `enforceOrder` (boolean) fields on `LearningPath`; `GET /api/lms/paths/:id/deadlines` returns per-employee status: completed/overdue/at_risk/on_track with percentComplete, daysRemaining, counts
+- **Coaching-tied recommendations** — `GET /api/lms/coaching-recommendations?employeeId=X&coachingSessionId=Y` analyzes employee's weak sub-score areas (compliance, customerExperience, communication, resolution < 7.0), matches coaching session category/notes keywords, and ranks uncompleted published modules by relevance; returns top 5 with reasons
+- **Prerequisite order in paths** — `enforceOrder` field on `LearningPath` signals that modules must be completed sequentially (index N requires index N-1 completed); combined with per-module `prerequisiteModuleIds` for flexible gating
 
 ## Future Plans / Roadmap
 See `HEALTHCARE_EXPANSION_PLAN.md` for the full 4-phase healthcare expansion roadmap.

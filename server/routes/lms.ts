@@ -319,6 +319,7 @@ Respond with ONLY valid JSON (no markdown fences):
 
       const correctCount = results.filter(r => r.correct).length;
       const score = Math.round((correctCount / questions.length) * 100);
+      const passingScore = (module.passingScore as number) || 70;
 
       // Get existing progress to track attempts
       const existing = await storage.getLearningProgress(orgId, employeeId, module.id);
@@ -329,15 +330,16 @@ Respond with ONLY valid JSON (no markdown fences):
         orgId,
         employeeId,
         moduleId: module.id,
-        status: score >= 70 ? "completed" : "in_progress",
+        status: score >= passingScore ? "completed" : "in_progress",
         quizScore: score,
         quizAttempts: attempts,
-        completedAt: score >= 70 ? new Date().toISOString() : undefined,
+        completedAt: score >= passingScore ? new Date().toISOString() : undefined,
       });
 
       res.json({
         score,
-        passed: score >= 70,
+        passed: score >= passingScore,
+        passingScore,
         correctCount,
         totalQuestions: questions.length,
         results,
@@ -438,6 +440,290 @@ Respond with ONLY valid JSON (no markdown fences):
     } catch (error) {
       logger.error({ err: error }, "Failed to get LMS stats");
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get LMS statistics"));
+    }
+  });
+
+  /**
+   * GET /api/lms/modules/:id/prerequisites — Check if employee has met prerequisites.
+   */
+  app.get("/api/lms/modules/:id/prerequisites", requireAuth, validateUUIDParam(), async (req: Request, res: Response) => {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+
+    const { employeeId } = req.query;
+    if (!employeeId || typeof employeeId !== "string") {
+      return res.status(400).json({ message: "employeeId query param is required" });
+    }
+
+    try {
+      const module = await storage.getLearningModule(orgId, req.params.id);
+      if (!module) return res.status(404).json({ message: "Module not found" });
+
+      const prereqs = (module.prerequisiteModuleIds || []) as string[];
+      if (prereqs.length === 0) {
+        return res.json({ met: true, prerequisites: [], unmetPrerequisites: [] });
+      }
+
+      const employeeProgress = await storage.getEmployeeLearningProgress(orgId, employeeId);
+      const completedModuleIds = new Set(
+        employeeProgress.filter(p => p.status === "completed").map(p => p.moduleId)
+      );
+
+      const unmet: Array<{ moduleId: string; title: string }> = [];
+      const metList: Array<{ moduleId: string; title: string }> = [];
+
+      for (const prereqId of prereqs) {
+        const prereqModule = await storage.getLearningModule(orgId, prereqId);
+        const title = prereqModule?.title || "Unknown Module";
+        if (completedModuleIds.has(prereqId)) {
+          metList.push({ moduleId: prereqId, title });
+        } else {
+          unmet.push({ moduleId: prereqId, title });
+        }
+      }
+
+      res.json({
+        met: unmet.length === 0,
+        prerequisites: metList,
+        unmetPrerequisites: unmet,
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to check prerequisites");
+      res.status(500).json({ message: "Failed to check prerequisites" });
+    }
+  });
+
+  /**
+   * GET /api/lms/paths/:id/deadlines — Check deadline status for all assigned employees.
+   */
+  app.get("/api/lms/paths/:id/deadlines", requireAuth, requireRole("manager"), validateUUIDParam(), async (req: Request, res: Response) => {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+
+    try {
+      const path = await storage.getLearningPath(orgId, req.params.id);
+      if (!path) return res.status(404).json({ message: "Path not found" });
+      if (!path.dueDate) return res.json({ hasDueDate: false, employees: [] });
+
+      const dueDate = new Date(path.dueDate);
+      const now = new Date();
+      const isOverdue = now > dueDate;
+      const daysRemaining = Math.max(0, Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+
+      // Get assigned employees
+      const employees = await storage.getAllEmployees(orgId);
+      const assignedEmployees = path.assignedTo && path.assignedTo.length > 0
+        ? employees.filter(e => path.assignedTo!.includes(e.id))
+        : employees;
+
+      const employeeStatuses = await Promise.all(assignedEmployees.map(async (emp) => {
+        const progress = await storage.getEmployeeLearningProgress(orgId, emp.id);
+        const pathProgress = progress.filter(p => path.moduleIds.includes(p.moduleId));
+        const completedCount = pathProgress.filter(p => p.status === "completed").length;
+        const percentComplete = path.moduleIds.length > 0
+          ? Math.round((completedCount / path.moduleIds.length) * 100)
+          : 0;
+
+        return {
+          employeeId: emp.id,
+          employeeName: emp.name,
+          completedModules: completedCount,
+          totalModules: path.moduleIds.length,
+          percentComplete,
+          status: percentComplete === 100 ? "completed" as const
+            : isOverdue ? "overdue" as const
+            : daysRemaining <= 3 ? "at_risk" as const
+            : "on_track" as const,
+        };
+      }));
+
+      res.json({
+        hasDueDate: true,
+        dueDate: path.dueDate,
+        isOverdue,
+        daysRemaining,
+        employees: employeeStatuses,
+        completedCount: employeeStatuses.filter(e => e.status === "completed").length,
+        overdueCount: employeeStatuses.filter(e => e.status === "overdue").length,
+        atRiskCount: employeeStatuses.filter(e => e.status === "at_risk").length,
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to get deadline status");
+      res.status(500).json({ message: "Failed to get deadline status" });
+    }
+  });
+
+  /**
+   * GET /api/lms/modules/:id/certificate — Generate completion certificate data.
+   * Returns structured data for certificate rendering (client generates PDF).
+   */
+  app.get("/api/lms/modules/:id/certificate", requireAuth, validateUUIDParam(), async (req: Request, res: Response) => {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+
+    const { employeeId } = req.query;
+    if (!employeeId || typeof employeeId !== "string") {
+      return res.status(400).json({ message: "employeeId query param is required" });
+    }
+
+    try {
+      const [module, employee, progress, org] = await Promise.all([
+        storage.getLearningModule(orgId, req.params.id),
+        storage.getEmployee(orgId, employeeId),
+        storage.getLearningProgress(orgId, employeeId, req.params.id),
+        storage.getOrganization(orgId),
+      ]);
+
+      if (!module) return res.status(404).json({ message: "Module not found" });
+      if (!employee) return res.status(404).json({ message: "Employee not found" });
+      if (!progress || progress.status !== "completed") {
+        return res.status(400).json({ message: "Module must be completed to generate certificate" });
+      }
+
+      res.json({
+        certificate: {
+          employeeName: employee.name,
+          moduleName: module.title,
+          moduleCategory: module.category,
+          completedAt: progress.completedAt,
+          quizScore: progress.quizScore,
+          organizationName: org?.name || "Organization",
+          difficulty: module.difficulty,
+          estimatedMinutes: module.estimatedMinutes,
+          certificateId: `CERT-${progress.id.slice(0, 8).toUpperCase()}`,
+          issuedAt: new Date().toISOString(),
+        },
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to generate certificate");
+      res.status(500).json({ message: "Failed to generate certificate" });
+    }
+  });
+
+  /**
+   * GET /api/lms/coaching-recommendations — Recommend modules based on coaching session topics.
+   */
+  app.get("/api/lms/coaching-recommendations", requireAuth, async (req: Request, res: Response) => {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+
+    const { employeeId, coachingSessionId } = req.query;
+    if (!employeeId || typeof employeeId !== "string") {
+      return res.status(400).json({ message: "employeeId query param is required" });
+    }
+
+    try {
+      // Get published modules
+      const modules = await storage.listLearningModules(orgId, { isPublished: true });
+      const employeeProgress = await storage.getEmployeeLearningProgress(orgId, employeeId);
+      const completedModuleIds = new Set(employeeProgress.filter(p => p.status === "completed").map(p => p.moduleId));
+
+      // Get coaching context if session ID provided
+      let coachingCategory: string | undefined;
+      let coachingNotes: string | undefined;
+      if (coachingSessionId && typeof coachingSessionId === "string") {
+        try {
+          const session = await storage.getCoachingSession(orgId, coachingSessionId);
+          coachingCategory = session?.category || undefined;
+          coachingNotes = session?.notes || undefined;
+        } catch { /* non-critical */ }
+      }
+
+      // Get the employee's recent call analyses for weak areas
+      const calls = await storage.getCallSummaries(orgId, { status: "completed" });
+      const empCalls = calls.filter(c => c.employeeId === employeeId).slice(-10);
+      const subScores: Record<string, number[]> = { compliance: [], customerExperience: [], communication: [], resolution: [] };
+
+      for (const call of empCalls) {
+        const analysis = call.analysis;
+        if (!analysis?.subScores) continue;
+        for (const [key, arr] of Object.entries(subScores)) {
+          const val = (analysis.subScores as any)?.[key];
+          if (typeof val === "number") arr.push(val);
+        }
+      }
+
+      // Find weak areas (avg sub-score < 7.0)
+      const weakAreas: string[] = [];
+      for (const [key, scores] of Object.entries(subScores)) {
+        if (scores.length >= 2) {
+          const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+          if (avg < 7.0) weakAreas.push(key);
+        }
+      }
+
+      // Score and rank modules by relevance
+      const scored = modules
+        .filter(m => !completedModuleIds.has(m.id))
+        .map(m => {
+          let relevance = 0;
+          const reasons: string[] = [];
+          const mText = `${m.title} ${m.description || ""} ${m.category || ""} ${(m.tags || []).join(" ")}`.toLowerCase();
+
+          // Match coaching category
+          if (coachingCategory && mText.includes(coachingCategory.toLowerCase())) {
+            relevance += 5;
+            reasons.push(`Matches coaching category: ${coachingCategory}`);
+          }
+
+          // Match coaching notes keywords
+          if (coachingNotes) {
+            const keywords = coachingNotes.toLowerCase().split(/\s+/).filter(w => w.length > 4);
+            const matches = keywords.filter(kw => mText.includes(kw)).length;
+            if (matches > 0) {
+              relevance += Math.min(matches, 3);
+              reasons.push(`Matches coaching notes keywords (${matches})`);
+            }
+          }
+
+          // Match weak areas
+          for (const area of weakAreas) {
+            const areaLower = area.toLowerCase().replace(/([A-Z])/g, " $1").toLowerCase();
+            if (mText.includes(areaLower) || mText.includes(area.toLowerCase())) {
+              relevance += 4;
+              reasons.push(`Addresses weak area: ${area}`);
+            }
+          }
+
+          // Compliance modules always relevant for low compliance scores
+          if (weakAreas.includes("compliance") && (m.category === "compliance" || mText.includes("compliance"))) {
+            relevance += 3;
+          }
+
+          // Category relevance
+          if (m.category === "call_handling" && weakAreas.includes("communication")) {
+            relevance += 2;
+            reasons.push("Call handling for communication improvement");
+          }
+          if (m.category === "customer_service" && weakAreas.includes("customerExperience")) {
+            relevance += 2;
+            reasons.push("Customer service for experience improvement");
+          }
+
+          return { module: m, relevance, reasons };
+        })
+        .filter(s => s.relevance > 0)
+        .sort((a, b) => b.relevance - a.relevance)
+        .slice(0, 5);
+
+      res.json({
+        recommendations: scored.map(s => ({
+          moduleId: s.module.id,
+          title: s.module.title,
+          description: s.module.description,
+          category: s.module.category,
+          contentType: s.module.contentType,
+          difficulty: s.module.difficulty,
+          estimatedMinutes: s.module.estimatedMinutes,
+          relevanceScore: s.relevance,
+          reasons: s.reasons,
+        })),
+        weakAreas,
+        coachingCategory,
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to get coaching recommendations");
+      res.status(500).json({ message: "Failed to get coaching recommendations" });
     }
   });
 
