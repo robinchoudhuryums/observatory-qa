@@ -1003,6 +1003,11 @@ Server serves both API and static frontend from the same process.
 - **MFA grace period deadline is per-user**: `mfaEnrollmentDeadline` is set on each user when the org enables `mfaRequired`. Users created *after* `mfaRequiredEnabledAt` have a deadline of `createdAt + mfaGracePeriodDays`. Admins are NOT subject to the grace period — they must enable MFA immediately.
 - **Email OTP is viewer/manager only**: Admin accounts cannot use email OTP as a fallback. This is intentional — email OTP is lower security than TOTP/WebAuthn and admins have higher privilege. If an admin loses their TOTP device, they must use the recovery flow (email verification + admin approval from another admin or super-admin).
 - **OBS-AUTH-006**: New error code returned when an SSO user's session exceeds `ssoSessionMaxHours`. The response includes `requiresSso: true` so the frontend can redirect directly to `/api/auth/sso/{orgSlug}` instead of the generic login page.
+- **Team scoping returns null for no restriction**: `getTeamScopedEmployeeIds()` returns `null` (not an empty Set) when there is no restriction — null means "unrestricted", an empty Set means "access to zero employees". Always check `if (teamIds !== null)` before filtering.
+- **Call share token only returned at creation**: `POST /api/calls/:id/shares` returns the full 48-hex token once. Subsequent `GET /api/calls/:id/shares` only returns `tokenPrefix` (first 8 chars) for display. This mirrors the API key pattern.
+- **Call shares in cloud.ts use in-memory token lookup**: `getCallShareByToken()` in CloudStorage searches an in-memory Map populated at `createCallShare()` time. In multi-instance deployments, replace with a dedicated S3 index or move to PostgreSQL.
+- **`checkApiKeyScope()` is a no-op for session auth**: The middleware checks `req.apiKeyScopes` and returns `next()` immediately if it's undefined — which it is for all session-authenticated requests. This means scope checks are additive, not breaking, for existing session-based flows.
+- **`GET /api/coaching/my` match priority**: Matches caller's employee record first by email (exact match on `employee.email === user.username`), then by display name (`employee.name === user.name`). If multiple name matches exist, returns 409 to avoid returning the wrong employee's sessions.
 
 ## In-Progress Work (resume here in a new session)
 
@@ -1018,86 +1023,40 @@ Server serves both API and static frontend from the same process.
 - **Cert rotation** — `parseCertExpiry()` decodes DER notAfter; dual-cert via `ssoNewCertificate`; `GET /api/auth/sso/cert-status/:orgSlug`
 - **Admin SCIM token management** — `GET/POST/DELETE /api/admin/scim/token`
 
-#### ✅ Completed (schema/DB only, not yet committed): MFA improvements
-Schema changes are staged but the implementation routes have not been written yet:
-- `shared/schema/org.ts` — new `User` fields: `webauthnCredentials[]`, `mfaTrustedDevices[]`, `mfaEnrollmentDeadline`
-- `shared/schema/org.ts` — new `OrgSettings` fields: `mfaGracePeriodDays`, `mfaRequiredEnabledAt`
-- `server/db/sync-schema.ts` — new columns on `users`: `webauthn_credentials`, `mfa_trusted_devices`, `mfa_enrollment_deadline`
-- `server/db/sync-schema.ts` — new table `mfa_recovery_requests`
-- `@simplewebauthn/server` v13.3.0 installed (ESM import: `import { ... } from '@simplewebauthn/server'`)
+#### ✅ Completed & committed: MFA improvements
+- **WebAuthn/Passkeys** (FIDO2) — registration options/verify, authentication options/verify (`@simplewebauthn/server` v13); credentials stored as JSONB array on user row (`webauthn_credentials`)
+- **Trusted devices** — `POST /api/auth/mfa/verify` with `trustDevice: true` sets `mfa_td` cookie (30-day); SHA-256(token) stored in `user.mfaTrustedDevices[]`; trusted device check in login bypasses MFA challenge
+- **Trusted device management** — `GET /api/auth/mfa/trusted-devices`, `DELETE /api/auth/mfa/trusted-devices/:tokenPrefix`, `DELETE /api/auth/mfa/trusted-devices` (revoke all)
+- **Email OTP** (viewer/manager only) — `POST /api/auth/mfa/email-otp/send` (6-digit, 10-min TTL, 3 attempts max) + `POST /api/auth/mfa/email-otp/verify`; in-memory Map keyed by userId
+- **MFA grace period** — `mfaEnrollmentDeadline` per user; org-wide `mfaGracePeriodDays` (default 7); grace period status returned from `GET /api/auth/mfa/status`; after deadline, login rejected
+- **Emergency recovery flow** — `POST /api/auth/mfa/recovery/request` → email verification token → admin approves via `POST /api/admin/mfa/recovery/:id/approve` → use-token (15-min TTL) emailed → `POST /api/auth/mfa/recovery/:useToken/use` clears MFA + completes login; all steps HIPAA-audit-logged; stored in `mfa_recovery_requests` table
+- **WebAuthn credentials management** — `GET /api/auth/mfa/webauthn/credentials`, `DELETE /api/auth/mfa/webauthn/credentials/:credentialId`
 
-#### ❌ Still needs implementing: MFA route code
+#### ✅ Completed & committed: Coaching Engine improvements
+- **AI coaching plan generation** — `generateCoachingPlan(orgId, employeeId)` uses Bedrock to draft structured action plans from call history; callable from `POST /api/coaching/:id/generate-plan`
+- **Effectiveness tracking** — `CoachingSession` extended with `effectivenessScore`, `preScore`, `postScore`, `completedActions`, `totalActions`; `GET /api/coaching/analytics` returns improvement rate, average effectiveness, completion rate
+- **Self-assessment workflow** — `POST /api/coaching/:id/self-assess` allows employees to rate and comment on their own coaching sessions
+- **Coaching templates** — `coaching_templates` table; `GET/POST /api/coaching/templates`, `PATCH/DELETE /api/coaching/templates/:id`; templates are org-scoped blueprints for recurring coaching scenarios
+- **Automation rules** — `automation_rules` table; `GET/POST /api/coaching/automation-rules`, `PATCH/DELETE /api/coaching/automation-rules/:id`; rules trigger coaching sessions when conditions are met (e.g. score < threshold, compliance flag)
+- **Auto-recommendations** (`server/services/coaching-engine.ts`) — engine evaluates calls against automation rules and creates recommended coaching sessions
 
-**1. `server/routes/mfa.ts`** — extend the existing file with:
-- **WebAuthn registration**: `POST /api/auth/mfa/webauthn/register-options` (generate challenge, store in `req.session.webauthnChallenge`) + `POST /api/auth/mfa/webauthn/register-verify` (verify with `@simplewebauthn/server` v13, store credential in `user.webauthnCredentials[]`)
-- **WebAuthn authentication**: `POST /api/auth/mfa/webauthn/authenticate-options` (generate challenge for login, requires `userId` in body) + `POST /api/auth/mfa/webauthn/authenticate-verify` (verify, complete login, support `trustDevice`)
-- **WebAuthn management**: `GET /api/auth/mfa/webauthn/credentials` (list, auth required) + `DELETE /api/auth/mfa/webauthn/credentials/:credentialId` (remove, auth required)
-- **Trusted devices**: `POST /api/auth/mfa/verify` — add `trustDevice?: boolean` param; if true, generate token, set `mfa_td` cookie, store hash in `user.mfaTrustedDevices[]`. `GET /api/auth/mfa/trusted-devices` (list) + `DELETE /api/auth/mfa/trusted-devices/:tokenPrefix` (revoke one) + `DELETE /api/auth/mfa/trusted-devices` (revoke all)
-- **Email OTP** (viewer/manager only, never admin): `POST /api/auth/mfa/email-otp/send` (requires `userId`, sends 6-digit code to user.username email) + `POST /api/auth/mfa/email-otp/verify` (verify + complete login)
-- **MFA enforcement with grace period**: Update `GET /api/auth/mfa/status` to return `enrollmentDeadline`, `gracePeriodDaysLeft`
-- **Recovery**: `POST /api/auth/mfa/recovery/request` (requires `userId`; emails verification link to user) + `POST /api/auth/mfa/recovery/:token/verify-email` (proves email ownership, moves request to `email_verified`) + `POST /api/auth/mfa/recovery/:useToken/use` (after admin approval: complete login, clear MFA, force re-enrollment)
+#### ✅ Completed & committed: RBAC improvements
+- **Department/team scoping** — `subTeam` field on `User`; `getTeamScopedEmployeeIds(orgId, user)` returns `Set<string> | null` (null = no restriction); applied to `GET /api/calls`, `GET /api/employees`, `GET /api/coaching`
+- **Resource-level call sharing** — `call_shares` table with 48-hex token (SHA-256 hashed); `POST /api/calls/:id/shares` (manager+, 1h–30d TTL), `GET /api/calls/:id/shares`, `DELETE /api/calls/:id/shares/:shareId`; public `GET /api/shared-calls/:token` endpoint strips `clinicalNote` PHI before returning
+- **API key resource scopes** — `permissions[]` accepts `"calls:read"`, `"employees:read"`, etc. alongside broad `read`/`write`/`admin`; `checkApiKeyScope(scope)` middleware factory enforces per-route; `write` implies `read`, `admin` implies both; `req.apiKeyScopes` only set for keys with zero broad permissions
+- **Viewer coaching self-service** — `GET /api/coaching/my` auto-discovers the caller's employee record by email/username then name fallback; no employee ID required
 
-**2. `server/routes/auth.ts`** — update login handler:
-- **Trusted device check**: Before returning `mfaRequired: true`, check for `mfa_td` cookie. Parse `{userId}:{token}`, look up `user.mfaTrustedDevices[]`, check SHA-256(token) match + `expiresAt` not past. If valid, skip MFA and complete login directly.
-- **Grace period enforcement**: When org has `mfaRequired` and user has `mfaEnrollmentDeadline` in the past → return `401` with `mfaEnrollmentExpired: true`. When deadline is in the future → return `mfaSetupRequired: true` as before.
+#### ❌ Next up: RAG Knowledge Base improvements
 
-**3. `server/routes/admin.ts`** — add recovery approval endpoints:
-- `GET /api/admin/mfa/recovery` — list pending/email_verified requests for org (admin only)
-- `POST /api/admin/mfa/recovery/:requestId/approve` — approve; generate use-token; email it to user (15 min TTL)
-- `POST /api/admin/mfa/recovery/:requestId/deny` — deny request
+**Priority: Critical**
+1. **Document versioning** — add `version` (integer), `previousVersionId` (text), `indexingStatus` (pending/indexing/indexed/failed), `indexingError` (text) fields to `ReferenceDocument` schema + DB; `POST /api/onboarding/reference-docs/:id/version` creates a new version; old version chunks purged and re-indexed
+2. **Citation tracking** — when RAG chunks are injected into analysis prompt, store the chunk IDs used in `confidenceFactors.ragCitations[]`; return citations in `GET /api/calls/:id/analysis` response
 
-#### Implementation notes for `@simplewebauthn/server` v13:
-```typescript
-// Registration options — user.id MUST be Uint8Array in v13
-import { generateRegistrationOptions, verifyRegistrationResponse,
-         generateAuthenticationOptions, verifyAuthenticationResponse } from '@simplewebauthn/server';
-import { isoBase64URL } from '@simplewebauthn/server/helpers';
-
-const options = await generateRegistrationOptions({
-  rpName: orgName,
-  rpID: hostname,          // e.g. "observatory-qa.com" or "localhost"
-  user: {
-    id: isoBase64URL.toBuffer(user.id),   // Uint8Array from user ID string
-    name: user.username,
-    displayName: user.name,
-  },
-  attestationType: 'none',
-  authenticatorSelection: { residentKey: 'preferred', userVerification: 'preferred' },
-  excludeCredentials: user.webauthnCredentials?.map(c => ({ id: c.credentialId })),
-});
-req.session.webauthnChallenge = options.challenge;  // store for verification
-
-// Registration verification
-const verification = await verifyRegistrationResponse({
-  response: req.body,                         // RegistrationResponseJSON from browser
-  expectedChallenge: session.webauthnChallenge,
-  expectedOrigin: origin,                     // e.g. "https://observatory-qa.com"
-  expectedRPID: rpID,
-});
-// On success: verification.registrationInfo.credential has { id, publicKey (Uint8Array), counter, transports }
-// Store: credentialId = cred.id, publicKey = isoBase64URL.fromBuffer(cred.publicKey), counter = cred.counter
-
-// Authentication verification
-const credential: WebAuthnCredential = {
-  id: storedCred.credentialId,
-  publicKey: isoBase64URL.toBuffer(storedCred.publicKey),  // Uint8Array from stored base64url
-  counter: storedCred.counter,
-  transports: storedCred.transports as AuthenticatorTransportFuture[],
-};
-const authVerification = await verifyAuthenticationResponse({
-  response: req.body,
-  expectedChallenge: session.webauthnChallenge,
-  expectedOrigin: origin,
-  expectedRPID: rpID,
-  credential,
-});
-// After success: update stored counter to authVerification.authenticationInfo.newCounter
-```
-
-#### Recovery request storage pattern (mirror password-reset.ts):
-- In-memory Map `<tokenHash, { userId, orgId, status, expiresAt, emailVerified }>` as fallback
-- PostgreSQL `mfa_recovery_requests` table (already created in sync-schema.ts) as primary
-- Use `randomBytes(32).toString('hex')` for all tokens, store SHA-256 hash
+**Priority: High-impact**
+3. **Indexing error handling** — surface `indexingStatus` + `indexingError` in `GET /api/onboarding/reference-docs` response; show indexing progress in UI; retry endpoint `POST /api/onboarding/reference-docs/:id/reindex`
+4. **Chunk preview** — `GET /api/onboarding/reference-docs/:id/chunks` returns paginated list of stored chunks with text previews, vector dimensions, relevance metadata
+5. **Knowledge base analytics** — track retrieval counts per chunk/document; `GET /api/onboarding/rag/analytics` returns most-retrieved docs, average relevance scores, query→citation mapping
+6. **Web URL sources** — `POST /api/onboarding/reference-docs/url` accepts a URL, crawls the page (Cheerio or `node-fetch`), chunks + indexes it like an uploaded document; stored as `sourceType: "url"` with `sourceUrl` field
 
 ## Future Plans / Roadmap
 See `HEALTHCARE_EXPANSION_PLAN.md` for the full 4-phase healthcare expansion roadmap.
