@@ -64,6 +64,8 @@ import {
   type AutomationRule,
   type InsertAutomationRule,
   type CoachingAnalytics,
+  type CallShare,
+  type InsertCallShare,
 } from "@shared/schema";
 
 /**
@@ -195,6 +197,13 @@ export interface IStorage {
   getCallsWithDetails(orgId: string, filters?: { status?: string; sentiment?: string; employee?: string; limit?: number; offset?: number }): Promise<CallWithDetails[]>;
   /** Lightweight version of getCallsWithDetails — excludes transcript text/words for reporting */
   getCallSummaries(orgId: string, filters?: { status?: string; sentiment?: string; employee?: string; limit?: number; offset?: number }): Promise<CallSummary[]>;
+
+  // Call share operations (resource-level sharing for external reviewers)
+  createCallShare(orgId: string, share: InsertCallShare): Promise<CallShare>;
+  getCallShareByToken(tokenHash: string): Promise<CallShare | undefined>;
+  listCallShares(orgId: string, callId: string): Promise<CallShare[]>;
+  deleteCallShare(orgId: string, id: string): Promise<void>;
+  deleteExpiredCallShares(orgId: string): Promise<void>;
 
   // Transcript operations (org-scoped)
   getTranscript(orgId: string, callId: string): Promise<Transcript | undefined>;

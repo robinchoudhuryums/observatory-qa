@@ -65,6 +65,8 @@ export const users = pgTable("users", {
   mfaEnabled: boolean("mfa_enabled").notNull().default(false),
   mfaSecret: text("mfa_secret"), // Encrypted TOTP secret (AES-256-GCM)
   mfaBackupCodes: jsonb("mfa_backup_codes").$type<string[]>(), // Hashed backup codes
+  // Team scope: when set on a manager, limits their view to employees in this subTeam only
+  subTeam: varchar("sub_team", { length: 255 }),
   createdAt: timestamp("created_at").defaultNow(),
   lastLoginAt: timestamp("last_login_at"),
 }, (t) => [
@@ -127,6 +129,23 @@ export const calls = pgTable("calls", {
   index("calls_email_thread_idx").on(t.orgId, t.emailThreadId),
   index("calls_org_status_uploaded_idx").on(t.orgId, t.status, t.uploadedAt),
   index("calls_org_employee_status_idx").on(t.orgId, t.employeeId, t.status),
+]);
+
+// --- CALL SHARES (resource-level sharing for external reviewers) ---
+export const callShares = pgTable("call_shares", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => organizations.id),
+  callId: text("call_id").notNull().references(() => calls.id, { onDelete: "cascade" }),
+  tokenHash: varchar("token_hash", { length: 128 }).notNull(),  // SHA-256 of share token
+  tokenPrefix: varchar("token_prefix", { length: 16 }).notNull(), // First 8 chars for display
+  viewerLabel: varchar("viewer_label", { length: 255 }), // e.g. "Dr. Smith review"
+  expiresAt: timestamp("expires_at").notNull(),
+  createdBy: varchar("created_by", { length: 255 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  uniqueIndex("call_shares_token_hash_idx").on(t.tokenHash),
+  index("call_shares_org_idx").on(t.orgId),
+  index("call_shares_call_idx").on(t.orgId, t.callId),
 ]);
 
 // --- TRANSCRIPTS ---

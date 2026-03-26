@@ -43,6 +43,8 @@ declare namespace Express {
     orgSlug?: string;
     /** Unix ms timestamp of SSO login. Set by SAML/OIDC callbacks; used for per-org session max age. */
     ssoLoginAt?: number;
+    /** Team scope for managers — when set, limits visibility to employees in this subTeam only. */
+    subTeam?: string;
   }
 
   interface Request {
@@ -50,6 +52,12 @@ declare namespace Express {
     files?: import("multer").File[];
     user?: User;
     orgId?: string;
+    /**
+     * Resource-scoped permissions for API key requests without a broad permission.
+     * When set, checkApiKeyScope() middleware enforces these per-resource scopes.
+     * Undefined for session auth or API keys with broad permissions (read/write/admin).
+     */
+    apiKeyScopes?: string[];
   }
 }
 

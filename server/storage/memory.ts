@@ -58,6 +58,8 @@ import {
   type InsertMarketingCampaign,
   type CallAttribution,
   type InsertCallAttribution,
+  type CallShare,
+  type InsertCallShare,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
 import { type IStorage, applyCallFilters } from "./types";
@@ -74,6 +76,7 @@ export class MemStorage implements IStorage {
   private organizations = new Map<string, Organization>();
   private employees = new Map<string, Employee>();
   private calls = new Map<string, Call>();
+  private callShares = new Map<string, CallShare>();
   private transcripts = new Map<string, Transcript>();
   private sentiments = new Map<string, SentimentAnalysis>();
   private analyses = new Map<string, CallAnalysis>();
@@ -277,6 +280,32 @@ export class MemStorage implements IStorage {
       })
     );
     return applyCallFilters(results, filters);
+  }
+
+  // --- Call share operations (resource-level sharing for external reviewers) ---
+  async createCallShare(orgId: string, share: InsertCallShare): Promise<CallShare> {
+    const id = randomUUID();
+    const s: CallShare = { ...share, id, createdAt: new Date().toISOString() };
+    this.callShares.set(id, s);
+    return s;
+  }
+  async getCallShareByToken(tokenHash: string): Promise<CallShare | undefined> {
+    return Array.from(this.callShares.values()).find((s) => s.tokenHash === tokenHash);
+  }
+  async listCallShares(orgId: string, callId: string): Promise<CallShare[]> {
+    return Array.from(this.callShares.values()).filter(
+      (s) => s.orgId === orgId && s.callId === callId,
+    );
+  }
+  async deleteCallShare(orgId: string, id: string): Promise<void> {
+    const s = this.callShares.get(id);
+    if (s?.orgId === orgId) this.callShares.delete(id);
+  }
+  async deleteExpiredCallShares(_orgId: string): Promise<void> {
+    const now = new Date();
+    for (const [id, s] of Array.from(this.callShares.entries())) {
+      if (new Date(s.expiresAt) < now) this.callShares.delete(id);
+    }
   }
 
   // --- Transcript operations (org-scoped) ---

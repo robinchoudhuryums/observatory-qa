@@ -245,6 +245,8 @@ declare global {
       role: string;
       orgId: string;
       orgSlug?: string;
+      /** Team scope for managers — limits visibility to their subTeam only. */
+      subTeam?: string;
     }
     interface Request {
       /** Organization ID extracted from authenticated user session */
@@ -417,6 +419,7 @@ export async function setupAuth(app: Express) {
           role: dbUser.role,
           orgId: dbUser.orgId,
           orgSlug,
+          subTeam: (dbUser as any).subTeam || undefined,
         });
       } catch (err) {
         return done(err);
@@ -458,6 +461,7 @@ export async function setupAuth(app: Express) {
         role: dbUser.role,
         orgId: dbUser.orgId,
         orgSlug: org?.slug || "default",
+        subTeam: (dbUser as any).subTeam || undefined,
       });
     } catch {
       done(null, false);
@@ -539,6 +543,26 @@ export function requireRole(...allowedRoles: string[]): RequestHandler {
     }
     return res.status(403).json({ message: "Insufficient permissions", errorCode: "OBS-AUTH-004" });
   };
+}
+
+/**
+ * Returns the set of employee IDs that the requesting user is allowed to see,
+ * based on their team scope. Admins/super_admins and managers without a subTeam
+ * return null (no restriction). Managers with a subTeam only see employees in
+ * that subTeam — useful for filtering call lists, employee lists, and coaching.
+ */
+export async function getTeamScopedEmployeeIds(
+  orgId: string,
+  user: Express.User,
+): Promise<Set<string> | null> {
+  // Admins and super_admins are never restricted
+  const level = ROLE_HIERARCHY[user.role ?? "viewer"] ?? 0;
+  if (level >= ROLE_HIERARCHY["admin"]) return null;
+  // Managers/viewers without a subTeam see everything (backward compat)
+  if (!user.subTeam) return null;
+  const employees = await storage.getAllEmployees(orgId);
+  const teamEmployees = employees.filter((e) => e.subTeam === user.subTeam);
+  return new Set(teamEmployees.map((e) => e.id));
 }
 
 /**

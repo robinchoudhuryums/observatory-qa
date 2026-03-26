@@ -1,9 +1,9 @@
 import type { Express, Request, Response, NextFunction } from "express";
-import { createHash } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import fs from "fs";
 import { pipeline } from "stream/promises";
 import { storage, normalizeAnalysis } from "../storage";
-import { requireAuth, requireRole, injectOrgContext, requireOrgContext } from "../auth";
+import { requireAuth, requireRole, injectOrgContext, requireOrgContext, getTeamScopedEmployeeIds } from "../auth";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { upload, safeFloat, validateUUIDParam, acquireUploadSlot, releaseUploadSlot } from "./helpers";
 import { enforceQuota, requireActiveSubscription, reportCallOverageToStripe } from "./billing";
@@ -96,13 +96,22 @@ export function registerCallRoutes(app: Express): void {
       const parsedLimit = Math.min(Math.max(1, parseInt(limit as string, 10) || 100), 500);
       const parsedOffset = Math.max(0, parseInt(offset as string, 10) || 0);
 
-      const calls = await storage.getCallsWithDetails(req.orgId!, {
+      // Team-scoped filtering: managers with a subTeam see only their team's calls
+      const teamEmployeeIds = req.user
+        ? await getTeamScopedEmployeeIds(req.orgId!, req.user)
+        : null;
+
+      let calls = await storage.getCallsWithDetails(req.orgId!, {
         status: status as string,
         sentiment: sentiment as string,
         employee: employee as string,
         limit: parsedLimit,
         offset: parsedOffset,
       });
+
+      if (teamEmployeeIds !== null) {
+        calls = calls.filter((c) => !c.employeeId || teamEmployeeIds.has(c.employeeId));
+      }
 
       // Return raw array — all frontend consumers (Dashboard, Sidebar, CallsTable,
       // SentimentPage, SearchPage, etc.) expect CallWithDetails[] directly.
@@ -672,6 +681,165 @@ export function registerCallRoutes(app: Express): void {
     } catch (error) {
       logger.error({ err: error }, "Failed to delete call");
       res.status(500).json(errorResponse(ERROR_CODES.CALL_DELETE_FAILED, "Failed to delete call"));
+    }
+  });
+
+  // ==================== CALL SHARE ROUTES ====================
+  // Resource-level sharing: create time-limited links for external reviewers
+  // (compliance consultants, QA auditors) without granting org-wide access.
+
+  // Create a shareable link for a call (manager+)
+  app.post("/api/calls/:id/shares", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
+    try {
+      const call = await storage.getCall(req.orgId!, req.params.id);
+      if (!call) {
+        return res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call not found"));
+      }
+
+      const { viewerLabel, expiresInHours } = req.body;
+      const hours = Math.min(Math.max(1, parseInt(expiresInHours) || 72), 720); // 1h–30d, default 72h
+      const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+
+      // Generate a cryptographically random token (48 hex chars)
+      const token = randomBytes(24).toString("hex");
+      const tokenHash = createHash("sha256").update(token).digest("hex");
+      const tokenPrefix = token.slice(0, 8);
+
+      const share = await storage.createCallShare(req.orgId!, {
+        orgId: req.orgId!,
+        callId: call.id,
+        tokenHash,
+        tokenPrefix,
+        viewerLabel: viewerLabel?.toString().slice(0, 255) || undefined,
+        expiresAt,
+        createdBy: req.user!.id,
+      });
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "create_call_share",
+        resourceType: "call",
+        resourceId: call.id,
+        detail: `Share ${share.id} created, expires ${expiresAt}`,
+      });
+
+      res.status(201).json({
+        id: share.id,
+        token, // Only time plaintext token is returned
+        tokenPrefix: share.tokenPrefix,
+        viewerLabel: share.viewerLabel,
+        expiresAt: share.expiresAt,
+        createdAt: share.createdAt,
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to create call share");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to create share link"));
+    }
+  });
+
+  // List active shares for a call (manager+)
+  app.get("/api/calls/:id/shares", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
+    try {
+      const call = await storage.getCall(req.orgId!, req.params.id);
+      if (!call) {
+        return res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call not found"));
+      }
+      const shares = await storage.listCallShares(req.orgId!, call.id);
+      const now = new Date();
+      // Filter expired + never return tokenHash
+      const active = shares
+        .filter((s) => new Date(s.expiresAt) > now)
+        .map((s) => ({
+          id: s.id,
+          tokenPrefix: s.tokenPrefix,
+          viewerLabel: s.viewerLabel,
+          expiresAt: s.expiresAt,
+          createdAt: s.createdAt,
+          createdBy: s.createdBy,
+        }));
+      res.json(active);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to list call shares");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to list shares"));
+    }
+  });
+
+  // Revoke a specific share (manager+)
+  app.delete("/api/calls/:id/shares/:shareId", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
+    try {
+      await storage.deleteCallShare(req.orgId!, req.params.shareId);
+      logPhiAccess({
+        ...auditContext(req),
+        event: "revoke_call_share",
+        resourceType: "call",
+        resourceId: req.params.id,
+        detail: `Share ${req.params.shareId} revoked`,
+      });
+      res.json({ message: "Share link revoked" });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to revoke call share");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to revoke share"));
+    }
+  });
+
+  // Public endpoint: access a shared call via token (no authentication required)
+  // Returns call details, transcript, and analysis — but NOT clinical notes (PHI).
+  app.get("/api/shared-calls/:token", async (req, res) => {
+    try {
+      const token = req.params.token;
+      if (!/^[0-9a-f]{48}$/.test(token)) {
+        return res.status(404).json({ message: "Invalid or expired share link" });
+      }
+
+      const tokenHash = createHash("sha256").update(token).digest("hex");
+      const share = await storage.getCallShareByToken(tokenHash);
+
+      if (!share) {
+        return res.status(404).json({ message: "Invalid or expired share link" });
+      }
+      if (new Date(share.expiresAt) < new Date()) {
+        return res.status(410).json({ message: "This share link has expired" });
+      }
+
+      const call = await storage.getCall(share.orgId, share.callId);
+      if (!call) {
+        return res.status(404).json({ message: "Call not found" });
+      }
+
+      const [employee, transcript, sentiment, rawAnalysis] = await Promise.all([
+        call.employeeId ? storage.getEmployee(share.orgId, call.employeeId) : undefined,
+        storage.getTranscript(share.orgId, call.id),
+        storage.getSentimentAnalysis(share.orgId, call.id),
+        storage.getCallAnalysis(share.orgId, call.id),
+      ]);
+
+      const analysis = normalizeAnalysis(rawAnalysis);
+      // Strip clinical note from shared view — PHI must not be shared externally
+      if (analysis) {
+        delete (analysis as any).clinicalNote;
+      }
+
+      res.json({
+        id: call.id,
+        fileName: call.fileName,
+        status: call.status,
+        duration: call.duration,
+        callCategory: call.callCategory,
+        tags: call.tags,
+        uploadedAt: call.uploadedAt,
+        channel: call.channel,
+        employeeName: employee?.name,
+        transcript: transcript ? { text: transcript.text, confidence: transcript.confidence } : undefined,
+        sentiment,
+        analysis,
+        share: {
+          viewerLabel: share.viewerLabel,
+          expiresAt: share.expiresAt,
+        },
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to load shared call");
+      res.status(500).json({ message: "Failed to load shared call" });
     }
   });
 }

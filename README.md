@@ -23,8 +23,10 @@ AI-powered call quality analysis and clinical documentation for healthcare and c
 - **Custom evaluation templates** — per-call-category scoring criteria, required phrases, weighted scoring
 - **A/B model testing** — compare AI models side-by-side with cost and latency tracking
 - **Spend tracking** — per-call cost breakdown for transcription and AI analysis
-- **Coaching system** — create coaching sessions from call analysis, track action plans
-- **Role-based access** — viewer / manager / admin with hierarchical permissions
+- **Coaching system** — create coaching sessions from call analysis, track action plans with AI-generated coaching plans, effectiveness tracking (pre/post scores), self-assessment workflow, org-scoped coaching templates, and automation rules that trigger sessions based on call outcomes
+- **Role-based access** — viewer / manager / admin with hierarchical permissions. Department/team scoping for managers (subTeam field limits visibility to own team's calls, employees, and coaching). Viewer self-service coaching (`GET /api/coaching/my`)
+- **Resource-level call sharing** — time-limited shareable links for external reviewers (compliance consultants, auditors); configurable 1h–30d expiry; PHI/clinical notes stripped from shared views
+- **API key resource scopes** — keys can be scoped to specific resources (`calls:read`, `employees:read`, etc.) instead of broad read/write/admin; enforced per-route via `checkApiKeyScope()` middleware; `write` implies `read`
 - **SSO** — SAML 2.0 + OIDC single sign-on (Enterprise plan). IDP-initiated login, group-to-role mapping, per-org session limits, SLO sync logout, certificate rotation workflow with dual-cert support
 - **SCIM 2.0** — Automated user lifecycle management (Enterprise plan). Okta/Azure AD provisioning: create users when they join, deactivate when they leave. Bearer token auth, full Users CRUD, ServiceProviderConfig endpoint
 - **MFA** — TOTP + WebAuthn/Passkeys (FIDO2, phishing-resistant). Trusted device management ("remember this device 30 days"). Email OTP fallback for clinical staff without smartphones. Emergency recovery workflow (email-verified + admin-approved bypass). Per-org enforcement with configurable grace period (default 7 days)
@@ -139,7 +141,7 @@ client/src/
 server/
   index.ts            # App entry point
   auth.ts             # Authentication + org context middleware
-  routes/             # 36 modular route files (auth, SSO, calls, clinical, ehr, lms, marketing, etc.)
+  routes/             # 38 modular route files (auth, SSO, calls, clinical, ehr, lms, marketing, etc.)
   services/           # AI provider (Bedrock), S3, Redis, RAG, Stripe, EHR adapters, Sentry, telemetry
   middleware/          # WAF, OpenTelemetry tracing
   services/ehr/       # EHR integration adapters (Open Dental, Eaglesoft)

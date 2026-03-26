@@ -650,6 +650,38 @@ export class CloudStorage implements IStorage {
     await this.client.deleteObject(`${this.orgPrefix(orgId)}/automation-rules/${id}.json`).catch(() => {});
   }
 
+  // --- Call Shares (resource-level sharing) ---
+  private callSharesStore = new Map<string, import("@shared/schema").CallShare>();
+
+  async createCallShare(orgId: string, share: import("@shared/schema").InsertCallShare): Promise<import("@shared/schema").CallShare> {
+    const { randomUUID } = await import("crypto");
+    const id = randomUUID();
+    const s: import("@shared/schema").CallShare = { ...share, id, createdAt: new Date().toISOString() };
+    await this.client.uploadJson(`${this.orgPrefix(orgId)}/call-shares/${id}.json`, s);
+    return s;
+  }
+  async getCallShareByToken(tokenHash: string): Promise<import("@shared/schema").CallShare | undefined> {
+    // Cloud backend: search in-memory cache (populated on createCallShare calls)
+    return Array.from(this.callSharesStore.values()).find((s) => s.tokenHash === tokenHash);
+  }
+  async listCallShares(orgId: string, callId: string): Promise<import("@shared/schema").CallShare[]> {
+    const all = await this.client.listAndDownloadJson<import("@shared/schema").CallShare>(`${this.orgPrefix(orgId)}/call-shares/`);
+    return all.filter((s) => s.callId === callId);
+  }
+  async deleteCallShare(orgId: string, id: string): Promise<void> {
+    await this.client.deleteObject(`${this.orgPrefix(orgId)}/call-shares/${id}.json`).catch(() => {});
+    this.callSharesStore.delete(id);
+  }
+  async deleteExpiredCallShares(orgId: string): Promise<void> {
+    const all = await this.client.listAndDownloadJson<import("@shared/schema").CallShare>(`${this.orgPrefix(orgId)}/call-shares/`);
+    const now = new Date();
+    await Promise.allSettled(
+      all.filter((s) => new Date(s.expiresAt) < now).map((s) =>
+        this.client.deleteObject(`${this.orgPrefix(orgId)}/call-shares/${s.id}.json`)
+      ),
+    );
+  }
+
   // --- Data Retention (org-scoped) ---
   async purgeExpiredCalls(orgId: string, retentionDays: number): Promise<number> {
     const cutoff = new Date();

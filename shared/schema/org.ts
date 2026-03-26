@@ -175,6 +175,8 @@ export const insertUserSchema = z.object({
   })).optional(),
   // Grace period deadline for MFA enrollment (set when org enables mfaRequired)
   mfaEnrollmentDeadline: z.string().optional(), // ISO date
+  // Team scope for managers — limits visibility to employees/calls in this subTeam only
+  subTeam: z.string().optional(),
 });
 
 export const userSchema = insertUserSchema.extend({
