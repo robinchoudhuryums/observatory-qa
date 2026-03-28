@@ -10,6 +10,123 @@ function normalizeSentiment(value: unknown): "positive" | "neutral" | "negative"
   return "neutral";
 }
 
+// --- Agent speaker detection patterns ---
+// Phrases that strongly indicate the speaker is an agent/employee (not the caller).
+// Matched against the first ~60 words per speaker to detect greetings.
+const AGENT_GREETING_PATTERNS = [
+  /\bthank(?:s| you) for calling\b/i,
+  /\bmy name is\b/i,
+  /\bthis is [\w]+ (?:with|from|at)\b/i,
+  /\bhow (?:can|may) I (?:help|assist)\b/i,
+  /\bwelcome to\b/i,
+  /\byou(?:'ve| have) reached\b/i,
+  /\bthanks? for (?:choosing|reaching out|contacting)\b/i,
+];
+
+// Phrases that strongly indicate the speaker is a customer/patient.
+const CUSTOMER_PATTERNS = [
+  /\bI(?:'m| am) calling (?:about|because|to|regarding)\b/i,
+  /\bI(?:'d| would) like to (?:schedule|make|book|cancel)\b/i,
+  /\bI have (?:a |an )?(?:question|appointment|problem|issue)\b/i,
+  /\bI need to (?:speak|talk) (?:to|with)\b/i,
+];
+
+/**
+ * Detect speaker roles from transcript word patterns and optional AI-detected agent name.
+ *
+ * Strategy (in priority order):
+ * 1. If AI detected an agent name, find which speaker said it in a self-introduction context
+ * 2. Match greeting patterns (agent phrases vs customer phrases) in first ~60 words per speaker
+ * 3. Return null if no confident detection (caller should fall back to org config or default)
+ *
+ * Returns a Record<string, "agent"|"customer"> or null if detection is inconclusive.
+ */
+export function detectSpeakerRolesFromTranscript(
+  words: TranscriptWord[],
+  detectedAgentName?: string | null,
+): Record<string, string> | null {
+  if (!words || words.length < 5) return null;
+
+  // Collect unique speakers
+  const speakers = new Set<string>();
+  for (const w of words) {
+    if (w.speaker) speakers.add(w.speaker);
+  }
+  if (speakers.size < 2) return null; // Need at least 2 speakers for role assignment
+
+  // Build first ~60 words of text per speaker for pattern matching
+  const speakerTexts = new Map<string, string>();
+  const speakerWordCounts = new Map<string, number>();
+  for (const w of words) {
+    if (!w.speaker) continue;
+    const count = speakerWordCounts.get(w.speaker) || 0;
+    if (count >= 60) continue; // Only examine first ~60 words per speaker
+    speakerWordCounts.set(w.speaker, count + 1);
+    const existing = speakerTexts.get(w.speaker) || "";
+    speakerTexts.set(w.speaker, existing + " " + w.text);
+  }
+
+  // Strategy 1: If AI detected an agent name, find which speaker said "my name is [name]"
+  // or "this is [name]" where [name] matches the detected agent name.
+  if (detectedAgentName && detectedAgentName.length >= 2) {
+    const nameLower = detectedAgentName.toLowerCase();
+    const namePattern = new RegExp(
+      `\\b(?:(?:my name is|this is|I'm|I am)\\s+)${nameLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
+      "i",
+    );
+    for (const [speaker, text] of Array.from(speakerTexts)) {
+      if (namePattern.test(text)) {
+        // This speaker introduced themselves as the agent
+        const roles: Record<string, string> = {};
+        for (const s of Array.from(speakers)) {
+          roles[s] = s === speaker ? "agent" : "customer";
+        }
+        logger.debug({ detectedAgentName, agentSpeaker: speaker }, "Speaker role detected via agent name match");
+        return roles;
+      }
+    }
+  }
+
+  // Strategy 2: Pattern-based greeting detection
+  let agentSpeaker: string | null = null;
+  let customerSpeaker: string | null = null;
+  let agentConfidence = 0;
+  let customerConfidence = 0;
+
+  for (const [speaker, text] of Array.from(speakerTexts)) {
+    let agentScore = 0;
+    let custScore = 0;
+    for (const pat of AGENT_GREETING_PATTERNS) {
+      if (pat.test(text)) agentScore++;
+    }
+    for (const pat of CUSTOMER_PATTERNS) {
+      if (pat.test(text)) custScore++;
+    }
+
+    if (agentScore > custScore && agentScore > agentConfidence) {
+      agentSpeaker = speaker;
+      agentConfidence = agentScore;
+    }
+    if (custScore > agentScore && custScore > customerConfidence) {
+      customerSpeaker = speaker;
+      customerConfidence = custScore;
+    }
+  }
+
+  // Only return if we have a clear signal (at least one pattern matched for agent role)
+  if (agentSpeaker && agentConfidence >= 1) {
+    const roles: Record<string, string> = {};
+    for (const s of Array.from(speakers)) {
+      roles[s] = s === agentSpeaker ? "agent" : "customer";
+    }
+    logger.debug({ agentSpeaker, agentConfidence, customerSpeaker, customerConfidence }, "Speaker roles detected via greeting patterns");
+    return roles;
+  }
+
+  // Inconclusive — return null so caller falls back to org config or default
+  return null;
+}
+
 export interface AssemblyAIConfig {
   apiKey: string;
   baseUrl: string;
@@ -285,11 +402,11 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
     const speechMetrics = this.computeSpeechMetrics(words);
 
     // --- Speaker role mapping ---
-    // Uses org-configured mapping if provided, otherwise defaults to convention:
-    // Speaker A = agent (speaks first in call center greeting), B = customer.
-    const speakerRoleMap: Record<string, string> = orgSpeakerRoles && Object.keys(orgSpeakerRoles).length > 0
-      ? orgSpeakerRoles
-      : { A: "agent", B: "customer" };
+    // Priority: (1) auto-detect from transcript patterns + AI-detected agent name,
+    //           (2) org-configured default, (3) hardcoded default (A=agent, B=customer).
+    const detectedRoles = detectSpeakerRolesFromTranscript(words, aiAnalysis?.detected_agent_name);
+    const speakerRoleMap: Record<string, string> = detectedRoles
+      ?? (orgSpeakerRoles && Object.keys(orgSpeakerRoles).length > 0 ? orgSpeakerRoles : { A: "agent", B: "customer" });
 
     // Determine flags
     const flags: string[] = aiAnalysis?.flags || [];
