@@ -135,36 +135,36 @@ describe("PHI Encryption", () => {
   });
 
   describe("decryption failure handling", () => {
-    it("returns error placeholder when key is missing for encrypted data", async () => {
+    it("throws when key is missing for encrypted data", async () => {
       // Encrypt with a key
       process.env.PHI_ENCRYPTION_KEY = TEST_KEY;
       const mod1 = await loadModule();
       const encrypted = mod1.encryptField("Secret data");
 
-      // Try to decrypt without a key
+      // Try to decrypt without a key — must throw (HIPAA: never return placeholder to clinician)
       delete process.env.PHI_ENCRYPTION_KEY;
       const mod2 = await loadModule();
-      const result = mod2.decryptField(encrypted);
-      assert.equal(result, "[ENCRYPTED - KEY UNAVAILABLE]");
+      assert.throws(() => mod2.decryptField(encrypted), /PHI_ENCRYPTION_KEY not configured/);
     });
 
-    it("returns error placeholder for corrupted ciphertext", async () => {
+    it("throws for corrupted ciphertext", async () => {
       process.env.PHI_ENCRYPTION_KEY = TEST_KEY;
       const mod = await loadModule();
 
-      const result = mod.decryptField("enc_v1:dGhpcyBpcyBub3QgdmFsaWQgY2lwaGVydGV4dA==");
-      assert.equal(result, "[DECRYPTION FAILED]");
+      assert.throws(
+        () => mod.decryptField("enc_v1:dGhpcyBpcyBub3QgdmFsaWQgY2lwaGVydGV4dA=="),
+        /PHI decryption failed/,
+      );
     });
 
-    it("returns error placeholder for tampered ciphertext", async () => {
+    it("throws for tampered ciphertext", async () => {
       process.env.PHI_ENCRYPTION_KEY = TEST_KEY;
       const mod = await loadModule();
 
       const encrypted = mod.encryptField("Original data");
       // Tamper with the base64 payload
       const tampered = encrypted.slice(0, -5) + "XXXXX";
-      const result = mod.decryptField(tampered);
-      assert.equal(result, "[DECRYPTION FAILED]");
+      assert.throws(() => mod.decryptField(tampered), /PHI decryption failed/);
     });
   });
 

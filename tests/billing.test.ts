@@ -92,6 +92,9 @@ describe("planLimitsSchema", () => {
       ragEnabled: false,
       ssoEnabled: false,
       prioritySupport: false,
+      baseSeats: 3,
+      pricePerAdditionalSeatUsd: 12,
+      overagePricePerCallUsd: 0,
     });
     assert.ok(result.success);
   });
@@ -107,6 +110,9 @@ describe("planLimitsSchema", () => {
       ragEnabled: true,
       ssoEnabled: true,
       prioritySupport: true,
+      baseSeats: 25,
+      pricePerAdditionalSeatUsd: 25,
+      overagePricePerCallUsd: 0.50,
     });
     assert.ok(result.success);
   });

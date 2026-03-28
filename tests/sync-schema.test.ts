@@ -123,7 +123,7 @@ describe("sync-schema table coverage", () => {
     "access_requests",
     "password_reset_tokens",
     "ab_tests",
-    "usage_records",
+    "usage_events",
     "feedbacks",
   ];
 
