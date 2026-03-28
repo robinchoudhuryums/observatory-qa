@@ -45,7 +45,8 @@ export async function checkAndAwardBadges(orgId: string, employeeId: string): Pr
     const recentCalls = employeeCalls.slice(-20);
     const analyses = recentCalls
       .filter(c => c.analysis)
-      .map(c => ({ callId: c.id, score: parseFloat(String(c.analysis?.performanceScore || "0")) }));
+      .map(c => ({ callId: c.id, score: parseFloat(String(c.analysis?.performanceScore || "0")) }))
+      .filter(a => !isNaN(a.score));
 
     const highScoreCalls = analyses.filter(a => a.score >= 9.0);
     if (highScoreCalls.length >= 5 && !hasBadge("high_performer")) {
@@ -210,6 +211,16 @@ export function registerGamificationRoutes(app: Express) {
 
       if (!employee) return res.status(404).json({ message: "Employee not found" });
 
+      // Check opt-out status before returning profile
+      const org = await storage.getOrganization(orgId);
+      const gamSettings = (org?.settings as any)?.gamification;
+      if (gamSettings?.enabled === false) return res.json({ optedOut: true, message: "Gamification is disabled" });
+      const optedOutIds = new Set(gamSettings?.optedOutEmployeeIds || []);
+      const optedOutRoles = new Set(gamSettings?.optedOutRoles || []);
+      if (optedOutIds.has(employeeId) || optedOutRoles.has((employee as any).role)) {
+        return res.json({ optedOut: true, message: "This employee has opted out of gamification" });
+      }
+
       // Enrich badges with definitions
       const enrichedBadges = badges.map(b => {
         const def = BADGE_DEFINITIONS.find(d => d.id === b.badgeId);
@@ -297,6 +308,10 @@ export function registerGamificationRoutes(app: Express) {
       if (gamSettings?.optedOutEmployeeIds?.includes(employeeId)) {
         return res.status(403).json({ message: "This employee has opted out of gamification" });
       }
+      const optedOutRoles = gamSettings?.optedOutRoles || [];
+      if (optedOutRoles.length > 0 && optedOutRoles.includes((employee as any).role)) {
+        return res.status(403).json({ message: "This employee's role has opted out of gamification" });
+      }
 
       // For custom badges, use "custom_recognition" as the badgeId prefix
       const customBadgeId = badgeId.startsWith("custom_") ? badgeId : `custom_${badgeId}`;
@@ -340,24 +355,38 @@ export function registerGamificationRoutes(app: Express) {
       }
 
       const employees = await storage.getAllEmployees(orgId);
-      const leaderboardData = await storage.getLeaderboard(orgId, 500); // Get all
+      const leaderboardData = await storage.getLeaderboard(orgId, 500);
+
+      // Filter out opted-out employees/roles (same logic as main leaderboard)
+      const employeeMap = new Map(employees.map(e => [e.id, e]));
+      const optedOutIds = new Set(gamSettings?.optedOutEmployeeIds || []);
+      const optedOutRoles = new Set(gamSettings?.optedOutRoles || []);
+      const filteredLeaderboard = leaderboardData.filter(entry => {
+        if (optedOutIds.has(entry.employeeId)) return false;
+        const emp = employeeMap.get(entry.employeeId);
+        if (emp && optedOutRoles.has((emp as any).role)) return false;
+        return true;
+      });
 
       // Group by subTeam
-      const employeeMap = new Map(employees.map(e => [e.id, e]));
+      const topPointsByTeam = new Map<string, number>();
       const teams: Record<string, { totalPoints: number; memberCount: number; avgPoints: number; topPerformer: string | null; badges: number }> = {};
 
-      for (const entry of leaderboardData) {
+      for (const entry of filteredLeaderboard) {
         const emp = employeeMap.get(entry.employeeId);
         const team = (emp as any)?.subTeam || "Unassigned";
 
         if (!teams[team]) {
           teams[team] = { totalPoints: 0, memberCount: 0, avgPoints: 0, topPerformer: null, badges: 0 };
+          topPointsByTeam.set(team, 0);
         }
         teams[team].totalPoints += entry.totalPoints;
         teams[team].memberCount++;
         teams[team].badges += entry.badgeCount;
-        if (!teams[team].topPerformer || entry.totalPoints > 0) {
+        // Track actual top performer by points (not just last with >0)
+        if (entry.totalPoints > (topPointsByTeam.get(team) || 0)) {
           teams[team].topPerformer = emp?.name || null;
+          topPointsByTeam.set(team, entry.totalPoints);
         }
       }
 

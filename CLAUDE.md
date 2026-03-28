@@ -1158,6 +1158,11 @@ Server serves both API and static frontend from the same process.
 - **Payer mix carrier fix** — carrier breakdown now uses `insuranceAmount` only (was falling back to `actualRevenue`, which includes patient portion — double-counting insurance revenue)
 - **Forecast confidence** — forecast response now includes `forecastConfidence` ("low"/"moderate"/"high" based on day of month), `daysElapsed`, `daysRemaining`. Low confidence before day 7 warns users that early-month projections are unreliable
 
+#### ✅ Completed & committed: Gamification improvements
+- **Opt-out filtering gaps fixed** — profile endpoint now checks opt-out before returning data (was leaking full profile for opted-out employees); recognition endpoint now checks role-based opt-out (was only checking employee ID); team leaderboard now filters opted-out employees/roles (was including everyone)
+- **Team leaderboard top performer fix** — was overwriting topPerformer with ANY employee with points > 0 (last one wins); now tracks actual highest-points employee per team
+- **NaN protection** — badge award logic now filters NaN scores from performance calculations (corrupted analysis data could skew badge eligibility)
+
 #### ✅ Completed & committed: Calibration Session improvements
 - **Flagged status consistency** — analytics endpoint now includes "flagged" certification status (3+ sessions, avgDeviation >= 2.0) matching the certifications endpoint. Type definition updated to include all 4 statuses
 - **ICC formula fix** — replaced abandoned mean-absolute-deviation formula with proper variance-based ICC using sample variance (Bessel's correction) and normalized against theoretical max variance on 0-10 scale
