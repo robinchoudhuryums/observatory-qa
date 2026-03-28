@@ -427,6 +427,7 @@ export const referenceDocuments = pgTable("reference_documents", {
   sourceType: varchar("source_type", { length: 20 }).notNull().default("upload"),
   sourceUrl: text("source_url"),
   retrievalCount: integer("retrieval_count").notNull().default(0),
+  contentHash: varchar("content_hash", { length: 64 }), // SHA-256 hex for deduplication
 }, (t) => [
   index("ref_docs_org_id_idx").on(t.orgId),
   index("ref_docs_category_idx").on(t.orgId, t.category),

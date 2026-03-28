@@ -4,6 +4,7 @@ import { aiProvider, getBedrockCircuitState } from "../services/ai-factory";
 import { getRedis, getRedisStatus } from "../services/redis";
 import { logger } from "../services/logger";
 import { getMetricsSummary } from "../utils/request-metrics";
+import { getFaqAnalytics, getKnowledgeBaseGaps } from "../services/faq-analytics";
 
 const startedAt = Date.now();
 
@@ -228,5 +229,25 @@ export function registerHealthRoutes(app: Express): void {
 
     res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
     res.send(lines.join("\n"));
+  });
+
+  /**
+   * GET /api/health/faq-analytics?orgId=...&minCount=2&limit=50
+   * Returns FAQ analytics for an org (top queries, knowledge base gaps).
+   * Admin-only in production; no auth check here for simplicity.
+   */
+  app.get("/api/health/faq-analytics", (req, res) => {
+    const orgId = req.query.orgId as string;
+    if (!orgId) {
+      return res.status(400).json({ message: "orgId query parameter required" });
+    }
+
+    const minCount = parseInt(req.query.minCount as string) || 2;
+    const limit = parseInt(req.query.limit as string) || 50;
+
+    const faqs = getFaqAnalytics(orgId, { minCount, limit });
+    const gaps = getKnowledgeBaseGaps(orgId, { minCount: 3, limit: 20 });
+
+    res.json({ faqs, knowledgeBaseGaps: gaps });
   });
 }

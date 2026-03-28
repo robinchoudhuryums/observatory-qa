@@ -7,7 +7,7 @@ import type { Express } from "express";
 import multer from "multer";
 import fs from "fs";
 import path from "path";
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
 import { storage, objectStorage } from "../storage";
 import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { logger } from "../services/logger";
@@ -343,6 +343,18 @@ export function registerOnboardingRoutes(app: Express): void {
           await objectStorage.uploadFile(storagePath, buffer, req.file.mimetype);
         }
 
+        // Content-hash deduplication: reject identical uploads in same org
+        const contentHash = createHash("sha256").update(buffer).digest("hex");
+        const existingDocs = await storage.listReferenceDocuments(orgId);
+        const duplicate = existingDocs.find((d: any) => d.contentHash === contentHash && d.isActive !== false);
+        if (duplicate) {
+          return res.status(409).json({
+            message: "A document with identical content already exists in this organization",
+            existingDocumentId: duplicate.id,
+            existingDocumentName: duplicate.name,
+          });
+        }
+
         // Extract text content for AI injection
         const extractedText = await extractTextFromFile(buffer, req.file.mimetype);
 
@@ -372,6 +384,7 @@ export function registerOnboardingRoutes(app: Express): void {
           mimeType: req.file.mimetype,
           storagePath,
           extractedText: extractedText || undefined,
+          contentHash,
           appliesTo: parsedAppliesTo,
           isActive: true,
           uploadedBy: req.user?.username,

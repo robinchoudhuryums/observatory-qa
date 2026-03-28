@@ -23,7 +23,7 @@ import { notifyFlaggedCall } from "./notifications";
 import { onCallAnalysisComplete } from "./proactive-alerts";
 import { trackUsage } from "./queue";
 import { logger } from "./logger";
-import { searchRelevantChunks, formatRetrievedContext, incrementRetrievalCounts } from "./rag";
+import { searchRelevantChunks, formatRetrievedContext, incrementRetrievalCounts, scanAndRedactOutput } from "./rag";
 import { encryptField } from "./phi-encryption";
 import { calibrateAnalysis } from "./scoring-calibration";
 import { validateClinicalNote, sanitizeStylePreferences } from "./clinical-validation";
@@ -391,7 +391,12 @@ async function loadReferenceContext(
             logger.debug({ err }, "Failed to increment retrieval counts");
           });
 
-          return [{ name: "Retrieved Knowledge Base Context", category: "rag_retrieval", text: ragContext }];
+          // Scan RAG context for PHI before injecting into prompt
+          const { text: scannedContext, phiDetected } = scanAndRedactOutput(ragContext, { orgId, queryId: callId });
+          if (phiDetected) {
+            logger.warn({ callId, orgId }, "PHI detected in RAG retrieval context — redacted");
+          }
+          return [{ name: "Retrieved Knowledge Base Context", category: "rag_retrieval", text: scannedContext }];
         }
       }
     } catch (err) {
@@ -854,10 +859,25 @@ async function postProcessing(
     }
   }
 
-  // Usage tracking
+  // Usage tracking — with rollback if downstream cost recording fails
   trackUsage({ orgId, eventType: "transcription", quantity: 1, metadata: { callId } });
   if (aiAnalysis) {
     trackUsage({ orgId, eventType: "ai_analysis", quantity: 1, metadata: { callId, model: aiProvider.name } });
+  }
+
+  // If the call was marked as failed (e.g., storage error after analysis),
+  // roll back usage so the org isn't charged for a failed call.
+  try {
+    const callStatus = await storage.getCall(orgId, callId);
+    if (callStatus?.status === "failed") {
+      logger.warn({ callId, orgId }, "Call marked as failed — rolling back usage tracking");
+      trackUsage({ orgId, eventType: "transcription", quantity: -1, metadata: { callId, reason: "rollback_failed_call" } });
+      if (aiAnalysis) {
+        trackUsage({ orgId, eventType: "ai_analysis", quantity: -1, metadata: { callId, reason: "rollback_failed_call" } });
+      }
+    }
+  } catch (err) {
+    logger.warn({ callId, err }, "Failed to check call status for usage rollback (non-blocking)");
   }
 
   // Cost estimation
