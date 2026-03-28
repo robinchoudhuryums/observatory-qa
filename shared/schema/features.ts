@@ -115,8 +115,8 @@ export const insertInsuranceNarrativeSchema = z.object({
   insurerName: z.string(),
   insurerAddress: z.string().optional(),
   letterType: z.string(),
-  diagnosisCodes: z.array(z.object({ code: z.string(), description: z.string() })).optional(),
-  procedureCodes: z.array(z.object({ code: z.string(), description: z.string() })).optional(),
+  diagnosisCodes: z.array(z.object({ code: z.string().regex(/^[A-TV-Z]\d{2}(\.\d{1,4})?$/, "Invalid ICD-10 format"), description: z.string() })).optional(),
+  procedureCodes: z.array(z.object({ code: z.string().regex(/^\d{5}[A-Z]?$|^D\d{4}$/, "Invalid CPT/CDT format"), description: z.string() })).optional(),
   clinicalJustification: z.string().optional(), // pulled from clinical note or manual
   priorDenialReference: z.string().optional(), // for appeals
   generatedNarrative: z.string().optional(), // AI-generated letter

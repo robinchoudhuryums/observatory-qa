@@ -379,7 +379,10 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
       };
 
       if (outcome === "denied" || outcome === "partial_approval") {
-        if (denialCode) updates.denialCode = denialCode;
+        if (!denialCode) {
+          return res.status(400).json({ message: "denialCode is required when outcome is denied or partial_approval" });
+        }
+        updates.denialCode = denialCode;
         if (denialReason) updates.denialReason = denialReason;
       }
 
@@ -429,21 +432,26 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
         }))
         .sort((a, b) => b.count - a.count);
 
-      // Approval rate by insurer
-      const insurerStats: Record<string, { total: number; approved: number; denied: number }> = {};
+      // Approval rate by insurer — includes partial_approval tracking
+      const insurerStats: Record<string, { total: number; approved: number; denied: number; partialApproval: number }> = {};
       for (const n of narratives) {
         if (!n.outcome || n.outcome === "pending") continue;
-        if (!insurerStats[n.insurerName]) insurerStats[n.insurerName] = { total: 0, approved: 0, denied: 0 };
+        if (!insurerStats[n.insurerName]) insurerStats[n.insurerName] = { total: 0, approved: 0, denied: 0, partialApproval: 0 };
         insurerStats[n.insurerName].total++;
         if (n.outcome === "approved") insurerStats[n.insurerName].approved++;
-        if (n.outcome === "denied") insurerStats[n.insurerName].denied++;
+        else if (n.outcome === "denied") insurerStats[n.insurerName].denied++;
+        else if (n.outcome === "partial_approval") insurerStats[n.insurerName].partialApproval++;
       }
+
+      // Overall approval rate: approved / (all decided outcomes excluding pending)
+      const decidedCount = narratives.filter(n => n.outcome && n.outcome !== "pending").length;
+      const approvedCount = narratives.filter(n => n.outcome === "approved").length;
 
       res.json({
         totalDenials: denied.length,
         totalSubmitted: narratives.filter(n => n.outcome).length,
-        overallApprovalRate: narratives.filter(n => n.outcome === "approved").length > 0
-          ? Math.round((narratives.filter(n => n.outcome === "approved").length / narratives.filter(n => n.outcome && n.outcome !== "pending").length) * 10000) / 100
+        overallApprovalRate: decidedCount > 0
+          ? Math.round((approvedCount / decidedCount) * 10000) / 100
           : 0,
         denialCodes,
         byInsurer: Object.entries(insurerStats).map(([insurer, stats]) => ({
@@ -471,7 +479,8 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
         .filter(n => (n as any).submissionDeadline && n.status !== "submitted")
         .map(n => {
           const deadline = new Date((n as any).submissionDeadline);
-          const daysRemaining = Math.ceil((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+          // Use floor so partial days don't inflate the count (11 hours remaining = 0 days, not 1)
+          const daysRemaining = Math.floor((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
           return {
             id: n.id,
             patientName: n.patientName,
@@ -542,6 +551,14 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
 
       const narrative = await storage.getInsuranceNarrative(orgId, req.params.id);
       if (!narrative) return res.status(404).json({ message: "Narrative not found" });
+
+      // Prevent regeneration of narratives that have outcomes recorded (audit trail integrity)
+      if (narrative.outcome && narrative.outcome !== "pending") {
+        return res.status(400).json({
+          message: "Cannot regenerate a narrative with a recorded outcome. Create a new narrative instead.",
+          code: "OBS-NARRATIVE-OUTCOME-LOCKED",
+        });
+      }
 
       const generatedNarrative = await generateNarrative({
         letterType: narrative.letterType,

@@ -1158,6 +1158,14 @@ Server serves both API and static frontend from the same process.
 - **Payer mix carrier fix** — carrier breakdown now uses `insuranceAmount` only (was falling back to `actualRevenue`, which includes patient portion — double-counting insurance revenue)
 - **Forecast confidence** — forecast response now includes `forecastConfidence` ("low"/"moderate"/"high" based on day of month), `daysElapsed`, `daysRemaining`. Low confidence before day 7 warns users that early-month projections are unreliable
 
+#### ✅ Completed & committed: Insurance Narrative improvements
+- **Code format validation** — ICD-10 (`/^[A-TV-Z]\d{2}(\.\d{1,4})?$/`) and CPT/CDT (`/^\d{5}[A-Z]?$|^D\d{4}$/`) regex validation added to insurance narrative schema (was accepting any string)
+- **Approval rate fix** — rewrote overall approval rate to use `approvedCount / decidedCount` (was checking `approved > 0` first, returning 0 instead of computing rate when no approvals exist)
+- **Partial approval tracking** — insurer stats now track `partialApproval` count separately (was silently dropped from statistics)
+- **Deadline calculation fix** — changed `Math.ceil` to `Math.floor` for accurate day count (11 hours remaining was reported as 1 day instead of 0)
+- **Denial code required** — outcome endpoint now requires `denialCode` when outcome is `denied` or `partial_approval` (was optional, causing incomplete denial analysis data)
+- **Regeneration guard** — POST `/:id/regenerate` now rejects narratives with recorded outcomes (audit trail integrity — prevents changing submitted letters)
+
 #### ✅ Completed & committed: Lead Tracking improvements
 - **ESM fix** — replaced CommonJS `require("@shared/schema")` with proper ESM import in `/api/marketing/sources` endpoint (was crashing at runtime in ESM module)
 - **Source validation** — campaign creation and attribution now validate `source` against the `MARKETING_SOURCES` enum; returns 400 with valid sources list on mismatch
