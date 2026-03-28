@@ -17,6 +17,7 @@ import { enqueueDocumentIndexing } from "../services/queue";
 import { removeDocumentChunks, searchRelevantChunks, formatRetrievedContext, hasIndexedChunks, getDocumentChunks, getKnowledgeBaseAnalytics } from "../services/rag";
 import { isEmbeddingAvailable } from "../services/embeddings";
 import { invalidateRefDocCache } from "./calls";
+import { validateUrl } from "../utils/url-validation";
 
 // Configure multer for logo + document uploads
 const onboardingUploadsDir = "uploads/onboarding";
@@ -808,6 +809,13 @@ export function registerOnboardingRoutes(app: Express): void {
 
       if (!url || typeof url !== "string") {
         return res.status(400).json({ message: "URL is required" });
+      }
+
+      // SSRF validation — reject private/internal network URLs
+      const ssrfCheck = validateUrl(url);
+      if (!ssrfCheck.valid) {
+        logger.warn({ url, reason: ssrfCheck.reason, orgId }, "SSRF: rejected reference document URL");
+        return res.status(400).json({ message: ssrfCheck.reason || "Invalid URL" });
       }
 
       // Basic URL validation
