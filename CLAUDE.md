@@ -116,6 +116,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/speaker-detection.test.ts` — Auto speaker role detection (greeting patterns, AI name match, edge cases)
   - `tests/rag-pipeline.test.ts` — RAG pipeline integration (chunking ratios, injection guardrails, chunker safety)
   - `tests/clinical-amendments.test.ts` — Amendment/addendum workflow (schema, persistence, conflict detection, multi-chain, isolation)
+  - `tests/lms-prereq-enforce.test.ts` — LMS prerequisites, enforceOrder, deadlines, passing scores
   - `tests/sso.test.ts` — SAML SSO
   - `tests/validation.test.ts` — Input validation
 - **E2E test files** (14 specs):
@@ -1123,6 +1124,7 @@ Server serves both API and static frontend from the same process.
 - **speakerRoleMap schema change**: Changed from `z.object({ agentSpeaker: z.string() })` to `z.record(z.string(), z.string())` to support proper speaker label → role mapping (e.g., `{ A: "agent", B: "customer" }`). Old `{ agentSpeaker: "A" }` format was a logic error — the property name was always the literal string "agentSpeaker" instead of using the value as a key
 - **Filler word detection uses bigrams**: `computeSpeechMetrics()` now detects two-word filler phrases ("you know", "i mean", etc.) via a bigram pass before single-word matching. Words matched as part of a bigram are excluded from the single-word pass to avoid double-counting
 - **Speaker role detection priority**: `detectSpeakerRolesFromTranscript()` runs before org config and hardcoded defaults. Priority: (1) AI-detected agent name + self-introduction context, (2) greeting pattern scoring (agent phrases vs customer phrases), (3) `org.settings.defaultSpeakerRoles`, (4) `{ A: "agent", B: "customer" }`. Returns `null` for inconclusive detection (fewer than 5 words, single speaker, no pattern matches)
+- **Prerequisite order in paths** — `enforceOrder` field on `LearningPath` signals that modules must be completed sequentially (index N requires index N-1 completed); combined with per-module `prerequisiteModuleIds` for flexible gating
 - **`toDisplayString()` handles nested objects**: Checks arrays first (before object path), then `text`, `name`, `task`, `label`, `value`, `description`, `message` keys for wrapped strings, caps JSON fallback at 500 chars
 - **Duplicate upload returns 409**: `POST /api/calls/upload` returns `409 { duplicate: true, existingCallId }` when file hash matches an existing call. Frontend should handle this status code and show the user a link to the existing call instead of a generic error
 - **RLS bypass required for schema-sync**: `syncSchema()` sets `app.bypass_rls = 'true'` at the session level before creating tables/policies, since RLS would otherwise block DDL operations. All pgvector and super-admin cross-org queries must use `withBypassRls()`
@@ -1147,6 +1149,18 @@ Server serves both API and static frontend from the same process.
 ## In-Progress Work (resume here in a new session)
 
 ### Branch: `claude/audit-codebase-review-AcjWE`
+
+#### ✅ Completed & committed: LMS improvements
+- **Prerequisite gating** — `prerequisiteModuleIds` field on `LearningModule`; `GET /api/lms/modules/:id/prerequisites?employeeId=X` checks which prerequisites are met/unmet; returns `{ met, prerequisites, unmetPrerequisites }` for UI to block access to locked modules
+- **Circular dependency detection** — `detectPrerequisiteCycle()` uses DFS to detect cycles before module creation/update; returns 400 with cycle path if found; validates prerequisite modules exist
+- **Prerequisite enforcement on quiz** — `POST /api/lms/modules/:id/submit-quiz` checks all prerequisites are completed before allowing quiz submission; returns 403 `OBS-LMS-PREREQ-INCOMPLETE`
+- **Completion certificates** — `GET /api/lms/modules/:id/certificate?employeeId=X` returns structured certificate data (employeeName, moduleName, completedAt, quizScore, organizationName, certificateId, difficulty); requires module status = "completed"; client-side PDF rendering
+- **Configurable passing scores** — `passingScore` field on `LearningModule` (0-100, default 70 if not set); quiz submission endpoint uses module-specific passing score instead of hardcoded 70; response includes `passingScore` field
+- **Deadline enforcement** — `dueDate` (ISO timestamp) and `enforceOrder` (boolean) fields on `LearningPath`; `GET /api/lms/paths/:id/deadlines` returns per-employee status: completed/overdue/at_risk/on_track with percentComplete, daysRemaining, counts
+- **enforceOrder enforcement** — progress updates check if previous module in path is completed before allowing start of next; returns 403 `OBS-LMS-ENFORCE-ORDER` with `blockedBy` module ID
+- **Deadline blocking** — progress updates and quiz submissions reject with 403 `OBS-LMS-DEADLINE-PASSED` when path deadline has passed
+- **Coaching-tied recommendations** — `GET /api/lms/coaching-recommendations?employeeId=X&coachingSessionId=Y` analyzes employee's weak sub-score areas (compliance, customerExperience, communication, resolution < 7.0), matches coaching session category/notes keywords, and ranks uncompleted published modules by relevance; returns top 5 with reasons
+- **Coaching recommendation fixes** — fixed dead regex for camelCase→space conversion (was calling `.toLowerCase()` before `.replace()`); increased weak area threshold from 2 to 3 data points for statistical reliability
 
 #### ✅ Completed & committed: Clinical Documentation improvements
 - **NPI encryption** — `attestedNpi` and `cosignedNpi` added to PHI_FIELDS for AES-256-GCM encryption; NPI now encrypted on attestation and co-signature; removed from amendment snapshot (PHI should not be in non-PHI snapshots)
