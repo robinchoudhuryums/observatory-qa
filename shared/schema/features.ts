@@ -103,6 +103,9 @@ export const INSURANCE_LETTER_TYPES = [
 
 export type InsuranceLetterType = typeof INSURANCE_LETTER_TYPES[number]["value"];
 
+export const NARRATIVE_OUTCOMES = ["approved", "denied", "partial_approval", "pending", "withdrawn"] as const;
+export type NarrativeOutcome = (typeof NARRATIVE_OUTCOMES)[number];
+
 export const insertInsuranceNarrativeSchema = z.object({
   orgId: z.string(),
   callId: z.string().optional(), // linked clinical encounter
@@ -119,6 +122,34 @@ export const insertInsuranceNarrativeSchema = z.object({
   generatedNarrative: z.string().optional(), // AI-generated letter
   status: z.enum(["draft", "finalized", "submitted"]).default("draft"),
   createdBy: z.string(),
+  // --- Outcome tracking ---
+  /** Result after submission: approved, denied, partial_approval, pending, withdrawn */
+  outcome: z.enum(NARRATIVE_OUTCOMES).optional(),
+  /** Date when outcome was received */
+  outcomeDate: z.string().optional(),
+  /** Free-form notes about the outcome */
+  outcomeNotes: z.string().optional(),
+  // --- Denial code tracking ---
+  /** Insurance denial code (e.g., "CO-50", "PR-96", "OA-23") */
+  denialCode: z.string().optional(),
+  /** Full denial reason text from the payer */
+  denialReason: z.string().optional(),
+  // --- Deadline tracking ---
+  /** ISO timestamp: submission deadline for this narrative */
+  submissionDeadline: z.string().optional(),
+  /** Whether deadline warning has been acknowledged */
+  deadlineAcknowledged: z.boolean().optional(),
+  // --- Payer-specific template ---
+  /** Payer template key (e.g., "bcbs", "aetna", "uhc", "cigna") */
+  payerTemplate: z.string().optional(),
+  // --- Supporting document checklist ---
+  /** Array of required attachments with completion status */
+  supportingDocuments: z.array(z.object({
+    name: z.string(),
+    required: z.boolean(),
+    attached: z.boolean().default(false),
+    notes: z.string().optional(),
+  })).optional(),
 });
 
 export const insuranceNarrativeSchema = insertInsuranceNarrativeSchema.extend({

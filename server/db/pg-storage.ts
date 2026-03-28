@@ -2345,6 +2345,15 @@ export class PostgresStorage implements IStorage {
     if (updates.priorDenialReference !== undefined) dbUpdates.priorDenialReference = updates.priorDenialReference;
     if (updates.diagnosisCodes !== undefined) dbUpdates.diagnosisCodes = updates.diagnosisCodes;
     if (updates.procedureCodes !== undefined) dbUpdates.procedureCodes = updates.procedureCodes;
+    if (updates.outcome !== undefined) dbUpdates.outcome = updates.outcome;
+    if (updates.outcomeDate !== undefined) dbUpdates.outcomeDate = updates.outcomeDate ? new Date(updates.outcomeDate) : null;
+    if (updates.outcomeNotes !== undefined) dbUpdates.outcomeNotes = updates.outcomeNotes;
+    if (updates.denialCode !== undefined) dbUpdates.denialCode = updates.denialCode;
+    if (updates.denialReason !== undefined) dbUpdates.denialReason = updates.denialReason;
+    if (updates.submissionDeadline !== undefined) dbUpdates.submissionDeadline = updates.submissionDeadline ? new Date(updates.submissionDeadline) : null;
+    if (updates.deadlineAcknowledged !== undefined) dbUpdates.deadlineAcknowledged = updates.deadlineAcknowledged;
+    if (updates.payerTemplate !== undefined) dbUpdates.payerTemplate = updates.payerTemplate;
+    if (updates.supportingDocuments !== undefined) dbUpdates.supportingDocuments = updates.supportingDocuments;
     const rows = await this.db.update(tables.insuranceNarratives).set(dbUpdates)
       .where(and(eq(tables.insuranceNarratives.orgId, orgId), eq(tables.insuranceNarratives.id, id)))
       .returning();
@@ -2369,6 +2378,15 @@ export class PostgresStorage implements IStorage {
       generatedNarrative: r.generatedNarrative || undefined,
       status: r.status as InsuranceNarrative["status"], createdBy: r.createdBy,
       createdAt: toISOString(r.createdAt), updatedAt: toISOString(r.updatedAt),
+      outcome: r.outcome as InsuranceNarrative["outcome"],
+      outcomeDate: toISOString(r.outcomeDate),
+      outcomeNotes: r.outcomeNotes || undefined,
+      denialCode: r.denialCode || undefined,
+      denialReason: r.denialReason || undefined,
+      submissionDeadline: toISOString(r.submissionDeadline),
+      deadlineAcknowledged: r.deadlineAcknowledged ?? undefined,
+      payerTemplate: r.payerTemplate || undefined,
+      supportingDocuments: r.supportingDocuments as InsuranceNarrative["supportingDocuments"],
     };
   }
 
