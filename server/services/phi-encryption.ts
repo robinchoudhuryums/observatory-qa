@@ -180,6 +180,7 @@ export function decryptMfaSecret(encrypted: string): string {
 const PHI_FIELDS = [
   "subjective", "objective", "assessment", "hpiNarrative", "chiefComplaint",
   "reviewOfSystems", "differentialDiagnoses", "periodontalFindings",
+  "attestedNpi", "cosignedNpi",
 ] as const;
 
 export interface PhiDecryptionContext {

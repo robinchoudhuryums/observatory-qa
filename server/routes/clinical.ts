@@ -158,9 +158,9 @@ export function registerClinicalRoutes(app: Express): void {
       analysis.clinicalNote.attestedBy = currentUserName;
       analysis.clinicalNote.attestedById = req.user?.id;
       analysis.clinicalNote.attestedAt = new Date().toISOString();
-      // Record NPI if provided in the request (for HIPAA compliance)
+      // Record NPI if provided in the request — encrypted as PHI
       if (req.body.npiNumber) {
-        analysis.clinicalNote.attestedNpi = req.body.npiNumber;
+        analysis.clinicalNote.attestedNpi = encryptField(req.body.npiNumber);
       }
 
       // Check if org requires co-signature after attestation
@@ -286,7 +286,8 @@ export function registerClinicalRoutes(app: Express): void {
           "format", "specialty", "plan", "icd10Codes", "cptCodes", "cdtCodes",
           "toothNumbers", "quadrants", "treatmentPhases", "prescriptions",
           "followUp", "differentialDiagnoses", "documentationCompleteness",
-          "clinicalAccuracy", "attestedBy", "attestedAt", "attestedNpi", "version",
+          "clinicalAccuracy", "attestedBy", "attestedAt", "version",
+          // NPI excluded from snapshot — it's now encrypted PHI
         ];
         const cn = analysis.clinicalNote as Record<string, unknown>;
         for (const key of nonPhiSnapshotKeys) {
@@ -1262,8 +1263,8 @@ export function registerClinicalRoutes(app: Express): void {
       const cosignatureRoles = (orgForCosign?.settings as OrgSettings)?.cosignatureRoles;
       const currentUserRole = req.user?.role;
 
-      if (cosignatureRoles && cosignatureRoles.length > 0 && currentUserRole) {
-        if (!cosignatureRoles.includes(currentUserRole) && currentUserRole !== "admin") {
+      if (cosignatureRoles && cosignatureRoles.length > 0) {
+        if (!currentUserRole || (!cosignatureRoles.includes(currentUserRole) && currentUserRole !== "admin")) {
           res.status(403).json({
             message: `Your role (${currentUserRole}) is not authorized to co-sign notes. Authorized roles: ${cosignatureRoles.join(", ")}`,
             code: "OBS-CLINICAL-COSIGN-UNAUTHORIZED",
@@ -1276,7 +1277,7 @@ export function registerClinicalRoutes(app: Express): void {
       analysis.clinicalNote.cosignature = {
         cosignedBy: req.user?.name || req.user?.username || "unknown",
         cosignedById: req.user?.id,
-        cosignedNpi: npiNumber || undefined,
+        cosignedNpi: npiNumber ? encryptField(npiNumber) : undefined,
         cosignedAt,
         role: role || undefined,
       };

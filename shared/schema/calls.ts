@@ -89,8 +89,8 @@ export const clinicalNoteSchema = z.object({
   hpiNarrative: z.string().optional(),
   reviewOfSystems: z.record(z.string()).optional(),
   differentialDiagnoses: z.array(z.string()).optional(),
-  icd10Codes: z.array(z.object({ code: z.string(), description: z.string() })).optional(),
-  cptCodes: z.array(z.object({ code: z.string(), description: z.string() })).optional(),
+  icd10Codes: z.array(z.object({ code: z.string().regex(/^[A-TV-Z]\d{2}(\.\d{1,4})?$/, "Invalid ICD-10 format"), description: z.string() })).optional(),
+  cptCodes: z.array(z.object({ code: z.string().regex(/^\d{5}[A-Z]?$/, "Invalid CPT format"), description: z.string() })).optional(),
   prescriptions: z.array(z.object({
     medication: z.string(),
     dosage: z.string().optional(),
@@ -107,7 +107,7 @@ export const clinicalNoteSchema = z.object({
   // Attestation & audit metadata (HIPAA-required)
   attestedBy: z.string().optional(),
   attestedById: z.string().optional(),
-  attestedNpi: z.string().optional(),
+  attestedNpi: z.string().regex(/^\d{10}$/, "NPI must be exactly 10 digits").optional(),
   attestedAt: z.string().optional(),
   consentRecordedBy: z.string().optional(),
   consentRecordedAt: z.string().optional(),
@@ -133,7 +133,7 @@ export const clinicalNoteSchema = z.object({
     ratedAt: z.string(),
   })).optional(),
   // Dental-specific fields
-  cdtCodes: z.array(z.object({ code: z.string(), description: z.string() })).optional(),
+  cdtCodes: z.array(z.object({ code: z.string().regex(/^D\d{4}$/, "Invalid CDT format (must be D followed by 4 digits)"), description: z.string() })).optional(),
   toothNumbers: z.array(z.string()).optional(),
   quadrants: z.array(z.string()).optional(),
   periodontalFindings: z.record(z.string()).optional(),
@@ -161,7 +161,7 @@ export const clinicalNoteSchema = z.object({
   cosignature: z.object({
     cosignedBy: z.string(),
     cosignedById: z.string().optional(),
-    cosignedNpi: z.string().optional(),
+    cosignedNpi: z.string().regex(/^\d{10}$/, "NPI must be exactly 10 digits").optional(),
     cosignedAt: z.string(),
     role: z.string().optional(), // "attending", "supervisor", "supervising_dentist"
   }).optional(),

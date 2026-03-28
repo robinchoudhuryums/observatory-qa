@@ -171,6 +171,10 @@ export default function ClinicalNotesPage() {
     },
   });
 
+  // Derive clinical note reference early so closures below can use it safely.
+  // This replaces the late definition at line 313 (which was after early returns).
+  const cn = call?.analysis?.clinicalNote;
+
   // --- Transcript editing state ---
   const [transcriptExpanded, setTranscriptExpanded] = useState(false);
   const [editingTranscript, setEditingTranscript] = useState(false);
@@ -309,8 +313,6 @@ export default function ClinicalNotesPage() {
   if (!call) {
     return <div className="p-6"><p className="text-muted-foreground">Encounter not found.</p></div>;
   }
-
-  const cn = call.analysis?.clinicalNote;
 
   if (!cn) {
     return (

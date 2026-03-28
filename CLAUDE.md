@@ -1147,6 +1147,13 @@ Server serves both API and static frontend from the same process.
 
 ### Branch: `claude/audit-codebase-review-AcjWE`
 
+#### ✅ Completed & committed: Clinical Documentation improvements
+- **NPI encryption** — `attestedNpi` and `cosignedNpi` added to PHI_FIELDS for AES-256-GCM encryption; NPI now encrypted on attestation and co-signature; removed from amendment snapshot (PHI should not be in non-PHI snapshots)
+- **NPI format validation** — schema enforces `/^\d{10}$/` regex on both `attestedNpi` and `cosignedNpi` fields
+- **Medical code format validation** — ICD-10 codes enforce `/^[A-TV-Z]\d{2}(\.\d{1,4})?$/`; CPT codes enforce `/^\d{5}[A-Z]?$/`; CDT codes enforce `/^D\d{4}$/` in the clinical note schema
+- **Cosignature role bypass fix** — tightened role check condition: undefined `currentUserRole` now correctly returns 403 instead of skipping the check entirely
+- **Clinical notes `cn` variable scope** — moved derivation before function definitions that reference it (was defined after early returns, causing fragile closure capture)
+
 #### ✅ Completed & committed: RAG Feature improvements
 - **Chunker O(n^2) fix** — replaced greedy regex `[\s\S]*[.!?]\s+` in `findNaturalBreak()` with `lastIndexOf()` calls (O(n) per chunk instead of O(n^2)); enforced minimum step size of 40 chars to prevent infinite micro-chunks when overlap ≈ chunk size
 - **BM25/semantic score clamping** — semantic scores clamped to [0,1] (pgvector cosine can return negatives), BM25 scores clamped to ≥0, combined scores clamped to ≥0 after NaN guard
