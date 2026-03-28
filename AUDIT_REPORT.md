@@ -1,439 +1,202 @@
-# Observatory QA — Comprehensive Codebase Audit Report
+# Observatory QA - Comprehensive Codebase Audit Report
 
-**Date**: 2026-03-22
-**Codebase size**: ~60,000 lines (28.5k server, 23.8k client, 6.8k tests, 1.4k shared)
-**Languages**: TypeScript (100%)
+**Date**: 2026-03-28
+**Codebase**: 327 TypeScript files, ~63,500 LOC
+**Tests**: 57 unit test files + 12 E2E specs
 
 ---
 
 ## Executive Summary
 
-Observatory QA is an ambitious multi-tenant SaaS platform that has evolved rapidly from a single-tenant internal tool into a feature-rich product spanning call quality analysis, clinical documentation, EHR integration, and more. The architecture is thoughtful with strong HIPAA foundations, but the rapid feature expansion has introduced some technical debt, a critical CSRF bug, documentation drift, and scalability concerns that should be addressed before production healthcare deployments.
+Observatory QA is an ambitious, feature-rich SaaS platform with impressive breadth — spanning call quality analysis, clinical documentation, RAG knowledge base, gamification, insurance narratives, revenue tracking, calibration, LMS, and more. The architecture is well-structured with clear separation of concerns and thoughtful multi-tenant design.
+
+However, the rapid feature expansion has outpaced hardening. The audit identified **~150 issues** across security, correctness, performance, and code quality. The most pressing concerns are in **security infrastructure** (SSO, MFA, audit logging) and **data integrity** (encryption fallbacks, race conditions). HIPAA compliance has solid foundations but meaningful gaps remain in encryption enforcement, audit completeness, and PHI redaction.
 
 ---
 
 ## Critical Issues (Must Fix)
 
-### 1. CSRF Protection is Broken — Client Never Sends Token
-**Severity**: Critical
-**Location**: `server/index.ts:186-222` (server CSRF middleware) + `client/src/lib/queryClient.ts:10-24` (client apiRequest)
+### 1. PHI Encryption Becomes No-Op When Key Missing
+**File**: `server/services/phi-encryption.ts:87-89`
+`encryptField()` returns plaintext unchanged if `PHI_ENCRYPTION_KEY` is not set. In production, this means PHI flows unencrypted to the database without any warning to operators.
+**Fix**: Throw an error in production or log a CRITICAL warning. Never silently skip encryption.
 
-The server implements double-submit cookie CSRF protection requiring an `X-CSRF-Token` header on all mutation requests (POST/PATCH/DELETE/PUT). However, the client's `apiRequest()` function **never reads the csrf-token cookie or sends the X-CSRF-Token header**. This means:
+### 2. SSO RelayState CSRF Vulnerability
+**File**: `server/routes/sso.ts:239-242`
+RelayState is user-controlled. An attacker can craft a SP-initiated request to log into a victim org by manipulating the RelayState parameter during SAML flow.
+**Fix**: Store orgSlug in signed session state, not RelayState. Validate orgSlug matches on callback.
 
-- Either all POST/PATCH/DELETE mutations from the browser are silently failing with 403 (app is broken)
-- Or the CSRF middleware was added after the app was built and was never properly integrated
+### 3. MFA Session ID Spoofing via IP Fallback
+**File**: `server/routes/mfa.ts:205`
+`sessionId = req.sessionID || req.ip || "unknown"` — falls back to spoofable `req.ip`, allowing attackers to bypass MFA rate limits.
+**Fix**: Require cryptographic session ID. Reject if unavailable.
 
-**Fix**: Add CSRF token handling to `apiRequest()`:
-```typescript
-function getCsrfToken(): string {
-  const match = document.cookie.match(/csrf-token=([^;]+)/);
-  return match ? match[1] : "";
-}
+### 4. Audit Log Hash Chain Race Condition
+**File**: `server/services/audit-log.ts:305-310`
+Concurrent `persistAuditEntry()` calls can both compute the same sequence number, breaking the tamper-evident chain.
+**Fix**: Use `SELECT FOR UPDATE` or atomic increment in a transaction.
 
-export async function apiRequest(method: string, url: string, data?: unknown): Promise<Response> {
-  const headers: Record<string, string> = {};
-  if (data) headers["Content-Type"] = "application/json";
-  if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
-    headers["X-CSRF-Token"] = getCsrfToken();
-  }
-  // ... rest of fetch
-}
-```
+### 5. Incident Response Stored In-Memory Only
+**File**: `server/services/incident-response.ts:87-89`
+Security incidents are stored in a `Map`. Service restart = all incident history lost. Violates HIPAA audit requirements.
+**Fix**: Persist to database immediately.
 
-### 2. Super-Admin Stats Loads All Data Into Memory
-**Severity**: High (DoS vector)
-**Location**: `server/routes/super-admin.ts:19-57`, lines 65-102
+### 6. Upload Slot Resource Leak on Duplicate Files
+**File**: `server/routes/calls.ts:226-230`
+When a duplicate file hash is detected, the upload slot is never released via `releaseUploadSlot(orgId)`, eventually exhausting the org's upload capacity.
 
-The `/api/super-admin/stats` and `/api/super-admin/organizations` endpoints call `storage.getAllCalls(org.id)` for **every organization**, loading all call records into memory just to count them. With 100 orgs averaging 1,000 calls each, this loads 100K records per request.
+### 7. Per-Org DEK Generation Race Condition
+**File**: `server/services/org-encryption.ts:95-99`
+Two concurrent requests for a new org can both generate DEKs, overwriting each other. Use a database lock or conditional update.
 
-**Fix**: Add a `getCallCount(orgId)` method to the storage interface that does `SELECT COUNT(*) FROM calls WHERE org_id = $1`.
-
-### 3. PostgreSQL `createCall()` Doesn't Save `fileHash` — Dedup Broken
-**Severity**: Critical (data integrity)
-**Location**: `server/db/pg-storage.ts:226-253`
-
-The `createCall()` method in PostgreSQL storage explicitly lists 21+ fields but **omits `fileHash`**. This means:
-- The `fileHash` column is always NULL in the database
-- `getCallByFileHash()` always returns undefined
-- **Duplicate file detection is completely broken** on the PostgreSQL backend
-- Users can upload the same audio file repeatedly, wasting transcription and AI analysis costs
-
-The field IS defined in the schema, IS passed by `calls.ts:722`, and IS correctly saved by `memory.ts` and `cloud.ts` backends — only `pg-storage.ts` is broken.
-
-**Fix**: Add `fileHash: call.fileHash || null,` to the insert values object.
-
-### 4. Missing `updateCallAnalysis()` — Analysis Edits Crash
-**Severity**: Critical (runtime error)
-**Location**: `server/storage/types.ts:195-198`, `server/routes/calls.ts:924`
-
-The `IStorage` interface defines `createCallAnalysis()` but has **no `updateCallAnalysis()` method**. The PATCH `/api/calls/:id/analysis` endpoint calls `createCallAnalysis()` to update existing analyses, which will throw a **unique constraint violation** on the `call_analyses(call_id)` index.
-
-This means manager+ users **cannot edit AI analysis results** — a core feature for QA review workflows.
-
-**Fix**: Add `updateCallAnalysis(orgId, callId, updates)` to `IStorage` interface and implement in all three backends.
-
-### 5. CLAUDE.md Documentation Drift — "No AWS SDK" Claim is False
-**Severity**: Medium (misleading for contributors)
-**Location**: `CLAUDE.md:850` (now fixed)
-
-CLAUDE.md stated: *"No AWS SDK: S3, Bedrock, and Titan Embed all use raw REST APIs with manual SigV4 signing"*
-
-This was false. The codebase uses:
-- `@aws-sdk/client-bedrock-runtime` in `server/services/bedrock.ts`
-- `@aws-sdk/client-s3` in `server/services/s3.ts`
-- `@aws-sdk/client-ses` in `server/services/email.ts`
-- `@aws-sdk/credential-providers` across multiple files
-
-**Status**: Fixed in this commit — updated CLAUDE.md to reflect actual AWS SDK v3 usage.
+### 8. WAF ReDoS Vulnerability
+**File**: `server/middleware/waf.ts:24`
+SQL injection regex patterns with `.*` quantifier vulnerable to ReDoS. Crafted input can cause catastrophic backtracking.
 
 ---
 
-## High Priority Issues
+## High Severity Issues
 
-### 6. `updateCall()` Missing Email Fields in PostgreSQL
-**Location**: `server/db/pg-storage.ts:255-277`
+### Security
+- **Backup code comparison not constant-time** (`mfa.ts`) — timing attack vector
+- **TOCTOU race in URL validation** (`url-validation.ts:97-115`) — DNS rebinding SSRF
+- **IPv6 link-local bypass incomplete** (`url-validation.ts:50`) — missing ULA ranges
+- **Prompt injection bypass via Unicode homoglyphs** (`ai-guardrails.ts:13-29`)
+- **Certificate expiry not checked at SSO login** (`sso.ts`) — expired certs still accepted
+- **SAML replay possible** with `validateInResponseTo: "IfPresent"` (`sso.ts:271`)
+- **Trusted device token format guessable** (`mfa.ts:279`) — userId in cookie
+- **Unsafe SQL string interpolation** in sync-schema.ts helper functions
 
-`createCall()` includes `emailCc`, `emailBodyHtml`, and `emailReceivedAt`, but `updateCall()` omits them from the update clause. Email field updates silently fail.
+### Data Integrity
+- **Empty orgId fallback to ""** in pg-storage.ts:179 — creates degenerate records
+- **Unbounded query in getAllCalls** — no LIMIT, potential OOM for large orgs
+- **speakerRoleMap logic error** in assemblyai.ts:287 — incorrect speaker mapping
+- **Circuit breaker race condition** in ai-factory.ts:156
+- **NaN propagation** in rate limiter when `checkRateLimit()` returns unexpected structure
 
-### 7. DOM innerHTML Injection in Clinical Notes Print
-**Location**: `client/src/pages/clinical-notes.tsx:263`
-
-`doc.body.innerHTML = printContent.innerHTML` assigns DOM content to a print window without sanitization. If clinical note data contains XSS payloads (from AI-generated content or manual edits), they execute in the print context.
-
-**Fix**: Use DOMPurify or `textContent` for safe DOM building.
-
-### 8. No Input Sanitization on Super-Admin Org Settings Update
-**Location**: `server/routes/super-admin.ts:158-200`
-
-The `PATCH /api/super-admin/organizations/:id` endpoint merges `req.body.settings` directly into org settings with only a `typeof settings === "object"` check. An attacker with super-admin access could inject arbitrary nested objects, potentially overwriting SSO config, EHR credentials, or other sensitive settings.
-
-**Fix**: Validate settings against `orgSettingsSchema` from shared/schema.ts.
-
-### 5. In-Memory Rate Limiting is Per-Instance Only
-**Location**: `server/index.ts:29-75`
-
-When Redis is unavailable, rate limiting falls back to in-memory `Map`. In a multi-instance deployment (load balancer), each instance has its own counter, effectively multiplying the rate limit by the number of instances.
-
-The code does warn about this, but in production healthcare, this could allow brute-force attacks through load balancer distribution.
-
-### 6. Login Lockout is Username-Based, Not IP-Based
-**Location**: `server/auth.ts:18-53`
-
-Account lockout tracks by username only (`loginAttempts` Map keyed by username). An attacker can lock out any user by sending 5 failed login attempts from any IP. The rate limiter on the login endpoint helps (5 per IP per 15 min), but an attacker with multiple IPs can still DoS specific accounts.
-
-**Fix**: Track lockout by `username:ip` compound key, or add CAPTCHA after N failed attempts.
-
-### 7. Missing File Type Validation on Audio Upload
-**Location**: `server/routes/calls.ts:682`
-
-The upload endpoint accepts any file through multer without validating the MIME type or file extension. While AssemblyAI will reject non-audio files, the file is still written to disk and potentially archived to S3 before rejection.
-
-**Fix**: Add multer `fileFilter` to whitelist audio MIME types (audio/mpeg, audio/wav, audio/mp4, audio/flac, etc.).
-
-### 8. Reference Doc Cache Not Invalidated on Document Upload
-**Location**: `server/routes/calls.ts:27-52`
-
-The `refDocCache` has a 5-minute TTL, but the `invalidateRefDocCache()` export is only called from within calls.ts. When reference documents are uploaded/deleted via onboarding routes, the cache isn't invalidated — stale data persists for up to 5 minutes.
+### HIPAA Gaps
+- **No audit logging for PHI decryption** (`phi-encryption.ts`)
+- **FAQ analytics logs unredacted query text** (`rag.ts:274`) — potential PHI in queries
+- **Sentry strips all request data** instead of selective PHI redaction (`sentry.ts:47`)
+- **Auth deserialize swallows exceptions** (`auth.ts:466-468`) — no error logging
+- **Org suspension check silently fails** (`auth.ts:516-518`) — allows bypass
 
 ---
 
-## Medium Priority Issues
+## Medium Severity Issues (Selected)
 
-### 9. getAllCalls() Used for Counting in Multiple Routes
-**Location**: `server/routes/gamification.ts:23`, `server/routes/revenue.ts:108`, `server/routes/emails.ts:225`
-
-Multiple routes load all calls into memory when they only need counts or filtered subsets. This pattern won't scale beyond ~10K calls per org.
-
-### 10. No Pagination on Several List Endpoints
-**Location**: Various routes including `gamification.ts`, `revenue.ts`, `insurance-narratives.ts`
-
-Several endpoints return unbounded result sets without pagination (limit/offset). As data grows, these will become slow and memory-intensive.
-
-### 11. WebSocket Has No Authentication
-**Location**: `server/services/websocket.ts`
-
-Need to verify — WebSocket connections should validate session cookies before accepting connections. Broadcasting requires orgId, which is good for data isolation, but unauthenticated WebSocket connections could consume resources.
-
-### 12. Replit Dev Dependencies in Production Bundle
-**Location**: `package.json:116-118`
-
-Three Replit-specific dev dependencies are present:
-- `@replit/vite-plugin-cartographer`
-- `@replit/vite-plugin-dev-banner`
-- `@replit/vite-plugin-runtime-error-modal`
-
-These are devDependencies so they won't affect production, but they suggest the project originated on Replit and these should be cleaned up for a production HIPAA deployment.
-
-### 13. Missing Index on Frequently Queried Columns
-Need to verify these indexes exist in `sync-schema.ts`:
-- `calls.file_hash` (used for dedup on every upload)
-- `calls.employee_id` (used in gamification, coaching, reports)
-- `usage_events.created_at` (used in billing calculations)
-
-### 14. Error Messages Could Leak Information
-**Location**: `server/index.ts:337-347`
-
-The error handler correctly hides details for 5xx errors but exposes the error message for 4xx errors. If any middleware or route handler throws an error with sensitive details in the message, it would be exposed to the client.
+| Category | Issue | Location |
+|----------|-------|----------|
+| Performance | Chunker `findNaturalBreak` greedy regex O(n^2) | `chunker.ts:46` |
+| Performance | Dashboard recalculates trend data on every render | `dashboard.tsx:94-135` |
+| Performance | Coaching engine loads ALL calls then takes 10 | `coaching-engine.ts:53` |
+| Performance | Admin reanalysis fires-and-forgets without rate limit | `admin.ts:164-203` |
+| Performance | Cleanup interval copies entire Map to Array | `auth.ts:28` |
+| Security | WAF logs may contain query params with PHI | `waf.ts:185-192` |
+| Security | NPI number stored in plaintext | `clinical.ts:161` |
+| Security | SSN regex false positives on 9-digit codes | `phi-redactor.ts:12` |
+| UX | Idle timeout "Stay Logged In" button is a no-op | `App.tsx:312` |
+| UX | localStorage.clear() on logout clears preferences | `use-idle-timeout.ts:31` |
+| UX | Upload isUploading never cleared on error | `upload.tsx:18` |
+| UX | Duplicate upload returns 200 instead of 409 | `calls.ts:228` |
+| Code Quality | Duplicate SESSION_ABSOLUTE_MAX_MS constant | `auth.ts:281,473` |
+| Code Quality | `as any` type assertions (6 locations) | `auth.ts` |
+| Code Quality | Inconsistent flag filtering logic | `dashboard.tsx:74-81` |
+| Code Quality | display-utils array check after object check | `display-utils.ts:19` |
 
 ---
 
-## Low Priority / Code Quality Issues
+## Test Coverage Analysis
 
-### 15. Inconsistent Error Response Patterns
-Some routes use `errorResponse(ERROR_CODES.X, "message")` from the error-codes system, while others use plain `{ message: "..." }`. The error-codes system is well-designed but only partially adopted.
+### Current Coverage
+- **57 unit test files** covering core features
+- **12 E2E specs** covering critical user flows
+- Good coverage of: schemas, RBAC, multi-tenant isolation, billing, pipeline
 
-### 16. TypeScript `as any` Casts
-Multiple instances of `as any` casts throughout the codebase, particularly in storage-related code and route handlers. These bypass TypeScript's type safety.
+### Critical Test Gaps
 
-### 17. `@types/qrcode` in Dependencies (Not devDependencies)
-**Location**: `package.json:68`
+| Area | Status | Risk |
+|------|--------|------|
+| Clinical note amendments/cosignature | NOT TESTED | HIPAA compliance |
+| SSO certificate rotation | NOT TESTED | Authentication failures |
+| MFA grace period enforcement | NOT TESTED | Security bypass |
+| Insurance narrative deadlines | NOT TESTED | Business logic |
+| Revenue attribution funnel | NOT TESTED | Financial accuracy |
+| Calibration blind mode | NOT TESTED | Data leakage |
+| Cross-org isolation boundary tests | MINIMAL | Tenant data leak |
+| HIPAA audit trail completeness | NOT TESTED | Compliance |
+| Email routes | NO TEST FILE | No coverage |
+| Live session routes | MINIMAL | Clinical feature |
+| Patient journey routes | NO DEDICATED TEST | PHI feature |
 
-Type definitions should be in devDependencies.
-
-### 18. Minimal CI/CD Configuration
-`.github/workflows/ci.yml` exists with type checking, unit tests, and build verification. However, it lacks E2E tests, security scanning (`npm audit`), code coverage reporting, linting, and accessibility testing. For a HIPAA-compliant product, the pipeline should be significantly expanded.
-
-### 19. Test Files Excluded from Type Checking
-**Location**: `tsconfig.json:3`
-
-`"exclude": ["**/*.test.ts"]` means tests don't get type-checked by `npm run check`. Type errors in tests would go unnoticed until runtime.
-
----
-
-## Architecture Strengths
-
-1. **Robust multi-tenant isolation**: Every data access method requires `orgId` as the first parameter — cross-tenant data leakage is structurally prevented at the storage interface level
-2. **Tamper-evident audit logging**: SHA-256 hash chain with sequence numbers makes audit log tampering detectable
-3. **PHI encryption**: AES-256-GCM field-level encryption with versioned prefix (`enc_v1:`) for future key rotation
-4. **Graceful degradation**: Every infrastructure dependency has a fallback — Redis, PostgreSQL, S3, Bedrock all degrade gracefully
-5. **HIPAA security headers**: Comprehensive CSP, HSTS, X-Frame-Options, anti-MIME-sniffing
-6. **Auto schema sync**: `sync-schema.ts` eliminates migration tooling in production — pragmatic for rapid iteration
-7. **AI response hardening**: Score clamping, type validation, safe defaults prevent AI hallucination from corrupting data
-8. **Strong password policy**: 12+ chars with complexity requirements for HIPAA
-9. **Rate limiting with org-scoping**: Prevents one tenant's usage from blocking another
-10. **Empty transcript guard**: Prevents generating junk analysis from silence/noise
+### Schema Validation Gaps
+- No conditional validation (SSO config dependencies, clinical workflow constraints)
+- No format validation for NPI, ICD-10, CPT, CDT codes
+- No ISO 8601 timestamp format validation
+- No PEM certificate format validation
+- `retentionDays` allows 0/negative values (no min/max)
+- Insurance codes accepted without format checking
 
 ---
 
-## Ratings
+## Architecture Observations
 
-### 1. Viability as a Company: 7/10
+### Strengths
+1. **Clean multi-tenant design** — orgId enforced at every storage layer + RLS defense-in-depth
+2. **Graceful degradation** — every infrastructure dependency has a fallback path
+3. **Exceptional documentation** — CLAUDE.md is one of the best project docs I've seen
+4. **Defense-in-depth** — PostgreSQL RLS + application-layer isolation + middleware checks
+5. **Modular route structure** — 38 route files with clear responsibility separation
+6. **Auto schema sync** — eliminates migration tooling pain in production
+7. **AI response hardening** — multiple layers of validation and clamping on AI outputs
+8. **Comprehensive feature set** — covers the full QA + clinical + billing lifecycle
 
-**Strengths**:
-- Addresses a real, validated market need (call center QA is a $2B+ market)
-- Multi-vertical approach (dental, medical, behavioral health) expands TAM
-- Feature breadth is impressive — covers the full lifecycle from upload to coaching
-- Healthcare clinical documentation add-on creates a sticky, high-value upsell
-- Pricing is reasonable with clear tier differentiation
-- Multi-tenant architecture enables true SaaS economics
-
-**Concerns**:
-- Feature breadth may be too wide too early — 34 pages, 36 route files. Suggests "build everything" over "nail one thing"
-- Gamification, marketing attribution, LMS, insurance narratives, and email management feel like scope creep from the core QA value prop
-- No evidence of customer validation metrics (retention, NPS, MRR) in the codebase
-- Single developer/small team risk (no CI/CD, no code review process)
-- HIPAA compliance requires BAA with all vendors + formal security assessment before enterprise sales
-- Competition from established players (Observe.AI, CallMiner, NICE) means go-to-market speed matters
-
-### 2. Core Product — Call Quality Analysis: 8/10
-
-**Strengths**:
-- End-to-end pipeline: upload → transcription → AI analysis → coaching is well-implemented
-- RAG system grounds AI analysis in org-specific documentation
-- Custom prompt templates per call category
-- Performance scoring with server-side validation and calibration
-- Employee auto-assignment from detected names
-- Webhook notifications for flagged calls
-- Duplicate detection via file hash
-
-**Gaps**:
-- No real-time streaming transcription for live calls (AssemblyAI real-time routes exist but are thin)
-- No speaker diarization in the transcript viewer
-- No call recording (only upload existing recordings)
-- Batch reanalysis exists but no A/B testing between prompt template versions
-
-### 3. Clinical Documentation (AI Scribe): 6.5/10
-
-**Strengths**:
-- Multi-format note generation (SOAP, DAP, BIRP, HPI, procedure)
-- Provider attestation workflow
-- Style learning from previous notes
-- PHI field encryption
-- Clinical validation and completeness scoring
-
-**Gaps**:
-- EHR integrations are adapter stubs — Open Dental and Eaglesoft adapters need real-world testing
-- No FHIR support (the standard for healthcare interoperability)
-- Clinical templates are in-memory, not customizable per org
-- No HL7 v2 integration path
-- Missing clinical coding validation (ICD-10, CPT code verification)
-
-### 4. HIPAA Compliance: 7.5/10
-
-**Strong**:
-- Session management (15-min idle timeout, secure cookies, session regeneration)
-- Account lockout (5 failed attempts → 15-min lockout)
-- Structured audit logging with tamper-evident hash chain
-- PHI encryption at rest (AES-256-GCM)
-- HTTPS enforcement in production
-- Security headers (CSP, HSTS, X-Frame-Options)
-- Rate limiting on auth endpoints
-- Password complexity requirements (12+ chars)
-- MFA support (TOTP)
-- Data retention purge (per-org configurable)
-- WAF (SQL injection, XSS, path traversal detection)
-
-**Gaps**:
-- **CSRF protection is broken** (critical — see Issue #1)
-- No BAA documentation/tracking for vendors (AssemblyAI, AWS, Stripe)
-- No formal risk assessment or security policy documentation
-- No automatic session termination after password change
-- No IP allowlisting for admin/clinical routes
-- PHI encryption key management is env-var-only (should use KMS/Vault in production)
-- No data loss prevention (DLP) — PHI could be exported via CSV without additional controls
-- Audit logs don't capture data export events separately
-- No penetration test evidence
-- MFA is opt-in (should be mandatory for clinical users at minimum)
-
-### 5. UI/UX: 7/10
-
-**Strengths**:
-- Clean, modern design with shadcn/ui + Tailwind
-- Dark mode support
-- Custom branding per org (colors, logo)
-- Onboarding tour for new users
-- Feedback widget (floating button with page context)
-- Responsive layout with sidebar navigation
-- Loading states with custom owl animation
-- Error boundaries for graceful failure
-
-**Concerns**:
-- 34 pages is a LOT of surface area — likely overwhelming for new users
-- No evidence of user research or usability testing
-- Navigation hierarchy may be confusing (clinical docs, insurance narratives, gamification, LMS, marketing all in one app)
-- No keyboard navigation or accessibility audit results
-- No internationalization (i18n) support despite noting Spanish language as a roadmap item
-
-### 6. Code Quality: 7/10
-
-**Strengths**:
-- TypeScript strict mode enabled
-- Consistent project structure (routes/services/storage separation)
-- Well-documented CLAUDE.md with comprehensive architecture overview
-- Shared Zod schemas for client/server validation
-- Error code system (OBS-{DOMAIN}-{NUMBER})
-- Memory-bounded caches with TTL and max-entry limits
-- Proper cleanup on errors (file deletion, status updates)
-
-**Concerns**:
-- `as any` casts scattered throughout
-- Tests excluded from type checking
-- No CI/CD pipeline
-- CLAUDE.md has factual errors (AWS SDK claim)
-- Inconsistent error response patterns (error-codes vs plain objects)
-- Some routes load entire datasets into memory
-- Dev dependencies from Replit still present
-
-### 7. Testing: 5.5/10
-
-**Strengths**:
-- 27 unit test files (~757 test cases) covering major features
-- 11 E2E test specs covering critical flows
-- Tests cover security-critical areas (RBAC, multi-tenant isolation, PHI encryption, audit logging)
-- Basic CI pipeline exists (type check + unit tests + build)
-
-**Concerns**:
-- **Critical test gaps**: Three largest route files (calls.ts ~800 LOC, admin.ts ~700 LOC, clinical.ts ~900 LOC) have ZERO tests
-- 16 npm audit vulnerabilities (4 high severity) — Multer DoS affects upload endpoint
-- No CSRF testing
-- Tests excluded from type checking
-- No test coverage measurement (test-to-code ratio ~0.5:1, should be >1:1 for healthcare)
-- No integration tests (testing routes with real database)
-- E2E tests use brittle selectors (no `data-testid` attributes)
-- CI pipeline lacks E2E tests, security scanning, and coverage reporting
-- Missing tests for: WebSocket behavior, rate limiting, file upload validation, concurrent access
-
-### 8. Scalability: 5/10
-
-**Strengths**:
-- PostgreSQL + pgvector is a solid foundation
-- BullMQ for background jobs with retry
-- Redis for distributed sessions and rate limiting
-- Reference doc cache with TTL
-
-**Concerns**:
-- `getAllCalls()` loaded into memory across many routes
-- No pagination on several list endpoints
-- Super-admin stats is O(N*M) where N=orgs, M=calls — gets worse with growth
-- No connection pooling configuration visible
-- No database query optimization (no EXPLAIN plans, no query logging)
-- No CDN for audio file serving (streams through Node.js)
-- Single-process architecture (no clustering, no horizontal scaling plan)
-- In-memory caches don't work across instances
-
-### 9. DevOps & Operations: 5/10
-
-**Strengths**:
-- EC2 deployment guide with Caddy + systemd
-- Render.com staging configuration
-- Basic CI pipeline (type check + unit tests + build)
-- Pino structured logging + Betterstack
-- Sentry error tracking (both client and server)
-- OpenTelemetry instrumentation (opt-in)
-- Graceful shutdown handlers
-
-**Concerns**:
-- CI pipeline is minimal (no E2E, no security scanning, no coverage)
-- No Dockerfile (containerization)
-- No infrastructure-as-code (Terraform, CloudFormation)
-- No health check endpoint monitoring configuration
-- No automated backup strategy documented
-- No disaster recovery plan
-- No load testing results or performance benchmarks
-- No staging/production environment parity documentation
-- No secrets management (everything via env vars)
+### Concerns
+1. **Feature sprawl** — 34 pages, 38 route files, 30+ services. Maintenance burden is very high
+2. **In-memory fallbacks mask production issues** — incident response, OIDC state, email OTP, SCIM token lookup all use in-memory stores that break in multi-instance deployments
+3. **Schema sync vs. migrations** — auto-sync is convenient but risky for production data changes (column renames, type changes)
+4. **No visible CI/CD pipeline** — no GitHub Actions, no automated security scanning, no `npm audit`
+5. **Many features are "90% done"** — impressive breadth but several features lack the final 10% of hardening
+6. **`as any` usage** — defeats TypeScript's value proposition in security-critical auth code
 
 ---
 
-## Recommended Priority Actions
+## Future Recommendations
 
-### Immediate (Before Any Production Healthcare Deployment)
-1. **Fix CSRF token integration** in the client
-2. **Fix `createCall()` in pg-storage.ts** — add missing `fileHash` field (dedup is broken)
-3. **Add `updateCallAnalysis()` to storage interface** — analysis edits crash with constraint violation
-4. **Fix `updateCall()` missing email fields** in pg-storage.ts
-5. **Add `getCallCount()` to storage interface** — stop loading all calls into memory
-6. **Expand CI/CD** — add E2E tests, `npm audit`, coverage reporting to existing pipeline
-7. **Conduct formal HIPAA security assessment**
-8. **Document and execute BAA agreements** with AssemblyAI, AWS, Stripe
+### Immediate (P0)
+1. Fix all 8 critical issues listed above
+2. Add `PHI_ENCRYPTION_KEY` validation at startup (fail if missing in production)
+3. Implement database persistence for incident response
+4. Add constant-time comparison for all secret comparisons
 
-### Short-Term (Next 1-2 Sprints)
-6. **Add pagination** to all list endpoints
-7. **Validate super-admin settings updates** against Zod schema
-8. **Add file type validation** on audio upload
-9. **Add CSRF token to E2E tests** and fix any broken flows
-10. **Containerize the application** (Dockerfile)
-11. **Set up proper secrets management** (AWS Secrets Manager or similar)
+### Short-term (1-2 sprints)
+1. Add conditional schema validation with Zod `.superRefine()`
+2. Implement proper LRU caches (replace `Map.keys().next()` pattern)
+3. Add integration tests for SSO, MFA, and clinical workflows
+4. Add `npm audit` to CI/CD pipeline
+5. Move OIDC state and email OTP to Redis
+6. Type the auth session properly (remove `as any`)
 
-### Medium-Term (Next Quarter)
-12. **Focus the product** — consider which features are core vs. nice-to-have
-13. **Add FHIR support** for EHR integrations (essential for healthcare adoption)
-14. **Implement horizontal scaling** — extract in-memory caches to Redis, add clustering
-15. **Add comprehensive integration tests**
-16. **Implement proper key management** for PHI encryption (KMS/Vault)
+### Medium-term (1-2 months)
+1. Extract security middleware into shared library
+2. Add OpenTelemetry coverage for all critical paths
+3. Implement proper state machine validation for status transitions
+4. Add load testing for multi-tenant scenarios
+5. Penetration testing for SSO, MFA, WAF
 
-### Long-Term
-17. **SOC 2 Type II certification** (table stakes for enterprise healthcare sales)
-18. **Performance benchmarking and optimization**
-19. **Internationalization framework**
-20. **Disaster recovery testing**
+### Long-term
+1. SOC 2 Type II preparation
+2. Database read replicas for analytics queries
+3. Event-sourced audit log with immutable storage (S3 Object Lock)
+4. Multi-region deployment for HIPAA disaster recovery
+5. Consider microservice extraction (clinical, billing, core)
 
 ---
 
-## Summary
+## Dependency Notes
 
-Observatory QA is an impressive engineering effort with a strong architectural foundation. The multi-tenant data isolation, HIPAA-aware security controls, and AI analysis pipeline are well-implemented. The platform's breadth — spanning QA, clinical docs, EHR, gamification, LMS, marketing, and more — demonstrates ambitious vision but may benefit from strategic focus.
-
-The most critical issue is the broken CSRF integration, followed by memory-scaling concerns in data-loading patterns. Addressing these, along with establishing CI/CD and proper HIPAA documentation, would significantly strengthen the product's readiness for production healthcare deployments.
-
-**Overall Project Score: 6.5/10** — Strong foundation with clear gaps in operational maturity and production readiness. With focused effort on the critical issues and DevOps infrastructure, this could move to 8+ within a quarter.
+- AWS SDK v3 (`^3.1014.0`) — consider pinning exact versions for production stability
+- `@types/express` pinned without `^` — may cause type drift
+- No `npm audit` in CI/CD pipeline
+- No `engines` field in package.json
+- Passport `^0.7.0` — verify latest security patches applied
