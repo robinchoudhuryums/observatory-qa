@@ -855,23 +855,31 @@ export class PostgresStorage implements IStorage {
 
   // --- Search (PostgreSQL text search across transcripts, analysis, and topics) ---
   async searchCalls(orgId: string, query: string): Promise<CallWithDetails[]> {
+    // Use PostgreSQL full-text search (tsvector GIN indexes) for ranked results.
+    // Falls back to ILIKE for single-character queries where tsvector doesn't work well.
+    const useFullText = query.trim().length >= 2;
+    const tsQuery = useFullText ? sql`plainto_tsquery('english', ${query})` : null;
     const pattern = `%${query}%`;
 
-    // Search transcripts
+    // Search transcripts — uses transcripts_text_search_idx GIN index
     const matchingTranscripts = await this.db.select({ callId: tables.transcripts.callId })
       .from(tables.transcripts)
       .where(and(
         eq(tables.transcripts.orgId, orgId),
-        ilike(tables.transcripts.text, pattern),
+        useFullText
+          ? sql`to_tsvector('english', coalesce(${tables.transcripts.text}, '')) @@ ${tsQuery}`
+          : ilike(tables.transcripts.text, pattern),
       ));
 
-    // Search analysis summaries and topics
+    // Search analysis summaries and topics — uses analyses_summary_search_idx GIN index
     const matchingAnalyses = await this.db.select({ callId: tables.callAnalyses.callId })
       .from(tables.callAnalyses)
       .where(and(
         eq(tables.callAnalyses.orgId, orgId),
         or(
-          ilike(tables.callAnalyses.summary, pattern),
+          useFullText
+            ? sql`to_tsvector('english', coalesce(${tables.callAnalyses.summary}, '')) @@ ${tsQuery}`
+            : ilike(tables.callAnalyses.summary, pattern),
           sql`${tables.callAnalyses.topics}::text ILIKE ${pattern}`,
         ),
       ));

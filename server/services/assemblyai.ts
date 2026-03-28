@@ -219,7 +219,9 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
     transcriptResponse: AssemblyAIResponse,
     aiAnalysis: CallAnalysis | null,
     callId: string,
-    orgId: string
+    orgId: string,
+    /** Optional per-org speaker role mapping (e.g., { A: "customer", B: "agent" } for IVR-routed calls). */
+    orgSpeakerRoles?: Record<string, string>,
   ): { transcript: InsertTranscript; sentiment: InsertSentimentAnalysis; analysis: InsertCallAnalysis } {
     // Build transcript record
     const transcript: InsertTranscript = {
@@ -283,10 +285,11 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
     const speechMetrics = this.computeSpeechMetrics(words);
 
     // --- Speaker role mapping ---
-    // Convention: in call center environments, Speaker A typically speaks first (agent greeting).
-    // Default to Speaker A = agent for now; caller can refine via AI-detected agent name.
-    // Maps speaker label → role (e.g., "A" → "agent", "B" → "customer").
-    const speakerRoleMap: Record<string, string> = { A: "agent", B: "customer" };
+    // Uses org-configured mapping if provided, otherwise defaults to convention:
+    // Speaker A = agent (speaks first in call center greeting), B = customer.
+    const speakerRoleMap: Record<string, string> = orgSpeakerRoles && Object.keys(orgSpeakerRoles).length > 0
+      ? orgSpeakerRoles
+      : { A: "agent", B: "customer" };
 
     // Determine flags
     const flags: string[] = aiAnalysis?.flags || [];

@@ -531,7 +531,12 @@ export async function continueAfterTranscription(
 
     // Step 5: Process results
     broadcastCallUpdate(callId, "processing", { step: 5, totalSteps: 6, label: "Processing results..." }, orgId);
-    const { transcript, sentiment, analysis } = assemblyAIService.processTranscriptData(transcriptResponse, aiAnalysis, callId, orgId);
+    // Load org settings for speaker role configuration
+    const org = await storage.getOrganization(orgId);
+    const orgSettings = org?.settings as OrgSettings | undefined;
+    const { transcript, sentiment, analysis } = assemblyAIService.processTranscriptData(
+      transcriptResponse, aiAnalysis, callId, orgId, orgSettings?.defaultSpeakerRoles,
+    );
 
     // Confidence scoring
     const wordCount = transcriptResponse.words?.length || 0;
@@ -638,6 +643,16 @@ export async function continueAfterTranscription(
     await storage.updateCall(orgId, callId, { status: "failed" });
     broadcastCallUpdate(callId, "failed", { label: "Processing failed" }, orgId);
     if (filePath) await cleanupFile(filePath);
+
+    // Attempt to enqueue for retry via the job queue (non-blocking).
+    // If Redis/queue is unavailable, the call stays in "failed" status
+    // and the user can re-upload manually.
+    try {
+      const { enqueueCallRetry } = await import("./queue");
+      await enqueueCallRetry(orgId, callId, opts?.originalName || callId, opts?.callCategory);
+    } catch {
+      // Queue unavailable — call remains failed, user must re-upload
+    }
   }
 }
 

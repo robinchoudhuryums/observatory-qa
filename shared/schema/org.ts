@@ -143,6 +143,10 @@ export const orgSettingsSchema = z.object({
   // not the master key, enabling efficient key rotation without re-encrypting all data.
   encryptedDataKey: z.string().optional(),  // KMS-encrypted DEK blob (base64)
   kmsKeyId: z.string().optional(),           // CMK ARN used to encrypt the DEK
+  // Speaker role configuration — maps speaker labels to roles for call analysis.
+  // Default: { A: "agent", B: "customer" }. Override per-org when agent doesn't speak first
+  // (e.g., IVR-routed calls where customer speaks first).
+  defaultSpeakerRoles: z.record(z.string(), z.string()).optional(),
   // Edit pattern insights: aggregated analysis of manager manual score edits
   editPatternInsights: z.object({
     updatedAt: z.string(),

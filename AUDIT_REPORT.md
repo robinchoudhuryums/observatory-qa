@@ -71,8 +71,10 @@ SQL injection regex patterns with `.*` quantifier. Mitigated by `MAX_SCAN_LENGTH
 ### Data Integrity
 - **Empty orgId fallback to ""** in pg-storage.ts:179 — creates degenerate records
 - **Unbounded query in getAllCalls** — no LIMIT, potential OOM for large orgs
-- ~~**speakerRoleMap logic error**~~ FIXED — now maps `{ A: "agent", B: "customer" }` instead of `{ agentSpeaker: "A" }`
+- ~~**speakerRoleMap logic error**~~ FIXED — now maps `{ A: "agent", B: "customer" }` with per-org override via `defaultSpeakerRoles` in OrgSettings
 - ~~**Circuit breaker race condition**~~ FIXED — probe slot claim moved into `getCircuitDecision()` for atomic check-and-set
+- ~~**Search uses ILIKE without index**~~ FIXED — `searchCalls()` now uses `plainto_tsquery()` with existing GIN tsvector indexes
+- ~~**No retry for failed call processing**~~ FIXED — `enqueueCallRetry()` enqueues to audio-processing queue with 30s/60s delay, dead letter queue after 2 retries
 - **NaN propagation** in rate limiter when `checkRateLimit()` returns unexpected structure
 
 ### HIPAA Gaps (all items below FIXED)
