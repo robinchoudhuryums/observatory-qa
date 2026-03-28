@@ -1158,6 +1158,12 @@ Server serves both API and static frontend from the same process.
 - **Payer mix carrier fix** — carrier breakdown now uses `insuranceAmount` only (was falling back to `actualRevenue`, which includes patient portion — double-counting insurance revenue)
 - **Forecast confidence** — forecast response now includes `forecastConfidence` ("low"/"moderate"/"high" based on day of month), `daysElapsed`, `daysRemaining`. Low confidence before day 7 warns users that early-month projections are unreliable
 
+#### ✅ Completed & committed: Lead Tracking improvements
+- **ESM fix** — replaced CommonJS `require("@shared/schema")` with proper ESM import in `/api/marketing/sources` endpoint (was crashing at runtime in ESM module)
+- **Source validation** — campaign creation and attribution now validate `source` against the `MARKETING_SOURCES` enum; returns 400 with valid sources list on mismatch
+- **Attribution update fix** — PUT `/api/marketing/attribution/:callId` now preserves `detectionMethod` and `confidence` from existing record when updating (was dropping these fields)
+- **Auto source detection** — new `GET /api/marketing/detect-source/:callId` analyzes transcript text for source mentions ("found you on Google", "my dentist referred me", "saw your ad on Facebook") using 12 pattern groups; returns suggestions with confidence scores without auto-creating attribution
+
 #### ✅ Completed & committed: LMS improvements
 - **Prerequisite gating** — `prerequisiteModuleIds` field on `LearningModule`; `GET /api/lms/modules/:id/prerequisites?employeeId=X` checks which prerequisites are met/unmet; returns `{ met, prerequisites, unmetPrerequisites }` for UI to block access to locked modules
 - **Circular dependency detection** — `detectPrerequisiteCycle()` uses DFS to detect cycles before module creation/update; returns 400 with cycle path if found; validates prerequisite modules exist
