@@ -302,7 +302,7 @@ tests/e2e/                   # Playwright E2E tests (11 spec files)
 | `revenue.tsx` | `/revenue` | Revenue tracking: per-call dollar values, conversion metrics |
 | `calibration.tsx` | `/calibration` | QA calibration sessions: multi-evaluator scoring alignment |
 | `learning.tsx` | `/learning` | Learning Management System: courses, lessons, training content |
-| `marketing.tsx` | `/marketing` | Marketing attribution: campaign tracking, source/medium, ROI |
+| `marketing.tsx` | `/marketing` | Lead tracking: call source attribution, campaign ROI |
 | `emails.tsx` | `/emails` | Email management: templates, send history, analytics |
 | `clinical-live.tsx` | `/clinical/live` | Live clinical session: real-time transcription + note generation |
 | `audit-logs.tsx` | `/admin/audit-logs` | HIPAA audit log viewer |
@@ -700,7 +700,7 @@ Uses AWS Bedrock (Claude) for AI analysis. Per-org `bedrockModel` can be configu
 | GET | `/api/lms/coaching-recommendations` | authenticated | Recommend modules based on coaching/weak areas |
 | GET | `/api/lms/knowledge-search` | authenticated | Search knowledge base |
 
-### Marketing Attribution (org-scoped)
+### Lead Tracking / Call Source Attribution (org-scoped)
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
 | GET | `/api/marketing/campaigns` | authenticated | List campaigns |
@@ -709,6 +709,18 @@ Uses AWS Bedrock (Claude) for AI analysis. Per-org `bedrockModel` can be configu
 | GET | `/api/marketing/metrics` | authenticated | Campaign metrics |
 | GET | `/api/marketing/sources` | authenticated | Traffic source breakdown |
 | GET | `/api/marketing/attribution/:callId` | authenticated | Call-level attribution |
+
+### QA Benchmarking (org-scoped, anonymized cross-org)
+| Method | Path | Role | Description |
+|--------|------|------|-------------|
+| GET | `/api/benchmarks` | authenticated | Org scores vs anonymized industry percentiles |
+| GET | `/api/benchmarks/trends` | authenticated | Monthly percentile rank trend (last 12 months) |
+
+### Patient Journey Analytics (org-scoped, PHI-protected)
+| Method | Path | Role | Description |
+|--------|------|------|-------------|
+| GET | `/api/patient-journeys` | manager+ | List multi-visit patient journeys with call history |
+| GET | `/api/patient-journeys/insights` | manager+ | Retention rate, sentiment trends, revenue comparison |
 
 ### Email Management (org-scoped)
 | Method | Path | Role | Description |

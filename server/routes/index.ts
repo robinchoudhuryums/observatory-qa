@@ -36,6 +36,8 @@ import { registerCalibrationRoutes } from "./calibration";
 import { registerEmailRoutes } from "./emails";
 import { registerLmsRoutes } from "./lms";
 import { registerMarketingRoutes } from "./marketing";
+import { registerBenchmarkRoutes } from "./benchmarks";
+import { registerPatientJourneyRoutes } from "./patient-journey";
 import { registerAssemblyAIWebhookRoutes } from "./assemblyai-webhook";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -102,6 +104,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerEmailRoutes(app);
   registerLmsRoutes(app);
   registerMarketingRoutes(app);
+  registerBenchmarkRoutes(app);
+  registerPatientJourneyRoutes(app);
 
   // Start periodic cleanup of orphaned upload temp files
   startUploadCleanup();
