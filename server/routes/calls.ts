@@ -227,7 +227,12 @@ export function registerCallRoutes(app: Express): void {
       const duplicate = await storage.getCallByFileHash(req.orgId!, fileHash);
       if (duplicate) {
         await cleanupFile(req.file.path);
-        res.status(200).json(duplicate);
+        releaseUploadSlot(req.orgId!);
+        res.status(409).json({
+          message: "This file has already been uploaded.",
+          existingCallId: duplicate.id,
+          duplicate: true,
+        });
         return;
       }
 

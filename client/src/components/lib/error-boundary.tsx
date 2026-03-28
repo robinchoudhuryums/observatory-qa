@@ -40,16 +40,25 @@ export class ErrorBoundary extends React.Component<Props, State> {
     if (this.state.hasError) {
       if (this.props.fallback) return this.props.fallback;
       return (
-        <div className="flex flex-col items-center justify-center p-8 min-h-[200px]">
+        <div className="flex flex-col items-center justify-center p-8 min-h-[200px]" role="alert" aria-live="assertive">
           <div className="p-4 border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/30 rounded-lg text-red-700 dark:text-red-400 max-w-md text-center">
             <p className="font-bold mb-1">Something went wrong</p>
-            <p className="text-sm mb-3">An unexpected error occurred. Please try again or contact support.</p>
-            <button
-              onClick={() => this.setState({ hasError: false, error: null })}
-              className="px-4 py-2 text-sm font-medium bg-red-100 dark:bg-red-900/50 hover:bg-red-200 dark:hover:bg-red-900/70 rounded-md transition-colors"
-            >
-              Try Again
-            </button>
+            <p className="text-sm mb-3">An unexpected error occurred. Please try again or return to the dashboard.</p>
+            <div className="flex items-center justify-center gap-2">
+              <button
+                onClick={() => this.setState({ hasError: false, error: null })}
+                className="px-4 py-2 text-sm font-medium bg-red-100 dark:bg-red-900/50 hover:bg-red-200 dark:hover:bg-red-900/70 rounded-md transition-colors"
+                autoFocus
+              >
+                Try Again
+              </button>
+              <button
+                onClick={() => { window.location.href = "/dashboard"; }}
+                className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground bg-muted hover:bg-muted/80 rounded-md transition-colors"
+              >
+                Go to Dashboard
+              </button>
+            </div>
           </div>
         </div>
       );

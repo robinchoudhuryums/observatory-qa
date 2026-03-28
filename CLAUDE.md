@@ -1117,7 +1117,8 @@ Server serves both API and static frontend from the same process.
 - **AI response validation**: `parseJsonResponse()` in `ai-provider.ts` clamps `performanceScore` to 0-10, sentiment scores to 0-1, sub-scores to 0-10, and validates all field types. Missing fields get safe defaults (5.0 for scores, "neutral" for sentiment). `normalizeAnalysis()` in `storage/types.ts` also clamps on read
 - **Empty transcript handling**: If transcript text is <10 characters, the pipeline saves the call with `empty_transcript` flag, low confidence, and skips AI analysis entirely — prevents generating junk analysis from silence/noise
 - **Employee auto-assignment safety**: Only considers active employees. If multiple employees match the detected name, prefers exact full-name match; skips assignment if ambiguous (logs the ambiguity)
-- **`toDisplayString()` handles nested objects**: Checks `value`, `message`, `text` keys for wrapped strings, handles arrays, and caps JSON fallback at 500 chars
+- **`toDisplayString()` handles nested objects**: Checks arrays first (before object path), then `text`, `name`, `task`, `label`, `value`, `description`, `message` keys for wrapped strings, caps JSON fallback at 500 chars
+- **Duplicate upload returns 409**: `POST /api/calls/upload` returns `409 { duplicate: true, existingCallId }` when file hash matches an existing call. Frontend should handle this status code and show the user a link to the existing call instead of a generic error
 - **RLS bypass required for schema-sync**: `syncSchema()` sets `app.bypass_rls = 'true'` at the session level before creating tables/policies, since RLS would otherwise block DDL operations. All pgvector and super-admin cross-org queries must use `withBypassRls()`
 - **Org status gate adds latency**: `injectOrgContext` now does an async org status lookup on every authenticated request. For high-traffic deployments, consider a short-lived org status cache (TTL ~30s is already used in some implementations)
 - **GDPR purge is irreversible**: `deleteOrgData()` deletes employees, calls, and users but preserves the org record (status=deleted) for audit trail. The session is destroyed immediately after purge. Backups should be the recovery path
@@ -1140,6 +1141,14 @@ Server serves both API and static frontend from the same process.
 ## In-Progress Work (resume here in a new session)
 
 ### Branch: `claude/audit-codebase-review-AcjWE`
+
+#### ✅ Completed & committed: UI/UX & Design improvements
+- **display-utils.ts fix** — moved `Array.isArray()` check before generic object property extraction (arrays were falling through to object path)
+- **Dashboard flag filtering** — consistent `some()` usage for all flag checks; NaN protection on `performanceScore` parsing; added loading skeleton for trend chart while data is fetching
+- **Upload page a11y** — added `role="tablist"`, `role="tab"` with `aria-selected`, `role="tabpanel"` with `id`/`aria-controls` for tab navigation; added `aria-label` to select fields
+- **Error boundary recovery** — added `role="alert"` and `aria-live="assertive"` for screen reader announcement; added "Go to Dashboard" button as alternative recovery; `autoFocus` on primary action
+- **Duplicate upload fix** — changed response from 200 to 409 with `{ duplicate: true, existingCallId }` message; also fixed upload slot leak (was never released on duplicate detection)
+- **Idle timeout** — already had `role="alertdialog"`, `aria-modal`, `aria-label` (well implemented)
 
 #### ✅ Completed & committed: DevOps & Infrastructure hardening
 - **Node.js version pinning** — `engines` field in package.json (>=20.0.0), `.nvmrc` file for nvm/fnm users

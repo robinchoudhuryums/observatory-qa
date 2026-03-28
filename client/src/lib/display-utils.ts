@@ -7,6 +7,8 @@ export function toDisplayString(val: unknown): string {
   if (val == null) return "";
   if (typeof val === "string") return val;
   if (typeof val === "number" || typeof val === "boolean") return String(val);
+  // Arrays must be checked before generic object — arrays pass typeof === "object"
+  if (Array.isArray(val)) return val.map(toDisplayString).filter(Boolean).join(", ");
   if (typeof val === "object") {
     const obj = val as Record<string, unknown>;
     if (typeof obj.text === "string") return obj.text;
@@ -16,7 +18,6 @@ export function toDisplayString(val: unknown): string {
     if (typeof obj.value === "string") return obj.value;
     if (typeof obj.description === "string") return obj.description;
     if (typeof obj.message === "string") return obj.message;
-    if (Array.isArray(val)) return val.map(toDisplayString).filter(Boolean).join(", ");
     const json = JSON.stringify(val);
     return json.length > 500 ? json.slice(0, 497) + "..." : json;
   }

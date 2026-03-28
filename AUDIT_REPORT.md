@@ -41,9 +41,10 @@ RelayState is user-controlled. An attacker can craft a SP-initiated request to l
 Security incidents are stored in a `Map`. Service restart = all incident history lost. Violates HIPAA audit requirements.
 **Fix**: Persist to database immediately.
 
-### 6. Upload Slot Resource Leak on Duplicate Files
-**File**: `server/routes/calls.ts:226-230`
-When a duplicate file hash is detected, the upload slot is never released via `releaseUploadSlot(orgId)`, eventually exhausting the org's upload capacity.
+### 6. ~~Upload Slot Resource Leak on Duplicate Files~~ FIXED
+**File**: `server/routes/calls.ts`
+~~Upload slot was never released on duplicate detection.~~
+**Fixed**: Now calls `releaseUploadSlot(orgId)` and returns 409 with `{ duplicate: true, existingCallId }`.
 
 ### 7. Per-Org DEK Generation Race Condition
 **File**: `server/services/org-encryption.ts:95-99`
@@ -97,12 +98,12 @@ SQL injection regex patterns with `.*` quantifier. Mitigated by `MAX_SCAN_LENGTH
 | Security | SSN regex false positives on 9-digit codes | `phi-redactor.ts:12` |
 | ~~UX~~ | ~~Idle timeout "Stay Logged In" button is a no-op~~ FIXED | `App.tsx:312` |
 | ~~UX~~ | ~~localStorage.clear() on logout clears preferences~~ FIXED | `use-idle-timeout.ts:31` |
-| UX | Upload isUploading never cleared on error | `upload.tsx:18` |
-| UX | Duplicate upload returns 200 instead of 409 | `calls.ts:228` |
+| ~~UX~~ | ~~Upload isUploading never cleared on error~~ (was already correct — finally block clears it) | `upload.tsx:54` |
+| ~~UX~~ | ~~Duplicate upload returns 200 instead of 409~~ FIXED — returns 409 + releases upload slot | `calls.ts:228` |
 | Code Quality | Duplicate SESSION_ABSOLUTE_MAX_MS constant | `auth.ts:281,473` |
 | Code Quality | `as any` type assertions (6 locations) | `auth.ts` |
-| Code Quality | Inconsistent flag filtering logic | `dashboard.tsx:74-81` |
-| Code Quality | display-utils array check after object check | `display-utils.ts:19` |
+| ~~Code Quality~~ | ~~Inconsistent flag filtering logic~~ FIXED — all use `some()` | `dashboard.tsx:74-81` |
+| ~~Code Quality~~ | ~~display-utils array check after object check~~ FIXED | `display-utils.ts` |
 
 ---
 
