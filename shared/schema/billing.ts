@@ -258,6 +258,8 @@ export const referenceDocumentSchema = z.object({
   sourceUrl: z.string().optional(),
   /** Number of times this document's chunks have been retrieved in RAG queries */
   retrievalCount: z.number().int().default(0),
+  /** SHA-256 content hash for deduplication */
+  contentHash: z.string().max(64).optional(),
 });
 export type ReferenceDocument = z.infer<typeof referenceDocumentSchema>;
 
@@ -272,6 +274,7 @@ export const insertReferenceDocumentSchema = referenceDocumentSchema
     sourceType: z.enum(["upload", "url"]).optional(),
     sourceUrl: z.string().optional(),
     retrievalCount: z.number().int().optional(),
+    contentHash: z.string().max(64).optional(),
   });
 export type InsertReferenceDocument = z.infer<typeof insertReferenceDocumentSchema>;
 

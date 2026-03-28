@@ -15,6 +15,7 @@ import {
 import { fromEnv, fromInstanceMetadata } from "@aws-sdk/credential-providers";
 import type { AwsCredentialIdentityProvider } from "@aws-sdk/types";
 import { logger } from "./logger";
+import type { EmbeddingProvider } from "./embedding-provider";
 
 const EMBED_MODEL = "amazon.titan-embed-text-v2:0";
 const EMBED_DIMENSIONS = 1024;
@@ -174,3 +175,24 @@ export async function generateEmbeddingsBatch(texts: string[]): Promise<number[]
 export function isEmbeddingAvailable(): boolean {
   return !!(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY);
 }
+
+/**
+ * Titan Embed V2 implementation of the EmbeddingProvider interface.
+ * Allows the embedding model to be swapped without changing calling code.
+ */
+export class TitanEmbeddingProvider implements EmbeddingProvider {
+  readonly name = "Amazon Titan Embed V2";
+  readonly dimensions = EMBED_DIMENSIONS;
+  readonly maxInputChars = MAX_INPUT_CHARS;
+
+  async embed(text: string): Promise<number[]> {
+    return generateEmbedding(text);
+  }
+
+  isAvailable(): boolean {
+    return isEmbeddingAvailable();
+  }
+}
+
+/** Default provider instance */
+export const defaultEmbeddingProvider: EmbeddingProvider = new TitanEmbeddingProvider();
