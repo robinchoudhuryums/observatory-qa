@@ -254,7 +254,7 @@ server/middleware/           # Express middleware
 
 server/utils/                # Shared server utilities (ported from UMS knowledge base tool)
   url-validation.ts          #   SSRF prevention: blocks private IPs, cloud metadata, non-HTTP protocols
-  ai-guardrails.ts           #   Prompt injection detection (15 patterns), output safety checks
+  ai-guardrails.ts           #   Prompt injection detection (21 patterns + NFKD Unicode normalization), output safety checks
   phi-redactor.ts            #   PHI regex scrubber (SSN, phone, email, MRN, addresses; preserves clinical codes)
   request-metrics.ts         #   In-memory per-route latency percentiles (p50/p95/p99, 10-min window)
 
@@ -1145,6 +1145,14 @@ Server serves both API and static frontend from the same process.
 ## In-Progress Work (resume here in a new session)
 
 ### Branch: `claude/audit-codebase-review-AcjWE`
+
+#### ✅ Completed & committed: RAG Feature improvements
+- **Chunker O(n^2) fix** — replaced greedy regex `[\s\S]*[.!?]\s+` in `findNaturalBreak()` with `lastIndexOf()` calls (O(n) per chunk instead of O(n^2)); enforced minimum step size of 40 chars to prevent infinite micro-chunks when overlap ≈ chunk size
+- **BM25/semantic score clamping** — semantic scores clamped to [0,1] (pgvector cosine can return negatives), BM25 scores clamped to ≥0, combined scores clamped to ≥0 after NaN guard
+- **Prompt injection: throw instead of silent empty** — `searchRelevantChunks()` now throws `RAG_INJECTION_BLOCKED` error instead of returning `[]`; RAG search endpoint returns HTTP 400 with user-friendly message; callers can distinguish "no results" from "blocked"
+- **Unicode homoglyph defense** — `detectPromptInjection()` now applies NFKD normalization + diacritical mark stripping before pattern matching (defeats "ìgnórè prëvíóüs ìnstrûctíons" attacks)
+- **Expanded injection patterns** — added `<instructions>`, `<prompt>`, `<context>`, `<user>`, `<assistant>` tags; added "act as if you", "do not follow" phrases; unified tag patterns with `<\/?tag\b` to catch attributes and self-closing variants
+- **Embedding validation** — logs warning when input is truncated (was silent); validates embedding values are finite numbers (no NaN/Infinity that would corrupt pgvector)
 
 #### ✅ Completed & committed: Call Analysis feature improvements
 - **speakerRoleMap fix** (CRITICAL) — was creating `{ agentSpeaker: "A" }` (property named "agentSpeaker") instead of `{ A: "agent", B: "customer" }` (speaker label → role mapping). Fixed in `assemblyai.ts` and updated `shared/schema/calls.ts` to `z.record(z.string(), z.string())`

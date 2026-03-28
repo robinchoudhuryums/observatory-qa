@@ -62,7 +62,7 @@ SQL injection regex patterns with `.*` quantifier. Mitigated by `MAX_SCAN_LENGTH
 - **Backup code comparison not constant-time** (`mfa.ts`) — timing attack vector
 - **TOCTOU race in URL validation** (`url-validation.ts:97-115`) — DNS rebinding SSRF
 - **IPv6 link-local bypass incomplete** (`url-validation.ts:50`) — missing ULA ranges
-- **Prompt injection bypass via Unicode homoglyphs** (`ai-guardrails.ts:13-29`)
+- ~~**Prompt injection bypass via Unicode homoglyphs**~~ FIXED — NFKD normalization + expanded tag patterns (21 patterns)
 - **Certificate expiry not checked at SSO login** (`sso.ts`) — expired certs still accepted
 - **SAML replay possible** with `validateInResponseTo: "IfPresent"` (`sso.ts:271`)
 - **Trusted device token format guessable** (`mfa.ts:279`) — userId in cookie
@@ -90,7 +90,7 @@ SQL injection regex patterns with `.*` quantifier. Mitigated by `MAX_SCAN_LENGTH
 
 | Category | Issue | Location |
 |----------|-------|----------|
-| Performance | Chunker `findNaturalBreak` greedy regex O(n^2) | `chunker.ts:46` |
+| ~~Performance~~ | ~~Chunker `findNaturalBreak` greedy regex O(n^2)~~ FIXED — uses lastIndexOf() | `chunker.ts:46` |
 | Performance | Dashboard recalculates trend data on every render | `dashboard.tsx:94-135` |
 | Performance | Coaching engine loads ALL calls then takes 10 | `coaching-engine.ts:53` |
 | Performance | Admin reanalysis fires-and-forgets without rate limit | `admin.ts:164-203` |

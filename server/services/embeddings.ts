@@ -92,8 +92,11 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   const client = getClient();
   if (!client) throw new Error("AWS credentials not configured for embeddings");
 
-  // Truncate to model's input limit
+  // Truncate to model's input limit, warn if content was lost
   const inputText = text.slice(0, MAX_INPUT_CHARS);
+  if (text.length > MAX_INPUT_CHARS) {
+    logger.warn({ originalLength: text.length, truncatedTo: MAX_INPUT_CHARS }, "Embedding input truncated — tail content lost");
+  }
 
   // Check cache first (deduplicates identical queries within TTL)
   const cacheKey = getCacheKey(inputText);
@@ -125,9 +128,13 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     const result = JSON.parse(responseBody) as { embedding: number[] };
     const embedding = result.embedding;
 
-    // Validate embedding dimensions
+    // Validate embedding dimensions and values
     if (!Array.isArray(embedding) || embedding.length !== EMBED_DIMENSIONS) {
       throw new Error(`Unexpected embedding dimensions: expected ${EMBED_DIMENSIONS}, got ${Array.isArray(embedding) ? embedding.length : 'non-array'}`);
+    }
+    // Guard against NaN/Infinity values that would corrupt pgvector operations
+    if (embedding.some(v => !Number.isFinite(v))) {
+      throw new Error("Embedding contains NaN or Infinity values — aborting to prevent pgvector corruption");
     }
 
     // Cache the result (evict oldest if at capacity)

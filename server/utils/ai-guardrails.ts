@@ -3,6 +3,9 @@
  *
  * Provides prompt injection detection, output safety checks, and
  * context framing to harden the RAG pipeline against adversarial inputs.
+ *
+ * Unicode normalization (NFKD) is applied before pattern matching to defeat
+ * homoglyph attacks (e.g., Cyrillic 'а' instead of Latin 'a', accented chars).
  */
 
 export interface InjectionCheckResult {
@@ -11,6 +14,7 @@ export interface InjectionCheckResult {
 }
 
 const INJECTION_PATTERNS: Array<{ regex: RegExp; label: string }> = [
+  // Instruction override attempts
   { regex: /ignore previous instructions/i, label: "ignore previous instructions" },
   { regex: /ignore above instructions/i, label: "ignore above instructions" },
   { regex: /disregard your instructions/i, label: "disregard your instructions" },
@@ -23,14 +27,31 @@ const INJECTION_PATTERNS: Array<{ regex: RegExp; label: string }> = [
   { regex: /DAN mode/i, label: "DAN mode" },
   { regex: /developer mode/i, label: "developer mode" },
   { regex: /pretend you are/i, label: "pretend you are" },
-  { regex: /<\/system>/i, label: "</system> tag injection" },
-  { regex: /<system>/i, label: "<system> tag injection" },
-  { regex: /<\/instructions>/i, label: "</instructions> tag injection" },
+  { regex: /act as if you/i, label: "act as if you (role hijack)" },
+  { regex: /do not follow/i, label: "do not follow (override)" },
+  // Tag injection — covers all common prompt framing tags
+  { regex: /<\/?system\b/i, label: "<system> tag injection" },
+  { regex: /<\/?instructions\b/i, label: "<instructions> tag injection" },
+  { regex: /<\/?prompt\b/i, label: "<prompt> tag injection" },
+  { regex: /<\/?context\b/i, label: "<context> tag injection" },
+  { regex: /<\/?user\b/i, label: "<user> tag injection" },
+  { regex: /<\/?assistant\b/i, label: "<assistant> tag injection" },
 ];
 
+/**
+ * Normalize a string to defeat Unicode homoglyph and accent-based bypass attacks.
+ * NFKD decomposition + stripping combining marks converts "ìgnórè" to "ignore".
+ */
+function normalizeForDetection(input: string): string {
+  return input
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, ""); // Strip combining diacritical marks
+}
+
 export function detectPromptInjection(input: string): InjectionCheckResult {
+  const normalized = normalizeForDetection(input);
   for (const { regex, label } of INJECTION_PATTERNS) {
-    if (regex.test(input)) return { isInjection: true, pattern: label };
+    if (regex.test(normalized)) return { isInjection: true, pattern: label };
   }
   return { isInjection: false };
 }

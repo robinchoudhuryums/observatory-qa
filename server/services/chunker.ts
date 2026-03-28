@@ -42,9 +42,14 @@ function findNaturalBreak(text: string, targetPos: number, windowSize = 200): nu
   const paraBreak = searchText.lastIndexOf("\n\n");
   if (paraBreak !== -1) return searchStart + paraBreak + 2;
 
-  // Priority 2: Sentence ending (. ! ?)
-  const sentenceMatch = searchText.match(/[\s\S]*[.!?]\s+/);
-  if (sentenceMatch) return searchStart + sentenceMatch[0].length;
+  // Priority 2: Sentence ending (. ! ?) — find the LAST sentence break in the window
+  // Use lastIndexOf-based approach instead of greedy regex to avoid O(n^2) backtracking.
+  const lastSentenceEnd = Math.max(
+    searchText.lastIndexOf(". "),
+    searchText.lastIndexOf("! "),
+    searchText.lastIndexOf("? "),
+  );
+  if (lastSentenceEnd !== -1) return searchStart + lastSentenceEnd + 2;
 
   // Priority 3: Line break
   const lineBreak = searchText.lastIndexOf("\n");
@@ -94,9 +99,10 @@ export function chunkDocument(
   if (!text || text.trim().length === 0) return [];
 
   const chunkSizeTokens = options.chunkSizeTokens ?? 400;
-  const overlapTokens = options.overlapTokens ?? 80;
+  const overlapTokens = Math.min(options.overlapTokens ?? 80, chunkSizeTokens - 1);
   const chunkSizeChars = chunkSizeTokens * 4;
-  const stepChars = (chunkSizeTokens - overlapTokens) * 4;
+  // Minimum step of 40 chars (~10 tokens) prevents infinite micro-chunks
+  const stepChars = Math.max((chunkSizeTokens - overlapTokens) * 4, 40);
 
   const chunks: DocumentChunk[] = [];
   let pos = 0;
