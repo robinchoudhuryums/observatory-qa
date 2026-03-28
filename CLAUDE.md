@@ -58,8 +58,13 @@ npm run build          # Vite frontend + esbuild backend → dist/
 npm run start          # Production server (NODE_ENV=production node dist/index.js)
 npm run check          # TypeScript type check
 npm run test           # Run tests (tsx --test tests/*.test.ts)
+npm run test:coverage  # Run tests with c8 coverage (text + lcov → coverage/)
 npm run test:e2e       # Run Playwright E2E tests (requires dev server running)
 npm run test:e2e:ui    # Open Playwright interactive UI
+npm run lint           # ESLint (server, shared, client)
+npm run lint:fix       # ESLint with auto-fix
+npm run format         # Prettier write
+npm run format:check   # Prettier check (CI uses this)
 npm run seed           # Seed data (tsx seed.ts)
 npm run workers        # Start BullMQ worker processes (requires REDIS_URL)
 npm run workers:build  # Build workers → dist/workers.js
@@ -108,6 +113,10 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/insurance-narrative-improvements.test.ts` — Insurance narrative improvements (outcomes, denial analysis, deadlines, payer templates)
   - `tests/error-handling.test.ts` — Error handling patterns
   - `tests/phi-encryption.test.ts` — PHI field encryption
+  - `tests/speaker-detection.test.ts` — Auto speaker role detection (greeting patterns, AI name match, edge cases)
+  - `tests/rag-pipeline.test.ts` — RAG pipeline integration (chunking ratios, injection guardrails, chunker safety)
+  - `tests/clinical-amendments.test.ts` — Amendment/addendum workflow (schema, persistence, conflict detection, multi-chain, isolation)
+  - `tests/lms-prereq-enforce.test.ts` — LMS prerequisites, enforceOrder, deadlines, passing scores
   - `tests/sso.test.ts` — SAML SSO
   - `tests/validation.test.ts` — Input validation
 - **E2E test files** (14 specs):
@@ -248,7 +257,7 @@ server/middleware/           # Express middleware
 
 server/utils/                # Shared server utilities (ported from UMS knowledge base tool)
   url-validation.ts          #   SSRF prevention: blocks private IPs, cloud metadata, non-HTTP protocols
-  ai-guardrails.ts           #   Prompt injection detection (15 patterns), output safety checks
+  ai-guardrails.ts           #   Prompt injection detection (21 patterns + NFKD Unicode normalization), output safety checks
   phi-redactor.ts            #   PHI regex scrubber (SSN, phone, email, MRN, addresses; preserves clinical codes)
   request-metrics.ts         #   In-memory per-route latency percentiles (p50/p95/p99, 10-min window)
 
@@ -385,7 +394,7 @@ Every data entity has an `orgId` field. All storage methods take `orgId` as the 
 ### RAG (Retrieval-Augmented Generation) System
 Reference documents uploaded by orgs are processed through:
 1. **Text extraction** — extracted on upload (PDF/text content)
-2. **Chunking** (`chunker.ts`) — sliding window with overlap (400 tokens, 80 token overlap), natural break detection (paragraph > sentence > line), section header tracking
+2. **Chunking** (`chunker.ts`) — sliding window with overlap (400 tokens, 80 token overlap), natural break detection (paragraph > sentence > line via `lastIndexOf`), section header tracking. Configurable `charsPerToken` ratio: 3.5 for medical/dental (clinical codes are dense), 4.0 for general text. Minimum step of 40 chars prevents micro-chunks
 3. **Embedding** (`embeddings.ts`) — Amazon Titan Embed V2 via Bedrock (1024 dimensions, raw REST + SigV4)
 4. **Storage** — chunks + embeddings stored in `document_chunks` table (pgvector)
 5. **Retrieval** (`rag.ts`) — hybrid search: pgvector cosine similarity + BM25 keyword boosting, weighted scoring (70% semantic, 30% keyword), minimum relevance score threshold (0.3) filters low-quality chunks
@@ -963,12 +972,17 @@ On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add mi
 | **MFA** | `server/routes/mfa.ts` | TOTP + WebAuthn/Passkeys (FIDO2, phishing-resistant). Per-org enforcement with 7-day grace period (`mfaGracePeriodDays`). Trusted devices (30-day cookie, hashed token). Email OTP fallback for non-admin. Emergency recovery (email-verified + admin-approved bypass). |
 | **SCIM provisioning** | `server/routes/scim.ts` | SCIM 2.0 automated user lifecycle. Bearer token per org (SHA-256 hashed). Create/deactivate/delete via IDP. Enterprise plan only. |
 | **SSO session management** | `server/routes/sso.ts` + `server/auth.ts` | Per-org `ssoSessionMaxHours` forces SAML/OIDC re-auth. `ssoLoginAt` stamped on session. SLO (Single Logout) terminates session on IDP logout. Error code `OBS-AUTH-006`. |
-| **PHI encryption** | `server/services/phi-encryption.ts` | AES-256-GCM application-level encryption for sensitive fields |
-| **Tamper-evident audit** | `server/db/sync-schema.ts` | `audit_logs` table with integrity hashes and sequence numbers |
+| **PHI encryption** | `server/services/phi-encryption.ts` | AES-256-GCM application-level encryption for sensitive fields. **Throws in production** if `PHI_ENCRYPTION_KEY` is not set — PHI must never be stored unencrypted. Dev mode logs a warning and allows plaintext for local development |
+| **PHI decryption audit** | `server/services/phi-encryption.ts` | `decryptClinicalNotePhi()` accepts audit context and logs `[HIPAA_AUDIT] PHI_DECRYPT` events with userId, orgId, resourceId, and field count. All callers in `calls.ts` and `clinical.ts` pass audit context |
+| **Tamper-evident audit** | `server/services/audit-log.ts` | `audit_logs` table with SHA-256 integrity hashes and sequence numbers. Per-org promise-chain mutex serializes concurrent writes to prevent sequence number race conditions |
 | **PostgreSQL RLS** | `server/db/sync-schema.ts` | `ENABLE/FORCE ROW LEVEL SECURITY` on all 27 tenant-scoped tables. `org_isolation` policies using `current_setting('app.org_id')`. DO-block idempotency for PG15 compatibility. `app.bypass_rls` session var for schema-sync and super-admin operations |
 | **Per-org KMS encryption** | `server/services/org-encryption.ts` | Envelope encryption: AWS KMS generates per-org DEK, encrypted DEK stored in org settings, 30-min cache, `enc_v2_{orgPrefix}:` format. Falls back to shared `PHI_ENCRYPTION_KEY` when `AWS_KMS_KEY_ID` not set |
 | **GDPR/CCPA compliance** | `server/routes/admin.ts` | `GET /api/admin/org/export` (right to access), `DELETE /api/admin/org/purge` (right to erasure with confirmation). `deleteOrgData()` in all storage backends |
-| **Org suspension gate** | `server/auth.ts` | `injectOrgContext` checks org `status` field: suspended → 403 `OBS-ORG-SUSPENDED`, deleted → 410 `OBS-ORG-DELETED` |
+| **Org suspension gate** | `server/auth.ts` | `injectOrgContext` checks org `status` field: suspended → 403 `OBS-ORG-SUSPENDED`, deleted → 410 `OBS-ORG-DELETED`. SSO session check failures now deny with 503 `OBS-AUTH-007` instead of silently allowing |
+| **Sentry PHI redaction** | `server/services/sentry.ts` | Uses shared `redactPhi()` for selective PHI scrubbing in error messages, request bodies, and exception values. Preserves debugging context while removing SSN, phone, email, MRN patterns |
+| **FAQ analytics PHI safety** | `server/services/faq-analytics.ts` | Sample queries stored in FAQ analytics are PHI-redacted via `redactPhi()` before persistence |
+| **WAF log safety** | `server/middleware/waf.ts` | WAF violation logs use `req.path` (no query string) to prevent logging PHI from query parameters |
+| **Idle timeout** | `client/src/hooks/use-idle-timeout.ts` | 15-min idle timeout with 2-min warning countdown. "Stay Logged In" button resets the timer. Logout clears session storage only (preserves user preferences in localStorage) |
 
 ## Key Design Decisions
 - **AWS SDK v3**: S3 (`@aws-sdk/client-s3`), Bedrock (`@aws-sdk/client-bedrock-runtime`), SES (`@aws-sdk/client-ses`), and Titan Embed use the modular AWS SDK v3. Credential resolution (`@aws-sdk/credential-providers`) supports env vars and EC2 instance metadata (IMDSv2)
@@ -988,7 +1002,7 @@ On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add mi
 - **AI response hardening**: `parseJsonResponse()` validates every field type, clamps scores to valid ranges, and provides safe defaults. `normalizeAnalysis()` also clamps on the read path. Server-side flag enforcement overrides AI-set flags
 - **Per-org username uniqueness**: Usernames are unique within an org (composite index `orgId + username`), not globally. `getUserByUsername()` accepts optional `orgId` for scoped lookups. OAuth/SSO flows without org context search globally
 - **Org-scoped rate limiting**: Authenticated data routes include `orgId` in rate limit keys so tenants sharing an IP (corporate networks) don't affect each other. Pre-auth routes (login, register) use IP-only keys
-- **Search scope**: `searchCalls()` searches transcripts, analysis summaries, and topics (not just transcripts). Uses PostgreSQL ILIKE with Set-based deduplication
+- **Search scope**: `searchCalls()` searches transcripts, analysis summaries, and topics (not just transcripts). Uses PostgreSQL full-text search (`plainto_tsquery` + GIN tsvector indexes) for queries >=2 chars, falls back to ILIKE for single-char queries. Set-based deduplication across result sources
 - **PostgreSQL RLS for defense-in-depth**: Row-Level Security policies enforce tenant isolation at the database layer — even if application code has a bug, the DB rejects cross-org queries. `withBypassRls()` and `withOrgContext()` helpers in pg-storage.ts manage the `app.bypass_rls` and `app.org_id` session settings
 - **KMS envelope encryption**: Per-org DEKs are generated by AWS KMS and stored encrypted in org settings. Actual PHI encryption uses the DEK (AES-256-GCM), not the master key — enabling efficient rotation. Format prefix (`enc_v1:` vs `enc_v2_{prefix}:`) allows per-field routing to the correct key
 - **Dual-path transcription**: When `APP_BASE_URL` is set, AssemblyAI uses webhooks; otherwise polls. `continueAfterTranscription()` in call-processing.ts handles steps 4–15 of the pipeline for both paths
@@ -1001,6 +1015,29 @@ On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add mi
 - **MFA grace period**: When an org first enables `mfaRequired`, `mfaRequiredEnabledAt` is stamped. Each user without MFA gets an `mfaEnrollmentDeadline` = `mfaRequiredEnabledAt + mfaGracePeriodDays` (default 7). During the grace period, login succeeds with `mfaSetupRequired: true`. After the deadline, login is rejected with a specific error code. Reminder emails are sent at 7, 3, and 1 day before the deadline.
 - **Email OTP for non-admins**: A 6-digit OTP (10-minute TTL, 3 attempts max) is sent to the user's username/email. Restricted to viewer/manager roles — admin users must use TOTP or WebAuthn. Stored in an in-memory map keyed by userId (TTL too short to warrant DB overhead).
 - **MFA recovery flow**: User submits a recovery request; server sends a time-limited verification token to the user's email. Admin sees pending requests in the admin panel and approves or denies. On approval, a use-token (15-min TTL) is emailed to the user, which completes login and clears MFA — forcing re-enrollment. All steps are HIPAA-audit-logged. Table: `mfa_recovery_requests`.
+
+## CI/CD Pipeline
+
+### GitHub Actions (`.github/workflows/ci.yml`)
+Automated pipeline runs on push to `main` and all PRs:
+
+| Job | Description | Gate |
+|-----|-------------|------|
+| **Lint & Format** | ESLint (zero-warning policy) + Prettier check | Blocks build |
+| **Type Check & Tests** | `tsc` + unit tests with c8 coverage | Blocks build |
+| **Security Audit** | `npm audit --audit-level=high` + secret scanning (AWS keys, private keys, API tokens) | Blocks deploy |
+| **Build** | Vite frontend + esbuild backend, artifact verified | Requires lint + test |
+| **Docker** | Multi-stage build, pushes to GHCR on main | Requires lint + test |
+| **E2E Tests** | Playwright Chromium against production build | Requires build |
+| **Quality Gate** | Explicit gate requiring all above jobs | Blocks all deploys |
+| **Deploy Staging** | Auto on main push via Render deploy hook + health check | Requires quality gate |
+| **Deploy Production** | Manual only (`workflow_dispatch`), GitHub Environment approval | Requires quality gate |
+
+### Docker
+- **Dockerfile**: Multi-stage (builder → production), non-root user, tini init, health check via `fetch()`
+- **docker-compose.yml**: App + workers + PostgreSQL 16 (pgvector) + Redis 7
+- **docker-compose.prod.yml**: Blue-green deployment overrides with memory limits and log rotation
+- **`.dockerignore`**: Excludes tests, docs, dev files
 
 ## Deployment
 
@@ -1016,7 +1053,7 @@ Internet → Caddy (:443, auto TLS) → Node.js (:5000) → PostgreSQL + S3 + Be
 ### Render.com (Staging / Non-PHI)
 - Build: `npm run build`, Start: `npm run start`
 - Env vars in Render dashboard
-- No `render.yaml` — configured via dashboard
+- IaC via `render.yaml` (web + worker + Redis + PostgreSQL)
 - URL: `https://observatory-qa-product.onrender.com`
 - Uses Neon PostgreSQL (external), Render Redis
 - **Required env vars**: `ASSEMBLYAI_API_KEY`, `SESSION_SECRET`, `DATABASE_URL`, `STORAGE_BACKEND=postgres`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `S3_BUCKET` (for audio storage), `REDIS_URL`
@@ -1062,7 +1099,7 @@ Server serves both API and static frontend from the same process.
 - **SSO pre-flight validation**: Always use `/api/auth/sso/check/:orgSlug` before redirecting to `/api/auth/sso/:orgSlug` — prevents users seeing raw JSON error pages for invalid org slugs
 - **Font**: App uses Poppins (loaded via Google Fonts in `index.css`), chosen to match the Observatory logo typeface. Defined in `--font-sans` CSS variable
 - **Landing page wave animation**: Uses SVG SMIL `<animate>` elements on `<linearGradient>` stops for a traveling spark effect. CSS only handles `wave-drift` for gentle positional movement
-- **Clinical note PHI encryption**: PHI fields (subjective, objective, assessment, HPI) are encrypted with AES-256-GCM before storage and decrypted on retrieval in clinical routes
+- **Clinical note PHI encryption**: PHI fields (subjective, objective, assessment, HPI) are encrypted with AES-256-GCM before storage and decrypted on retrieval in clinical routes. `encryptField()` **throws in production** if `PHI_ENCRYPTION_KEY` is not set — never stores plaintext PHI in production. `decryptClinicalNotePhi()` accepts an optional `PhiDecryptionContext` for HIPAA audit logging of every decryption event
 - **EHR adapters**: Open Dental uses developer key + customer key auth; Eaglesoft uses eDex API with X-API-Key header. Config stored in `org.settings.ehrConfig`
 - **Document versioning is a linked list**: Each `ReferenceDocument` has `previousVersionId` pointing to its predecessor. Creating a new version deactivates the old one (`isActive: false`) and purges its chunks. Version history is reconstructed by walking `previousVersionId` chain + scanning for forward references
 - **RAG citations are fire-and-forget**: `consumeRagCitations()` returns the last citations produced by `loadReferenceContext()` and clears them. This avoids passing citation data through the entire prompt template pipeline. Citations are attached to `confidenceFactors.ragCitations[]` in the analysis
@@ -1084,7 +1121,12 @@ Server serves both API and static frontend from the same process.
 - **AI response validation**: `parseJsonResponse()` in `ai-provider.ts` clamps `performanceScore` to 0-10, sentiment scores to 0-1, sub-scores to 0-10, and validates all field types. Missing fields get safe defaults (5.0 for scores, "neutral" for sentiment). `normalizeAnalysis()` in `storage/types.ts` also clamps on read
 - **Empty transcript handling**: If transcript text is <10 characters, the pipeline saves the call with `empty_transcript` flag, low confidence, and skips AI analysis entirely — prevents generating junk analysis from silence/noise
 - **Employee auto-assignment safety**: Only considers active employees. If multiple employees match the detected name, prefers exact full-name match; skips assignment if ambiguous (logs the ambiguity)
-- **`toDisplayString()` handles nested objects**: Checks `value`, `message`, `text` keys for wrapped strings, handles arrays, and caps JSON fallback at 500 chars
+- **speakerRoleMap schema change**: Changed from `z.object({ agentSpeaker: z.string() })` to `z.record(z.string(), z.string())` to support proper speaker label → role mapping (e.g., `{ A: "agent", B: "customer" }`). Old `{ agentSpeaker: "A" }` format was a logic error — the property name was always the literal string "agentSpeaker" instead of using the value as a key
+- **Filler word detection uses bigrams**: `computeSpeechMetrics()` now detects two-word filler phrases ("you know", "i mean", etc.) via a bigram pass before single-word matching. Words matched as part of a bigram are excluded from the single-word pass to avoid double-counting
+- **Speaker role detection priority**: `detectSpeakerRolesFromTranscript()` runs before org config and hardcoded defaults. Priority: (1) AI-detected agent name + self-introduction context, (2) greeting pattern scoring (agent phrases vs customer phrases), (3) `org.settings.defaultSpeakerRoles`, (4) `{ A: "agent", B: "customer" }`. Returns `null` for inconclusive detection (fewer than 5 words, single speaker, no pattern matches)
+- **Prerequisite order in paths** — `enforceOrder` field on `LearningPath` signals that modules must be completed sequentially (index N requires index N-1 completed); combined with per-module `prerequisiteModuleIds` for flexible gating
+- **`toDisplayString()` handles nested objects**: Checks arrays first (before object path), then `text`, `name`, `task`, `label`, `value`, `description`, `message` keys for wrapped strings, caps JSON fallback at 500 chars
+- **Duplicate upload returns 409**: `POST /api/calls/upload` returns `409 { duplicate: true, existingCallId }` when file hash matches an existing call. Frontend should handle this status code and show the user a link to the existing call instead of a generic error
 - **RLS bypass required for schema-sync**: `syncSchema()` sets `app.bypass_rls = 'true'` at the session level before creating tables/policies, since RLS would otherwise block DDL operations. All pgvector and super-admin cross-org queries must use `withBypassRls()`
 - **Org status gate adds latency**: `injectOrgContext` now does an async org status lookup on every authenticated request. For high-traffic deployments, consider a short-lived org status cache (TTL ~30s is already used in some implementations)
 - **GDPR purge is irreversible**: `deleteOrgData()` deletes employees, calls, and users but preserves the org record (status=deleted) for audit trail. The session is destroyed immediately after purge. Backups should be the recovery path
@@ -1105,6 +1147,127 @@ Server serves both API and static frontend from the same process.
 - **`GET /api/coaching/my` match priority**: Matches caller's employee record first by email (exact match on `employee.email === user.username`), then by display name (`employee.name === user.name`). If multiple name matches exist, returns 409 to avoid returning the wrong employee's sessions.
 
 ## In-Progress Work (resume here in a new session)
+
+### Branch: `claude/audit-codebase-review-AcjWE`
+
+#### ✅ Completed & committed: Revenue Tracking improvements
+- **Attribution funnel fix** — rewrote funnel logic to use `attributionStage` as single source of truth with strict stage ordering; a record at stage N is counted for all prior stages (funnel monotonicity). Eliminates overcounting from redundant OR chains on legacy boolean fields
+- **Weekly trend fix** — fixed week boundary calculation to use Monday-aligned 7-day buckets. Previous logic produced variable-sized buckets depending on day of week
+- **EHR sync validation** — all numeric values from EHR adapter (totalFee, totalInsurance, totalPatient) validated with `safeNum()`: must be finite, non-negative. Prevents NaN/null from corrupting revenue data
+- **Carrier name normalization** — insurance carrier names title-cased on aggregation ("DELTA DENTAL" / "delta dental" → "Delta Dental") to prevent fragmented payer reports
+- **Payer mix carrier fix** — carrier breakdown now uses `insuranceAmount` only (was falling back to `actualRevenue`, which includes patient portion — double-counting insurance revenue)
+- **Forecast confidence** — forecast response now includes `forecastConfidence` ("low"/"moderate"/"high" based on day of month), `daysElapsed`, `daysRemaining`. Low confidence before day 7 warns users that early-month projections are unreliable
+
+#### ✅ Completed & committed: RBAC improvements
+- **Email submit role gate** — POST `/api/emails/submit` now requires manager+ role (viewers could submit emails)
+- **Live session role gate** — POST `/api/live-sessions` now requires manager+ role (viewers could start clinical recordings)
+- **Call detail team scoping** — GET `/api/calls/:id` now checks team boundary (managers with subTeam could access any call by direct ID)
+- **Coaching detail team scoping** — GET `/api/coaching/employee/:employeeId` now checks team boundary before returning sessions
+
+#### ✅ Completed & committed: A/B Testing improvements
+- **p-value fix** — simplified tDistPValue() Cornish-Fisher approximation: removed unused intermediate variable, eliminated redundant sqrt(df) multiply/divide that cancelled out. Result is cleaner and mathematically equivalent
+- **Paired score comparison** — stats computation now requires BOTH baseline and test scores present (was independently pushing nulls, causing array length mismatches and skewed t-test)
+- **df-aware confidence interval** — replaced hardcoded tCrit=2.0 with lookup table based on degrees of freedom (df>120→1.96, df>30→2.0, df>10→2.23, df>5→2.57, else→3.18). Actual 95% CI was closer to 93% for small samples
+
+#### ✅ Completed & committed: Gamification improvements
+- **Opt-out filtering gaps fixed** — profile endpoint now checks opt-out before returning data (was leaking full profile for opted-out employees); recognition endpoint now checks role-based opt-out (was only checking employee ID); team leaderboard now filters opted-out employees/roles (was including everyone)
+- **Team leaderboard top performer fix** — was overwriting topPerformer with ANY employee with points > 0 (last one wins); now tracks actual highest-points employee per team
+- **NaN protection** — badge award logic now filters NaN scores from performance calculations (corrupted analysis data could skew badge eligibility)
+
+#### ✅ Completed & committed: Calibration Session improvements
+- **Flagged status consistency** — analytics endpoint now includes "flagged" certification status (3+ sessions, avgDeviation >= 2.0) matching the certifications endpoint. Type definition updated to include all 4 statuses
+- **ICC formula fix** — replaced abandoned mean-absolute-deviation formula with proper variance-based ICC using sample variance (Bessel's correction) and normalized against theoretical max variance on 0-10 scale
+- **Duplicate evaluator check** — session creation rejects duplicate evaluatorIds with 400 error
+- **targetScore validation** — session completion validates targetScore is 0-10 (was accepting any value)
+
+#### ✅ Completed & committed: Insurance Narrative improvements
+- **Code format validation** — ICD-10 (`/^[A-TV-Z]\d{2}(\.\d{1,4})?$/`) and CPT/CDT (`/^\d{5}[A-Z]?$|^D\d{4}$/`) regex validation added to insurance narrative schema (was accepting any string)
+- **Approval rate fix** — rewrote overall approval rate to use `approvedCount / decidedCount` (was checking `approved > 0` first, returning 0 instead of computing rate when no approvals exist)
+- **Partial approval tracking** — insurer stats now track `partialApproval` count separately (was silently dropped from statistics)
+- **Deadline calculation fix** — changed `Math.ceil` to `Math.floor` for accurate day count (11 hours remaining was reported as 1 day instead of 0)
+- **Denial code required** — outcome endpoint now requires `denialCode` when outcome is `denied` or `partial_approval` (was optional, causing incomplete denial analysis data)
+- **Regeneration guard** — POST `/:id/regenerate` now rejects narratives with recorded outcomes (audit trail integrity — prevents changing submitted letters)
+
+#### ✅ Completed & committed: Lead Tracking improvements
+- **ESM fix** — replaced CommonJS `require("@shared/schema")` with proper ESM import in `/api/marketing/sources` endpoint (was crashing at runtime in ESM module)
+- **Source validation** — campaign creation and attribution now validate `source` against the `MARKETING_SOURCES` enum; returns 400 with valid sources list on mismatch
+- **Attribution update fix** — PUT `/api/marketing/attribution/:callId` now preserves `detectionMethod` and `confidence` from existing record when updating (was dropping these fields)
+- **Auto source detection** — new `GET /api/marketing/detect-source/:callId` analyzes transcript text for source mentions ("found you on Google", "my dentist referred me", "saw your ad on Facebook") using 12 pattern groups; returns suggestions with confidence scores without auto-creating attribution
+- **Source→funnel pipeline visibility** — metrics endpoint now includes per-source `funnel` object showing how leads progress: `call_identified → appointment_scheduled → appointment_completed → treatment_accepted → payment_collected`. Uses same monotonic stage logic as revenue attribution
+- **Campaign delete 404** — DELETE `/api/marketing/campaigns/:id` now returns 404 for non-existent campaigns (was returning 200 success)
+- **Schema validation** — campaign budget enforces `min(0)` (prevents negative budgets corrupting ROI); attribution confidence enforces `min(0).max(1)`
+
+#### ✅ Completed & committed: LMS improvements
+- **Prerequisite gating** — `prerequisiteModuleIds` field on `LearningModule`; `GET /api/lms/modules/:id/prerequisites?employeeId=X` checks which prerequisites are met/unmet; returns `{ met, prerequisites, unmetPrerequisites }` for UI to block access to locked modules
+- **Circular dependency detection** — `detectPrerequisiteCycle()` uses DFS to detect cycles before module creation/update; returns 400 with cycle path if found; validates prerequisite modules exist
+- **Prerequisite enforcement on quiz** — `POST /api/lms/modules/:id/submit-quiz` checks all prerequisites are completed before allowing quiz submission; returns 403 `OBS-LMS-PREREQ-INCOMPLETE`
+- **Completion certificates** — `GET /api/lms/modules/:id/certificate?employeeId=X` returns structured certificate data (employeeName, moduleName, completedAt, quizScore, organizationName, certificateId, difficulty); requires module status = "completed"; client-side PDF rendering
+- **Configurable passing scores** — `passingScore` field on `LearningModule` (0-100, default 70 if not set); quiz submission endpoint uses module-specific passing score instead of hardcoded 70; response includes `passingScore` field
+- **Deadline enforcement** — `dueDate` (ISO timestamp) and `enforceOrder` (boolean) fields on `LearningPath`; `GET /api/lms/paths/:id/deadlines` returns per-employee status: completed/overdue/at_risk/on_track with percentComplete, daysRemaining, counts
+- **enforceOrder enforcement** — progress updates check if previous module in path is completed before allowing start of next; returns 403 `OBS-LMS-ENFORCE-ORDER` with `blockedBy` module ID
+- **Deadline blocking** — progress updates and quiz submissions reject with 403 `OBS-LMS-DEADLINE-PASSED` when path deadline has passed
+- **Coaching-tied recommendations** — `GET /api/lms/coaching-recommendations?employeeId=X&coachingSessionId=Y` analyzes employee's weak sub-score areas (compliance, customerExperience, communication, resolution < 7.0), matches coaching session category/notes keywords, and ranks uncompleted published modules by relevance; returns top 5 with reasons
+- **Coaching recommendation fixes** — fixed dead regex for camelCase→space conversion (was calling `.toLowerCase()` before `.replace()`); increased weak area threshold from 2 to 3 data points for statistical reliability
+
+#### ✅ Completed & committed: Clinical Documentation improvements
+- **NPI encryption** — `attestedNpi` and `cosignedNpi` added to PHI_FIELDS for AES-256-GCM encryption; NPI now encrypted on attestation and co-signature; removed from amendment snapshot (PHI should not be in non-PHI snapshots)
+- **NPI format validation** — schema enforces `/^\d{10}$/` regex on both `attestedNpi` and `cosignedNpi` fields
+- **Medical code format validation** — ICD-10 codes enforce `/^[A-TV-Z]\d{2}(\.\d{1,4})?$/`; CPT codes enforce `/^\d{5}[A-Z]?$/`; CDT codes enforce `/^D\d{4}$/` in the clinical note schema
+- **Cosignature role bypass fix** — tightened role check condition: undefined `currentUserRole` now correctly returns 403 instead of skipping the check entirely
+- **Clinical notes `cn` variable scope** — moved derivation before function definitions that reference it (was defined after early returns, causing fragile closure capture)
+- **Amendment workflow tests** — 11 tests in `tests/clinical-amendments.test.ts` covering schema validation (amendment/addendum types), amendment persistence with attestation clearing, addendum persistence preserving attestation, multi-amendment chains, optimistic locking version tracking, non-PHI snapshot validation, and cross-org isolation
+- **Addendum conflict detection** — addendum endpoint now checks `req.body.version` against current version (409 conflict if mismatch); increments version on addendum to prevent concurrent overwrites
+- **Cosignature version tracking** — cosignature endpoint increments note version, ensuring downstream conflict detection catches concurrent edits
+
+#### ✅ Completed & committed: RAG Feature improvements
+- **Chunker O(n^2) fix** — replaced greedy regex `[\s\S]*[.!?]\s+` in `findNaturalBreak()` with `lastIndexOf()` calls (O(n) per chunk instead of O(n^2)); enforced minimum step size of 40 chars to prevent infinite micro-chunks when overlap ≈ chunk size
+- **BM25/semantic score clamping** — semantic scores clamped to [0,1] (pgvector cosine can return negatives), BM25 scores clamped to ≥0, combined scores clamped to ≥0 after NaN guard
+- **Prompt injection: throw instead of silent empty** — `searchRelevantChunks()` now throws `RAG_INJECTION_BLOCKED` error instead of returning `[]`; RAG search endpoint returns HTTP 400 with user-friendly message; callers can distinguish "no results" from "blocked"
+- **Unicode homoglyph defense** — `detectPromptInjection()` now applies NFKD normalization + diacritical mark stripping before pattern matching (defeats "ìgnórè prëvíóüs ìnstrûctíons" attacks)
+- **Expanded injection patterns** — added `<instructions>`, `<prompt>`, `<context>`, `<user>`, `<assistant>` tags; added "act as if you", "do not follow" phrases; unified tag patterns with `<\/?tag\b` to catch attributes and self-closing variants
+- **Embedding validation** — logs warning when input is truncated (was silent); validates embedding values are finite numbers (no NaN/Infinity that would corrupt pgvector)
+- **Configurable charsPerToken** — `ChunkOptions.charsPerToken` allows per-industry token estimation (dental/medical=3.5, behavioral_health=3.8, general=4.0); `getCharsPerTokenForIndustry()` helper maps industry type to ratio; `indexDocument()` accepts optional `chunkOptions` for callers to pass org-specific config
+- **Batch embedding with progress** — `generateEmbeddingsBatch()` now accepts `concurrency` and `onProgress` callback for large document uploads; structured log output with batch/total counts
+- **RAG pipeline integration tests** — 12 tests in `tests/rag-pipeline.test.ts` covering industry-specific chunking, Unicode homoglyph injection, tag injection with attributes, legitimate query allowlisting, micro-chunk prevention, and overlap clamping
+
+#### ✅ Completed & committed: Call Analysis feature improvements
+- **speakerRoleMap fix** (CRITICAL) — was creating `{ agentSpeaker: "A" }` (property named "agentSpeaker") instead of `{ A: "agent", B: "customer" }` (speaker label → role mapping). Fixed in `assemblyai.ts` and updated `shared/schema/calls.ts` to `z.record(z.string(), z.string())`
+- **Filler word detection overhaul** — expanded from 12 to 18 single-word fillers (added "ah", "er", "erm", "hm", "okay", "ok", "literally", "essentially"); added bigram detection for multi-word phrases ("you know", "i mean", "sort of", "kind of") which were previously impossible to match since words are tokenized individually
+- **Circuit breaker race condition** — moved `halfOpenProbeInFlight = true` into `getCircuitDecision()` so probe slot claim is atomic with the decision (no gap between check and set)
+- **Post-processing retry** — flagged call notifications and coaching recommendations now use `withRetry()` (2 retries, 1s base delay) instead of bare fire-and-forget; dashboard cache invalidation logs errors instead of silently swallowing
+- **Sentiment normalization** — extracted `normalizeSentiment()` helper in assemblyai.ts; validates against "positive"/"negative" enum, defaults to "neutral"
+- **Full-text search via tsvector** — `searchCalls()` in pg-storage.ts now uses `plainto_tsquery()` with existing GIN tsvector indexes on transcripts and analysis summaries (was using ILIKE which bypassed the indexes). Falls back to ILIKE for single-character queries
+- **Configurable speaker roles per-org** — added `defaultSpeakerRoles` to OrgSettings (e.g., `{ A: "customer", B: "agent" }` for IVR-routed calls). `processTranscriptData()` accepts optional org override, defaults to `{ A: "agent", B: "customer" }`
+- **Failed call retry queue** — `enqueueCallRetry()` enqueues failed calls to the audio-processing queue with 30s/60s delay (max 2 retries). After retries exhausted, moves to dead letter queue for admin review. `continueAfterTranscription()` error handler now auto-enqueues retries when Redis is available
+- **Auto speaker role detection** — `detectSpeakerRolesFromTranscript()` analyzes the first ~60 words per speaker to identify agent vs customer. Priority: (1) AI-detected agent name matched against self-introduction patterns ("my name is X", "this is X with/from"), (2) greeting patterns ("thank you for calling", "how can I help"), (3) org `defaultSpeakerRoles` config, (4) default A=agent/B=customer. 10 unit tests in `tests/speaker-detection.test.ts`
+
+#### ✅ Completed & committed: UI/UX & Design improvements
+- **display-utils.ts fix** — moved `Array.isArray()` check before generic object property extraction (arrays were falling through to object path)
+- **Dashboard flag filtering** — consistent `some()` usage for all flag checks; NaN protection on `performanceScore` parsing; added loading skeleton for trend chart while data is fetching
+- **Upload page a11y** — added `role="tablist"`, `role="tab"` with `aria-selected`, `role="tabpanel"` with `id`/`aria-controls` for tab navigation; added `aria-label` to select fields
+- **Error boundary recovery** — added `role="alert"` and `aria-live="assertive"` for screen reader announcement; added "Go to Dashboard" button as alternative recovery; `autoFocus` on primary action
+- **Duplicate upload fix** — changed response from 200 to 409 with `{ duplicate: true, existingCallId }` message; also fixed upload slot leak (was never released on duplicate detection)
+- **Idle timeout** — already had `role="alertdialog"`, `aria-modal`, `aria-label` (well implemented)
+
+#### ✅ Completed & committed: DevOps & Infrastructure hardening
+- **Node.js version pinning** — `engines` field in package.json (>=20.0.0), `.nvmrc` file for nvm/fnm users
+- **Missing dev dependencies** — added `eslint`, `typescript-eslint`, `c8` to devDependencies (were used in scripts but not declared)
+- **Docker healthcheck fix** — replaced CommonJS `require('http')` with native `fetch()` for ESM compatibility in Dockerfile and docker-compose.yml
+- **CI secret scanning** — GitHub Actions now scans for AWS keys, private keys, and API tokens in source files
+- **CI test coverage** — unit test job now runs c8 coverage (text + lcov), uploads coverage report as artifact
+- **CI schema validation** — build job validates that `sync-schema.ts` covers all `pgTable()` definitions in `schema.ts`, warns on missing tables
+- **Test fixes** — fixed all 20 pre-existing test failures (method name mismatches, schema field gaps, incorrect test expectations)
+
+#### ✅ Completed & committed: HIPAA Compliance hardening
+- **PHI encryption enforcement** — `encryptField()` now throws in production if `PHI_ENCRYPTION_KEY` is not set; dev mode logs a warning and allows plaintext for local development
+- **PHI decryption audit logging** — `decryptClinicalNotePhi()` accepts `PhiDecryptionContext` (userId, orgId, resourceId, resourceType) and logs `[HIPAA_AUDIT] PHI_DECRYPT` events; all callers in `calls.ts` and `clinical.ts` pass audit context
+- **Audit log hash chain race condition fix** — per-org promise-chain mutex (`withChainLock()`) serializes concurrent `persistAuditEntry()` calls, preventing two entries from computing the same sequence number
+- **FAQ analytics PHI redaction** — sample queries stored in FAQ analytics are now PHI-redacted via `redactPhi()` before persistence (both initial entries and updates)
+- **Auth deserialize error logging** — session deserialization `catch` block now logs the error with `logger.error()` instead of silently returning false
+- **Org suspension check failure handling** — SSO session check failures now deny with 503 `OBS-AUTH-007` instead of silently allowing the request through
+- **Sentry selective PHI redaction** — replaced blanket `event.request.data = "[REDACTED]"` with `redactPhi()` for selective scrubbing of error messages, request bodies, and exception values; preserves debugging context while removing PHI patterns
+- **WAF log PHI safety** — documented that WAF violation logs use `req.path` (no query string) to prevent logging PHI from query parameters
+- **Idle timeout "Stay Logged In" fix** — `useIdleTimeout()` hook now exposes `stayLoggedIn()` method that resets the idle timer; `IdleTimeoutOverlay` wires the button to this handler instead of a no-op; logout only clears `sessionStorage` (preserves user preferences in `localStorage`)
 
 ### Branch: `claude/audit-observatory-project-Axt5D`
 

@@ -26,11 +26,11 @@ beforeEach(() => {
 
 describe("User isolation", () => {
   it("users are scoped to their org", async () => {
-    await storage.createUser(ORG_A, {
-      username: "alice", passwordHash: "hash", name: "Alice", role: "admin",
+    await storage.createUser({
+      orgId: ORG_A, username: "alice", passwordHash: "hash", name: "Alice", role: "admin",
     });
-    await storage.createUser(ORG_B, {
-      username: "bob", passwordHash: "hash", name: "Bob", role: "viewer",
+    await storage.createUser({
+      orgId: ORG_B, username: "bob", passwordHash: "hash", name: "Bob", role: "viewer",
     });
 
     const orgAUsers = await storage.listUsersByOrg(ORG_A);
@@ -43,11 +43,11 @@ describe("User isolation", () => {
   });
 
   it("same username in different orgs is allowed (per-org uniqueness)", async () => {
-    const userA = await storage.createUser(ORG_A, {
-      username: "admin", passwordHash: "hashA", name: "Admin A", role: "admin",
+    const userA = await storage.createUser({
+      orgId: ORG_A, username: "admin", passwordHash: "hashA", name: "Admin A", role: "admin",
     });
-    const userB = await storage.createUser(ORG_B, {
-      username: "admin", passwordHash: "hashB", name: "Admin B", role: "admin",
+    const userB = await storage.createUser({
+      orgId: ORG_B, username: "admin", passwordHash: "hashB", name: "Admin B", role: "admin",
     });
 
     assert.notEqual(userA.id, userB.id);
@@ -56,11 +56,11 @@ describe("User isolation", () => {
   });
 
   it("getUserByUsername with orgId scoping", async () => {
-    await storage.createUser(ORG_A, {
-      username: "shared", passwordHash: "hashA", name: "Shared A", role: "admin",
+    await storage.createUser({
+      orgId: ORG_A, username: "shared", passwordHash: "hashA", name: "Shared A", role: "admin",
     });
-    await storage.createUser(ORG_B, {
-      username: "shared", passwordHash: "hashB", name: "Shared B", role: "admin",
+    await storage.createUser({
+      orgId: ORG_B, username: "shared", passwordHash: "hashB", name: "Shared B", role: "admin",
     });
 
     const fromA = await storage.getUserByUsername("shared", ORG_A);
@@ -73,11 +73,11 @@ describe("User isolation", () => {
   });
 
   it("deleteUser only deletes within correct org", async () => {
-    const userA = await storage.createUser(ORG_A, {
-      username: "target", passwordHash: "hash", name: "Target", role: "viewer",
+    const userA = await storage.createUser({
+      orgId: ORG_A, username: "target", passwordHash: "hash", name: "Target", role: "viewer",
     });
-    await storage.createUser(ORG_B, {
-      username: "other", passwordHash: "hash", name: "Other", role: "viewer",
+    await storage.createUser({
+      orgId: ORG_B, username: "other", passwordHash: "hash", name: "Other", role: "viewer",
     });
 
     await storage.deleteUser(ORG_A, userA.id);
@@ -179,8 +179,8 @@ describe("Coaching session isolation", () => {
       title: "Session B", status: "in_progress",
     });
 
-    const aSessions = await storage.getCoachingSessions(ORG_A);
-    const bSessions = await storage.getCoachingSessions(ORG_B);
+    const aSessions = await storage.getAllCoachingSessions(ORG_A);
+    const bSessions = await storage.getAllCoachingSessions(ORG_B);
     assert.equal(aSessions.length, 1);
     assert.equal(aSessions[0].title, "Session A");
     assert.equal(bSessions.length, 1);
@@ -203,8 +203,8 @@ describe("Prompt template isolation", () => {
       requiredPhrases: [], scoringWeights: {},
     });
 
-    const aTemplates = await storage.getPromptTemplates(ORG_A);
-    const bTemplates = await storage.getPromptTemplates(ORG_B);
+    const aTemplates = await storage.getAllPromptTemplates(ORG_A);
+    const bTemplates = await storage.getAllPromptTemplates(ORG_B);
 
     assert.equal(aTemplates.length, 1);
     assert.equal(aTemplates[0].callCategory, "inbound_sales");
@@ -220,7 +220,7 @@ describe("Prompt template isolation", () => {
 
     await storage.deletePromptTemplate(ORG_B, tpl.id);
 
-    const aTemplates = await storage.getPromptTemplates(ORG_A);
+    const aTemplates = await storage.getAllPromptTemplates(ORG_A);
     assert.equal(aTemplates.length, 1, "Template must remain in Org A after wrong-org delete");
   });
 });
@@ -268,7 +268,7 @@ describe("Reference document isolation", () => {
 describe("Call analysis isolation", () => {
   it("call analysis cannot be read across orgs", async () => {
     const callA = await storage.createCall(ORG_A, { status: "completed" });
-    await storage.saveCallAnalysis(ORG_A, {
+    await storage.createCallAnalysis(ORG_A, {
       callId: callA.id, performanceScore: "8.5",
       summary: "Excellent call", flags: [], topics: [], feedback: [],
       subScores: {}, confidenceFactors: {},
@@ -291,7 +291,7 @@ describe("Call analysis isolation", () => {
 
   it("sentiment analysis cannot be read across orgs", async () => {
     const callA = await storage.createCall(ORG_A, { status: "completed" });
-    await storage.saveSentimentAnalysis(ORG_A, {
+    await storage.createSentimentAnalysis(ORG_A, {
       callId: callA.id, overallSentiment: "positive", overallScore: 0.9, segments: [],
     });
 
@@ -313,8 +313,8 @@ describe("Access request isolation", () => {
       name: "Requester B", email: "req@b.com", requestedRole: "manager",
     });
 
-    const aRequests = await storage.getAccessRequests(ORG_A);
-    const bRequests = await storage.getAccessRequests(ORG_B);
+    const aRequests = await storage.getAllAccessRequests(ORG_A);
+    const bRequests = await storage.getAllAccessRequests(ORG_B);
     assert.equal(aRequests.length, 1);
     assert.equal(aRequests[0].email, "req@a.com");
     assert.equal(bRequests.length, 1);
@@ -369,7 +369,7 @@ describe("ID injection attack prevention", () => {
     assert.equal(original!.status, "pending", "Original call must be unmodified");
   });
 
-  it("cannot delete Org A coaching session using Org B context", async () => {
+  it("cannot update Org A coaching session using Org B context", async () => {
     const callA = await storage.createCall(ORG_A, { status: "completed" });
     const empA = await storage.createEmployee(ORG_A, { name: "Alice", email: "a@a.com" });
     const session = await storage.createCoachingSession(ORG_A, {
@@ -377,9 +377,12 @@ describe("ID injection attack prevention", () => {
       category: "performance", title: "Confidential", status: "scheduled",
     });
 
-    await storage.deleteCoachingSession(ORG_B, session.id);
+    // Attempt to update Org A session using Org B context
+    const result = await storage.updateCoachingSession(ORG_B, session.id, { title: "Tampered" });
+    assert.equal(result, undefined, "Cross-org update must return undefined");
 
-    const sessions = await storage.getCoachingSessions(ORG_A);
+    const sessions = await storage.getAllCoachingSessions(ORG_A);
     assert.equal(sessions.length, 1, "Session must remain in Org A");
+    assert.equal(sessions[0].title, "Confidential", "Title must be unmodified");
   });
 });

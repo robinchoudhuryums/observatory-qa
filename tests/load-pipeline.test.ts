@@ -241,12 +241,12 @@ describe("Pipeline step sequencing", () => {
     });
     order.push("transcribed");
 
-    await storage.saveSentimentAnalysis(ORG_ID, {
+    await storage.createSentimentAnalysis(ORG_ID, {
       callId: call.id, overallSentiment: "positive", overallScore: 0.8, segments: [],
     });
     order.push("sentiment");
 
-    await storage.saveCallAnalysis(ORG_ID, {
+    await storage.createCallAnalysis(ORG_ID, {
       callId: call.id, performanceScore: "7.5", summary: "Good call",
       flags: [], topics: [], feedback: [], subScores: {}, confidenceFactors: {},
     });
@@ -290,7 +290,7 @@ describe("Pipeline step sequencing", () => {
         confidence: 0.9,
         words: [],
       });
-      await storage.saveCallAnalysis(ORG_ID, {
+      await storage.createCallAnalysis(ORG_ID, {
         callId: call.id,
         performanceScore: String(6 + (i % 4)),
         summary: `Summary for call ${i}`,

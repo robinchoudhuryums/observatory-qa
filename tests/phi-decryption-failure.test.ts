@@ -199,12 +199,13 @@ describe("Both keys fail — throws with clear error", () => {
     const mod = await loadMod();
 
     const encrypted = mod.encryptField("Tamper me");
-    // Flip the last character of the base64 payload
+    // Flip a byte in the binary payload (auth tag region) to guarantee tampering
     const prefix = "enc_v1:";
     const payload = encrypted.slice(prefix.length);
-    const flipped = payload.slice(0, -1) +
-      (payload[payload.length - 1] === "A" ? "B" : "A");
-    const tampered = prefix + flipped;
+    const buf = Buffer.from(payload, "base64");
+    // Flip the last byte (part of auth tag)
+    buf[buf.length - 1] ^= 0xff;
+    const tampered = prefix + buf.toString("base64");
 
     let threw = false;
     try {

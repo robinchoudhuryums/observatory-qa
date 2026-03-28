@@ -54,25 +54,34 @@ function computeKrippendorffAlpha(evaluations: Array<{ evaluatorId: string; perf
  * Measures consistency of ratings across evaluators.
  * Returns value from 0 to 1 (1 = perfect agreement).
  */
+/**
+ * Compute Intraclass Correlation Coefficient for a single item (one call)
+ * rated by k raters. Uses a variance-based agreement measure:
+ *
+ *   ICC = 1 - (observed_variance / max_possible_variance)
+ *
+ * where max_possible_variance is based on the 0-10 score range.
+ * Returns 0-1 (1 = perfect agreement, 0 = maximum disagreement).
+ *
+ * For single-item ICC, traditional MSb/MSw formulas don't apply (one subject),
+ * so we use normalized variance as a practical agreement measure.
+ */
 function computeICC(evaluations: Array<{ evaluatorId: string; performanceScore: number }>): number | null {
   if (evaluations.length < 2) return null;
 
   const scores = evaluations.map(e => e.performanceScore);
-  const k = scores.length; // number of raters
+  const k = scores.length;
   const grandMean = scores.reduce((a, b) => a + b, 0) / k;
 
-  // For single-item (one call) ICC, use one-way random model
-  // MSb (between-subjects) isn't applicable with 1 subject
-  // Use the simplified formula: ICC = 1 - (MSw / MSt)
-  const totalSS = scores.reduce((sum, s) => sum + Math.pow(s - grandMean, 2), 0);
-  const MSt = totalSS / (k - 1);
+  // Sample variance (Bessel's correction: k-1 denominator for unbiased estimate)
+  const sampleVariance = scores.reduce((sum, s) => sum + Math.pow(s - grandMean, 2), 0) / (k - 1);
 
-  if (MSt === 0) return 1; // Perfect agreement
+  if (sampleVariance === 0) return 1; // Perfect agreement
 
-  // For single item, ICC approximates to agreement ratio
-  const meanAbsDev = scores.reduce((sum, s) => sum + Math.abs(s - grandMean), 0) / k;
-  const maxPossibleDev = 5; // Max deviation from grand mean on 0-10 scale
-  const icc = Math.max(0, 1 - (meanAbsDev / maxPossibleDev));
+  // Max possible variance on 0-10 scale: scores at extremes (0 and 10) around midpoint 5
+  // Var = n * (10-5)^2 / (n-1) ≈ 25 for large n. Use 25 as theoretical max.
+  const maxVariance = 25;
+  const icc = Math.max(0, 1 - (sampleVariance / maxVariance));
   return Math.round(icc * 1000) / 1000;
 }
 
@@ -86,6 +95,9 @@ export function registerCalibrationRoutes(app: Express) {
       const { title, callId, evaluatorIds, scheduledAt, blindMode } = req.body;
       if (!title || !callId || !evaluatorIds || !Array.isArray(evaluatorIds) || evaluatorIds.length === 0) {
         return res.status(400).json({ message: "title, callId, and evaluatorIds (non-empty array) are required" });
+      }
+      if (new Set(evaluatorIds).size !== evaluatorIds.length) {
+        return res.status(400).json({ message: "evaluatorIds must be unique" });
       }
 
       // Verify the call exists
@@ -283,6 +295,10 @@ export function registerCalibrationRoutes(app: Express) {
 
       const { targetScore, consensusNotes } = req.body;
 
+      if (targetScore !== undefined && (typeof targetScore !== "number" || targetScore < 0 || targetScore > 10)) {
+        return res.status(400).json({ message: "targetScore must be a number between 0 and 10" });
+      }
+
       const updated = await storage.updateCalibrationSession(orgId, session.id, {
         status: "completed",
         targetScore,
@@ -329,7 +345,7 @@ export function registerCalibrationRoutes(app: Express) {
         evaluatorStats: Record<string, {
           avgDeviation: number;
           sessionsParticipated: number;
-          certificationStatus: "certified" | "probationary" | "needs_calibration";
+          certificationStatus: "certified" | "probationary" | "flagged" | "needs_calibration";
           consistencyScore: number;
         }>;
       } = {
@@ -405,6 +421,8 @@ export function registerCalibrationRoutes(app: Express) {
           stat.certificationStatus = "certified";
         } else if (stat.sessionsParticipated >= 3 && stat.avgDeviation < 2.0) {
           stat.certificationStatus = "probationary";
+        } else if (stat.sessionsParticipated >= 3 && stat.avgDeviation >= 2.0) {
+          stat.certificationStatus = "flagged";
         } else {
           stat.certificationStatus = "needs_calibration";
         }

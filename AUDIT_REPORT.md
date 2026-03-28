@@ -16,10 +16,10 @@ However, the rapid feature expansion has outpaced hardening. The audit identifie
 
 ## Critical Issues (Must Fix)
 
-### 1. PHI Encryption Becomes No-Op When Key Missing
-**File**: `server/services/phi-encryption.ts:87-89`
-`encryptField()` returns plaintext unchanged if `PHI_ENCRYPTION_KEY` is not set. In production, this means PHI flows unencrypted to the database without any warning to operators.
-**Fix**: Throw an error in production or log a CRITICAL warning. Never silently skip encryption.
+### 1. ~~PHI Encryption Becomes No-Op When Key Missing~~ FIXED
+**File**: `server/services/phi-encryption.ts`
+~~`encryptField()` returns plaintext unchanged if `PHI_ENCRYPTION_KEY` is not set.~~
+**Fixed**: `encryptField()` now throws in production if key is missing. Dev mode logs a warning. Added `PhiDecryptionContext` audit logging to `decryptClinicalNotePhi()`.
 
 ### 2. SSO RelayState CSRF Vulnerability
 **File**: `server/routes/sso.ts:239-242`
@@ -31,27 +31,28 @@ RelayState is user-controlled. An attacker can craft a SP-initiated request to l
 `sessionId = req.sessionID || req.ip || "unknown"` — falls back to spoofable `req.ip`, allowing attackers to bypass MFA rate limits.
 **Fix**: Require cryptographic session ID. Reject if unavailable.
 
-### 4. Audit Log Hash Chain Race Condition
-**File**: `server/services/audit-log.ts:305-310`
-Concurrent `persistAuditEntry()` calls can both compute the same sequence number, breaking the tamper-evident chain.
-**Fix**: Use `SELECT FOR UPDATE` or atomic increment in a transaction.
+### 4. ~~Audit Log Hash Chain Race Condition~~ FIXED
+**File**: `server/services/audit-log.ts`
+~~Concurrent `persistAuditEntry()` calls can both compute the same sequence number.~~
+**Fixed**: Added per-org promise-chain mutex (`withChainLock()`) to serialize concurrent writes.
 
 ### 5. Incident Response Stored In-Memory Only
 **File**: `server/services/incident-response.ts:87-89`
 Security incidents are stored in a `Map`. Service restart = all incident history lost. Violates HIPAA audit requirements.
 **Fix**: Persist to database immediately.
 
-### 6. Upload Slot Resource Leak on Duplicate Files
-**File**: `server/routes/calls.ts:226-230`
-When a duplicate file hash is detected, the upload slot is never released via `releaseUploadSlot(orgId)`, eventually exhausting the org's upload capacity.
+### 6. ~~Upload Slot Resource Leak on Duplicate Files~~ FIXED
+**File**: `server/routes/calls.ts`
+~~Upload slot was never released on duplicate detection.~~
+**Fixed**: Now calls `releaseUploadSlot(orgId)` and returns 409 with `{ duplicate: true, existingCallId }`.
 
 ### 7. Per-Org DEK Generation Race Condition
 **File**: `server/services/org-encryption.ts:95-99`
 Two concurrent requests for a new org can both generate DEKs, overwriting each other. Use a database lock or conditional update.
 
-### 8. WAF ReDoS Vulnerability
+### 8. WAF ReDoS Vulnerability (mitigated)
 **File**: `server/middleware/waf.ts:24`
-SQL injection regex patterns with `.*` quantifier vulnerable to ReDoS. Crafted input can cause catastrophic backtracking.
+SQL injection regex patterns with `.*` quantifier. Mitigated by `MAX_SCAN_LENGTH` (100KB) limit on scanned input, but regex patterns could still be improved.
 
 ---
 
@@ -61,7 +62,7 @@ SQL injection regex patterns with `.*` quantifier vulnerable to ReDoS. Crafted i
 - **Backup code comparison not constant-time** (`mfa.ts`) — timing attack vector
 - **TOCTOU race in URL validation** (`url-validation.ts:97-115`) — DNS rebinding SSRF
 - **IPv6 link-local bypass incomplete** (`url-validation.ts:50`) — missing ULA ranges
-- **Prompt injection bypass via Unicode homoglyphs** (`ai-guardrails.ts:13-29`)
+- ~~**Prompt injection bypass via Unicode homoglyphs**~~ FIXED — NFKD normalization + expanded tag patterns (21 patterns)
 - **Certificate expiry not checked at SSO login** (`sso.ts`) — expired certs still accepted
 - **SAML replay possible** with `validateInResponseTo: "IfPresent"` (`sso.ts:271`)
 - **Trusted device token format guessable** (`mfa.ts:279`) — userId in cookie
@@ -70,16 +71,18 @@ SQL injection regex patterns with `.*` quantifier vulnerable to ReDoS. Crafted i
 ### Data Integrity
 - **Empty orgId fallback to ""** in pg-storage.ts:179 — creates degenerate records
 - **Unbounded query in getAllCalls** — no LIMIT, potential OOM for large orgs
-- **speakerRoleMap logic error** in assemblyai.ts:287 — incorrect speaker mapping
-- **Circuit breaker race condition** in ai-factory.ts:156
+- ~~**speakerRoleMap logic error**~~ FIXED — now maps `{ A: "agent", B: "customer" }` with per-org override via `defaultSpeakerRoles` in OrgSettings
+- ~~**Circuit breaker race condition**~~ FIXED — probe slot claim moved into `getCircuitDecision()` for atomic check-and-set
+- ~~**Search uses ILIKE without index**~~ FIXED — `searchCalls()` now uses `plainto_tsquery()` with existing GIN tsvector indexes
+- ~~**No retry for failed call processing**~~ FIXED — `enqueueCallRetry()` enqueues to audio-processing queue with 30s/60s delay, dead letter queue after 2 retries
 - **NaN propagation** in rate limiter when `checkRateLimit()` returns unexpected structure
 
-### HIPAA Gaps
-- **No audit logging for PHI decryption** (`phi-encryption.ts`)
-- **FAQ analytics logs unredacted query text** (`rag.ts:274`) — potential PHI in queries
-- **Sentry strips all request data** instead of selective PHI redaction (`sentry.ts:47`)
-- **Auth deserialize swallows exceptions** (`auth.ts:466-468`) — no error logging
-- **Org suspension check silently fails** (`auth.ts:516-518`) — allows bypass
+### HIPAA Gaps (all items below FIXED)
+- ~~**No audit logging for PHI decryption**~~ — FIXED: `decryptClinicalNotePhi()` now logs `PHI_DECRYPT` audit events
+- ~~**FAQ analytics logs unredacted query text**~~ — FIXED: sample queries now PHI-redacted via `redactPhi()`
+- ~~**Sentry strips all request data**~~ — FIXED: now uses selective `redactPhi()` instead of blanket `[REDACTED]`
+- ~~**Auth deserialize swallows exceptions**~~ — FIXED: now logs with `logger.error()`
+- ~~**Org suspension check silently fails**~~ — FIXED: now denies with 503 `OBS-AUTH-007`
 
 ---
 
@@ -87,7 +90,7 @@ SQL injection regex patterns with `.*` quantifier vulnerable to ReDoS. Crafted i
 
 | Category | Issue | Location |
 |----------|-------|----------|
-| Performance | Chunker `findNaturalBreak` greedy regex O(n^2) | `chunker.ts:46` |
+| ~~Performance~~ | ~~Chunker `findNaturalBreak` greedy regex O(n^2)~~ FIXED — uses lastIndexOf() | `chunker.ts:46` |
 | Performance | Dashboard recalculates trend data on every render | `dashboard.tsx:94-135` |
 | Performance | Coaching engine loads ALL calls then takes 10 | `coaching-engine.ts:53` |
 | Performance | Admin reanalysis fires-and-forgets without rate limit | `admin.ts:164-203` |
@@ -95,14 +98,14 @@ SQL injection regex patterns with `.*` quantifier vulnerable to ReDoS. Crafted i
 | Security | WAF logs may contain query params with PHI | `waf.ts:185-192` |
 | Security | NPI number stored in plaintext | `clinical.ts:161` |
 | Security | SSN regex false positives on 9-digit codes | `phi-redactor.ts:12` |
-| UX | Idle timeout "Stay Logged In" button is a no-op | `App.tsx:312` |
-| UX | localStorage.clear() on logout clears preferences | `use-idle-timeout.ts:31` |
-| UX | Upload isUploading never cleared on error | `upload.tsx:18` |
-| UX | Duplicate upload returns 200 instead of 409 | `calls.ts:228` |
+| ~~UX~~ | ~~Idle timeout "Stay Logged In" button is a no-op~~ FIXED | `App.tsx:312` |
+| ~~UX~~ | ~~localStorage.clear() on logout clears preferences~~ FIXED | `use-idle-timeout.ts:31` |
+| ~~UX~~ | ~~Upload isUploading never cleared on error~~ (was already correct — finally block clears it) | `upload.tsx:54` |
+| ~~UX~~ | ~~Duplicate upload returns 200 instead of 409~~ FIXED — returns 409 + releases upload slot | `calls.ts:228` |
 | Code Quality | Duplicate SESSION_ABSOLUTE_MAX_MS constant | `auth.ts:281,473` |
 | Code Quality | `as any` type assertions (6 locations) | `auth.ts` |
-| Code Quality | Inconsistent flag filtering logic | `dashboard.tsx:74-81` |
-| Code Quality | display-utils array check after object check | `display-utils.ts:19` |
+| ~~Code Quality~~ | ~~Inconsistent flag filtering logic~~ FIXED — all use `some()` | `dashboard.tsx:74-81` |
+| ~~Code Quality~~ | ~~display-utils array check after object check~~ FIXED | `display-utils.ts` |
 
 ---
 
@@ -155,7 +158,7 @@ SQL injection regex patterns with `.*` quantifier vulnerable to ReDoS. Crafted i
 1. **Feature sprawl** — 34 pages, 38 route files, 30+ services. Maintenance burden is very high
 2. **In-memory fallbacks mask production issues** — incident response, OIDC state, email OTP, SCIM token lookup all use in-memory stores that break in multi-instance deployments
 3. **Schema sync vs. migrations** — auto-sync is convenient but risky for production data changes (column renames, type changes)
-4. **No visible CI/CD pipeline** — no GitHub Actions, no automated security scanning, no `npm audit`
+4. ~~**No visible CI/CD pipeline**~~ FIXED — comprehensive GitHub Actions pipeline with lint gate, tests + coverage, security audit + secret scanning, Docker build, E2E tests, quality gate, staging/production deploy
 5. **Many features are "90% done"** — impressive breadth but several features lack the final 10% of hardening
 6. **`as any` usage** — defeats TypeScript's value proposition in security-critical auth code
 
@@ -197,6 +200,6 @@ SQL injection regex patterns with `.*` quantifier vulnerable to ReDoS. Crafted i
 
 - AWS SDK v3 (`^3.1014.0`) — consider pinning exact versions for production stability
 - `@types/express` pinned without `^` — may cause type drift
-- No `npm audit` in CI/CD pipeline
-- No `engines` field in package.json
+- ~~No `npm audit` in CI/CD pipeline~~ FIXED — security job runs `npm audit --audit-level=high` + secret scanning
+- ~~No `engines` field in package.json~~ FIXED — added `engines` (node>=20, npm>=10) + `.nvmrc`
 - Passport `^0.7.0` — verify latest security patches applied

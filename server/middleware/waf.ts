@@ -182,6 +182,9 @@ export function wafMiddleware(req: Request, res: Response, next: NextFunction): 
   if (violation) {
     const blocked = addAnomalyPoints(ip, violation.points, violation.reason);
 
+    // HIPAA: Log only the path without query params, which may contain PHI
+    // (e.g., /api/search?q=patient_name). Use req.path (no query string)
+    // instead of req.originalUrl.
     logger.warn({
       ip,
       method: req.method,

@@ -17,6 +17,60 @@ import { withRetry, validateUUIDParam } from "./helpers";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import type { LearningModule, InsertLearningModule } from "@shared/schema";
 
+/**
+ * Detect circular dependencies in module prerequisites.
+ * Uses DFS with visited/inStack tracking (standard cycle detection).
+ * Returns the cycle path if found, or null if no cycle.
+ */
+async function detectPrerequisiteCycle(
+  orgId: string,
+  moduleId: string,
+  prerequisiteModuleIds: string[],
+): Promise<string[] | null> {
+  // Build adjacency map: moduleId → prerequisiteModuleIds
+  const allModules = await storage.listLearningModules(orgId);
+  const prereqMap = new Map<string, string[]>();
+  for (const m of allModules) {
+    prereqMap.set(m.id, Array.isArray(m.prerequisiteModuleIds) ? m.prerequisiteModuleIds as string[] : []);
+  }
+  // Apply the proposed change
+  prereqMap.set(moduleId, prerequisiteModuleIds);
+
+  // DFS cycle detection
+  const visited = new Set<string>();
+  const inStack = new Set<string>();
+  const path: string[] = [];
+
+  function dfs(id: string): boolean {
+    if (inStack.has(id)) return true; // Cycle found
+    if (visited.has(id)) return false;
+    visited.add(id);
+    inStack.add(id);
+    path.push(id);
+    for (const prereq of prereqMap.get(id) || []) {
+      if (dfs(prereq)) return true;
+    }
+    inStack.delete(id);
+    path.pop();
+    return false;
+  }
+
+  if (dfs(moduleId)) return path;
+  return null;
+}
+
+/**
+ * Check if a learning path's deadline has passed.
+ * Returns { overdue: boolean, daysRemaining: number } or null if no deadline.
+ */
+function checkPathDeadline(path: { dueDate?: string | null }): { overdue: boolean; daysRemaining: number } | null {
+  if (!path.dueDate) return null;
+  const due = new Date(path.dueDate);
+  if (isNaN(due.getTime())) return null;
+  const daysRemaining = Math.ceil((due.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+  return { overdue: daysRemaining < 0, daysRemaining };
+}
+
 export function registerLmsRoutes(app: Express): void {
 
   // --- Learning Modules ---
@@ -50,8 +104,16 @@ export function registerLmsRoutes(app: Express): void {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-    const { title, description, contentType, category, content, quizQuestions, estimatedMinutes, difficulty, tags, isPublished } = req.body;
+    const { title, description, contentType, category, content, quizQuestions, estimatedMinutes, difficulty, tags, isPublished, prerequisiteModuleIds, passingScore } = req.body;
     if (!title || !contentType) return res.status(400).json({ message: "title and contentType are required" });
+
+    // Validate prerequisites exist and don't create cycles
+    if (Array.isArray(prerequisiteModuleIds) && prerequisiteModuleIds.length > 0) {
+      for (const prereqId of prerequisiteModuleIds) {
+        const prereq = await storage.getLearningModule(orgId, prereqId);
+        if (!prereq) return res.status(400).json({ message: `Prerequisite module ${prereqId} not found` });
+      }
+    }
 
     const module = await storage.createLearningModule(orgId, {
       orgId,
@@ -66,7 +128,23 @@ export function registerLmsRoutes(app: Express): void {
       tags,
       isPublished: isPublished ?? false,
       createdBy: (req.user as any)?.name || "unknown",
+      prerequisiteModuleIds: Array.isArray(prerequisiteModuleIds) ? prerequisiteModuleIds : undefined,
+      passingScore: typeof passingScore === "number" ? passingScore : undefined,
     });
+
+    // Check for circular dependencies after creation (module now has an ID)
+    if (Array.isArray(prerequisiteModuleIds) && prerequisiteModuleIds.length > 0) {
+      const cycle = await detectPrerequisiteCycle(orgId, module.id, prerequisiteModuleIds);
+      if (cycle) {
+        // Remove the module we just created to avoid leaving orphaned data
+        await storage.deleteLearningModule(orgId, module.id);
+        return res.status(400).json({
+          message: "Circular dependency detected in prerequisites",
+          cycle: cycle.map(id => id.slice(0, 8)), // Truncate IDs for readability
+        });
+      }
+    }
+
     res.status(201).json(module);
   });
 
@@ -74,6 +152,22 @@ export function registerLmsRoutes(app: Express): void {
   app.patch("/api/lms/modules/:id", requireAuth, requireRole("manager"), validateUUIDParam(), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
+
+    // Validate prerequisites if being changed
+    if (Array.isArray(req.body.prerequisiteModuleIds)) {
+      for (const prereqId of req.body.prerequisiteModuleIds) {
+        if (prereqId === req.params.id) return res.status(400).json({ message: "Module cannot be a prerequisite of itself" });
+        const prereq = await storage.getLearningModule(orgId, prereqId);
+        if (!prereq) return res.status(400).json({ message: `Prerequisite module ${prereqId} not found` });
+      }
+      const cycle = await detectPrerequisiteCycle(orgId, req.params.id, req.body.prerequisiteModuleIds);
+      if (cycle) {
+        return res.status(400).json({
+          message: "Circular dependency detected in prerequisites",
+          cycle: cycle.map(id => id.slice(0, 8)),
+        });
+      }
+    }
 
     const updated = await storage.updateLearningModule(orgId, req.params.id, req.body);
     if (!updated) return res.status(404).json({ message: "Module not found" });
@@ -266,6 +360,38 @@ Respond with ONLY valid JSON (no markdown fences):
     const { employeeId, moduleId, pathId, status, quizScore, quizAttempts, timeSpentMinutes, notes } = req.body;
     if (!employeeId || !moduleId) return res.status(400).json({ message: "employeeId and moduleId are required" });
 
+    // Enforce path deadline if module is part of a path
+    if (pathId) {
+      const path = await storage.getLearningPath(orgId, pathId);
+      if (path) {
+        const deadline = checkPathDeadline(path as { dueDate?: string | null });
+        if (deadline?.overdue) {
+          return res.status(403).json({
+            message: "This learning path's deadline has passed. Contact your manager for an extension.",
+            code: "OBS-LMS-DEADLINE-PASSED",
+            dueDate: path.dueDate,
+          });
+        }
+
+        // Enforce sequential order if path requires it
+        if (path.enforceOrder && status === "in_progress") {
+          const moduleIds = Array.isArray(path.moduleIds) ? path.moduleIds as string[] : [];
+          const moduleIndex = moduleIds.indexOf(moduleId);
+          if (moduleIndex > 0) {
+            const prevModuleId = moduleIds[moduleIndex - 1];
+            const prevProgress = await storage.getLearningProgress(orgId, employeeId, prevModuleId);
+            if (!prevProgress || prevProgress.status !== "completed") {
+              return res.status(403).json({
+                message: "Complete the previous module first. This learning path requires sequential completion.",
+                code: "OBS-LMS-ENFORCE-ORDER",
+                blockedBy: prevModuleId,
+              });
+            }
+          }
+        }
+      }
+    }
+
     const progress = await storage.upsertLearningProgress(orgId, {
       orgId,
       employeeId,
@@ -299,6 +425,21 @@ Respond with ONLY valid JSON (no markdown fences):
       if (!module) return res.status(404).json({ message: "Module not found" });
       if (!module.quizQuestions || module.quizQuestions.length === 0) {
         return res.status(400).json({ message: "This module does not have quiz questions" });
+      }
+
+      // Check prerequisites before allowing quiz submission
+      const prereqs = Array.isArray(module.prerequisiteModuleIds) ? module.prerequisiteModuleIds as string[] : [];
+      if (prereqs.length > 0) {
+        for (const prereqId of prereqs) {
+          const prereqProgress = await storage.getLearningProgress(orgId, employeeId, prereqId);
+          if (!prereqProgress || prereqProgress.status !== "completed") {
+            return res.status(403).json({
+              message: "Complete all prerequisite modules before taking this quiz.",
+              code: "OBS-LMS-PREREQ-INCOMPLETE",
+              unmetPrerequisite: prereqId,
+            });
+          }
+        }
       }
 
       const questions = module.quizQuestions as Array<{ question: string; options: string[]; correctIndex: number; explanation?: string }>;
@@ -643,10 +784,10 @@ Respond with ONLY valid JSON (no markdown fences):
         }
       }
 
-      // Find weak areas (avg sub-score < 7.0)
+      // Find weak areas (avg sub-score < 7.0, requiring 3+ data points for reliability)
       const weakAreas: string[] = [];
       for (const [key, scores] of Object.entries(subScores)) {
-        if (scores.length >= 2) {
+        if (scores.length >= 3) {
           const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
           if (avg < 7.0) weakAreas.push(key);
         }
@@ -676,10 +817,11 @@ Respond with ONLY valid JSON (no markdown fences):
             }
           }
 
-          // Match weak areas
+          // Match weak areas — convert camelCase to space-separated for broader matching
+          // e.g., "customerExperience" → "customer experience"
           for (const area of weakAreas) {
-            const areaLower = area.toLowerCase().replace(/([A-Z])/g, " $1").toLowerCase();
-            if (mText.includes(areaLower) || mText.includes(area.toLowerCase())) {
+            const areaSpaced = area.replace(/([A-Z])/g, " $1").toLowerCase().trim();
+            if (mText.includes(areaSpaced) || mText.includes(area.toLowerCase())) {
               relevance += 4;
               reasons.push(`Addresses weak area: ${area}`);
             }

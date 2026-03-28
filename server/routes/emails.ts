@@ -38,6 +38,7 @@ export function registerEmailRoutes(app: Express): void {
    */
   app.post("/api/emails/submit",
     requireAuth,
+    requireRole("manager", "admin"),
     requireActiveSubscription,
     enforceQuota,
     async (req: Request, res: Response) => {

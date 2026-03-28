@@ -130,6 +130,17 @@ export function registerCallRoutes(app: Express): void {
         return;
       }
 
+      // Team scoping: verify caller has access to this call's employee
+      if (call.employeeId) {
+        const teamIds = req.user?.role !== "admin"
+          ? await getTeamScopedEmployeeIds(req.orgId!, req.user!)
+          : null;
+        if (teamIds !== null && !teamIds.has(call.employeeId)) {
+          res.status(403).json({ message: "Call belongs to an employee outside your team" });
+          return;
+        }
+      }
+
       logPhiAccess({
         ...auditContext(req),
         event: "view_call_details",
@@ -145,7 +156,9 @@ export function registerCallRoutes(app: Express): void {
       ]);
 
       const analysis = normalizeAnalysis(rawAnalysis);
-      decryptClinicalNotePhi(analysis as Record<string, unknown> | null);
+      decryptClinicalNotePhi(analysis as Record<string, unknown> | null, {
+        userId: req.user?.id, orgId: req.orgId, resourceId: call.id, resourceType: "call_analysis",
+      });
 
       res.json({
         ...call,
@@ -225,7 +238,12 @@ export function registerCallRoutes(app: Express): void {
       const duplicate = await storage.getCallByFileHash(req.orgId!, fileHash);
       if (duplicate) {
         await cleanupFile(req.file.path);
-        res.status(200).json(duplicate);
+        releaseUploadSlot(req.orgId!);
+        res.status(409).json({
+          message: "This file has already been uploaded.",
+          existingCallId: duplicate.id,
+          duplicate: true,
+        });
         return;
       }
 
@@ -369,7 +387,9 @@ export function registerCallRoutes(app: Express): void {
         res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
         return;
       }
-      decryptClinicalNotePhi(analysis as Record<string, unknown>);
+      decryptClinicalNotePhi(analysis as Record<string, unknown>, {
+        userId: req.user?.id, orgId: req.orgId, resourceId: req.params.id, resourceType: "call_analysis",
+      });
       logPhiAccess({
         ...auditContext(req),
         event: "view_call_analysis",

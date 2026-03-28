@@ -65,6 +65,7 @@ export async function indexDocument(
   orgId: string,
   documentId: string,
   extractedText: string,
+  chunkOptions?: import("./chunker").ChunkOptions,
 ): Promise<number> {
   // Mark as indexing
   await updateIndexingStatus(db, orgId, documentId, "indexing").catch(() => {});
@@ -87,7 +88,7 @@ export async function indexDocument(
       .where(eq(tables.documentChunks.documentId, documentId));
 
     // Chunk the document
-    const chunks = chunkDocument(documentId, extractedText);
+    const chunks = chunkDocument(documentId, extractedText, chunkOptions);
     if (chunks.length === 0) {
       await updateIndexingStatus(db, orgId, documentId, "failed", "Document produced no chunks");
       return 0;
@@ -167,7 +168,7 @@ export async function searchRelevantChunks(
   // Prompt injection detection
   const injectionCheck = detectPromptInjection(queryText);
   if (injectionCheck.isInjection) {
-    logger.warn({ pattern: injectionCheck.pattern, orgId }, "Prompt injection detected in RAG query — returning empty results");
+    logger.warn({ pattern: injectionCheck.pattern, orgId }, "Prompt injection detected in RAG query — blocked");
     // Log trace for blocked queries
     logRagTrace({
       traceId: randomUUID(),
@@ -186,7 +187,11 @@ export async function searchRelevantChunks(
       injectionBlocked: true,
       timestamp: new Date().toISOString(),
     });
-    return [];
+    // Throw a typed error so callers can return a proper HTTP 400 instead of
+    // silently returning empty results (which is indistinguishable from "no matches").
+    const err = new Error("Query blocked: potential prompt injection detected");
+    (err as any).code = "RAG_INJECTION_BLOCKED";
+    throw err;
   }
 
   // Generate query embedding
@@ -229,11 +234,13 @@ export async function searchRelevantChunks(
 
   // Apply BM25-style keyword boosting with dynamic avgDocLen
   const results: RetrievedChunk[] = (candidates.rows as any[]).map((row) => {
-    const semanticScore = parseFloat(row.semantic_score) || 0;
-    const kwScore = bm25Score(queryText, row.text, { avgDocLen });
+    // Clamp semantic score to [0,1] — pgvector cosine can return negatives
+    const rawSemantic = parseFloat(row.semantic_score) || 0;
+    const semanticScore = Math.max(0, Math.min(1, rawSemantic));
+    const kwScore = Math.max(0, bm25Score(queryText, row.text, { avgDocLen }));
     const combinedScore = semanticWeight * semanticScore + keywordWeight * kwScore;
     // NaN guard: if score computation fails, fall back to semantic-only
-    const safeScore = Number.isFinite(combinedScore) ? combinedScore : semanticScore;
+    const safeScore = Number.isFinite(combinedScore) ? Math.max(0, combinedScore) : semanticScore;
 
     return {
       id: row.id,

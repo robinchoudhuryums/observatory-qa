@@ -20,6 +20,7 @@ const AUTH_TAG_LENGTH = 16;
 
 let encryptionKey: Buffer | null = null;
 let prevEncryptionKey: Buffer | null | undefined = undefined; // undefined = not yet loaded
+let _encryptionWarningLogged = false;
 
 function getKey(): Buffer | null {
   if (encryptionKey) return encryptionKey;
@@ -82,11 +83,25 @@ export function isPhiEncryptionEnabled(): boolean {
 
 /**
  * Encrypt a plaintext string. Returns the encrypted payload as a prefixed string.
- * If encryption is not configured, returns the plaintext unchanged.
+ *
+ * HIPAA: In production, throws if PHI_ENCRYPTION_KEY is not set — PHI must never
+ * be stored unencrypted. In development, logs a warning and returns plaintext
+ * to allow local dev without key setup.
  */
 export function encryptField(plaintext: string): string {
   const key = getKey();
-  if (!key) return plaintext;
+  if (!key) {
+    if (process.env.NODE_ENV === "production") {
+      const msg = "CRITICAL: PHI_ENCRYPTION_KEY not configured — refusing to store unencrypted PHI in production";
+      logger.error(msg);
+      throw new Error(msg);
+    }
+    if (!_encryptionWarningLogged) {
+      logger.warn("PHI_ENCRYPTION_KEY not set — PHI fields will be stored unencrypted (development only)");
+      _encryptionWarningLogged = true;
+    }
+    return plaintext;
+  }
 
   const iv = randomBytes(IV_LENGTH);
   const cipher = createCipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
@@ -159,19 +174,58 @@ export function decryptMfaSecret(encrypted: string): string {
  * Decrypt PHI fields in a clinical note object.
  * Safe to call on already-decrypted or null data — no-ops gracefully.
  * Modifies the object in-place for efficiency.
+ *
+ * HIPAA: Logs decryption events for audit trail when context is provided.
  */
 const PHI_FIELDS = [
   "subjective", "objective", "assessment", "hpiNarrative", "chiefComplaint",
   "reviewOfSystems", "differentialDiagnoses", "periodontalFindings",
+  "attestedNpi", "cosignedNpi",
 ] as const;
 
-export function decryptClinicalNotePhi(analysis: Record<string, unknown> | null | undefined): void {
+export interface PhiDecryptionContext {
+  userId?: string;
+  orgId?: string;
+  resourceId?: string;
+  resourceType?: string;
+}
+
+export function decryptClinicalNotePhi(
+  analysis: Record<string, unknown> | null | undefined,
+  auditContext?: PhiDecryptionContext,
+): void {
   if (!analysis) return;
   const cn = analysis.clinicalNote as Record<string, unknown> | undefined;
   if (!cn) return;
+
+  let decryptedCount = 0;
   for (const field of PHI_FIELDS) {
-    if (typeof cn[field] === "string") {
+    if (typeof cn[field] === "string" && (cn[field] as string).startsWith("enc_v1:")) {
       cn[field] = decryptField(cn[field] as string);
+      decryptedCount++;
     }
+  }
+
+  // Decrypt addendum content — addenda may contain clinical details (PHI)
+  const amendments = cn.amendments as Array<Record<string, unknown>> | undefined;
+  if (Array.isArray(amendments)) {
+    for (const amendment of amendments) {
+      if (typeof amendment.content === "string" && (amendment.content as string).startsWith("enc_v1:")) {
+        amendment.content = decryptField(amendment.content as string);
+        decryptedCount++;
+      }
+    }
+  }
+
+  // HIPAA: Log PHI decryption event for audit trail
+  if (decryptedCount > 0 && auditContext) {
+    logger.info({
+      _audit: "PHI_DECRYPT",
+      userId: auditContext.userId,
+      orgId: auditContext.orgId,
+      resourceType: auditContext.resourceType || "clinical_note",
+      resourceId: auditContext.resourceId,
+      fieldsDecrypted: decryptedCount,
+    }, "[HIPAA_AUDIT] PHI fields decrypted");
   }
 }

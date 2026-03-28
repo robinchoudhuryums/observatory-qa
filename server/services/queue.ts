@@ -246,6 +246,50 @@ export async function enqueueEhrNotePush(job: EhrNotePushJob): Promise<boolean> 
 }
 
 /**
+ * Enqueue a failed call for delayed retry via the audio-processing queue.
+ * Called when in-process call processing fails (transient errors).
+ * Returns true if enqueued, false if queue unavailable or max retries exceeded.
+ * Max 2 retries with 30s delay to avoid hammering external services.
+ */
+export async function enqueueCallRetry(
+  orgId: string,
+  callId: string,
+  fileName: string,
+  callCategory?: string,
+  retryCount = 0,
+): Promise<boolean> {
+  const MAX_RETRIES = 2;
+  if (retryCount >= MAX_RETRIES) {
+    logger.warn({ callId, orgId, retryCount }, "Call retry limit reached — moving to dead letter queue");
+    await moveToDeadLetter("audio-processing", callId, orgId, "Max retries exceeded for in-process call processing", {
+      callId, fileName, callCategory: callCategory || "", retryCount,
+    });
+    return false;
+  }
+
+  if (!audioQueue) {
+    logger.warn({ callId, orgId }, "Audio queue unavailable — cannot retry failed call");
+    return false;
+  }
+
+  try {
+    const jobId = `call-retry-${callId}-${retryCount + 1}`;
+    await audioQueue.add("process-call", {
+      orgId, callId, fileName, callCategory,
+    }, {
+      jobId,
+      delay: 30_000 * (retryCount + 1), // 30s, 60s
+      attempts: 1, // Queue-level retries already handled above
+    });
+    logger.info({ callId, orgId, retryCount: retryCount + 1 }, "Failed call enqueued for retry");
+    return true;
+  } catch (err) {
+    logger.error({ err, callId }, "Failed to enqueue call retry");
+    return false;
+  }
+}
+
+/**
  * Move a permanently failed job to the dead letter queue for admin review.
  * Call this from worker "failed" event handlers after all retries are exhausted.
  */

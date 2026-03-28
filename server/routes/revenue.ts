@@ -228,12 +228,18 @@ export function registerRevenueRoutes(app: Express) {
       const dailyRate = dayOfMonth > 0 ? currentMonthActual / dayOfMonth : 0;
       const projectedMonthlyActual = Math.round(dailyRate * daysInMonth * 100) / 100;
 
+      // Forecast confidence: low before day 7 (insufficient data for reliable extrapolation)
+      const forecastConfidence = dayOfMonth < 7 ? "low" : dayOfMonth < 15 ? "moderate" : "high";
+
       res.json({
         currentMonth: {
           estimated: Math.round(currentMonthEstimated * 100) / 100,
           actual: Math.round(currentMonthActual * 100) / 100,
           callCount: currentMonthRevs.length,
           projectedTotal: projectedMonthlyActual,
+          forecastConfidence,
+          daysElapsed: dayOfMonth,
+          daysRemaining: daysInMonth - dayOfMonth,
         },
         pipeline: {
           pendingCount: pendingRevs.length,
@@ -260,12 +266,30 @@ export function registerRevenueRoutes(app: Express) {
 
       const revenues = await storage.listCallRevenues(orgId);
 
+      // Stage ordering: each stage implies all prior stages are completed.
+      // Use attributionStage as primary source of truth, with legacy field fallbacks.
+      const STAGE_ORDER = ["call_identified", "appointment_scheduled", "appointment_completed", "treatment_accepted", "payment_collected"];
+
+      const stageIndex = (r: typeof revenues[0]): number => {
+        if (r.attributionStage) {
+          const idx = STAGE_ORDER.indexOf(r.attributionStage);
+          if (idx >= 0) return idx;
+        }
+        // Legacy fallback for records without attributionStage
+        if (r.paymentCollected && r.paymentCollected > 0) return 4;
+        if (r.treatmentAccepted === true) return 3;
+        if (r.appointmentCompleted === true) return 2;
+        if (r.appointmentDate) return 1;
+        return 0; // call_identified
+      };
+
+      // A record at stage N is counted for all stages 0..N (funnel monotonicity)
       const funnel = {
         callIdentified: revenues.length,
-        appointmentScheduled: revenues.filter(r => r.appointmentDate || r.attributionStage === "appointment_scheduled" || r.attributionStage === "appointment_completed" || r.attributionStage === "treatment_accepted" || r.attributionStage === "payment_collected").length,
-        appointmentCompleted: revenues.filter(r => r.appointmentCompleted === true || r.attributionStage === "appointment_completed" || r.attributionStage === "treatment_accepted" || r.attributionStage === "payment_collected").length,
-        treatmentAccepted: revenues.filter(r => r.treatmentAccepted === true || r.attributionStage === "treatment_accepted" || r.attributionStage === "payment_collected").length,
-        paymentCollected: revenues.filter(r => (r.paymentCollected && r.paymentCollected > 0) || r.attributionStage === "payment_collected").length,
+        appointmentScheduled: revenues.filter(r => stageIndex(r) >= 1).length,
+        appointmentCompleted: revenues.filter(r => stageIndex(r) >= 2).length,
+        treatmentAccepted: revenues.filter(r => stageIndex(r) >= 3).length,
+        paymentCollected: revenues.filter(r => stageIndex(r) >= 4).length,
       };
 
       // Conversion rates between stages
@@ -314,13 +338,19 @@ export function registerRevenueRoutes(app: Express) {
         payerCounts[payer].patientRevenue += rev.patientAmount || 0;
       }
 
-      // Insurance carrier breakdown
+      // Insurance carrier breakdown — normalize names for consistent aggregation
       const carriers: Record<string, { count: number; totalRevenue: number }> = {};
       for (const rev of revenues) {
         if (!rev.insuranceCarrier) continue;
-        if (!carriers[rev.insuranceCarrier]) carriers[rev.insuranceCarrier] = { count: 0, totalRevenue: 0 };
-        carriers[rev.insuranceCarrier].count++;
-        carriers[rev.insuranceCarrier].totalRevenue += rev.insuranceAmount || rev.actualRevenue || 0;
+        // Normalize carrier name: trim, title-case to prevent fragmentation
+        // "delta dental" / "DELTA DENTAL" / "Delta Dental" → "Delta Dental"
+        const normalized = rev.insuranceCarrier.trim().replace(/\w\S*/g, w =>
+          w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+        );
+        if (!carriers[normalized]) carriers[normalized] = { count: 0, totalRevenue: 0 };
+        carriers[normalized].count++;
+        // Use insuranceAmount for carrier breakdown (not total revenue, which includes patient portion)
+        carriers[normalized].totalRevenue += rev.insuranceAmount || 0;
       }
 
       // By employee
@@ -432,25 +462,32 @@ export function registerRevenueRoutes(app: Express) {
         });
       }
 
-      // Map EHR data to revenue fields
+      // Map EHR data to revenue fields — validate numeric values from external source
+      const safeNum = (v: unknown): number | undefined =>
+        typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined;
+
       const updates: Record<string, any> = {
         ehrSyncedAt: new Date().toISOString(),
         updatedBy: `ehr-sync:${req.user!.username}`,
       };
 
-      if (relevantPlan.totalFee) {
-        updates.treatmentValue = relevantPlan.totalFee;
-        updates.estimatedRevenue = relevantPlan.totalFee;
-      }
-      if (relevantPlan.totalInsurance !== undefined) updates.insuranceAmount = relevantPlan.totalInsurance;
-      if (relevantPlan.totalPatient !== undefined) updates.patientAmount = relevantPlan.totalPatient;
+      const totalFee = safeNum(relevantPlan.totalFee);
+      const totalInsurance = safeNum(relevantPlan.totalInsurance);
+      const totalPatient = safeNum(relevantPlan.totalPatient);
 
-      // Determine payer type
-      if (relevantPlan.totalInsurance > 0 && relevantPlan.totalPatient > 0) {
+      if (totalFee) {
+        updates.treatmentValue = totalFee;
+        updates.estimatedRevenue = totalFee;
+      }
+      if (totalInsurance !== undefined) updates.insuranceAmount = totalInsurance;
+      if (totalPatient !== undefined) updates.patientAmount = totalPatient;
+
+      // Determine payer type from validated amounts
+      if (totalInsurance && totalInsurance > 0 && totalPatient && totalPatient > 0) {
         updates.payerType = "mixed";
-      } else if (relevantPlan.totalInsurance > 0) {
+      } else if (totalInsurance && totalInsurance > 0) {
         updates.payerType = "insurance";
-      } else if (relevantPlan.totalPatient > 0) {
+      } else if (totalPatient && totalPatient > 0) {
         updates.payerType = "cash";
       }
 
@@ -513,12 +550,15 @@ export function registerRevenueRoutes(app: Express) {
       const calls = await storage.getAllCalls(orgId);
       const callDateMap = new Map(calls.map(c => [c.id, c.uploadedAt]));
 
-      // Build weekly buckets for the last 12 weeks
+      // Build weekly buckets for the last 12 weeks (Monday-aligned)
       const now = new Date();
       const weeks: Array<{ weekStart: string; estimated: number; actual: number; count: number; converted: number }> = [];
+      // Normalize to most recent Monday: dayOfWeek 0=Sun(→-6), 1=Mon(→0), ..., 6=Sat(→-5)
+      const dayOfWeek = now.getDay();
+      const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
       for (let i = 11; i >= 0; i--) {
         const start = new Date(now);
-        start.setDate(start.getDate() - (i * 7 + now.getDay()));
+        start.setDate(start.getDate() - daysSinceMonday - (i * 7));
         start.setHours(0, 0, 0, 0);
         weeks.push({
           weekStart: start.toISOString().slice(0, 10),

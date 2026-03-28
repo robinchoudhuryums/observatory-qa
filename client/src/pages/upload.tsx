@@ -71,8 +71,11 @@ export default function Upload() {
 
       <div className="p-6">
         {/* Tab switcher */}
-        <div className="flex rounded-lg bg-muted p-1 mb-6 max-w-sm">
+        <div className="flex rounded-lg bg-muted p-1 mb-6 max-w-sm" role="tablist" aria-label="Upload method">
           <button
+            role="tab"
+            aria-selected={tab === "file"}
+            aria-controls="panel-file"
             className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
               tab === "file" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
             }`}
@@ -82,6 +85,9 @@ export default function Upload() {
             Upload File
           </button>
           <button
+            role="tab"
+            aria-selected={tab === "record"}
+            aria-controls="panel-record"
             className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
               tab === "record" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
             }`}
@@ -93,11 +99,11 @@ export default function Upload() {
         </div>
 
         {/* File upload tab */}
-        {tab === "file" && <FileUpload />}
+        {tab === "file" && <div id="panel-file" role="tabpanel"><FileUpload /></div>}
 
         {/* Record live tab */}
         {tab === "record" && (
-          <div className="space-y-4">
+          <div id="panel-record" role="tabpanel" className="space-y-4">
             <div className="bg-card rounded-lg border border-border p-6">
               <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-1.5">
                 Record a Call
@@ -107,7 +113,7 @@ export default function Upload() {
               {/* Call category and employee assignment */}
               <div className="flex flex-wrap items-center gap-3 mb-6">
                 <Select value={callCategory} onValueChange={setCallCategory}>
-                  <SelectTrigger className="w-48">
+                  <SelectTrigger className="w-48" aria-label="Call type">
                     <SelectValue placeholder="Call type" />
                   </SelectTrigger>
                   <SelectContent>
@@ -120,7 +126,7 @@ export default function Upload() {
                 </Select>
 
                 <Select value={employeeId || "__unassigned__"} onValueChange={(v) => setEmployeeId(v === "__unassigned__" ? "" : v)}>
-                  <SelectTrigger className="w-52">
+                  <SelectTrigger className="w-52" aria-label="Assign to agent">
                     <SelectValue placeholder="Assign to agent" />
                   </SelectTrigger>
                   <SelectContent>

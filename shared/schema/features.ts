@@ -115,8 +115,8 @@ export const insertInsuranceNarrativeSchema = z.object({
   insurerName: z.string(),
   insurerAddress: z.string().optional(),
   letterType: z.string(),
-  diagnosisCodes: z.array(z.object({ code: z.string(), description: z.string() })).optional(),
-  procedureCodes: z.array(z.object({ code: z.string(), description: z.string() })).optional(),
+  diagnosisCodes: z.array(z.object({ code: z.string().regex(/^[A-TV-Z]\d{2}(\.\d{1,4})?$/, "Invalid ICD-10 format"), description: z.string() })).optional(),
+  procedureCodes: z.array(z.object({ code: z.string().regex(/^\d{5}[A-Z]?$|^D\d{4}$/, "Invalid CPT/CDT format"), description: z.string() })).optional(),
   clinicalJustification: z.string().optional(), // pulled from clinical note or manual
   priorDenialReference: z.string().optional(), // for appeals
   generatedNarrative: z.string().optional(), // AI-generated letter
@@ -431,7 +431,7 @@ export const insertMarketingCampaignSchema = z.object({
   medium: z.string().optional(), // e.g., "cpc", "organic", "social", "referral"
   startDate: z.string().optional(),
   endDate: z.string().optional(),
-  budget: z.number().optional(), // total campaign budget in dollars
+  budget: z.number().min(0).optional(), // total campaign budget in dollars
   trackingCode: z.string().optional(), // UTM or tracking phone number
   isActive: z.boolean().optional(),
   notes: z.string().optional(),
@@ -457,7 +457,7 @@ export const insertCallAttributionSchema = z.object({
   isNewPatient: z.boolean().optional(),
   referrerName: z.string().optional(), // for referral sources
   detectionMethod: z.enum(["manual", "ai_detected", "tracking_number", "utm"]).optional(),
-  confidence: z.number().optional(), // 0-1 for AI-detected
+  confidence: z.number().min(0).max(1).optional(), // 0-1 for AI-detected
   notes: z.string().optional(),
   attributedBy: z.string().optional(),
 });

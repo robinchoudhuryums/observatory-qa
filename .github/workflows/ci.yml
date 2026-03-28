@@ -72,8 +72,17 @@ jobs:
       - name: TypeScript type check
         run: npm run check
 
-      - name: Unit tests
-        run: npm test
+      - name: Unit tests with coverage
+        run: npx c8 --reporter=text --reporter=text-summary --reporter=lcov --src=server --src=shared tsx --test tests/*.test.ts
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-${{ github.sha }}
+          path: coverage/
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Upload test results
         if: always()
@@ -85,7 +94,7 @@ jobs:
           if-no-files-found: ignore
 
 # ---------------------------------------------------------------------------
-# Job: Dependency security audit
+# Job: Dependency security audit + secret scanning
 # ---------------------------------------------------------------------------
   security:
     name: Security Audit
@@ -104,6 +113,31 @@ jobs:
       - name: Audit for high/critical vulnerabilities
         run: npm audit --audit-level=high
 
+      - name: Scan for secrets in codebase
+        run: |
+          echo "Scanning for potential secrets in tracked files..."
+          FINDINGS=0
+          # AWS keys
+          if git grep -lI 'AKIA[0-9A-Z]\{16\}' -- ':!*.md' ':!*.yml' ':!*.yaml' ':!.env.example' 2>/dev/null; then
+            echo "::error::Possible AWS access key found in source files"
+            FINDINGS=$((FINDINGS + 1))
+          fi
+          # Private keys
+          if git grep -lI '-----BEGIN.*PRIVATE KEY-----' -- ':!*.md' ':!*.example' 2>/dev/null; then
+            echo "::error::Possible private key found in source files"
+            FINDINGS=$((FINDINGS + 1))
+          fi
+          # Generic API keys/tokens in .ts/.tsx files (common patterns)
+          if git grep -lI 'sk-[a-zA-Z0-9]\{20,\}' -- '*.ts' '*.tsx' 2>/dev/null; then
+            echo "::error::Possible API key found in TypeScript files"
+            FINDINGS=$((FINDINGS + 1))
+          fi
+          if [ "$FINDINGS" -gt 0 ]; then
+            echo "Found $FINDINGS potential secret(s) in source files"
+            exit 1
+          fi
+          echo "No secrets detected"
+
 # ---------------------------------------------------------------------------
 # Job: Build — only runs after lint + test both pass (lint gate enforced)
 # ---------------------------------------------------------------------------
@@ -121,6 +155,23 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Validate schema sync coverage
+        run: |
+          echo "Checking that sync-schema.ts covers all Drizzle pgTable definitions..."
+          # Extract table names from Drizzle schema
+          DRIZZLE_TABLES=$(grep -oP 'pgTable\("(\K[^"]+)' server/db/schema.ts | sort)
+          MISSING=""
+          for TABLE in $DRIZZLE_TABLES; do
+            if ! grep -q "CREATE TABLE IF NOT EXISTS ${TABLE}" server/db/sync-schema.ts 2>/dev/null; then
+              MISSING="$MISSING $TABLE"
+            fi
+          done
+          if [ -n "$MISSING" ]; then
+            echo "::warning::Tables in schema.ts but missing from sync-schema.ts:$MISSING"
+          else
+            echo "All ${#DRIZZLE_TABLES} Drizzle tables covered in sync-schema.ts"
+          fi
 
       - name: Build frontend + backend
         run: npm run build

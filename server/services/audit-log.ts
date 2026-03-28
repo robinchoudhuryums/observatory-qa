@@ -36,6 +36,21 @@ export interface AuditEntry {
 const MAX_CHAIN_STATE_ENTRIES = 10_000;
 const chainState = new Map<string, { prevHash: string; sequenceNum: number }>();
 
+// Per-org mutex to prevent concurrent chain state updates (race condition fix).
+// Each org gets a promise chain — concurrent writes are serialized in order.
+const chainLocks = new Map<string, Promise<void>>();
+
+function withChainLock(orgId: string, fn: () => Promise<void>): Promise<void> {
+  const prev = chainLocks.get(orgId) || Promise.resolve();
+  const next = prev.then(fn, fn); // run fn even if previous entry failed
+  chainLocks.set(orgId, next);
+  // Clean up reference after completion to prevent unbounded growth
+  next.then(() => {
+    if (chainLocks.get(orgId) === next) chainLocks.delete(orgId);
+  });
+  return next;
+}
+
 /**
  * Compute SHA-256 integrity hash for an audit entry in the chain.
  */
@@ -261,56 +276,62 @@ export function logPhiAccess(entry: AuditEntry): void {
 /**
  * Persist an audit entry to the audit_logs table with hash chain integrity.
  * Called fire-and-forget from logPhiAccess().
+ *
+ * Uses a per-org promise-chain mutex to serialize concurrent writes,
+ * preventing race conditions where two entries compute the same sequence number.
  */
 async function persistAuditEntry(entry: AuditEntry & { timestamp: string }): Promise<void> {
-  try {
-    const { getDatabase } = await import("../db/index");
-    const db = getDatabase();
-    if (!db) return;
+  const orgId = entry.orgId || "system";
 
-    const orgId = entry.orgId || "system";
-    const state = await getChainState(orgId);
-    const nextSeq = state.sequenceNum + 1;
+  await withChainLock(orgId, async () => {
+    try {
+      const { getDatabase } = await import("../db/index");
+      const db = getDatabase();
+      if (!db) return;
 
-    const integrityHash = computeIntegrityHash(state.prevHash, {
-      orgId,
-      event: entry.event,
-      userId: entry.userId,
-      username: entry.username,
-      resourceType: entry.resourceType,
-      resourceId: entry.resourceId,
-      detail: entry.detail,
-      timestamp: entry.timestamp,
-      sequenceNum: nextSeq,
-    });
+      const state = await getChainState(orgId);
+      const nextSeq = state.sequenceNum + 1;
 
-    const { auditLogs } = await import("../db/schema");
-    await db.insert(auditLogs).values({
-      id: randomUUID(),
-      orgId,
-      event: entry.event,
-      userId: entry.userId,
-      username: entry.username,
-      role: entry.role,
-      resourceType: entry.resourceType,
-      resourceId: entry.resourceId,
-      ip: entry.ip,
-      userAgent: entry.userAgent,
-      detail: entry.detail,
-      integrityHash,
-      prevHash: state.prevHash,
-      sequenceNum: nextSeq,
-    });
+      const integrityHash = computeIntegrityHash(state.prevHash, {
+        orgId,
+        event: entry.event,
+        userId: entry.userId,
+        username: entry.username,
+        resourceType: entry.resourceType,
+        resourceId: entry.resourceId,
+        detail: entry.detail,
+        timestamp: entry.timestamp,
+        sequenceNum: nextSeq,
+      });
 
-    // Update chain state (evict oldest if at capacity)
-    if (chainState.size >= MAX_CHAIN_STATE_ENTRIES && !chainState.has(orgId)) {
-      const oldest = chainState.keys().next().value;
-      if (oldest) chainState.delete(oldest);
+      const { auditLogs } = await import("../db/schema");
+      await db.insert(auditLogs).values({
+        id: randomUUID(),
+        orgId,
+        event: entry.event,
+        userId: entry.userId,
+        username: entry.username,
+        role: entry.role,
+        resourceType: entry.resourceType,
+        resourceId: entry.resourceId,
+        ip: entry.ip,
+        userAgent: entry.userAgent,
+        detail: entry.detail,
+        integrityHash,
+        prevHash: state.prevHash,
+        sequenceNum: nextSeq,
+      });
+
+      // Update chain state (evict oldest if at capacity)
+      if (chainState.size >= MAX_CHAIN_STATE_ENTRIES && !chainState.has(orgId)) {
+        const oldest = chainState.keys().next().value;
+        if (oldest) chainState.delete(oldest);
+      }
+      chainState.set(orgId, { prevHash: integrityHash, sequenceNum: nextSeq });
+    } catch (err) {
+      logger.warn({ err, orgId: entry.orgId }, "Failed to persist audit log entry to database");
     }
-    chainState.set(orgId, { prevHash: integrityHash, sequenceNum: nextSeq });
-  } catch (err) {
-    logger.warn({ err, orgId: entry.orgId }, "Failed to persist audit log entry to database");
-  }
+  });
 }
 
 /**

@@ -606,7 +606,11 @@ export function registerOnboardingRoutes(app: Express): void {
         chunks,
         formattedContext: formatRetrievedContext(chunks),
       });
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.code === "RAG_INJECTION_BLOCKED") {
+        res.status(400).json({ message: "Query blocked for safety reasons. Please rephrase your search." });
+        return;
+      }
       logger.error({ err: error }, "RAG search failed");
       res.status(500).json({ message: "RAG search failed" });
     }

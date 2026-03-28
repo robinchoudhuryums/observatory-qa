@@ -11,6 +11,8 @@ const ACTIVITY_EVENTS: Array<keyof DocumentEventMap> = [
 export interface IdleTimeoutState {
   isWarning: boolean;
   remainingSeconds: number;
+  /** Call to dismiss the warning and reset the idle timer (HIPAA "Stay Logged In"). */
+  stayLoggedIn: () => void;
 }
 
 export function useIdleTimeout(): IdleTimeoutState {
@@ -28,7 +30,7 @@ export function useIdleTimeout(): IdleTimeoutState {
   const performLogout = useCallback(async () => {
     clearTimers();
     try { await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }); } catch {}
-    localStorage.clear();
+    // Clear only auth-related storage, not user preferences (theme, tour state, etc.)
     sessionStorage.clear();
     window.location.href = "/auth";
   }, [clearTimers]);
@@ -61,5 +63,5 @@ export function useIdleTimeout(): IdleTimeoutState {
     };
   }, [resetIdleTimer, clearTimers]);
 
-  return { isWarning, remainingSeconds };
+  return { isWarning, remainingSeconds, stayLoggedIn: resetIdleTimer };
 }

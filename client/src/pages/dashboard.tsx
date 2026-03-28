@@ -77,7 +77,7 @@ export default function Dashboard() {
   });
   const goodCalls = flaggedCalls.filter(c => {
     const flags = c.analysis?.flags;
-    return Array.isArray(flags) && flags.includes("exceptional_call");
+    return Array.isArray(flags) && flags.some(f => f === "exceptional_call");
   });
 
   // Track last data update time
@@ -119,8 +119,11 @@ export default function Dashboard() {
       else if (sent === "negative") entry.negative++;
       else if (sent === "neutral") entry.neutral++;
       if (call.analysis?.performanceScore) {
-        entry.totalScore += parseFloat(call.analysis.performanceScore);
-        entry.scored++;
+        const score = parseFloat(call.analysis.performanceScore);
+        if (!isNaN(score)) {
+          entry.totalScore += score;
+          entry.scored++;
+        }
       }
     }
 
@@ -326,6 +329,12 @@ export default function Dashboard() {
         </div>
 
         {/* Sentiment & Call Volume Trend (Last 30 Days) */}
+        {callsLoading && !calls && (
+          <div className="modern-card rounded-xl p-6 animate-pulse">
+            <div className="h-5 w-64 bg-muted rounded mb-4" />
+            <div className="h-64 bg-muted rounded" />
+          </div>
+        )}
         {trendData.length > 0 && trendData.some(d => d.calls > 0) && (
           <div className="modern-card rounded-xl p-6">
             <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">

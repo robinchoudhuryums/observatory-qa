@@ -9,6 +9,7 @@
 import * as Sentry from "@sentry/node";
 import type { Request, Response, NextFunction } from "express";
 import { logger } from "./logger";
+import { redactPhi } from "../utils/phi-redactor";
 
 let initialized = false;
 
@@ -38,13 +39,26 @@ export function initSentry(): void {
       "socket hang up",
     ],
     beforeSend(event) {
-      // Strip PHI patterns from error messages
+      // Strip PHI patterns from error messages using the shared redactor
       if (event.message) {
-        event.message = sanitizeForHipaa(event.message);
+        event.message = redactPhi(event.message);
       }
-      // Strip request body to prevent PHI leakage (transcripts, clinical notes)
+      // Selectively redact PHI from request body instead of blanket stripping.
+      // This preserves debugging context (error types, status codes) while
+      // removing PHI patterns (SSN, phone, email, MRN, addresses).
       if (event.request?.data) {
-        event.request.data = "[REDACTED]";
+        if (typeof event.request.data === "string") {
+          event.request.data = redactPhi(event.request.data);
+        } else {
+          // For non-string data, redact the stringified form
+          event.request.data = redactPhi(JSON.stringify(event.request.data));
+        }
+      }
+      // Redact PHI from exception values/messages
+      if (event.exception?.values) {
+        for (const ex of event.exception.values) {
+          if (ex.value) ex.value = redactPhi(ex.value);
+        }
       }
       return event;
     },
@@ -104,9 +118,7 @@ export async function flushSentry(timeoutMs = 2000): Promise<void> {
   await Sentry.close(timeoutMs);
 }
 
+/** @deprecated Use redactPhi() from phi-redactor.ts instead — kept for backward compatibility */
 function sanitizeForHipaa(message: string): string {
-  message = message.replace(/\b\d{3}-\d{2}-\d{4}\b/g, "[REDACTED-SSN]");
-  message = message.replace(/\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/g, "[REDACTED-PHONE]");
-  message = message.replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g, "[REDACTED-EMAIL]");
-  return message;
+  return redactPhi(message);
 }

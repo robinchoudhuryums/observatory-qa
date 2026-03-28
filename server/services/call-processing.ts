@@ -531,7 +531,12 @@ export async function continueAfterTranscription(
 
     // Step 5: Process results
     broadcastCallUpdate(callId, "processing", { step: 5, totalSteps: 6, label: "Processing results..." }, orgId);
-    const { transcript, sentiment, analysis } = assemblyAIService.processTranscriptData(transcriptResponse, aiAnalysis, callId, orgId);
+    // Load org settings for speaker role configuration
+    const org = await storage.getOrganization(orgId);
+    const orgSettings = org?.settings as OrgSettings | undefined;
+    const { transcript, sentiment, analysis } = assemblyAIService.processTranscriptData(
+      transcriptResponse, aiAnalysis, callId, orgId, orgSettings?.defaultSpeakerRoles,
+    );
 
     // Confidence scoring
     const wordCount = transcriptResponse.words?.length || 0;
@@ -626,7 +631,9 @@ export async function continueAfterTranscription(
     broadcastCallUpdate(callId, "completed", { step: 6, totalSteps: 6, label: "Complete" }, orgId);
 
     // Invalidate dashboard cache so next request picks up new data
-    invalidateDashboardCache(orgId).catch(() => {});
+    invalidateDashboardCache(orgId).catch(err => {
+      logger.debug({ err, orgId }, "Failed to invalidate dashboard cache (non-blocking)");
+    });
 
     // Non-blocking: notifications, coaching, usage tracking
     await postProcessing(orgId, callId, analysis, aiAnalysis, assignedEmployeeId, resolvedOriginalName || callId, transcriptResponse);
@@ -636,6 +643,16 @@ export async function continueAfterTranscription(
     await storage.updateCall(orgId, callId, { status: "failed" });
     broadcastCallUpdate(callId, "failed", { label: "Processing failed" }, orgId);
     if (filePath) await cleanupFile(filePath);
+
+    // Attempt to enqueue for retry via the job queue (non-blocking).
+    // If Redis/queue is unavailable, the call stays in "failed" status
+    // and the user can re-upload manually.
+    try {
+      const { enqueueCallRetry } = await import("./queue");
+      await enqueueCallRetry(orgId, callId, opts?.originalName || callId, opts?.callCategory);
+    } catch {
+      // Queue unavailable — call remains failed, user must re-upload
+    }
   }
 }
 
@@ -827,19 +844,25 @@ async function postProcessing(
   // Webhook notification for flagged calls
   const flags = (analysis.flags as string[]) || [];
   if (flags.length > 0) {
-    notifyFlaggedCall({
-      event: "call_flagged", callId, orgId, flags,
-      performanceScore: analysis.performanceScore ? safeFloat(analysis.performanceScore) : undefined,
-      agentName: analysis.detectedAgentName || undefined,
-      fileName: originalName,
-      summary: typeof analysis.summary === "string" ? analysis.summary : undefined,
-      timestamp: new Date().toISOString(),
-    }).catch(err => logger.warn({ callId, err }, "Failed to send flagged call notification"));
+    withRetry(
+      () => notifyFlaggedCall({
+        event: "call_flagged", callId, orgId, flags,
+        performanceScore: analysis.performanceScore ? safeFloat(analysis.performanceScore) : undefined,
+        agentName: analysis.detectedAgentName || undefined,
+        fileName: originalName,
+        summary: typeof analysis.summary === "string" ? analysis.summary : undefined,
+        timestamp: new Date().toISOString(),
+      }),
+      { retries: 2, baseDelay: 1000, label: "flagged-call-notification" },
+    ).catch(err => logger.warn({ callId, err }, "Failed to send flagged call notification after retries"));
   }
 
   // Coaching recommendations
-  onCallAnalysisComplete(orgId, callId, assignedEmployeeId).catch(err =>
-    logger.warn({ callId, err }, "Failed to generate coaching recommendations"),
+  withRetry(
+    () => onCallAnalysisComplete(orgId, callId, assignedEmployeeId),
+    { retries: 2, baseDelay: 1000, label: "coaching-recommendations" },
+  ).catch(err =>
+    logger.warn({ callId, err }, "Failed to generate coaching recommendations after retries"),
   );
 
   // Gamification: record activity and check for badge awards
