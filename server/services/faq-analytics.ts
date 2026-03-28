@@ -88,3 +88,8 @@ export function getKnowledgeBaseGaps(orgId: string, options?: { minCount?: numbe
     .map(f => ({ query: f.query, count: f.count, avgTopScore: f.avgTopScore }))
     .slice(0, limit);
 }
+
+/** Alias for recordRagQuery — used by RAG trace integration */
+export function recordFaqQuery(orgId: string, query: string, score: number, level: string): void {
+  recordRagQuery(orgId, query, score, level === "none" ? 0 : 1);
+}

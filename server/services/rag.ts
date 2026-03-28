@@ -14,7 +14,10 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { chunkDocument, type DocumentChunk } from "./chunker";
 import { generateEmbedding, generateEmbeddingsBatch, isEmbeddingAvailable } from "./embeddings";
 import { logger } from "./logger";
-import { detectPromptInjection } from "../utils/ai-guardrails";
+import { detectPromptInjection, checkOutputGuardrails } from "../utils/ai-guardrails";
+import { redactPhi } from "../utils/phi-redactor";
+import { logRagTrace, createRagTimer, type RagTrace } from "./rag-trace";
+import { recordFaqQuery } from "./faq-analytics";
 import * as tables from "../db/schema";
 
 export interface RetrievedChunk {
@@ -155,6 +158,7 @@ export async function searchRelevantChunks(
   const topK = options.topK ?? 6;
   const semanticWeight = options.semanticWeight ?? 0.7;
   const keywordWeight = options.keywordWeight ?? 0.3;
+  const timer = createRagTimer();
 
   if (!isEmbeddingAvailable() || documentIds.length === 0) {
     return [];
@@ -164,11 +168,30 @@ export async function searchRelevantChunks(
   const injectionCheck = detectPromptInjection(queryText);
   if (injectionCheck.isInjection) {
     logger.warn({ pattern: injectionCheck.pattern, orgId }, "Prompt injection detected in RAG query — returning empty results");
+    // Log trace for blocked queries
+    logRagTrace({
+      traceId: randomUUID(),
+      orgId,
+      queryTextRedacted: redactPhi(queryText),
+      embeddingTimeMs: 0,
+      retrievalTimeMs: 0,
+      rerankTimeMs: 0,
+      totalTimeMs: timer.total(),
+      candidateCount: 0,
+      returnedCount: 0,
+      topScore: 0,
+      avgScore: 0,
+      confidenceLevel: "none",
+      confidenceScore: 0,
+      injectionBlocked: true,
+      timestamp: new Date().toISOString(),
+    });
     return [];
   }
 
   // Generate query embedding
   const queryEmbedding = await generateEmbedding(queryText);
+  timer.mark("embedding");
   const embeddingStr = `[${queryEmbedding.join(",")}]`;
 
   // Fetch top candidates from pgvector (retrieve more than topK for keyword reranking)
@@ -193,6 +216,7 @@ export async function searchRelevantChunks(
     ORDER BY dc.embedding <=> ${embeddingStr}::vector
     LIMIT ${candidateLimit}
   `);
+  timer.mark("retrieval");
 
   if (!candidates.rows || candidates.rows.length === 0) {
     return [];
@@ -235,12 +259,42 @@ export async function searchRelevantChunks(
     if (result.text.length < 50) { boost -= 0.10; }
     result.score = Math.max(0, result.score * (1 + boost));
   }
+  timer.mark("rerank");
 
   // Sort by combined score, filter out low-relevance chunks, and return top K
   results.sort((a, b) => b.score - a.score);
   const MIN_RELEVANCE_SCORE = 0.3;
   const relevant = results.filter(r => r.score >= MIN_RELEVANCE_SCORE);
-  return relevant.slice(0, topK);
+  const finalResults = relevant.slice(0, topK);
+
+  // Compute confidence for tracing and FAQ analytics
+  const confidence = computeConfidence(finalResults);
+
+  // Record FAQ analytics
+  recordFaqQuery(orgId, queryText, confidence.score, confidence.level);
+
+  // Log RAG trace with PHI-redacted query
+  logRagTrace({
+    traceId: randomUUID(),
+    orgId,
+    queryTextRedacted: redactPhi(queryText),
+    embeddingTimeMs: timer.elapsed("embedding"),
+    retrievalTimeMs: timer.elapsed("retrieval"),
+    rerankTimeMs: timer.elapsed("rerank"),
+    totalTimeMs: timer.total(),
+    candidateCount: candidates.rows.length,
+    returnedCount: finalResults.length,
+    topScore: finalResults.length > 0 ? finalResults[0].score : 0,
+    avgScore: finalResults.length > 0
+      ? finalResults.reduce((sum, c) => sum + c.score, 0) / finalResults.length
+      : 0,
+    confidenceLevel: confidence.level,
+    confidenceScore: confidence.score,
+    injectionBlocked: false,
+    timestamp: new Date().toISOString(),
+  });
+
+  return finalResults;
 }
 
 /**
@@ -258,6 +312,24 @@ export function formatRetrievedContext(chunks: RetrievedChunk[]): string {
   }
 
   return sections.join("\n\n");
+}
+
+/**
+ * Scan AI/RAG output for PHI before returning to client.
+ * Logs a warning if PHI is detected and returns a redacted version.
+ */
+export function scanAndRedactOutput(text: string, context?: { orgId?: string; queryId?: string }): { text: string; phiDetected: boolean } {
+  const redacted = redactPhi(text);
+  const phiDetected = redacted !== text;
+
+  if (phiDetected) {
+    logger.warn(
+      { orgId: context?.orgId, queryId: context?.queryId },
+      "PHI detected in RAG/AI output — redacted before returning to client",
+    );
+  }
+
+  return { text: redacted, phiDetected };
 }
 
 /**
