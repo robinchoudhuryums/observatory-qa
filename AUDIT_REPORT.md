@@ -155,7 +155,7 @@ SQL injection regex patterns with `.*` quantifier. Mitigated by `MAX_SCAN_LENGTH
 1. **Feature sprawl** — 34 pages, 38 route files, 30+ services. Maintenance burden is very high
 2. **In-memory fallbacks mask production issues** — incident response, OIDC state, email OTP, SCIM token lookup all use in-memory stores that break in multi-instance deployments
 3. **Schema sync vs. migrations** — auto-sync is convenient but risky for production data changes (column renames, type changes)
-4. **No visible CI/CD pipeline** — no GitHub Actions, no automated security scanning, no `npm audit`
+4. ~~**No visible CI/CD pipeline**~~ FIXED — comprehensive GitHub Actions pipeline with lint gate, tests + coverage, security audit + secret scanning, Docker build, E2E tests, quality gate, staging/production deploy
 5. **Many features are "90% done"** — impressive breadth but several features lack the final 10% of hardening
 6. **`as any` usage** — defeats TypeScript's value proposition in security-critical auth code
 
@@ -197,6 +197,6 @@ SQL injection regex patterns with `.*` quantifier. Mitigated by `MAX_SCAN_LENGTH
 
 - AWS SDK v3 (`^3.1014.0`) — consider pinning exact versions for production stability
 - `@types/express` pinned without `^` — may cause type drift
-- No `npm audit` in CI/CD pipeline
-- No `engines` field in package.json
+- ~~No `npm audit` in CI/CD pipeline~~ FIXED — security job runs `npm audit --audit-level=high` + secret scanning
+- ~~No `engines` field in package.json~~ FIXED — added `engines` (node>=20, npm>=10) + `.nvmrc`
 - Passport `^0.7.0` — verify latest security patches applied

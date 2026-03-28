@@ -58,8 +58,9 @@ ENV NODE_ENV=production
 ENV PORT=5000
 
 # Health check — verifies the app responds on the readiness endpoint
+# Uses fetch (native in Node 20+) instead of require('http') for ESM compatibility
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD node -e "const http = require('http'); const req = http.get('http://localhost:${PORT}/api/health/ready', (res) => { process.exit(res.statusCode === 200 ? 0 : 1); }); req.on('error', () => process.exit(1)); req.end();"
+  CMD node -e "fetch('http://localhost:5000/api/health/ready').then(r=>{process.exit(r.ok?0:1)}).catch(()=>process.exit(1))"
 
 # Switch to non-root user
 USER appuser

@@ -58,8 +58,13 @@ npm run build          # Vite frontend + esbuild backend → dist/
 npm run start          # Production server (NODE_ENV=production node dist/index.js)
 npm run check          # TypeScript type check
 npm run test           # Run tests (tsx --test tests/*.test.ts)
+npm run test:coverage  # Run tests with c8 coverage (text + lcov → coverage/)
 npm run test:e2e       # Run Playwright E2E tests (requires dev server running)
 npm run test:e2e:ui    # Open Playwright interactive UI
+npm run lint           # ESLint (server, shared, client)
+npm run lint:fix       # ESLint with auto-fix
+npm run format         # Prettier write
+npm run format:check   # Prettier check (CI uses this)
 npm run seed           # Seed data (tsx seed.ts)
 npm run workers        # Start BullMQ worker processes (requires REDIS_URL)
 npm run workers:build  # Build workers → dist/workers.js
@@ -1007,6 +1012,29 @@ On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add mi
 - **Email OTP for non-admins**: A 6-digit OTP (10-minute TTL, 3 attempts max) is sent to the user's username/email. Restricted to viewer/manager roles — admin users must use TOTP or WebAuthn. Stored in an in-memory map keyed by userId (TTL too short to warrant DB overhead).
 - **MFA recovery flow**: User submits a recovery request; server sends a time-limited verification token to the user's email. Admin sees pending requests in the admin panel and approves or denies. On approval, a use-token (15-min TTL) is emailed to the user, which completes login and clears MFA — forcing re-enrollment. All steps are HIPAA-audit-logged. Table: `mfa_recovery_requests`.
 
+## CI/CD Pipeline
+
+### GitHub Actions (`.github/workflows/ci.yml`)
+Automated pipeline runs on push to `main` and all PRs:
+
+| Job | Description | Gate |
+|-----|-------------|------|
+| **Lint & Format** | ESLint (zero-warning policy) + Prettier check | Blocks build |
+| **Type Check & Tests** | `tsc` + unit tests with c8 coverage | Blocks build |
+| **Security Audit** | `npm audit --audit-level=high` + secret scanning (AWS keys, private keys, API tokens) | Blocks deploy |
+| **Build** | Vite frontend + esbuild backend, artifact verified | Requires lint + test |
+| **Docker** | Multi-stage build, pushes to GHCR on main | Requires lint + test |
+| **E2E Tests** | Playwright Chromium against production build | Requires build |
+| **Quality Gate** | Explicit gate requiring all above jobs | Blocks all deploys |
+| **Deploy Staging** | Auto on main push via Render deploy hook + health check | Requires quality gate |
+| **Deploy Production** | Manual only (`workflow_dispatch`), GitHub Environment approval | Requires quality gate |
+
+### Docker
+- **Dockerfile**: Multi-stage (builder → production), non-root user, tini init, health check via `fetch()`
+- **docker-compose.yml**: App + workers + PostgreSQL 16 (pgvector) + Redis 7
+- **docker-compose.prod.yml**: Blue-green deployment overrides with memory limits and log rotation
+- **`.dockerignore`**: Excludes tests, docs, dev files
+
 ## Deployment
 
 ### EC2 (Production HIPAA) — `deploy/ec2/`
@@ -1021,7 +1049,7 @@ Internet → Caddy (:443, auto TLS) → Node.js (:5000) → PostgreSQL + S3 + Be
 ### Render.com (Staging / Non-PHI)
 - Build: `npm run build`, Start: `npm run start`
 - Env vars in Render dashboard
-- No `render.yaml` — configured via dashboard
+- IaC via `render.yaml` (web + worker + Redis + PostgreSQL)
 - URL: `https://observatory-qa-product.onrender.com`
 - Uses Neon PostgreSQL (external), Render Redis
 - **Required env vars**: `ASSEMBLYAI_API_KEY`, `SESSION_SECRET`, `DATABASE_URL`, `STORAGE_BACKEND=postgres`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `S3_BUCKET` (for audio storage), `REDIS_URL`
@@ -1112,6 +1140,15 @@ Server serves both API and static frontend from the same process.
 ## In-Progress Work (resume here in a new session)
 
 ### Branch: `claude/audit-codebase-review-AcjWE`
+
+#### ✅ Completed & committed: DevOps & Infrastructure hardening
+- **Node.js version pinning** — `engines` field in package.json (>=20.0.0), `.nvmrc` file for nvm/fnm users
+- **Missing dev dependencies** — added `eslint`, `typescript-eslint`, `c8` to devDependencies (were used in scripts but not declared)
+- **Docker healthcheck fix** — replaced CommonJS `require('http')` with native `fetch()` for ESM compatibility in Dockerfile and docker-compose.yml
+- **CI secret scanning** — GitHub Actions now scans for AWS keys, private keys, and API tokens in source files
+- **CI test coverage** — unit test job now runs c8 coverage (text + lcov), uploads coverage report as artifact
+- **CI schema validation** — build job validates that `sync-schema.ts` covers all `pgTable()` definitions in `schema.ts`, warns on missing tables
+- **Test fixes** — fixed all 20 pre-existing test failures (method name mismatches, schema field gaps, incorrect test expectations)
 
 #### ✅ Completed & committed: HIPAA Compliance hardening
 - **PHI encryption enforcement** — `encryptField()` now throws in production if `PHI_ENCRYPTION_KEY` is not set; dev mode logs a warning and allows plaintext for local development
