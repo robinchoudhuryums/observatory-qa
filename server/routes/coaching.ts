@@ -90,6 +90,13 @@ export function registerCoachingRoutes(app: Express): void {
   // Get coaching sessions for a specific employee
   app.get("/api/coaching/employee/:employeeId", requireAuth, injectOrgContext, async (req, res) => {
     try {
+      // Team scoping: verify caller has access to this employee
+      const teamIds = req.user?.role !== "admin"
+        ? await getTeamScopedEmployeeIds(req.orgId!, req.user!)
+        : null;
+      if (teamIds !== null && !teamIds.has(req.params.employeeId)) {
+        return res.status(403).json({ message: "Employee is outside your team" });
+      }
       const sessions = await storage.getCoachingSessionsByEmployee(req.orgId!, req.params.employeeId);
       logPhiAccess({
         ...auditContext(req),

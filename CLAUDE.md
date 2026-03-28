@@ -1158,6 +1158,12 @@ Server serves both API and static frontend from the same process.
 - **Payer mix carrier fix** — carrier breakdown now uses `insuranceAmount` only (was falling back to `actualRevenue`, which includes patient portion — double-counting insurance revenue)
 - **Forecast confidence** — forecast response now includes `forecastConfidence` ("low"/"moderate"/"high" based on day of month), `daysElapsed`, `daysRemaining`. Low confidence before day 7 warns users that early-month projections are unreliable
 
+#### ✅ Completed & committed: RBAC improvements
+- **Email submit role gate** — POST `/api/emails/submit` now requires manager+ role (viewers could submit emails)
+- **Live session role gate** — POST `/api/live-sessions` now requires manager+ role (viewers could start clinical recordings)
+- **Call detail team scoping** — GET `/api/calls/:id` now checks team boundary (managers with subTeam could access any call by direct ID)
+- **Coaching detail team scoping** — GET `/api/coaching/employee/:employeeId` now checks team boundary before returning sessions
+
 #### ✅ Completed & committed: A/B Testing improvements
 - **p-value fix** — simplified tDistPValue() Cornish-Fisher approximation: removed unused intermediate variable, eliminated redundant sqrt(df) multiply/divide that cancelled out. Result is cleaner and mathematically equivalent
 - **Paired score comparison** — stats computation now requires BOTH baseline and test scores present (was independently pushing nulls, causing array length mismatches and skewed t-test)

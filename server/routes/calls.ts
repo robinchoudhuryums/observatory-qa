@@ -130,6 +130,17 @@ export function registerCallRoutes(app: Express): void {
         return;
       }
 
+      // Team scoping: verify caller has access to this call's employee
+      if (call.employeeId) {
+        const teamIds = req.user?.role !== "admin"
+          ? await getTeamScopedEmployeeIds(req.orgId!, req.user!)
+          : null;
+        if (teamIds !== null && !teamIds.has(call.employeeId)) {
+          res.status(403).json({ message: "Call belongs to an employee outside your team" });
+          return;
+        }
+      }
+
       logPhiAccess({
         ...auditContext(req),
         event: "view_call_details",

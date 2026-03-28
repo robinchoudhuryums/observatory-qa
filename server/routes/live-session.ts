@@ -221,7 +221,7 @@ export function registerLiveSessionRoutes(app: Express): void {
    * Creates session record and returns session ID for WebSocket audio streaming.
    */
   app.post("/api/live-sessions",
-    requireAuth, injectOrgContext, requireClinicalPlan(),
+    requireAuth, requireRole("manager", "admin"), injectOrgContext, requireClinicalPlan(),
     async (req, res) => {
       const orgId = req.orgId!;
       const user = req.user!;
