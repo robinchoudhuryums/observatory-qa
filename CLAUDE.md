@@ -74,7 +74,7 @@ npx vite build         # Frontend-only build (quick verification)
 - **Unit tests**: Node.js built-in `test` module via `tsx` — `npm run test`
 - **E2E tests**: Playwright (Chromium) — `npm run test:e2e` or `npm run test:e2e:ui`
 - **Location**: `tests/` (unit), `tests/e2e/` (E2E)
-- **Unit test files** (34 files):
+- **Unit test files** (35 files):
   - `tests/schema.test.ts` — Zod schema validation (orgId on all entities, organization schemas)
   - `tests/ai-provider.test.ts` — AI provider utilities (parseJsonResponse, buildAnalysisPrompt, smartTruncate)
   - `tests/routes.test.ts` — API route handler tests
@@ -105,6 +105,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/gamification-improvements.test.ts` — Gamification improvements (opt-out, recognition badges, effectiveness, teams)
   - `tests/lms-improvements.test.ts` — LMS improvements (prerequisites, deadlines, certificates, coaching recommendations)
   - `tests/revenue-improvements.test.ts` — Revenue improvements (attribution funnel, payer mix, forecasting, EHR sync)
+  - `tests/insurance-narrative-improvements.test.ts` — Insurance narrative improvements (outcomes, denial analysis, deadlines, payer templates)
   - `tests/error-handling.test.ts` — Error handling patterns
   - `tests/phi-encryption.test.ts` — PHI field encryption
   - `tests/sso.test.ts` — SAML SSO
@@ -143,6 +144,10 @@ client/src/components/       # UI components
   owl-loading.tsx            #   Custom owl-themed loading animation (liquid fill CSS)
   onboarding-tour.tsx        #   Interactive product tour (6 steps, localStorage-persistent)
   feedback-widget.tsx        #   Floating feedback button (bottom-right), auto-detects page context
+  idle-timeout-overlay.tsx   #   HIPAA session timeout warning overlay (countdown + stay-logged-in)
+
+client/src/hooks/            # Custom React hooks
+  use-idle-timeout.ts        #   15-min idle timeout with 2-min warning, auto-logout on expiry
 
 client/src/lib/              # Client utilities
   display-utils.ts           #   toDisplayString() — safe AI response value rendering
@@ -192,7 +197,9 @@ server/routes/               # Modular API route files (38 route files)
   emails.ts                  #   Email management: templates, send history, email analytics
   live-session.ts            #   Real-time live call session support (AssemblyAI real-time)
   lms.ts                     #   Learning Management System: courses, lessons, AI-generated training
-  marketing.ts               #   Marketing attribution: UTM tracking, source/medium, campaign ROI
+  marketing.ts               #   Lead tracking (renamed from marketing): call source attribution, campaign ROI
+  benchmarks.ts              #   QA benchmarking: anonymized cross-org performance percentiles by industry
+  patient-journey.ts         #   Patient journey analytics: multi-visit patient tracking, retention, sentiment trends
   super-admin.ts             #   Platform-level admin (cross-org management, SUPER_ADMIN_USERS)
   assemblyai-webhook.ts      #   AssemblyAI transcription webhook receiver (POST /api/webhooks/assemblyai)
 
@@ -230,10 +237,20 @@ server/services/             # Business logic & integrations (30 files)
   fhir.ts                    #   FHIR R4 export builder (Composition, DocumentReference, Bundle)
   clinical-extraction.ts     #   Structured data extraction from clinical notes (vitals, medications, allergies)
   org-encryption.ts          #   Per-org KMS envelope encryption: getOrgDataKey, encryptFieldForOrg, decryptFieldForOrg
+  rag-trace.ts               #   RAG pipeline observability: per-query timing breakdown, confidence metrics, injection audit trail
+  faq-analytics.ts           #   FAQ detection from RAG query patterns: query normalization, gap analysis, confidence distribution
+  embedding-provider.ts      #   EmbeddingProvider interface for swappable embedding models (default: Titan Embed V2)
 
 server/middleware/           # Express middleware
   waf.ts                     #   Web Application Firewall (request filtering, bot detection)
   tracing.ts                 #   OpenTelemetry request tracing (trace IDs, span attributes)
+  correlation-id.ts          #   Per-request correlation ID via AsyncLocalStorage
+
+server/utils/                # Shared server utilities (ported from UMS knowledge base tool)
+  url-validation.ts          #   SSRF prevention: blocks private IPs, cloud metadata, non-HTTP protocols
+  ai-guardrails.ts           #   Prompt injection detection (15 patterns), output safety checks
+  phi-redactor.ts            #   PHI regex scrubber (SSN, phone, email, MRN, addresses; preserves clinical codes)
+  request-metrics.ts         #   In-memory per-route latency percentiles (p50/p95/p99, 10-min window)
 
 server/services/ehr/         # EHR integration adapters
   types.ts                   #   IEhrAdapter interface, EhrPatient, EhrAppointment, EhrClinicalNote, EhrTreatmentPlan
@@ -302,7 +319,7 @@ tests/e2e/                   # Playwright E2E tests (11 spec files)
 | `revenue.tsx` | `/revenue` | Revenue tracking: per-call dollar values, conversion metrics |
 | `calibration.tsx` | `/calibration` | QA calibration sessions: multi-evaluator scoring alignment |
 | `learning.tsx` | `/learning` | Learning Management System: courses, lessons, training content |
-| `marketing.tsx` | `/marketing` | Marketing attribution: campaign tracking, source/medium, ROI |
+| `marketing.tsx` | `/marketing` | Lead tracking: call source attribution, campaign ROI |
 | `emails.tsx` | `/emails` | Email management: templates, send history, analytics |
 | `clinical-live.tsx` | `/clinical/live` | Live clinical session: real-time transcription + note generation |
 | `audit-logs.tsx` | `/admin/audit-logs` | HIPAA audit log viewer |
@@ -331,7 +348,7 @@ Every data entity has an `orgId` field. All storage methods take `orgId` as the 
 - `ReferenceDocument` — id, orgId, name, category, fileName, extractedText, appliesTo, isActive, `version` (integer, monotonically increasing), `previousVersionId` (text, links to prior version), `indexingStatus` (pending/indexing/indexed/failed), `indexingError` (text), `sourceType` (upload/url), `sourceUrl` (text), `retrievalCount` (integer, auto-incremented on RAG retrieval)
 - `Feedback` — id, orgId, userId, type (feature_rating/bug_report/suggestion/nps/general), context (page/feature), rating (1-10), comment, metadata, status, adminResponse
 - `EmployeeBadge` — id, orgId, employeeId, badgeId, awardedAt, awardedFor. 12 badge definitions: milestone (first_call, ten_calls, hundred_calls), performance (perfect_score, high_performer, consistency_king), improvement (most_improved, comeback_kid), engagement (self_reviewer, coaching_champion), streak (streak_7, streak_30)
-- `InsuranceNarrative` — id, orgId, callId, patientName, insurerName, letterType (prior_auth/appeal/predetermination/medical_necessity/peer_to_peer), diagnosisCodes, procedureCodes, clinicalJustification, generatedNarrative, status (draft/finalized/submitted)
+- `InsuranceNarrative` — id, orgId, callId, patientName, insurerName, letterType (prior_auth/appeal/predetermination/medical_necessity/peer_to_peer), diagnosisCodes, procedureCodes, clinicalJustification, generatedNarrative, status (draft/finalized/submitted), `outcome` (approved/denied/partial_approval/pending/withdrawn), `outcomeDate`, `outcomeNotes`, `denialCode`, `denialReason`, `submissionDeadline`, `deadlineAcknowledged`, `payerTemplate`, `supportingDocuments` (JSONB checklist array)
 - `CallRevenue` — id, orgId, callId, estimatedRevenue, actualRevenue, revenueType (production/collection/scheduled/lost), treatmentValue, scheduledProcedures, conversionStatus (converted/pending/lost/unknown), `attributionStage` (call_identified/appointment_scheduled/appointment_completed/treatment_accepted/payment_collected), `appointmentDate`, `appointmentCompleted`, `treatmentAccepted`, `paymentCollected`, `payerType` (insurance/cash/mixed/unknown), `insuranceCarrier`, `insuranceAmount`, `patientAmount`, `ehrSyncedAt`
 - `CalibrationSession` — id, orgId, title, callId, facilitatorId, evaluatorIds, status (scheduled/in_progress/completed), targetScore, consensusNotes, `blindMode` (boolean, evaluators can't see others' scores until session completed)
 - `CalibrationEvaluation` — id, orgId, sessionId, evaluatorId, performanceScore, subScores, notes
@@ -641,6 +658,11 @@ Uses AWS Bedrock (Claude) for AI analysis. Per-org `bedrockModel` can be configu
 | PATCH | `/api/insurance-narratives/:id` | manager+ | Update narrative/status |
 | DELETE | `/api/insurance-narratives/:id` | manager+ | Delete narrative |
 | POST | `/api/insurance-narratives/:id/regenerate` | manager+ | Regenerate letter text |
+| GET | `/api/insurance-narratives/payer-templates` | authenticated | List payer-specific templates (BCBS, Aetna, UHC, etc.) |
+| POST | `/api/insurance-narratives/:id/outcome` | manager+ | Record outcome (approved/denied/partial) with denial code |
+| GET | `/api/insurance-narratives/denial-analysis` | manager+ | Denial code frequency analysis with per-insurer approval rates |
+| GET | `/api/insurance-narratives/deadlines` | authenticated | Narratives approaching submission deadlines (urgency levels) |
+| GET | `/api/insurance-narratives/:id/checklist` | authenticated | Supporting document checklist for letter type |
 
 ### Revenue Tracking (org-scoped)
 | Method | Path | Role | Description |
@@ -700,7 +722,7 @@ Uses AWS Bedrock (Claude) for AI analysis. Per-org `bedrockModel` can be configu
 | GET | `/api/lms/coaching-recommendations` | authenticated | Recommend modules based on coaching/weak areas |
 | GET | `/api/lms/knowledge-search` | authenticated | Search knowledge base |
 
-### Marketing Attribution (org-scoped)
+### Lead Tracking / Call Source Attribution (org-scoped)
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
 | GET | `/api/marketing/campaigns` | authenticated | List campaigns |
@@ -709,6 +731,18 @@ Uses AWS Bedrock (Claude) for AI analysis. Per-org `bedrockModel` can be configu
 | GET | `/api/marketing/metrics` | authenticated | Campaign metrics |
 | GET | `/api/marketing/sources` | authenticated | Traffic source breakdown |
 | GET | `/api/marketing/attribution/:callId` | authenticated | Call-level attribution |
+
+### QA Benchmarking (org-scoped, anonymized cross-org)
+| Method | Path | Role | Description |
+|--------|------|------|-------------|
+| GET | `/api/benchmarks` | authenticated | Org scores vs anonymized industry percentiles |
+| GET | `/api/benchmarks/trends` | authenticated | Monthly percentile rank trend (last 12 months) |
+
+### Patient Journey Analytics (org-scoped, PHI-protected)
+| Method | Path | Role | Description |
+|--------|------|------|-------------|
+| GET | `/api/patient-journeys` | manager+ | List multi-visit patient journeys with call history |
+| GET | `/api/patient-journeys/insights` | manager+ | Retention rate, sentiment trends, revenue comparison |
 
 ### Email Management (org-scoped)
 | Method | Path | Role | Description |
@@ -1157,6 +1191,34 @@ Server serves both API and static frontend from the same process.
 - **Payer mix analysis** — `GET /api/revenue/payer-mix` returns: overall breakdown by payerType (insurance/cash/mixed/unknown) with counts and revenue totals; per-carrier breakdown sorted by revenue; per-employee payer split; schema adds `payerType`, `insuranceCarrier`, `insuranceAmount`, `patientAmount` fields to CallRevenue
 - **EHR revenue sync** — `POST /api/revenue/ehr-sync/:callId` pulls treatment plan data from configured EHR (Open Dental/Eaglesoft) using `ehrPatientId`; maps treatment plan fees → treatmentValue, insurance/patient splits → payerType, plan status → attributionStage/conversionStatus; stores `ehrSyncedAt` timestamp; scheduled procedures extracted from plan phases
 - **Attribution chain schema** — new fields on `CallRevenue`: `attributionStage` (5-stage funnel enum), `appointmentDate`, `appointmentCompleted`, `treatmentAccepted`, `paymentCollected`, `payerType`, `insuranceCarrier`, `insuranceAmount`, `patientAmount`, `ehrSyncedAt`; all fields added to DB sync, Drizzle schema, pg-storage mapping
+
+#### ✅ Completed & committed: Insurance Narrative improvements
+- **Payer-specific templates** — 7 templates (BCBS, Aetna, UHC, Cigna, Delta Dental, MetLife, generic) with required fields, preferred format guidance, and submission tips; `GET /api/insurance-narratives/payer-templates`
+- **Outcome tracking** — `POST /api/insurance-narratives/:id/outcome` records approved/denied/partial_approval/pending/withdrawn with outcomeDate, outcomeNotes, and denial details
+- **Denial code analysis** — `GET /api/insurance-narratives/denial-analysis` with per-code frequency, affected insurers/letter types, overall and per-insurer approval rates
+- **Deadline tracking** — `submissionDeadline` + `deadlineAcknowledged` fields; `GET /api/insurance-narratives/deadlines` returns urgency (overdue/critical/warning/on_track) for all pending narratives
+- **Supporting document checklists** — per-letter-type checklist generation (appeals need EOB + peer-reviewed literature, prior auths need radiographs + treatment plan); `GET /api/insurance-narratives/:id/checklist` with completion rate tracking
+
+#### ✅ Completed & committed: QA Benchmarking (new feature)
+- **Anonymized cross-org benchmarks** — `GET /api/benchmarks` computes performance percentiles (p25/p50/p75/p90) across all active orgs, segmented by industryType; includes sub-scores (compliance, customerExperience, communication, resolution), sentiment rates, and flag rates; 1-hour cache; requires 3+ orgs per industry
+- **Org percentile rank** — each org sees where they stand relative to industry peers (e.g., "73rd percentile for dental practices"); zero org-identifiable data exposed
+- **Monthly trend** — `GET /api/benchmarks/trends` returns avg performance score per month for last 12 months
+
+#### ✅ Completed & committed: Patient Journey Analytics (new feature)
+- **Multi-visit patient tracking** — `GET /api/patient-journeys` connects calls from the same patient using name matching from revenue records, clinical notes, and AI analysis summaries; shows chronological call history with scores, sentiment, revenue, and employee per touchpoint
+- **Retention insights** — `GET /api/patient-journeys/insights` computes retention rate, avg visits per returning patient, avg days between visits, sentiment improvement on return visits, and revenue comparison (multi-visit vs single-visit patients with revenue multiplier)
+- **PHI-protected** — all queries audit-logged via logPhiAccess, manager+ role required
+
+#### ✅ Completed & committed: UMS Knowledge Base Port (cross-cutting improvements)
+- **Security** — SSRF prevention on all outbound URL fetches (reference docs, SSO OIDC, SIEM webhooks), timing-safe CSRF comparison, account lockout timing disclosure prevention, CRLF injection prevention in emails, prompt injection detection in RAG, embedding dimension validation, frontend idle timeout (15-min + 2-min warning)
+- **RAG quality** — IDF-enhanced BM25, dynamic normalization, section header re-ranking, medical-term-aware tokenizer (ICD-10/CPT/CDT/HCPCS preserved), NaN guards, blended confidence scoring, conversation history validation
+- **Observability** — per-request correlation IDs via AsyncLocalStorage, auto-injected into Pino logger, PHI redaction on audit log details, per-route request metrics (p50/p95/p99) via /api/health/metrics, RAG trace logging with timing breakdown, FAQ analytics with knowledge base gap detection
+- **Content integrity** — SHA-256 content-hash deduplication on reference document uploads (409 on duplicate), prompt cache status logging on Bedrock
+
+#### Product positioning change: Marketing → Lead Tracking
+- Renamed sidebar label, page title, and CLAUDE.md references
+- API paths (`/api/marketing/*`) unchanged for backward compatibility
+- Positioned as "where do calls come from?" rather than a marketing attribution product
 
 ## Future Plans / Roadmap
 See `HEALTHCARE_EXPANSION_PLAN.md` for the full 4-phase healthcare expansion roadmap.

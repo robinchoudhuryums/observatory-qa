@@ -719,6 +719,15 @@ export async function syncSchema(db: Database): Promise<void> {
         updated_at TIMESTAMP DEFAULT NOW()
       )
     `);
+    await addColumnIfNotExists(db, "insurance_narratives", "outcome", "VARCHAR(30)");
+    await addColumnIfNotExists(db, "insurance_narratives", "outcome_date", "TIMESTAMP");
+    await addColumnIfNotExists(db, "insurance_narratives", "outcome_notes", "TEXT");
+    await addColumnIfNotExists(db, "insurance_narratives", "denial_code", "VARCHAR(30)");
+    await addColumnIfNotExists(db, "insurance_narratives", "denial_reason", "TEXT");
+    await addColumnIfNotExists(db, "insurance_narratives", "submission_deadline", "TIMESTAMP");
+    await addColumnIfNotExists(db, "insurance_narratives", "deadline_acknowledged", "BOOLEAN");
+    await addColumnIfNotExists(db, "insurance_narratives", "payer_template", "VARCHAR(50)");
+    await addColumnIfNotExists(db, "insurance_narratives", "supporting_documents", "JSONB");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS insurance_narratives_org_idx ON insurance_narratives (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS insurance_narratives_status_idx ON insurance_narratives (org_id, status)`);
     // Index for call-linked narrative lookups (matches schema.ts definition)

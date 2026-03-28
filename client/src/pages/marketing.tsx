@@ -290,10 +290,10 @@ export default function MarketingPage() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
           <RiMegaphoneLine className="w-6 h-6" />
-          Marketing Attribution
+          Lead Tracking
         </h1>
         <p className="text-muted-foreground text-sm">
-          Track where calls come from and measure marketing ROI by source.
+          Track where calls come from and measure lead source ROI.
         </p>
       </div>
 

@@ -341,7 +341,7 @@ export default function Sidebar() {
           <div className="space-y-0.5">
             <AdminLink href="/emails" icon={RiMailLine} label="Email QA" testId="nav-link-emails" />
             <AdminLink href="/learning" icon={RiGraduationCapLine} label="Learning Center" testId="nav-link-learning" />
-            <AdminLink href="/marketing" icon={RiMegaphoneLine} label="Marketing" testId="nav-link-marketing" />
+            <AdminLink href="/marketing" icon={RiMegaphoneLine} label="Lead Tracking" testId="nav-link-marketing" />
           </div>
         )}
 
