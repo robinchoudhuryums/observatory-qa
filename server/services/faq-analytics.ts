@@ -6,8 +6,6 @@
  * low retrieval scores).
  */
 
-import { logger } from "./logger";
-
 interface QueryEntry {
   query: string;
   timestamp: number;

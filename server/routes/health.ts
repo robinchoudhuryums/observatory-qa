@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { storage } from "../storage";
+import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { aiProvider, getBedrockCircuitState } from "../services/ai-factory";
 import { getRedis, getRedisStatus } from "../services/redis";
 import { logger } from "../services/logger";
@@ -232,14 +233,13 @@ export function registerHealthRoutes(app: Express): void {
   });
 
   /**
-   * GET /api/health/faq-analytics?orgId=...&minCount=2&limit=50
-   * Returns FAQ analytics for an org (top queries, knowledge base gaps).
-   * Admin-only in production; no auth check here for simplicity.
+   * GET /api/health/faq-analytics?minCount=2&limit=50
+   * Returns FAQ analytics for the authenticated user's org (top queries, knowledge base gaps).
    */
-  app.get("/api/health/faq-analytics", (req, res) => {
-    const orgId = req.query.orgId as string;
+  app.get("/api/health/faq-analytics", requireAuth, requireRole("admin"), injectOrgContext, (req, res) => {
+    const orgId = req.orgId;
     if (!orgId) {
-      return res.status(400).json({ message: "orgId query parameter required" });
+      return res.status(403).json({ message: "Organization context required" });
     }
 
     const minCount = parseInt(req.query.minCount as string) || 2;

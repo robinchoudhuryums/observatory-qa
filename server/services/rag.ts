@@ -14,7 +14,7 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { chunkDocument, type DocumentChunk } from "./chunker";
 import { generateEmbedding, generateEmbeddingsBatch, isEmbeddingAvailable } from "./embeddings";
 import { logger } from "./logger";
-import { detectPromptInjection, checkOutputGuardrails } from "../utils/ai-guardrails";
+import { detectPromptInjection } from "../utils/ai-guardrails";
 import { redactPhi } from "../utils/phi-redactor";
 import { logRagTrace, createRagTimer, type RagTrace } from "./rag-trace";
 import { recordFaqQuery } from "./faq-analytics";
