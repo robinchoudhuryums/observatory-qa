@@ -1148,10 +1148,22 @@ export function registerClinicalRoutes(app: Express): void {
         content: content.trim(),
       };
 
+      // Conflict detection: if client provides version, verify it matches
+      const currentVersion = analysis.clinicalNote.version || 0;
+      if (req.body.version !== undefined && req.body.version !== currentVersion) {
+        res.status(409).json({
+          message: "Clinical note has been modified. Please refresh and try again.",
+          code: "OBS-CLINICAL-CONFLICT",
+          currentVersion,
+        });
+        return;
+      }
+
       if (!analysis.clinicalNote.amendments) {
         analysis.clinicalNote.amendments = [];
       }
       analysis.clinicalNote.amendments.push(addendum);
+      analysis.clinicalNote.version = currentVersion + 1;
 
       await storage.createCallAnalysis(req.orgId!, analysis);
 
@@ -1272,6 +1284,10 @@ export function registerClinicalRoutes(app: Express): void {
           return;
         }
       }
+
+      // Increment version to track co-signature as a state change
+      const currentVersion = analysis.clinicalNote.version || 0;
+      analysis.clinicalNote.version = currentVersion + 1;
 
       const cosignedAt = new Date().toISOString();
       analysis.clinicalNote.cosignature = {
