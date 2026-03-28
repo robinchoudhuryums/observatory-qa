@@ -1117,6 +1117,8 @@ Server serves both API and static frontend from the same process.
 - **AI response validation**: `parseJsonResponse()` in `ai-provider.ts` clamps `performanceScore` to 0-10, sentiment scores to 0-1, sub-scores to 0-10, and validates all field types. Missing fields get safe defaults (5.0 for scores, "neutral" for sentiment). `normalizeAnalysis()` in `storage/types.ts` also clamps on read
 - **Empty transcript handling**: If transcript text is <10 characters, the pipeline saves the call with `empty_transcript` flag, low confidence, and skips AI analysis entirely — prevents generating junk analysis from silence/noise
 - **Employee auto-assignment safety**: Only considers active employees. If multiple employees match the detected name, prefers exact full-name match; skips assignment if ambiguous (logs the ambiguity)
+- **speakerRoleMap schema change**: Changed from `z.object({ agentSpeaker: z.string() })` to `z.record(z.string(), z.string())` to support proper speaker label → role mapping (e.g., `{ A: "agent", B: "customer" }`). Old `{ agentSpeaker: "A" }` format was a logic error — the property name was always the literal string "agentSpeaker" instead of using the value as a key
+- **Filler word detection uses bigrams**: `computeSpeechMetrics()` now detects two-word filler phrases ("you know", "i mean", etc.) via a bigram pass before single-word matching. Words matched as part of a bigram are excluded from the single-word pass to avoid double-counting
 - **`toDisplayString()` handles nested objects**: Checks arrays first (before object path), then `text`, `name`, `task`, `label`, `value`, `description`, `message` keys for wrapped strings, caps JSON fallback at 500 chars
 - **Duplicate upload returns 409**: `POST /api/calls/upload` returns `409 { duplicate: true, existingCallId }` when file hash matches an existing call. Frontend should handle this status code and show the user a link to the existing call instead of a generic error
 - **RLS bypass required for schema-sync**: `syncSchema()` sets `app.bypass_rls = 'true'` at the session level before creating tables/policies, since RLS would otherwise block DDL operations. All pgvector and super-admin cross-org queries must use `withBypassRls()`
@@ -1141,6 +1143,13 @@ Server serves both API and static frontend from the same process.
 ## In-Progress Work (resume here in a new session)
 
 ### Branch: `claude/audit-codebase-review-AcjWE`
+
+#### ✅ Completed & committed: Call Analysis feature improvements
+- **speakerRoleMap fix** (CRITICAL) — was creating `{ agentSpeaker: "A" }` (property named "agentSpeaker") instead of `{ A: "agent", B: "customer" }` (speaker label → role mapping). Fixed in `assemblyai.ts` and updated `shared/schema/calls.ts` to `z.record(z.string(), z.string())`
+- **Filler word detection overhaul** — expanded from 12 to 18 single-word fillers (added "ah", "er", "erm", "hm", "okay", "ok", "literally", "essentially"); added bigram detection for multi-word phrases ("you know", "i mean", "sort of", "kind of") which were previously impossible to match since words are tokenized individually
+- **Circuit breaker race condition** — moved `halfOpenProbeInFlight = true` into `getCircuitDecision()` so probe slot claim is atomic with the decision (no gap between check and set)
+- **Post-processing retry** — flagged call notifications and coaching recommendations now use `withRetry()` (2 retries, 1s base delay) instead of bare fire-and-forget; dashboard cache invalidation logs errors instead of silently swallowing
+- **Sentiment normalization** — extracted `normalizeSentiment()` helper in assemblyai.ts; validates against "positive"/"negative" enum, defaults to "neutral"
 
 #### ✅ Completed & committed: UI/UX & Design improvements
 - **display-utils.ts fix** — moved `Array.isArray()` check before generic object property extraction (arrays were falling through to object path)

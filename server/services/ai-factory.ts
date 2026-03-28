@@ -183,14 +183,24 @@ function recordBedrockFailure(): void {
   }
 }
 
+/**
+ * Get circuit breaker decision AND atomically claim the probe slot if applicable.
+ * This prevents the race where multiple callers see HALF_OPEN before any sets the flag.
+ * Safe in Node.js single-threaded model: no await between check and set.
+ */
 function getCircuitDecision(): "allow" | "reject" | "probe" {
   if (circuitState === "CLOSED") return "allow";
   if (circuitState === "HALF_OPEN") {
-    return halfOpenProbeInFlight ? "reject" : "probe";
+    if (halfOpenProbeInFlight) return "reject";
+    // Atomically claim the probe slot
+    halfOpenProbeInFlight = true;
+    return "probe";
   }
   // OPEN — check if reset window has passed
   if (circuitOpenedAt && Date.now() - circuitOpenedAt >= CIRCUIT_RESET_MS) {
     circuitState = "HALF_OPEN";
+    // Atomically claim the probe slot on transition
+    halfOpenProbeInFlight = true;
     return "probe";
   }
   return "reject";
@@ -216,7 +226,7 @@ export async function withBedrockProtection<T>(orgId: string, fn: () => Promise<
   }
 
   if (decision === "probe") {
-    halfOpenProbeInFlight = true;
+    // halfOpenProbeInFlight already set atomically in getCircuitDecision()
     logger.info({ orgId }, "Bedrock circuit breaker: allowing probe request (HALF_OPEN)");
   }
 

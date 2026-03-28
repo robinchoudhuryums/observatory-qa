@@ -3,6 +3,13 @@ import type { CallAnalysis } from "./ai-provider";
 import { normalizeStringArray } from "../utils";
 import { logger } from "./logger";
 
+/** Normalize a sentiment value to one of the valid enum values. */
+function normalizeSentiment(value: unknown): "positive" | "neutral" | "negative" {
+  const str = typeof value === "string" ? value.toLowerCase().trim() : "";
+  if (str === "positive" || str === "negative") return str;
+  return "neutral";
+}
+
 export interface AssemblyAIConfig {
   apiKey: string;
   baseUrl: string;
@@ -246,12 +253,7 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
     }
 
     // Validate overallSentiment to match the enum type
-    const validSentiments = ["positive", "neutral", "negative"] as const;
-    const normalizedSentiment = typeof overallSentiment === "string" ? overallSentiment.toLowerCase() : "neutral";
-    const validatedSentiment: "positive" | "neutral" | "negative" =
-      validSentiments.includes(normalizedSentiment as any)
-        ? (normalizedSentiment as "positive" | "neutral" | "negative")
-        : "neutral";
+    const validatedSentiment = normalizeSentiment(overallSentiment);
 
     const sentiment: InsertSentimentAnalysis = {
       orgId,
@@ -283,8 +285,8 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
     // --- Speaker role mapping ---
     // Convention: in call center environments, Speaker A typically speaks first (agent greeting).
     // Default to Speaker A = agent for now; caller can refine via AI-detected agent name.
-    const agentSpeaker = 'A';
-    const speakerRoleMap: { agentSpeaker: string } = { agentSpeaker };
+    // Maps speaker label → role (e.g., "A" → "agent", "B" → "customer").
+    const speakerRoleMap: Record<string, string> = { A: "agent", B: "customer" };
 
     // Determine flags
     const flags: string[] = aiAnalysis?.flags || [];
@@ -324,7 +326,14 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
     if (!words || words.length < 2) return {};
 
     const DEAD_AIR_THRESHOLD_MS = 3000; // 3 seconds
-    const FILLER_WORDS = new Set(["um", "uh", "uhm", "hmm", "like", "you know", "basically", "actually", "right", "so", "well", "I mean"]);
+    // Single-word fillers (matched per word token)
+    const FILLER_WORDS = new Set([
+      "um", "uh", "uhm", "hmm", "hm", "ah", "er", "erm",
+      "like", "basically", "actually", "literally", "essentially",
+      "right", "so", "well", "okay", "ok",
+    ]);
+    // Two-word filler phrases (matched by looking at consecutive word pairs)
+    const FILLER_BIGRAMS = new Set(["you know", "i mean", "sort of", "kind of"]);
 
     const totalDurationMs = words[words.length - 1].end - words[0].start;
     if (totalDurationMs <= 0) return {};
@@ -359,11 +368,27 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
       }
     }
 
-    // --- Filler word count ---
+    // --- Filler word count (single words + bigram phrases) ---
     const fillerWordCounts: Record<string, number> = {};
     let fillerWordTotal = 0;
-    for (const w of words) {
-      const lower = w.text.toLowerCase().replace(/[.,!?]/g, "");
+    const bigramMatched = new Set<number>(); // indices already matched as part of a bigram
+
+    // First pass: detect bigram filler phrases (e.g., "you know", "i mean")
+    for (let i = 0; i < words.length - 1; i++) {
+      const pair = words[i].text.toLowerCase().replace(/[.,!?]/g, "") + " " +
+                   words[i + 1].text.toLowerCase().replace(/[.,!?]/g, "");
+      if (FILLER_BIGRAMS.has(pair)) {
+        fillerWordCounts[pair] = (fillerWordCounts[pair] || 0) + 1;
+        fillerWordTotal++;
+        bigramMatched.add(i);
+        bigramMatched.add(i + 1);
+      }
+    }
+
+    // Second pass: single-word fillers (skip words already matched in bigrams)
+    for (let i = 0; i < words.length; i++) {
+      if (bigramMatched.has(i)) continue;
+      const lower = words[i].text.toLowerCase().replace(/[.,!?]/g, "");
       if (FILLER_WORDS.has(lower)) {
         fillerWordCounts[lower] = (fillerWordCounts[lower] || 0) + 1;
         fillerWordTotal++;

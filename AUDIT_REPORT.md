@@ -71,8 +71,8 @@ SQL injection regex patterns with `.*` quantifier. Mitigated by `MAX_SCAN_LENGTH
 ### Data Integrity
 - **Empty orgId fallback to ""** in pg-storage.ts:179 — creates degenerate records
 - **Unbounded query in getAllCalls** — no LIMIT, potential OOM for large orgs
-- **speakerRoleMap logic error** in assemblyai.ts:287 — incorrect speaker mapping
-- **Circuit breaker race condition** in ai-factory.ts:156
+- ~~**speakerRoleMap logic error**~~ FIXED — now maps `{ A: "agent", B: "customer" }` instead of `{ agentSpeaker: "A" }`
+- ~~**Circuit breaker race condition**~~ FIXED — probe slot claim moved into `getCircuitDecision()` for atomic check-and-set
 - **NaN propagation** in rate limiter when `checkRateLimit()` returns unexpected structure
 
 ### HIPAA Gaps (all items below FIXED)
