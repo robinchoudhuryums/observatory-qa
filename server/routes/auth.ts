@@ -14,8 +14,7 @@ export function registerAuthRoutes(app: Express): void {
     passport.authenticate("local", async (err: any, user: Express.User | false, info: any) => {
       if (err) return next(err);
       if (!user) {
-        const errorCode = info?.message?.includes("locked") ? "OBS-AUTH-002" : "OBS-AUTH-001";
-        return res.status(401).json({ message: info?.message || "Invalid credentials", errorCode });
+        return res.status(401).json({ message: "Invalid credentials", errorCode: "OBS-AUTH-001" });
       }
 
       // Check if user has MFA enabled — if so, return challenge instead of session

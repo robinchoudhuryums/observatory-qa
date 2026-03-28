@@ -8,6 +8,7 @@
 
 import type { Request, Response, NextFunction } from "express";
 import { getMeter } from "../services/telemetry";
+import { recordRequest } from "../utils/request-metrics";
 
 let requestDuration: ReturnType<ReturnType<typeof getMeter>["createHistogram"]> | null = null;
 
@@ -61,10 +62,15 @@ export function tracingMiddleware(req: Request, res: Response, next: NextFunctio
   // Record request duration metric on response finish
   res.on("finish", () => {
     const duration = Date.now() - start;
+    const route = req.route?.path ?? req.path;
+
+    // Per-route request metrics (sliding window)
+    recordRequest(req.method, route, res.statusCode, duration);
+
     try {
       getRequestDurationHistogram().record(duration, {
         method: req.method,
-        route: req.route?.path ?? req.path,
+        route,
         status_code: res.statusCode.toString(),
       });
     } catch {

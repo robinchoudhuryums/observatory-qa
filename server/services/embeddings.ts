@@ -124,6 +124,11 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     const result = JSON.parse(responseBody) as { embedding: number[] };
     const embedding = result.embedding;
 
+    // Validate embedding dimensions
+    if (!Array.isArray(embedding) || embedding.length !== EMBED_DIMENSIONS) {
+      throw new Error(`Unexpected embedding dimensions: expected ${EMBED_DIMENSIONS}, got ${Array.isArray(embedding) ? embedding.length : 'non-array'}`);
+    }
+
     // Cache the result (evict oldest if at capacity)
     if (embeddingCache.size >= CACHE_MAX_SIZE) {
       const oldest = embeddingCache.keys().next().value;

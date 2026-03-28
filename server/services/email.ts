@@ -85,7 +85,8 @@ export function initEmail(): boolean {
  * Non-blocking — failures are logged but never throw.
  */
 export async function sendEmail(options: EmailOptions): Promise<boolean> {
-  const { to, subject, text, html } = options;
+  const { to, text, html } = options;
+  const subject = options.subject.replace(/[\r\n]/g, '');
 
   if (!transporter) {
     // Dev fallback: log the email content
