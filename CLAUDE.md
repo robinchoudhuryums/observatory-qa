@@ -1158,6 +1158,11 @@ Server serves both API and static frontend from the same process.
 - **Payer mix carrier fix** — carrier breakdown now uses `insuranceAmount` only (was falling back to `actualRevenue`, which includes patient portion — double-counting insurance revenue)
 - **Forecast confidence** — forecast response now includes `forecastConfidence` ("low"/"moderate"/"high" based on day of month), `daysElapsed`, `daysRemaining`. Low confidence before day 7 warns users that early-month projections are unreliable
 
+#### ✅ Completed & committed: A/B Testing improvements
+- **p-value fix** — simplified tDistPValue() Cornish-Fisher approximation: removed unused intermediate variable, eliminated redundant sqrt(df) multiply/divide that cancelled out. Result is cleaner and mathematically equivalent
+- **Paired score comparison** — stats computation now requires BOTH baseline and test scores present (was independently pushing nulls, causing array length mismatches and skewed t-test)
+- **df-aware confidence interval** — replaced hardcoded tCrit=2.0 with lookup table based on degrees of freedom (df>120→1.96, df>30→2.0, df>10→2.23, df>5→2.57, else→3.18). Actual 95% CI was closer to 93% for small samples
+
 #### ✅ Completed & committed: Gamification improvements
 - **Opt-out filtering gaps fixed** — profile endpoint now checks opt-out before returning data (was leaking full profile for opted-out employees); recognition endpoint now checks role-based opt-out (was only checking employee ID); team leaderboard now filters opted-out employees/roles (was including everyone)
 - **Team leaderboard top performer fix** — was overwriting topPerformer with ANY employee with points > 0 (last one wins); now tracks actual highest-points employee per team

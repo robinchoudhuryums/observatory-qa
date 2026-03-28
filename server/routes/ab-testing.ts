@@ -529,23 +529,19 @@ function welchTTest(sample1: number[], sample2: number[]): { tStatistic: number;
 
 /**
  * Approximate two-tailed p-value for t-distribution.
- * Uses the approximation: p ≈ 2 * (1 - Φ(|t| * sqrt(df / (df - 2 + t²))))
- * where Φ is the standard normal CDF.
+ * For df > 100, uses normal approximation directly.
+ * For smaller df, uses the transformation: z ≈ t * (1 + t²/df)^{-0.5}
+ * which maps the t-distribution to an approximate standard normal.
  */
 function tDistPValue(absT: number, df: number): number {
   if (df <= 0) return 1;
-  // Transform t to approximate normal z
-  const x = df / (df + absT * absT);
-  // Regularized incomplete beta function approximation
-  // For large df, t approaches normal: use normal CDF
+  // For large df, t ≈ normal
   if (df > 100) {
     return 2 * normalCdfComplement(absT);
   }
-  // For smaller df, use adjusted t → z mapping
-  const z = absT * Math.sqrt((df - 2 > 0 ? df / (df - 2) : 1));
-  const adjustedZ = absT * Math.pow(1 + absT * absT / df, -0.5) * Math.sqrt(df);
-  // Satterthwaite approximation for p-value
-  return Math.min(1, 2 * normalCdfComplement(adjustedZ / Math.sqrt(df)));
+  // Cornish-Fisher approximation: transform t → z for moderate df
+  const adjustedZ = absT * Math.pow(1 + absT * absT / df, -0.5);
+  return Math.min(1, 2 * normalCdfComplement(adjustedZ));
 }
 
 /** Standard normal CDF complement: P(Z > z) */
@@ -585,13 +581,16 @@ function computeAggregateStats(tests: any[]) {
   for (const test of tests) {
     const bScore = extractScore(test.baselineAnalysis);
     const tScore = extractScore(test.testAnalysis);
-    if (bScore !== null) baselineScores.push(bScore);
-    if (tScore !== null) testScores.push(tScore);
+    // Only include tests where BOTH models produced valid scores (paired comparison)
+    if (bScore !== null && tScore !== null) {
+      baselineScores.push(bScore);
+      testScores.push(tScore);
+    }
 
     if (test.baselineLatencyMs) baselineLatencies.push(test.baselineLatencyMs);
     if (test.testLatencyMs) testLatencies.push(test.testLatencyMs);
 
-    // Estimate costs
+    // Estimate costs (only for successful analyses)
     const wordCount = test.transcriptText ? test.transcriptText.split(/\s+/).length : 0;
     const inputTokens = Math.ceil(wordCount * 1.3) + 500;
     if (bScore !== null) baselineCosts.push(estimateBedrockCost(test.baselineModel, inputTokens, 900));
@@ -631,8 +630,10 @@ function computeAggregateStats(tests: any[]) {
     const var1 = baselineScores.reduce((sum, x) => sum + Math.pow(x - avgBaseline, 2), 0) / (n1 - 1);
     const var2 = testScores.reduce((sum, x) => sum + Math.pow(x - avgTest, 2), 0) / (n2 - 1);
     const se = Math.sqrt(var1 / n1 + var2 / n2);
-    // Use t-critical ≈ 2.0 for 95% CI (conservative for small samples)
-    const tCrit = 2.0;
+    // Approximate t-critical for 95% CI using degrees of freedom from t-test.
+    // For df > 30 → ~2.0, for df = 10 → ~2.23, for df = 5 → ~2.57
+    const ciDf = significance?.degreesOfFreedom || Math.min(n1, n2) - 1 || 1;
+    const tCrit = ciDf > 120 ? 1.96 : ciDf > 30 ? 2.0 : ciDf > 10 ? 2.23 : ciDf > 5 ? 2.57 : 3.18;
     confidenceInterval = {
       lower: round2(avgScoreDiff - tCrit * se),
       upper: round2(avgScoreDiff + tCrit * se),
