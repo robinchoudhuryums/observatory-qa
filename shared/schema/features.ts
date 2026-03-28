@@ -431,7 +431,7 @@ export const insertMarketingCampaignSchema = z.object({
   medium: z.string().optional(), // e.g., "cpc", "organic", "social", "referral"
   startDate: z.string().optional(),
   endDate: z.string().optional(),
-  budget: z.number().optional(), // total campaign budget in dollars
+  budget: z.number().min(0).optional(), // total campaign budget in dollars
   trackingCode: z.string().optional(), // UTM or tracking phone number
   isActive: z.boolean().optional(),
   notes: z.string().optional(),
@@ -457,7 +457,7 @@ export const insertCallAttributionSchema = z.object({
   isNewPatient: z.boolean().optional(),
   referrerName: z.string().optional(), // for referral sources
   detectionMethod: z.enum(["manual", "ai_detected", "tracking_number", "utm"]).optional(),
-  confidence: z.number().optional(), // 0-1 for AI-detected
+  confidence: z.number().min(0).max(1).optional(), // 0-1 for AI-detected
   notes: z.string().optional(),
   attributedBy: z.string().optional(),
 });
