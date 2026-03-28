@@ -8,6 +8,7 @@
  * Only log metadata: user IDs, org IDs, call IDs, timestamps, durations.
  */
 import pino from "pino";
+import { getCorrelationId } from "../middleware/correlation-id";
 
 const isProduction = process.env.NODE_ENV === "production";
 const betterstackToken = process.env.BETTERSTACK_SOURCE_TOKEN;
@@ -48,6 +49,11 @@ export const logger = pino({
     },
   } : {}),
   timestamp: pino.stdTimeFunctions.isoTime,
+  // Inject correlation ID from AsyncLocalStorage into every log line
+  mixin() {
+    const correlationId = getCorrelationId();
+    return correlationId ? { correlationId } : {};
+  },
   ...(transport ? { transport } : {}),
 });
 

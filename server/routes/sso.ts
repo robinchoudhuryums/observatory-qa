@@ -6,6 +6,7 @@ import { logger } from "../services/logger";
 import { logPhiAccess } from "../services/audit-log";
 import { syncSeatUsage } from "./billing";
 import type { Organization, OrgSettings } from "../../shared/schema";
+import { validateUrl } from "../utils/url-validation";
 
 /**
  * SSO authentication (Enterprise plan feature).
@@ -441,6 +442,12 @@ async function fetchOidcDiscovery(discoveryUrl: string): Promise<OidcDiscovery> 
     ? discoveryUrl
     : `${discoveryUrl.replace(/\/$/, "")}/.well-known/openid-configuration`;
 
+  const ssrfCheck = validateUrl(url);
+  if (!ssrfCheck.valid) {
+    logger.warn({ url, reason: ssrfCheck.reason }, "SSRF: rejected OIDC discovery URL");
+    throw new Error(`OIDC discovery URL blocked by SSRF policy: ${ssrfCheck.reason}`);
+  }
+
   const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
   if (!resp.ok) throw new Error(`OIDC discovery fetch failed: ${resp.status}`);
   return resp.json() as Promise<OidcDiscovery>;
@@ -449,6 +456,12 @@ async function fetchOidcDiscovery(discoveryUrl: string): Promise<OidcDiscovery> 
 async function fetchJwks(jwksUri: string): Promise<Record<string, unknown>[]> {
   const cached = jwksCache.get(jwksUri);
   if (cached && Date.now() - cached.fetchedAt < JWKS_CACHE_TTL_MS) return cached.keys;
+
+  const ssrfCheck = validateUrl(jwksUri);
+  if (!ssrfCheck.valid) {
+    logger.warn({ jwksUri, reason: ssrfCheck.reason }, "SSRF: rejected JWKS URI");
+    throw new Error(`JWKS URI blocked by SSRF policy: ${ssrfCheck.reason}`);
+  }
 
   const resp = await fetch(jwksUri, { signal: AbortSignal.timeout(8000) });
   if (!resp.ok) throw new Error(`JWKS fetch failed: ${resp.status}`);

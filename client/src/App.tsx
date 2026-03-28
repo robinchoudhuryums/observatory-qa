@@ -10,6 +10,8 @@ import { FeedbackWidget } from "@/components/feedback-widget";
 import { ErrorBoundary } from "@/components/lib/error-boundary";
 import { BrandingProvider } from "@/components/branding-provider";
 import { useWebSocket } from "@/hooks/use-websocket";
+import { useIdleTimeout } from "@/hooks/use-idle-timeout";
+import { IdleTimeoutOverlay } from "@/components/idle-timeout-overlay";
 import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import type { AuthUser } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
@@ -298,8 +300,18 @@ function AuthenticatedApp() {
 
   return (
     <ErrorBoundary>
-      <Router />
+      <IdleTimeoutWrapper />
     </ErrorBoundary>
+  );
+}
+
+function IdleTimeoutWrapper() {
+  const idleState = useIdleTimeout();
+  return (
+    <>
+      <IdleTimeoutOverlay {...idleState} onStayLoggedIn={() => {}} />
+      <Router />
+    </>
   );
 }
 

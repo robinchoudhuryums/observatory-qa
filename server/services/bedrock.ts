@@ -169,7 +169,7 @@ export class BedrockProvider implements AIAnalysisProvider {
       // with identical system prompt prefixes, reducing input token costs
       const command = new ConverseCommand({
         modelId: this.model,
-        system: [{ text: systemPrompt }],
+        system: [{ text: systemPrompt } as any],
         messages: [
           { role: "user", content: [{ text: userMessage }] },
         ],
@@ -206,14 +206,20 @@ export class BedrockProvider implements AIAnalysisProvider {
   private logTokenUsage(result: any, context: string): void {
     const usage = result?.usage;
     if (usage) {
+      const cacheRead = usage.cacheReadInputTokenCount || 0;
+      const cacheWrite = usage.cacheWriteInputTokenCount || 0;
+      const cacheHit = cacheRead > 0;
       logger.info({
         context,
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
         totalTokens: (usage.inputTokens || 0) + (usage.outputTokens || 0),
-        cacheReadTokens: usage.cacheReadInputTokenCount,
-        cacheWriteTokens: usage.cacheWriteInputTokenCount,
-      }, "Bedrock token usage");
+        cacheReadTokens: cacheRead,
+        cacheWriteTokens: cacheWrite,
+        promptCacheStatus: cacheHit ? "hit" : (cacheWrite > 0 ? "miss_written" : "no_cache"),
+      }, cacheHit
+        ? `Bedrock token usage — prompt cache HIT (${cacheRead} cached tokens)`
+        : "Bedrock token usage");
     }
   }
 }

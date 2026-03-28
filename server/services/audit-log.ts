@@ -15,6 +15,8 @@
  */
 import { randomUUID, createHash } from "crypto";
 import { logger } from "./logger";
+import { redactPhi } from "../utils/phi-redactor";
+import { validateUrl } from "../utils/url-validation";
 
 export interface AuditEntry {
   timestamp?: string;
@@ -185,6 +187,13 @@ async function getSiemUrl(orgId: string): Promise<string | null> {
 
 /** Forward a single audit entry to the org's SIEM webhook endpoint. Fire-and-forget. */
 async function forwardToSiem(entry: AuditEntry & { timestamp: string }, siemUrl: string): Promise<void> {
+  // SSRF validation — reject private/internal network URLs
+  const ssrfCheck = validateUrl(siemUrl);
+  if (!ssrfCheck.valid) {
+    logger.warn({ orgId: entry.orgId, reason: ssrfCheck.reason }, "SSRF: skipping SIEM webhook forward to blocked URL");
+    return;
+  }
+
   try {
     const payload = {
       source: "observatory-qa",
@@ -220,7 +229,11 @@ async function forwardToSiem(entry: AuditEntry & { timestamp: string }, siemUrl:
  */
 export function logPhiAccess(entry: AuditEntry): void {
   const timestamp = entry.timestamp || new Date().toISOString();
-  const fullEntry = { ...entry, timestamp };
+  const fullEntry = {
+    ...entry,
+    timestamp,
+    detail: entry.detail ? redactPhi(entry.detail) : entry.detail,
+  };
 
   // Always write to Pino (structured log)
   logger.info({

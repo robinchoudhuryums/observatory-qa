@@ -15,6 +15,7 @@ import { initQueues, enqueueRetention, closeQueues } from "./services/queue";
 import { initEmail, sendEmail, buildQuotaAlertEmail } from "./services/email";
 import { isPhiEncryptionEnabled } from "./services/phi-encryption";
 import { wafMiddleware } from "./middleware/waf";
+import { correlationIdMiddleware } from "./middleware/correlation-id";
 import { tracingMiddleware } from "./middleware/tracing";
 import { initSentry, sentryErrorMiddleware, flushSentry } from "./services/sentry";
 import { PLAN_DEFINITIONS, type PlanTier } from "@shared/schema";
@@ -135,6 +136,9 @@ app.use((req, res, next) => {
   next();
 });
 
+// Correlation ID: per-request tracing via AsyncLocalStorage
+app.use(correlationIdMiddleware);
+
 // WAF: Application-level firewall (SQL injection, XSS, path traversal, anomaly scoring)
 app.use(wafMiddleware);
 
@@ -177,7 +181,7 @@ app.use((req, res, next) => {
 
 // CSRF protection: double-submit cookie pattern
 // State-changing API requests must include X-CSRF-Token header matching the csrf cookie
-import { randomBytes } from "crypto";
+import { randomBytes, timingSafeEqual } from "crypto";
 
 function parseCookie(req: Request, name: string): string | undefined {
   const header = req.headers.cookie || "";
@@ -215,7 +219,9 @@ app.use((req, res, next) => {
   // Verify CSRF token
   const cookieToken = parseCookie(req, "csrf-token");
   const headerToken = req.headers["x-csrf-token"] as string | undefined;
-  if (!cookieToken || !headerToken || cookieToken !== headerToken) {
+  if (!cookieToken || !headerToken ||
+    cookieToken.length !== headerToken.length ||
+    !timingSafeEqual(Buffer.from(cookieToken), Buffer.from(headerToken))) {
     res.status(403).json({ message: "Invalid or missing CSRF token", code: "OBS-AUTH-CSRF" });
     return;
   }

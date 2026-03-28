@@ -14,6 +14,7 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { chunkDocument, type DocumentChunk } from "./chunker";
 import { generateEmbedding, generateEmbeddingsBatch, isEmbeddingAvailable } from "./embeddings";
 import { logger } from "./logger";
+import { detectPromptInjection } from "../utils/ai-guardrails";
 import * as tables from "../db/schema";
 
 export interface RetrievedChunk {
@@ -159,6 +160,13 @@ export async function searchRelevantChunks(
     return [];
   }
 
+  // Prompt injection detection
+  const injectionCheck = detectPromptInjection(queryText);
+  if (injectionCheck.isInjection) {
+    logger.warn({ pattern: injectionCheck.pattern, orgId }, "Prompt injection detected in RAG query — returning empty results");
+    return [];
+  }
+
   // Generate query embedding
   const queryEmbedding = await generateEmbedding(queryText);
   const embeddingStr = `[${queryEmbedding.join(",")}]`;
@@ -190,11 +198,18 @@ export async function searchRelevantChunks(
     return [];
   }
 
-  // Apply BM25-style keyword boosting
+  // Compute dynamic average document length from candidates
+  const avgDocLen = candidates.rows.length > 0
+    ? Math.round((candidates.rows as any[]).reduce((sum: number, r: any) => sum + tokenize(r.text).length, 0) / candidates.rows.length)
+    : 500;
+
+  // Apply BM25-style keyword boosting with dynamic avgDocLen
   const results: RetrievedChunk[] = (candidates.rows as any[]).map((row) => {
     const semanticScore = parseFloat(row.semantic_score) || 0;
-    const kwScore = bm25Score(queryText, row.text);
+    const kwScore = bm25Score(queryText, row.text, { avgDocLen });
     const combinedScore = semanticWeight * semanticScore + keywordWeight * kwScore;
+    // NaN guard: if score computation fails, fall back to semantic-only
+    const safeScore = Number.isFinite(combinedScore) ? combinedScore : semanticScore;
 
     return {
       id: row.id,
@@ -204,9 +219,22 @@ export async function searchRelevantChunks(
       chunkIndex: row.chunk_index,
       text: row.text,
       sectionHeader: row.section_header || null,
-      score: combinedScore,
+      score: safeScore,
     };
   });
+
+  // Re-ranking: boost section header matches and penalize noise
+  for (const result of results) {
+    let boost = 0;
+    if (result.sectionHeader) {
+      const headerLower = result.sectionHeader.toLowerCase();
+      const queryLower = queryText.toLowerCase();
+      const queryTerms = queryLower.split(/\s+/);
+      if (queryTerms.some(term => headerLower.includes(term))) { boost += 0.15; }
+    }
+    if (result.text.length < 50) { boost -= 0.10; }
+    result.score = Math.max(0, result.score * (1 + boost));
+  }
 
   // Sort by combined score, filter out low-relevance chunks, and return top K
   results.sort((a, b) => b.score - a.score);
@@ -365,10 +393,14 @@ export async function getKnowledgeBaseAnalytics(
 
 // --- BM25-style keyword scoring (simplified, no corpus IDF) ---
 
-function bm25Score(query: string, text: string): number {
+function bm25Score(
+  query: string,
+  text: string,
+  options?: { avgDocLen?: number; corpusSize?: number; documentFrequencies?: Map<string, number> },
+): number {
   const k1 = 1.2;
   const b = 0.75;
-  const avgDocLen = 500; // Approximate average chunk token count
+  const avgDocLen = options?.avgDocLen ?? 500;
 
   const queryTerms = tokenize(query);
   const docTerms = tokenize(text);
@@ -390,17 +422,57 @@ function bm25Score(query: string, text: string): number {
     // BM25 term frequency saturation
     const numerator = freq * (k1 + 1);
     const denominator = freq + k1 * (1 - b + b * (docLen / avgDocLen));
-    score += numerator / denominator;
+    let idf = 1.0;
+    if (options?.corpusSize && options?.documentFrequencies) {
+      const df = options.documentFrequencies.get(term) || 0;
+      idf = Math.log((options.corpusSize - df + 0.5) / (df + 0.5) + 1);
+    }
+    score += idf * (numerator / denominator);
   }
 
   // Normalize to 0–1 range
   return Math.min(score / queryTerms.length, 1);
 }
 
+const MEDICAL_SHORT_TOKENS = new Set([
+  'iv', 'o2', 'bp', 'hr', 'rr', 'rx', 'dx', 'tx', 'hx', 'sx',
+  'im', 'sc', 'po', 'bid', 'tid', 'qd', 'prn', 'ct', 'mr', 'us',
+  'mg', 'ml', 'kg', 'cm', 'mm', 'cc',
+]);
+
 function tokenize(text: string): string[] {
-  return text
+  const codePattern = /[A-Z]\d{2,4}\.?\d{0,2}|D\d{4}|E\d{4}|\d{5}/gi;
+  const codes = (text.match(codePattern) || []).map(c => c.toLowerCase());
+  const hyphenated = (text.match(/[a-zA-Z]+-[a-zA-Z]+/g) || []).map(h => h.toLowerCase());
+  const standard = text
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/[^a-z0-9\s-]/g, " ")
     .split(/\s+/)
-    .filter((t) => t.length > 2);
+    .filter(t => t.length > 2 || MEDICAL_SHORT_TOKENS.has(t));
+  return Array.from(new Set([...standard, ...codes, ...hyphenated]));
+}
+
+export function computeConfidence(chunks: RetrievedChunk[]): { score: number; level: 'high' | 'partial' | 'low' | 'none' } {
+  if (chunks.length === 0) return { score: 0, level: 'none' };
+  const topScore = chunks[0].score;
+  const avgScore = chunks.reduce((sum, c) => sum + c.score, 0) / chunks.length;
+  const blended = 0.6 * topScore + 0.4 * avgScore;
+  let level: 'high' | 'partial' | 'low' | 'none';
+  if (blended >= 0.7) level = 'high';
+  else if (blended >= 0.45) level = 'partial';
+  else if (blended >= 0.3) level = 'low';
+  else level = 'none';
+  return { score: Math.round(blended * 100) / 100, level };
+}
+
+export function validateConversationHistory(history: Array<{ role: string; content: string }>): Array<{ role: string; content: string }> {
+  const MAX_TURNS = 20;
+  const MAX_TOTAL_CHARS = 50_000;
+  let trimmed = history.slice(-MAX_TURNS);
+  let totalChars = trimmed.reduce((sum, h) => sum + h.content.length, 0);
+  while (totalChars > MAX_TOTAL_CHARS && trimmed.length > 1) {
+    totalChars -= trimmed[0].content.length;
+    trimmed = trimmed.slice(1);
+  }
+  return trimmed;
 }

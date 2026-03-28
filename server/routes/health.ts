@@ -3,6 +3,7 @@ import { storage } from "../storage";
 import { aiProvider, getBedrockCircuitState } from "../services/ai-factory";
 import { getRedis, getRedisStatus } from "../services/redis";
 import { logger } from "../services/logger";
+import { getMetricsSummary } from "../utils/request-metrics";
 
 const startedAt = Date.now();
 
@@ -207,6 +208,23 @@ export function registerHealthRoutes(app: Express): void {
       `observatory_started_at_seconds ${Math.floor(startedAt / 1000)}`,
       "",
     ];
+
+    // Per-route request metrics (sliding 10-minute window)
+    const routeMetrics = getMetricsSummary();
+    const routeKeys = Object.keys(routeMetrics);
+    if (routeKeys.length > 0) {
+      lines.push("# HELP http_requests_total Total requests per route (10m window)", "# TYPE http_requests_total gauge");
+      for (const key of routeKeys) { const [method, ...rp] = key.split(" "); const route = rp.join(" "); lines.push(`http_requests_total{method="${method}",route="${route}"} ${routeMetrics[key].requestCount}`); }
+      lines.push("", "# HELP http_request_errors_total Error responses (4xx/5xx) per route (10m window)", "# TYPE http_request_errors_total gauge");
+      for (const key of routeKeys) { const [method, ...rp] = key.split(" "); const route = rp.join(" "); lines.push(`http_request_errors_total{method="${method}",route="${route}"} ${routeMetrics[key].errorCount}`); }
+      lines.push("", "# HELP http_request_duration_p50_ms 50th percentile latency (10m window)", "# TYPE http_request_duration_p50_ms gauge");
+      for (const key of routeKeys) { const [method, ...rp] = key.split(" "); const route = rp.join(" "); lines.push(`http_request_duration_p50_ms{method="${method}",route="${route}"} ${routeMetrics[key].p50}`); }
+      lines.push("", "# HELP http_request_duration_p95_ms 95th percentile latency (10m window)", "# TYPE http_request_duration_p95_ms gauge");
+      for (const key of routeKeys) { const [method, ...rp] = key.split(" "); const route = rp.join(" "); lines.push(`http_request_duration_p95_ms{method="${method}",route="${route}"} ${routeMetrics[key].p95}`); }
+      lines.push("", "# HELP http_request_duration_p99_ms 99th percentile latency (10m window)", "# TYPE http_request_duration_p99_ms gauge");
+      for (const key of routeKeys) { const [method, ...rp] = key.split(" "); const route = rp.join(" "); lines.push(`http_request_duration_p99_ms{method="${method}",route="${route}"} ${routeMetrics[key].p99}`); }
+      lines.push("");
+    }
 
     res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
     res.send(lines.join("\n"));
