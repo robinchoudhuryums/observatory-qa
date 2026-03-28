@@ -16,10 +16,10 @@ However, the rapid feature expansion has outpaced hardening. The audit identifie
 
 ## Critical Issues (Must Fix)
 
-### 1. PHI Encryption Becomes No-Op When Key Missing
-**File**: `server/services/phi-encryption.ts:87-89`
-`encryptField()` returns plaintext unchanged if `PHI_ENCRYPTION_KEY` is not set. In production, this means PHI flows unencrypted to the database without any warning to operators.
-**Fix**: Throw an error in production or log a CRITICAL warning. Never silently skip encryption.
+### 1. ~~PHI Encryption Becomes No-Op When Key Missing~~ FIXED
+**File**: `server/services/phi-encryption.ts`
+~~`encryptField()` returns plaintext unchanged if `PHI_ENCRYPTION_KEY` is not set.~~
+**Fixed**: `encryptField()` now throws in production if key is missing. Dev mode logs a warning. Added `PhiDecryptionContext` audit logging to `decryptClinicalNotePhi()`.
 
 ### 2. SSO RelayState CSRF Vulnerability
 **File**: `server/routes/sso.ts:239-242`
@@ -31,10 +31,10 @@ RelayState is user-controlled. An attacker can craft a SP-initiated request to l
 `sessionId = req.sessionID || req.ip || "unknown"` — falls back to spoofable `req.ip`, allowing attackers to bypass MFA rate limits.
 **Fix**: Require cryptographic session ID. Reject if unavailable.
 
-### 4. Audit Log Hash Chain Race Condition
-**File**: `server/services/audit-log.ts:305-310`
-Concurrent `persistAuditEntry()` calls can both compute the same sequence number, breaking the tamper-evident chain.
-**Fix**: Use `SELECT FOR UPDATE` or atomic increment in a transaction.
+### 4. ~~Audit Log Hash Chain Race Condition~~ FIXED
+**File**: `server/services/audit-log.ts`
+~~Concurrent `persistAuditEntry()` calls can both compute the same sequence number.~~
+**Fixed**: Added per-org promise-chain mutex (`withChainLock()`) to serialize concurrent writes.
 
 ### 5. Incident Response Stored In-Memory Only
 **File**: `server/services/incident-response.ts:87-89`
@@ -49,9 +49,9 @@ When a duplicate file hash is detected, the upload slot is never released via `r
 **File**: `server/services/org-encryption.ts:95-99`
 Two concurrent requests for a new org can both generate DEKs, overwriting each other. Use a database lock or conditional update.
 
-### 8. WAF ReDoS Vulnerability
+### 8. WAF ReDoS Vulnerability (mitigated)
 **File**: `server/middleware/waf.ts:24`
-SQL injection regex patterns with `.*` quantifier vulnerable to ReDoS. Crafted input can cause catastrophic backtracking.
+SQL injection regex patterns with `.*` quantifier. Mitigated by `MAX_SCAN_LENGTH` (100KB) limit on scanned input, but regex patterns could still be improved.
 
 ---
 
@@ -74,12 +74,12 @@ SQL injection regex patterns with `.*` quantifier vulnerable to ReDoS. Crafted i
 - **Circuit breaker race condition** in ai-factory.ts:156
 - **NaN propagation** in rate limiter when `checkRateLimit()` returns unexpected structure
 
-### HIPAA Gaps
-- **No audit logging for PHI decryption** (`phi-encryption.ts`)
-- **FAQ analytics logs unredacted query text** (`rag.ts:274`) — potential PHI in queries
-- **Sentry strips all request data** instead of selective PHI redaction (`sentry.ts:47`)
-- **Auth deserialize swallows exceptions** (`auth.ts:466-468`) — no error logging
-- **Org suspension check silently fails** (`auth.ts:516-518`) — allows bypass
+### HIPAA Gaps (all items below FIXED)
+- ~~**No audit logging for PHI decryption**~~ — FIXED: `decryptClinicalNotePhi()` now logs `PHI_DECRYPT` audit events
+- ~~**FAQ analytics logs unredacted query text**~~ — FIXED: sample queries now PHI-redacted via `redactPhi()`
+- ~~**Sentry strips all request data**~~ — FIXED: now uses selective `redactPhi()` instead of blanket `[REDACTED]`
+- ~~**Auth deserialize swallows exceptions**~~ — FIXED: now logs with `logger.error()`
+- ~~**Org suspension check silently fails**~~ — FIXED: now denies with 503 `OBS-AUTH-007`
 
 ---
 
@@ -95,8 +95,8 @@ SQL injection regex patterns with `.*` quantifier vulnerable to ReDoS. Crafted i
 | Security | WAF logs may contain query params with PHI | `waf.ts:185-192` |
 | Security | NPI number stored in plaintext | `clinical.ts:161` |
 | Security | SSN regex false positives on 9-digit codes | `phi-redactor.ts:12` |
-| UX | Idle timeout "Stay Logged In" button is a no-op | `App.tsx:312` |
-| UX | localStorage.clear() on logout clears preferences | `use-idle-timeout.ts:31` |
+| ~~UX~~ | ~~Idle timeout "Stay Logged In" button is a no-op~~ FIXED | `App.tsx:312` |
+| ~~UX~~ | ~~localStorage.clear() on logout clears preferences~~ FIXED | `use-idle-timeout.ts:31` |
 | UX | Upload isUploading never cleared on error | `upload.tsx:18` |
 | UX | Duplicate upload returns 200 instead of 409 | `calls.ts:228` |
 | Code Quality | Duplicate SESSION_ABSOLUTE_MAX_MS constant | `auth.ts:281,473` |

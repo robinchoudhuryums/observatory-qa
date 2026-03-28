@@ -463,7 +463,8 @@ export async function setupAuth(app: Express) {
         orgSlug: org?.slug || "default",
         subTeam: (dbUser as any).subTeam || undefined,
       });
-    } catch {
+    } catch (err) {
+      logger.error({ err, userId: id }, "Session deserialization failed — database error during user lookup");
       done(null, false);
     }
   });
@@ -513,8 +514,14 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
           });
         }
       }
-    } catch {
-      // Non-fatal: if org lookup fails, fall through and allow the request
+    } catch (err) {
+      // Log the error — silently allowing requests when org status check fails
+      // could bypass suspension enforcement. Deny the request to be safe.
+      logger.error({ err, orgId: req.user?.orgId }, "Org lookup failed during SSO session check — denying request");
+      return res.status(503).json({
+        message: "Unable to verify session. Please try again.",
+        errorCode: "OBS-AUTH-007",
+      });
     }
   }
 

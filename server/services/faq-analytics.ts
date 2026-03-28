@@ -5,8 +5,12 @@
  * Normalizes queries, groups by similarity key, tracks confidence
  * distribution, and identifies knowledge base gaps.
  *
+ * HIPAA: Sample queries are PHI-redacted before storage to prevent
+ * patient information from persisting in analytics data.
+ *
  * Ported from ums-knowledge-reference, adapted for multi-tenant context.
  */
+import { redactPhi } from "../utils/phi-redactor";
 
 interface FaqEntry {
   normalizedKey: string;
@@ -62,7 +66,7 @@ export function recordFaqQuery(
       existing.lowConfidenceCount++;
     }
     if (existing.sampleQueries.length < MAX_SAMPLE_QUERIES) {
-      existing.sampleQueries.push(queryText.slice(0, 200));
+      existing.sampleQueries.push(redactPhi(queryText.slice(0, 200)));
     }
     existing.lastSeen = new Date().toISOString();
   } else {
@@ -81,7 +85,7 @@ export function recordFaqQuery(
 
     orgData.set(key, {
       normalizedKey: key,
-      sampleQueries: [queryText.slice(0, 200)],
+      sampleQueries: [redactPhi(queryText.slice(0, 200))],
       count: 1,
       avgConfidence: confidenceScore,
       totalConfidence: confidenceScore,

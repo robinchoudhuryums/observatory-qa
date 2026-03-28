@@ -80,7 +80,9 @@ export function registerClinicalRoutes(app: Express): void {
       // decryptClinicalNotePhi() calls decryptField() which throws on failure —
       // catch here to return a clear HIPAA error rather than a generic 500.
       try {
-        decryptClinicalNotePhi(analysis as Record<string, unknown>);
+        decryptClinicalNotePhi(analysis as Record<string, unknown>, {
+          userId: req.user?.id, orgId: req.orgId, resourceId: req.params.callId, resourceType: "clinical_note",
+        });
       } catch (decryptErr) {
         logger.error({ err: decryptErr, callId: req.params.callId }, "PHI decryption failed for clinical note");
         logPhiAccess({
@@ -789,7 +791,9 @@ export function registerClinicalRoutes(app: Express): void {
       // Decrypt PHI fields for validation
       const decrypted = { ...cn };
       const wrapper = { clinicalNote: decrypted } as Record<string, unknown>;
-      decryptClinicalNotePhi(wrapper);
+      decryptClinicalNotePhi(wrapper, {
+        userId: req.user?.id, orgId: req.orgId, resourceId: req.params.callId, resourceType: "clinical_note_validation",
+      });
 
       const result = validateClinicalNote(decrypted);
       res.json(result);
@@ -1191,7 +1195,9 @@ export function registerClinicalRoutes(app: Express): void {
 
       // Decrypt PHI fields before building FHIR resource
       try {
-        decryptClinicalNotePhi(analysis as Record<string, unknown>);
+        decryptClinicalNotePhi(analysis as Record<string, unknown>, {
+          userId: req.user?.id, orgId: req.orgId, resourceId: req.params.callId, resourceType: "clinical_note_fhir",
+        });
       } catch (decryptErr) {
         logger.error({ err: decryptErr, callId: req.params.callId }, "PHI decryption failed for FHIR export");
         res.status(500).json({

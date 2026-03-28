@@ -309,7 +309,7 @@ function IdleTimeoutWrapper() {
   const idleState = useIdleTimeout();
   return (
     <>
-      <IdleTimeoutOverlay {...idleState} onStayLoggedIn={() => {}} />
+      <IdleTimeoutOverlay {...idleState} onStayLoggedIn={idleState.stayLoggedIn} />
       <Router />
     </>
   );
