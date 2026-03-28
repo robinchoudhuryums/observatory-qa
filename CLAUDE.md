@@ -114,6 +114,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/error-handling.test.ts` — Error handling patterns
   - `tests/phi-encryption.test.ts` — PHI field encryption
   - `tests/speaker-detection.test.ts` — Auto speaker role detection (greeting patterns, AI name match, edge cases)
+  - `tests/rag-pipeline.test.ts` — RAG pipeline integration (chunking ratios, injection guardrails, chunker safety)
   - `tests/sso.test.ts` — SAML SSO
   - `tests/validation.test.ts` — Input validation
 - **E2E test files** (14 specs):
@@ -391,7 +392,7 @@ Every data entity has an `orgId` field. All storage methods take `orgId` as the 
 ### RAG (Retrieval-Augmented Generation) System
 Reference documents uploaded by orgs are processed through:
 1. **Text extraction** — extracted on upload (PDF/text content)
-2. **Chunking** (`chunker.ts`) — sliding window with overlap (400 tokens, 80 token overlap), natural break detection (paragraph > sentence > line), section header tracking
+2. **Chunking** (`chunker.ts`) — sliding window with overlap (400 tokens, 80 token overlap), natural break detection (paragraph > sentence > line via `lastIndexOf`), section header tracking. Configurable `charsPerToken` ratio: 3.5 for medical/dental (clinical codes are dense), 4.0 for general text. Minimum step of 40 chars prevents micro-chunks
 3. **Embedding** (`embeddings.ts`) — Amazon Titan Embed V2 via Bedrock (1024 dimensions, raw REST + SigV4)
 4. **Storage** — chunks + embeddings stored in `document_chunks` table (pgvector)
 5. **Retrieval** (`rag.ts`) — hybrid search: pgvector cosine similarity + BM25 keyword boosting, weighted scoring (70% semantic, 30% keyword), minimum relevance score threshold (0.3) filters low-quality chunks
@@ -1153,6 +1154,9 @@ Server serves both API and static frontend from the same process.
 - **Unicode homoglyph defense** — `detectPromptInjection()` now applies NFKD normalization + diacritical mark stripping before pattern matching (defeats "ìgnórè prëvíóüs ìnstrûctíons" attacks)
 - **Expanded injection patterns** — added `<instructions>`, `<prompt>`, `<context>`, `<user>`, `<assistant>` tags; added "act as if you", "do not follow" phrases; unified tag patterns with `<\/?tag\b` to catch attributes and self-closing variants
 - **Embedding validation** — logs warning when input is truncated (was silent); validates embedding values are finite numbers (no NaN/Infinity that would corrupt pgvector)
+- **Configurable charsPerToken** — `ChunkOptions.charsPerToken` allows per-industry token estimation (dental/medical=3.5, behavioral_health=3.8, general=4.0); `getCharsPerTokenForIndustry()` helper maps industry type to ratio; `indexDocument()` accepts optional `chunkOptions` for callers to pass org-specific config
+- **Batch embedding with progress** — `generateEmbeddingsBatch()` now accepts `concurrency` and `onProgress` callback for large document uploads; structured log output with batch/total counts
+- **RAG pipeline integration tests** — 12 tests in `tests/rag-pipeline.test.ts` covering industry-specific chunking, Unicode homoglyph injection, tag injection with attributes, legitimate query allowlisting, micro-chunk prevention, and overlap clamping
 
 #### ✅ Completed & committed: Call Analysis feature improvements
 - **speakerRoleMap fix** (CRITICAL) — was creating `{ agentSpeaker: "A" }` (property named "agentSpeaker") instead of `{ A: "agent", B: "customer" }` (speaker label → role mapping). Fixed in `assemblyai.ts` and updated `shared/schema/calls.ts` to `z.record(z.string(), z.string())`

@@ -65,6 +65,7 @@ export async function indexDocument(
   orgId: string,
   documentId: string,
   extractedText: string,
+  chunkOptions?: import("./chunker").ChunkOptions,
 ): Promise<number> {
   // Mark as indexing
   await updateIndexingStatus(db, orgId, documentId, "indexing").catch(() => {});
@@ -87,7 +88,7 @@ export async function indexDocument(
       .where(eq(tables.documentChunks.documentId, documentId));
 
     // Chunk the document
-    const chunks = chunkDocument(documentId, extractedText);
+    const chunks = chunkDocument(documentId, extractedText, chunkOptions);
     if (chunks.length === 0) {
       await updateIndexingStatus(db, orgId, documentId, "failed", "Document produced no chunks");
       return 0;

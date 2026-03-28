@@ -154,15 +154,27 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 }
 
 /**
- * Generate embeddings for multiple texts in batches.
- * Processes BATCH_SIZE texts concurrently within each batch.
+ * Generate embeddings for multiple texts in batches with backpressure.
+ * Processes up to `concurrency` texts simultaneously within each batch,
+ * logging progress at each batch boundary.
+ *
+ * For large document uploads (100+ chunks), this provides steady throughput
+ * without overwhelming Bedrock's rate limits.
  */
-export async function generateEmbeddingsBatch(texts: string[]): Promise<number[][]> {
+export async function generateEmbeddingsBatch(
+  texts: string[],
+  opts?: { concurrency?: number; onProgress?: (completed: number, total: number) => void },
+): Promise<number[][]> {
+  const concurrency = opts?.concurrency ?? BATCH_SIZE;
   const results: number[][] = new Array(texts.length);
+  let completed = 0;
 
-  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-    const batch = texts.slice(i, i + BATCH_SIZE);
-    logger.info(`Generating embeddings batch ${i}–${i + batch.length} of ${texts.length}`);
+  for (let i = 0; i < texts.length; i += concurrency) {
+    const batch = texts.slice(i, i + concurrency);
+    const batchNum = Math.floor(i / concurrency) + 1;
+    const totalBatches = Math.ceil(texts.length / concurrency);
+    logger.info({ batch: batchNum, totalBatches, batchSize: batch.length, total: texts.length },
+      `Generating embeddings batch ${batchNum}/${totalBatches}`);
 
     const batchResults = await Promise.all(
       batch.map((text) => generateEmbedding(text)),
@@ -171,6 +183,8 @@ export async function generateEmbeddingsBatch(texts: string[]): Promise<number[]
     for (let j = 0; j < batchResults.length; j++) {
       results[i + j] = batchResults[j];
     }
+    completed += batch.length;
+    opts?.onProgress?.(completed, texts.length);
   }
 
   return results;

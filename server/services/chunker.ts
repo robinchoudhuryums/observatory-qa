@@ -13,6 +13,12 @@ export interface ChunkOptions {
   chunkSizeTokens?: number;
   /** Overlap between adjacent chunks in tokens (default: 80) */
   overlapTokens?: number;
+  /**
+   * Characters per token ratio for estimation (default: 4).
+   * Medical/clinical text with abbreviations (ICD-10, CPT, CDT codes) may use ~3.5.
+   * Conversational transcripts with short words may use ~4.5.
+   */
+  charsPerToken?: number;
 }
 
 export interface DocumentChunk {
@@ -25,9 +31,27 @@ export interface DocumentChunk {
   charEnd: number;
 }
 
-/** Conservative token estimate: ~4 characters per token for English text */
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
+/** Token estimate based on chars-per-token ratio (default 4 for English text). */
+function estimateTokens(text: string, charsPerToken = 4): number {
+  return Math.ceil(text.length / charsPerToken);
+}
+
+/**
+ * Recommended charsPerToken ratio by industry type.
+ * Medical/dental text with clinical codes (ICD-10, CPT, CDT) has shorter tokens.
+ * Conversational transcripts with common words have longer tokens.
+ */
+export function getCharsPerTokenForIndustry(industryType?: string): number {
+  switch (industryType) {
+    case "dental":
+    case "medical":
+    case "veterinary":
+      return 3.5; // Clinical codes, abbreviations, Latin terms
+    case "behavioral_health":
+      return 3.8; // Mix of clinical and conversational
+    default:
+      return 4;   // General English text
+  }
 }
 
 /**
@@ -100,9 +124,10 @@ export function chunkDocument(
 
   const chunkSizeTokens = options.chunkSizeTokens ?? 400;
   const overlapTokens = Math.min(options.overlapTokens ?? 80, chunkSizeTokens - 1);
-  const chunkSizeChars = chunkSizeTokens * 4;
+  const cpt = options.charsPerToken ?? 4;
+  const chunkSizeChars = chunkSizeTokens * cpt;
   // Minimum step of 40 chars (~10 tokens) prevents infinite micro-chunks
-  const stepChars = Math.max((chunkSizeTokens - overlapTokens) * 4, 40);
+  const stepChars = Math.max((chunkSizeTokens - overlapTokens) * cpt, 40);
 
   const chunks: DocumentChunk[] = [];
   let pos = 0;
@@ -125,7 +150,7 @@ export function chunkDocument(
         chunkIndex,
         text: chunkText,
         sectionHeader: findSectionHeader(text, pos),
-        tokenCount: estimateTokens(chunkText),
+        tokenCount: estimateTokens(chunkText, cpt),
         charStart: pos,
         charEnd: endPos,
       });
