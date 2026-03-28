@@ -1145,7 +1145,8 @@ export function registerClinicalRoutes(app: Express): void {
         amendedById: req.user?.id,
         amendedAt: new Date().toISOString(),
         fieldsChanged: [] as string[],
-        content: content.trim(),
+        // Encrypt addendum content — it may contain clinical details (PHI)
+        content: encryptField(content.trim()),
       };
 
       // Conflict detection: if client provides version, verify it matches

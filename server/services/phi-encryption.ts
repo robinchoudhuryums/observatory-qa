@@ -206,6 +206,17 @@ export function decryptClinicalNotePhi(
     }
   }
 
+  // Decrypt addendum content — addenda may contain clinical details (PHI)
+  const amendments = cn.amendments as Array<Record<string, unknown>> | undefined;
+  if (Array.isArray(amendments)) {
+    for (const amendment of amendments) {
+      if (typeof amendment.content === "string" && (amendment.content as string).startsWith("enc_v1:")) {
+        amendment.content = decryptField(amendment.content as string);
+        decryptedCount++;
+      }
+    }
+  }
+
   // HIPAA: Log PHI decryption event for audit trail
   if (decryptedCount > 0 && auditContext) {
     logger.info({
