@@ -1,8 +1,13 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ObservatoryLogo } from "@/components/observatory-logo";
 import { motion, useInView } from "framer-motion";
-import {  RiBarChartBoxLine, RiShieldLine, RiTeamLine, RiArrowRightUpLine, RiMicLine, RiFileTextLine, RiFlashlightLine, RiArrowRightLine, RiArrowRightSLine, RiUploadLine, RiBrainLine  } from "@remixicon/react";
+import {  RiBarChartBoxLine, RiShieldLine, RiTeamLine, RiArrowRightUpLine, RiMicLine, RiFileTextLine, RiFlashlightLine, RiArrowRightLine, RiArrowRightSLine, RiUploadLine, RiBrainLine, RiCheckLine  } from "@remixicon/react";
 
 interface LandingPageProps {
   onNavigate: (view: "login" | "register") => void;
@@ -160,7 +165,221 @@ function FadeUp({ children, delay = 0, className }: { children: React.ReactNode;
   );
 }
 
+/** Enterprise contact form modal — collects structured info for qualified leads. */
+function EnterpriseContactForm({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setSubmitting(true);
+    const form = e.currentTarget;
+    const data = Object.fromEntries(new FormData(form));
+
+    // Build a structured mailto link with form data as the body.
+    // In production, replace with a POST to /api/enterprise-inquiry or a form service.
+    const subject = encodeURIComponent(`Enterprise Inquiry — ${data.company}`);
+    const body = encodeURIComponent(
+      `Enterprise Plan Inquiry\n` +
+      `────────────────────────\n` +
+      `Name: ${data.name}\n` +
+      `Email: ${data.email}\n` +
+      `Company: ${data.company}\n` +
+      `Role: ${data.role}\n` +
+      `\n` +
+      `Expected Usage\n` +
+      `────────────────────────\n` +
+      `Monthly call volume: ${data.callVolume}\n` +
+      `Team size (seats): ${data.teamSize}\n` +
+      `Industry: ${data.industry}\n` +
+      `\n` +
+      `Requirements\n` +
+      `────────────────────────\n` +
+      `Primary use case: ${data.useCase}\n` +
+      `Needs SSO/SCIM: ${data.needsSso}\n` +
+      `Needs Clinical Docs: ${data.needsClinical}\n` +
+      `Current QA tool: ${data.currentTool || "None"}\n` +
+      `\n` +
+      `Additional Details\n` +
+      `────────────────────────\n` +
+      `${data.details || "(none)"}\n`
+    );
+
+    // Open the user's email client with pre-filled content
+    window.location.href = `mailto:sales@observatory-qa.com?subject=${subject}&body=${body}`;
+
+    setSubmitting(false);
+    setSubmitted(true);
+  };
+
+  const handleClose = (open: boolean) => {
+    if (!open) setSubmitted(false);
+    onOpenChange(open);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        {submitted ? (
+          <div className="text-center py-8">
+            <div className="w-12 h-12 rounded-full bg-teal-100 dark:bg-teal-900/30 flex items-center justify-center mx-auto mb-4">
+              <RiCheckLine className="w-6 h-6 text-teal-600 dark:text-teal-400" />
+            </div>
+            <DialogHeader>
+              <DialogTitle className="text-center">Thank you!</DialogTitle>
+              <DialogDescription className="text-center">
+                Your email client should open with your inquiry details. If it didn&apos;t,
+                email us directly at <strong>sales@observatory-qa.com</strong> with your requirements.
+                We typically respond within 1 business day.
+              </DialogDescription>
+            </DialogHeader>
+            <Button className="mt-6" variant="outline" onClick={() => handleClose(false)}>Close</Button>
+          </div>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle>Enterprise Plan Inquiry</DialogTitle>
+              <DialogDescription>
+                Tell us about your needs and we&apos;ll put together a custom plan. We typically respond within 1 business day.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleSubmit} className="space-y-4 mt-2">
+              {/* Contact info */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="ent-name">Full name *</Label>
+                  <Input id="ent-name" name="name" required placeholder="Jane Smith" />
+                </div>
+                <div>
+                  <Label htmlFor="ent-email">Work email *</Label>
+                  <Input id="ent-email" name="email" type="email" required placeholder="jane@company.com" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="ent-company">Company *</Label>
+                  <Input id="ent-company" name="company" required placeholder="Acme Dental Group" />
+                </div>
+                <div>
+                  <Label htmlFor="ent-role">Your role</Label>
+                  <Input id="ent-role" name="role" placeholder="Practice Manager" />
+                </div>
+              </div>
+
+              {/* Usage sizing */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="ent-calls">Expected monthly call volume *</Label>
+                  <Select name="callVolume" required>
+                    <SelectTrigger id="ent-calls"><SelectValue placeholder="Select range" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Under 500">Under 500</SelectItem>
+                      <SelectItem value="500-1,000">500 – 1,000</SelectItem>
+                      <SelectItem value="1,000-5,000">1,000 – 5,000</SelectItem>
+                      <SelectItem value="5,000-10,000">5,000 – 10,000</SelectItem>
+                      <SelectItem value="10,000+">10,000+</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="ent-seats">Team size (users who need access) *</Label>
+                  <Select name="teamSize" required>
+                    <SelectTrigger id="ent-seats"><SelectValue placeholder="Select range" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1-10">1 – 10</SelectItem>
+                      <SelectItem value="11-25">11 – 25</SelectItem>
+                      <SelectItem value="26-50">26 – 50</SelectItem>
+                      <SelectItem value="50+">50+</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="ent-industry">Industry *</Label>
+                <Select name="industry" required>
+                  <SelectTrigger id="ent-industry"><SelectValue placeholder="Select industry" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Dental">Dental</SelectItem>
+                    <SelectItem value="Medical / Primary Care">Medical / Primary Care</SelectItem>
+                    <SelectItem value="Behavioral Health">Behavioral Health</SelectItem>
+                    <SelectItem value="Veterinary">Veterinary</SelectItem>
+                    <SelectItem value="Call Center / BPO">Call Center / BPO</SelectItem>
+                    <SelectItem value="Insurance">Insurance</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Requirements */}
+              <div>
+                <Label htmlFor="ent-usecase">Primary use case *</Label>
+                <Select name="useCase" required>
+                  <SelectTrigger id="ent-usecase"><SelectValue placeholder="What do you need most?" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Call QA & Performance Scoring">Call QA & Performance Scoring</SelectItem>
+                    <SelectItem value="Clinical Documentation (AI Scribe)">Clinical Documentation (AI Scribe)</SelectItem>
+                    <SelectItem value="Both QA + Clinical Docs">Both QA + Clinical Docs</SelectItem>
+                    <SelectItem value="Compliance & Audit">Compliance & Audit</SelectItem>
+                    <SelectItem value="Coaching & Training">Coaching & Training</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="ent-sso">Need SSO / SCIM?</Label>
+                  <Select name="needsSso">
+                    <SelectTrigger id="ent-sso"><SelectValue placeholder="Select" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Yes">Yes</SelectItem>
+                      <SelectItem value="No">No</SelectItem>
+                      <SelectItem value="Not sure">Not sure</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="ent-clinical">Need Clinical Docs?</Label>
+                  <Select name="needsClinical">
+                    <SelectTrigger id="ent-clinical"><SelectValue placeholder="Select" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Yes">Yes</SelectItem>
+                      <SelectItem value="No">No</SelectItem>
+                      <SelectItem value="Not sure">Not sure</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="ent-current">Current QA tool (if any)</Label>
+                <Input id="ent-current" name="currentTool" placeholder="e.g., manual review, Scorebuddy, none" />
+              </div>
+
+              <div>
+                <Label htmlFor="ent-details">Anything else we should know?</Label>
+                <Textarea id="ent-details" name="details" rows={3} placeholder="Specific requirements, timeline, integrations needed..." />
+              </div>
+
+              <Button type="submit" className="w-full bg-gradient-to-r from-teal-500 to-blue-500 hover:from-teal-600 hover:to-blue-600 text-white" disabled={submitting}>
+                {submitting ? "Preparing..." : "Send Inquiry"}
+                <RiArrowRightSLine className="w-4 h-4 ml-1" />
+              </Button>
+              <p className="text-xs text-muted-foreground text-center">
+                This will open your email client with your details pre-filled.
+              </p>
+            </form>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function LandingPage({ onNavigate }: LandingPageProps) {
+  const [enterpriseFormOpen, setEnterpriseFormOpen] = useState(false);
+
   return (
     <div className="min-h-screen landing-page">
       {/* ── Hero Section ─────────────────────────────────── */}
@@ -383,12 +602,10 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
                     <Button
                       className="w-full landing-outline-btn"
                       variant="outline"
-                      asChild
+                      onClick={() => setEnterpriseFormOpen(true)}
                     >
-                      <a href="mailto:sales@observatory-qa.com">
-                        Contact Sales
-                        <RiArrowRightSLine className="w-4 h-4 ml-1" />
-                      </a>
+                      Contact Sales
+                      <RiArrowRightSLine className="w-4 h-4 ml-1" />
                     </Button>
                   ) : (
                     <Button
@@ -453,6 +670,9 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
           </div>
         </div>
       </footer>
+
+      {/* Enterprise contact form modal */}
+      <EnterpriseContactForm open={enterpriseFormOpen} onOpenChange={setEnterpriseFormOpen} />
     </div>
   );
 }
