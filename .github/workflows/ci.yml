@@ -318,7 +318,7 @@ jobs:
           echo "Triggered by: ${{ github.event_name }} / ${{ github.actor }}"
 
       - name: Trigger Render deploy hook
-        if: vars.RENDER_DEPLOY_HOOK_URL != ''
+        if: ${{ vars.RENDER_DEPLOY_HOOK_URL != '' }}
         run: |
           RESPONSE=$(curl -sf -w "\nHTTP_STATUS:%{http_code}" "$RENDER_DEPLOY_HOOK_URL")
           HTTP_STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | cut -d: -f2)
@@ -336,7 +336,7 @@ jobs:
           sleep 45
 
       - name: Health check staging
-        if: vars.STAGING_URL != ''
+        if: ${{ vars.STAGING_URL != '' }}
         run: |
           MAX_RETRIES=8
           RETRY_INTERVAL=15
@@ -385,7 +385,7 @@ jobs:
           echo "============================================"
 
       - name: Deploy to EC2 via SSH
-        if: vars.EC2_HOST != '' && secrets.EC2_SSH_KEY != ''
+        if: ${{ vars.EC2_HOST != '' && secrets.EC2_SSH_KEY != '' }}
         run: |
           mkdir -p ~/.ssh
           echo "$EC2_SSH_KEY" > ~/.ssh/deploy_key
@@ -401,7 +401,7 @@ jobs:
           EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
 
       - name: Health check production
-        if: vars.PRODUCTION_URL != ''
+        if: ${{ vars.PRODUCTION_URL != '' }}
         run: |
           echo "Waiting 20s for service restart..."
           sleep 20
