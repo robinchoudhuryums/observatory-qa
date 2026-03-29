@@ -202,6 +202,7 @@ function EnterpriseContactForm({ open, onOpenChange }: { open: boolean; onOpenCh
       `\n` +
       `Additional Details\n` +
       `────────────────────────\n` +
+      `How they heard about us: ${data.referralSource || "Not specified"}\n` +
       `${data.details || "(none)"}\n`
     );
 
@@ -355,6 +356,24 @@ function EnterpriseContactForm({ open, onOpenChange }: { open: boolean; onOpenCh
               <div>
                 <Label htmlFor="ent-current">Current QA tool (if any)</Label>
                 <Input id="ent-current" name="currentTool" placeholder="e.g., manual review, Scorebuddy, none" />
+              </div>
+
+              <div>
+                <Label htmlFor="ent-referral">How did you hear about us?</Label>
+                <Select name="referralSource">
+                  <SelectTrigger id="ent-referral"><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Google search">Google search</SelectItem>
+                    <SelectItem value="LinkedIn">LinkedIn</SelectItem>
+                    <SelectItem value="Colleague / word of mouth">Colleague / word of mouth</SelectItem>
+                    <SelectItem value="Industry event or conference">Industry event or conference</SelectItem>
+                    <SelectItem value="Dental / medical association">Dental / medical association</SelectItem>
+                    <SelectItem value="Blog or article">Blog or article</SelectItem>
+                    <SelectItem value="Software review site (G2, Capterra)">Software review site</SelectItem>
+                    <SelectItem value="Social media">Social media</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div>
