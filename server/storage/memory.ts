@@ -241,9 +241,14 @@ export class MemStorage implements IStorage {
     return Array.from(this.calls.values()).find(c => c.assemblyAiId === transcriptId) || null;
   }
   async getAllCalls(orgId: string): Promise<Call[]> {
+    // Hard cap to prevent OOM on orgs with extremely large call volumes.
+    // Analytics endpoints that need true aggregation should use purpose-built
+    // storage methods with SQL-level aggregation instead.
+    const HARD_CAP = 5000;
     return Array.from(this.calls.values())
       .filter(c => c.orgId === orgId)
-      .sort((a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime());
+      .sort((a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime())
+      .slice(0, HARD_CAP);
   }
   async getCallsWithDetails(
     orgId: string,

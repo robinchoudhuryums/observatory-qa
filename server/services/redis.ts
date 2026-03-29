@@ -218,6 +218,66 @@ export function getRedisStatus(): { connected: boolean; mode: "distributed" | "i
   };
 }
 
+// ── Ephemeral key-value store (Redis-backed with in-memory fallback) ──────
+// Used by OIDC state, email OTP, and other short-lived session data.
+// Falls back to in-memory Map when Redis is unavailable (single-instance only).
+
+const memFallback = new Map<string, { value: string; expiresAt: number }>();
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of Array.from(memFallback)) {
+    if (v.expiresAt < now) memFallback.delete(k);
+  }
+}, 60_000).unref();
+
+/**
+ * Store a value with automatic TTL expiry. Uses Redis when available.
+ * Key is prefixed with `prefix:` to namespace different use cases.
+ */
+export async function ephemeralSet(prefix: string, key: string, value: string, ttlMs: number): Promise<void> {
+  const fullKey = `${prefix}:${key}`;
+  if (redisClient?.status === "ready") {
+    await redisClient.set(fullKey, value, "PX", ttlMs);
+  } else {
+    memFallback.set(fullKey, { value, expiresAt: Date.now() + ttlMs });
+  }
+}
+
+/** Retrieve and delete a value (consume-once pattern). Returns null if not found or expired. */
+export async function ephemeralConsume(prefix: string, key: string): Promise<string | null> {
+  const fullKey = `${prefix}:${key}`;
+  if (redisClient?.status === "ready") {
+    const val = await redisClient.get(fullKey);
+    if (val) await redisClient.del(fullKey);
+    return val;
+  }
+  const entry = memFallback.get(fullKey);
+  memFallback.delete(fullKey);
+  if (entry && entry.expiresAt > Date.now()) return entry.value;
+  return null;
+}
+
+/** Get a value without consuming it. Returns null if not found or expired. */
+export async function ephemeralGet(prefix: string, key: string): Promise<string | null> {
+  const fullKey = `${prefix}:${key}`;
+  if (redisClient?.status === "ready") {
+    return await redisClient.get(fullKey);
+  }
+  const entry = memFallback.get(fullKey);
+  if (entry && entry.expiresAt > Date.now()) return entry.value;
+  return null;
+}
+
+/** Delete a value. */
+export async function ephemeralDel(prefix: string, key: string): Promise<void> {
+  const fullKey = `${prefix}:${key}`;
+  if (redisClient?.status === "ready") {
+    await redisClient.del(fullKey);
+  } else {
+    memFallback.delete(fullKey);
+  }
+}
+
 /**
  * Clean up Redis connections on shutdown.
  */

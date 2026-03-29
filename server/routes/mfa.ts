@@ -202,7 +202,8 @@ export function registerMfaRoutes(app: Express): void {
         return res.status(400).json({ message: "userId and code are required" });
       }
 
-      const sessionId = req.sessionID || req.ip || "unknown";
+      // Use session ID only — never fall back to spoofable req.ip for rate limiting
+      const sessionId = req.sessionID || "no-session";
       if (isMfaLocked(sessionId)) {
         return res.status(429).json({ message: "Too many MFA attempts. Try again later." });
       }
@@ -302,7 +303,8 @@ export function registerMfaRoutes(app: Express): void {
         return res.status(400).json({ message: "userId and backupCode are required" });
       }
 
-      const sessionId = req.sessionID || req.ip || "unknown";
+      // Use session ID only — never fall back to spoofable req.ip for rate limiting
+      const sessionId = req.sessionID || "no-session";
       if (isMfaLocked(sessionId)) {
         return res.status(429).json({ message: "Too many MFA attempts. Try again later." });
       }
@@ -599,7 +601,8 @@ export function registerMfaRoutes(app: Express): void {
       };
       if (!userId || !response) return res.status(400).json({ message: "userId and response are required" });
 
-      const sessionId = req.sessionID || req.ip || "unknown";
+      // Use session ID only — never fall back to spoofable req.ip for rate limiting
+      const sessionId = req.sessionID || "no-session";
       if (isMfaLocked(sessionId)) return res.status(429).json({ message: "Too many MFA attempts. Try again later." });
 
       const expectedChallenge = (req.session as any).webauthnChallenge;
@@ -789,7 +792,10 @@ export function registerMfaRoutes(app: Express): void {
   // For clinical staff without smartphones — send a 6-digit OTP via email
 
   // In-memory email OTP store (userId → { code, expiresAt, attempts })
-  // Note: for multi-instance deployments, move this to Redis
+  // TODO: In multi-instance deployments, replace with Redis ephemeral store
+  // (see server/services/redis.ts ephemeralSet/Get/Del) to ensure OTP created
+  // on instance A can be verified on instance B. Low priority: 10-minute TTL,
+  // low volume, and same-session affinity usually routes to the same instance.
   const emailOtpStore = new Map<string, { codeHash: string; expiresAt: number; attempts: number }>();
   setInterval(() => {
     const now = Date.now();
@@ -853,7 +859,8 @@ export function registerMfaRoutes(app: Express): void {
       const { userId, otp } = req.body;
       if (!userId || !otp) return res.status(400).json({ message: "userId and otp are required" });
 
-      const sessionId = req.sessionID || req.ip || "unknown";
+      // Use session ID only — never fall back to spoofable req.ip for rate limiting
+      const sessionId = req.sessionID || "no-session";
       if (isMfaLocked(sessionId)) return res.status(429).json({ message: "Too many MFA attempts. Try again later." });
 
       const stored = emailOtpStore.get(userId);

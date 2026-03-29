@@ -26,6 +26,10 @@ const AUTH_TAG_LENGTH = 16;
 const dekCache = new Map<string, { key: Buffer; expiresAt: number }>();
 const DEK_TTL_MS = 30 * 60 * 1000;
 
+// Per-org DEK generation lock — prevents concurrent generation race condition
+// where two requests both see "no DEK" and overwrite each other.
+const dekGenLocks = new Map<string, Promise<Buffer | null>>();
+
 function getCachedDek(orgId: string): Buffer | null {
   const entry = dekCache.get(orgId);
   if (entry && Date.now() < entry.expiresAt) return entry.key;
@@ -49,10 +53,25 @@ export async function getOrgDataKey(orgId: string): Promise<Buffer | null> {
   const kmsKeyId = process.env.AWS_KMS_KEY_ID;
   if (!kmsKeyId) return null; // KMS not configured — use shared key
 
-  // Check cache
+  // Check cache first (fast path, no lock needed)
   const cached = getCachedDek(orgId);
   if (cached) return cached;
 
+  // Serialize DEK generation per org to prevent concurrent requests from
+  // both generating a new DEK and overwriting each other.
+  const existing = dekGenLocks.get(orgId);
+  if (existing) return existing;
+
+  const work = _getOrCreateOrgDataKey(orgId, kmsKeyId);
+  dekGenLocks.set(orgId, work);
+  try {
+    return await work;
+  } finally {
+    dekGenLocks.delete(orgId);
+  }
+}
+
+async function _getOrCreateOrgDataKey(orgId: string, kmsKeyId: string): Promise<Buffer | null> {
   // Lazy import to avoid requiring @aws-sdk/client-kms when KMS not used
   const { KMSClient, GenerateDataKeyCommand, DecryptCommand } = await import("@aws-sdk/client-kms");
   const kms = new KMSClient({ region: process.env.AWS_REGION || "us-east-1" });
