@@ -5,18 +5,22 @@
  * - STRIPE_SECRET_KEY: Stripe API secret key
  * - STRIPE_WEBHOOK_SECRET: Webhook signing secret for verifying events
  *
- * Flat-rate subscription prices (one per plan × billing interval):
- * - STRIPE_PRICE_STARTER_MONTHLY / STRIPE_PRICE_STARTER_YEARLY
- * - STRIPE_PRICE_PROFESSIONAL_MONTHLY / STRIPE_PRICE_PROFESSIONAL_YEARLY
- * - STRIPE_PRICE_ENTERPRISE_MONTHLY / STRIPE_PRICE_ENTERPRISE_YEARLY
+ * Flat-rate subscription prices (one per plan x billing interval):
+ * - STRIPE_PRICE_STARTER_MONTHLY / STRIPE_PRICE_STARTER_YEARLY        ($79/mo or $756/yr)
+ * - STRIPE_PRICE_PROFESSIONAL_MONTHLY / STRIPE_PRICE_PROFESSIONAL_YEARLY ($199/mo or $1908/yr)
+ * - STRIPE_PRICE_ENTERPRISE_MONTHLY / STRIPE_PRICE_ENTERPRISE_YEARLY   ($999/mo or $9588/yr)
+ *
+ * Clinical Documentation add-on (Starter only — included in Professional+):
+ * - STRIPE_PRICE_CLINICAL_ADDON_MONTHLY  ($49/mo)
  *
  * Metered seat add-on prices (usage_type=metered, billed for seats above base):
- * - STRIPE_PRICE_STARTER_SEATS    ($12/seat/mo above 5 base seats)
- * - STRIPE_PRICE_PROFESSIONAL_SEATS ($18/seat/mo above 10 base seats)
+ * - STRIPE_PRICE_STARTER_SEATS       ($15/seat/mo above 5 base seats)
+ * - STRIPE_PRICE_PROFESSIONAL_SEATS  ($20/seat/mo above 10 base seats)
  *
  * Metered per-call overage prices (usage_type=metered, billed per call over quota):
- * - STRIPE_PRICE_STARTER_OVERAGE    ($0.35/call over 300/mo)
- * - STRIPE_PRICE_PROFESSIONAL_OVERAGE ($0.25/call over 1000/mo)
+ * - STRIPE_PRICE_STARTER_OVERAGE       ($0.35/call over 300/mo)
+ * - STRIPE_PRICE_PROFESSIONAL_OVERAGE  ($0.25/call over 1000/mo)
+ * - STRIPE_PRICE_ENTERPRISE_OVERAGE    ($0.15/call over 5000/mo)
  *
  * Enterprise seats are negotiated per contract — no metered price configured here.
  */

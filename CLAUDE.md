@@ -832,12 +832,13 @@ BEDROCK_MODEL                   # Default: us.anthropic.claude-sonnet-4-6
 # ─── Billing ─────────────────────────────────────────────────────────
 STRIPE_SECRET_KEY               # Stripe API secret
 STRIPE_WEBHOOK_SECRET           # Stripe webhook signing secret
-STRIPE_PRICE_STARTER_MONTHLY    # Price ID for Starter monthly
-STRIPE_PRICE_STARTER_YEARLY     # Price ID for Starter yearly
-STRIPE_PRICE_PROFESSIONAL_MONTHLY # Price ID for Professional monthly
-STRIPE_PRICE_PROFESSIONAL_YEARLY  # Price ID for Professional yearly
-STRIPE_PRICE_ENTERPRISE_MONTHLY # Price ID for Enterprise monthly
-STRIPE_PRICE_ENTERPRISE_YEARLY  # Price ID for Enterprise yearly
+STRIPE_PRICE_STARTER_MONTHLY    # Price ID for Starter monthly ($79)
+STRIPE_PRICE_STARTER_YEARLY     # Price ID for Starter yearly ($756)
+STRIPE_PRICE_PROFESSIONAL_MONTHLY # Price ID for Professional monthly ($199)
+STRIPE_PRICE_PROFESSIONAL_YEARLY  # Price ID for Professional yearly ($1908)
+STRIPE_PRICE_ENTERPRISE_MONTHLY # Price ID for Enterprise monthly ($999)
+STRIPE_PRICE_ENTERPRISE_YEARLY  # Price ID for Enterprise yearly ($9588)
+STRIPE_PRICE_CLINICAL_ADDON_MONTHLY # Price ID for Clinical Documentation add-on ($49/mo, Starter only)
 
 # ─── Google OAuth ────────────────────────────────────────────────────
 GOOGLE_CLIENT_ID                # OAuth client ID
