@@ -139,7 +139,7 @@ const PLANS = [
   { name: "Free", price: "$0", period: "/mo", calls: "50 calls/mo · 2 seats", highlight: false, contactSales: false },
   { name: "Starter", price: "$79", period: "/mo", calls: "300 calls/mo · 5 seats · +$49/mo for Clinical Docs", highlight: false, contactSales: false },
   { name: "Professional", price: "$199", period: "/mo", calls: "1,000 calls/mo · 10 seats · Clinical docs included", highlight: true, contactSales: false },
-  { name: "Enterprise", price: "$999", period: "/mo", calls: "5,000 calls/mo · 25 seats · SSO · Dedicated support", highlight: false, contactSales: true },
+  { name: "Enterprise", price: "Custom", period: "", calls: "High-volume calls · SSO · SCIM · Clinical docs · Dedicated support", highlight: false, contactSales: true },
 ];
 
 /** Fade-up animation wrapper — triggers when element enters viewport */
