@@ -32,15 +32,10 @@ import { validateUrl } from "../utils/url-validation";
 let samlConfigured = false;
 let oidcConfigured = false;
 
-// In-memory OIDC state store (keyed by state param). TTL = 10 minutes.
-const oidcStates = new Map<string, { orgSlug: string; nonce: string; expiresAt: number }>();
-// Prune expired OIDC states every 5 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, val] of Array.from(oidcStates)) {
-    if (val.expiresAt < now) oidcStates.delete(key);
-  }
-}, 5 * 60 * 1000).unref();
+// OIDC state store — uses Redis when available, in-memory fallback.
+// In multi-instance deployments, Redis ensures the state created on instance A
+// can be consumed by instance B when the OIDC callback arrives.
+import { ephemeralSet, ephemeralConsume } from "../services/redis";
 
 // JWKS cache: issuer → { keys, fetchedAt }
 const jwksCache = new Map<string, { keys: Record<string, unknown>[]; fetchedAt: number }>();
@@ -300,6 +295,18 @@ export async function setupSamlAuth(): Promise<boolean> {
             if (!orgSlug) {
               return done(null, undefined, { message: "No organization context in SAML response" });
             }
+
+            // CSRF protection: for SP-initiated flow, verify RelayState matches
+            // the orgSlug we stored in the session before redirecting to the IDP.
+            // IDP-initiated flow (per-org ACS path param) doesn't have session state,
+            // so we only enforce when ssoExpectedOrg was explicitly set.
+            const expectedOrg = (req.session as any)?.ssoExpectedOrg;
+            if (expectedOrg && expectedOrg !== orgSlug) {
+              logger.warn({ expectedOrg, receivedOrg: orgSlug }, "SSO RelayState mismatch — possible CSRF");
+              return done(null, undefined, { message: "SSO organization context mismatch" });
+            }
+            // Clear the session flag after verification
+            if (expectedOrg) delete (req.session as any).ssoExpectedOrg;
 
             const config = await getOrgSsoConfig(orgSlug);
             if (!config) {
@@ -612,6 +619,10 @@ export function registerSsoRoutes(app: Express): void {
 
     logger.info({ orgSlug }, "Initiating SAML SSO login (SP-initiated)");
 
+    // Store expected orgSlug in session to prevent RelayState CSRF attacks.
+    // On callback, we verify RelayState matches what we stored here.
+    (req.session as any).ssoExpectedOrg = orgSlug;
+
     passport.authenticate("saml", {
       additionalParams: { RelayState: orgSlug },
     } as any)(req, res, next);
@@ -745,7 +756,7 @@ export function registerSsoRoutes(app: Express): void {
       const state = randomBytes(16).toString("hex");
       const nonce = randomBytes(16).toString("hex");
 
-      oidcStates.set(state, { orgSlug, nonce, expiresAt: Date.now() + 10 * 60 * 1000 });
+      await ephemeralSet("oidc-state", state, JSON.stringify({ orgSlug, nonce }), 10 * 60 * 1000);
 
       const baseUrl = getBaseUrl(req);
       const params = new URLSearchParams({
@@ -778,14 +789,12 @@ export function registerSsoRoutes(app: Express): void {
       return res.redirect("/?error=oidc_missing_params");
     }
 
-    const stateData = oidcStates.get(state);
-    if (!stateData || stateData.expiresAt < Date.now()) {
-      oidcStates.delete(state);
+    const stateJson = await ephemeralConsume("oidc-state", state);
+    if (!stateJson) {
       return res.redirect("/?error=oidc_invalid_state");
     }
-    oidcStates.delete(state);
 
-    const { orgSlug, nonce } = stateData;
+    const { orgSlug, nonce } = JSON.parse(stateJson) as { orgSlug: string; nonce: string };
 
     try {
       const config = await getOrgSsoConfig(orgSlug);

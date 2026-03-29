@@ -284,6 +284,44 @@ app.use("/api/ehr", distributedRateLimit(60 * 1000, 20, true) as any);
 app.post("/api/clinical/style-learning/analyze", distributedRateLimit(60 * 1000, 3, true) as any);
 
 (async () => {
+  // --- Pre-flight environment validation ---
+  // Catch misconfigurations before anything starts. Prevents silent failures
+  // and data loss (e.g., PHI stored unencrypted because key is missing).
+  const isProduction = process.env.NODE_ENV === "production";
+  const envErrors: string[] = [];
+  const envWarnings: string[] = [];
+
+  // Required always
+  if (!process.env.SESSION_SECRET) envErrors.push("SESSION_SECRET is required (cookie signing)");
+  if (!process.env.ASSEMBLYAI_API_KEY) envWarnings.push("ASSEMBLYAI_API_KEY not set — audio processing will fail");
+
+  // Required in production
+  if (isProduction) {
+    if (!process.env.PHI_ENCRYPTION_KEY) envErrors.push("PHI_ENCRYPTION_KEY required in production (64-char hex for AES-256-GCM)");
+    else if (process.env.PHI_ENCRYPTION_KEY.length !== 64) envErrors.push("PHI_ENCRYPTION_KEY must be exactly 64 hex characters");
+    if (!process.env.DATABASE_URL && process.env.STORAGE_BACKEND === "postgres") envErrors.push("DATABASE_URL required when STORAGE_BACKEND=postgres");
+    if (process.env.SESSION_SECRET === "dev-secret" || (process.env.SESSION_SECRET && process.env.SESSION_SECRET.length < 16))
+      envWarnings.push("SESSION_SECRET appears weak — use a random 32+ character string in production");
+  }
+
+  // AI provider
+  if (process.env.AWS_ACCESS_KEY_ID && !process.env.AWS_SECRET_ACCESS_KEY)
+    envErrors.push("AWS_SECRET_ACCESS_KEY required when AWS_ACCESS_KEY_ID is set");
+  if (process.env.AWS_SECRET_ACCESS_KEY && !process.env.AWS_ACCESS_KEY_ID)
+    envErrors.push("AWS_ACCESS_KEY_ID required when AWS_SECRET_ACCESS_KEY is set");
+
+  // Stripe
+  if (process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_WEBHOOK_SECRET)
+    envWarnings.push("STRIPE_WEBHOOK_SECRET not set — Stripe webhooks will fail signature verification");
+
+  // Log and exit on errors
+  for (const w of envWarnings) logger.warn(`[ENV] ${w}`);
+  if (envErrors.length > 0) {
+    for (const e of envErrors) logger.error(`[ENV] ${e}`);
+    logger.error(`${envErrors.length} environment configuration error(s) — fix these before starting`);
+    process.exit(1);
+  }
+
   // --- Infrastructure initialization ---
 
   // 0. Initialize OpenTelemetry (must be early to instrument HTTP, Express, pg)

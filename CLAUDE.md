@@ -79,7 +79,7 @@ npx vite build         # Frontend-only build (quick verification)
 - **Unit tests**: Node.js built-in `test` module via `tsx` — `npm run test`
 - **E2E tests**: Playwright (Chromium) — `npm run test:e2e` or `npm run test:e2e:ui`
 - **Location**: `tests/` (unit), `tests/e2e/` (E2E)
-- **Unit test files** (35 files):
+- **Unit test files** (61 files, 1171 tests):
   - `tests/schema.test.ts` — Zod schema validation (orgId on all entities, organization schemas)
   - `tests/ai-provider.test.ts` — AI provider utilities (parseJsonResponse, buildAnalysisPrompt, smartTruncate)
   - `tests/routes.test.ts` — API route handler tests
@@ -119,7 +119,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/lms-prereq-enforce.test.ts` — LMS prerequisites, enforceOrder, deadlines, passing scores
   - `tests/sso.test.ts` — SAML SSO
   - `tests/validation.test.ts` — Input validation
-- **E2E test files** (14 specs):
+- **E2E test files** (12 specs):
   - `tests/e2e/fixtures.ts` — **Shared auth fixtures** (`adminTest`, `viewerTest`) — per-test login via `page.request.post()`
   - `tests/e2e/auth.spec.ts` — Login, landing page
   - `tests/e2e/navigation.spec.ts` — Navigation flows

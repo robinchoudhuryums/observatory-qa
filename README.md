@@ -30,7 +30,7 @@ AI-powered call quality analysis and clinical documentation for healthcare and c
 - **SSO** — SAML 2.0 + OIDC single sign-on (Enterprise plan). IDP-initiated login, group-to-role mapping, per-org session limits, SLO sync logout, certificate rotation workflow with dual-cert support
 - **SCIM 2.0** — Automated user lifecycle management (Enterprise plan). Okta/Azure AD provisioning: create users when they join, deactivate when they leave. Bearer token auth, full Users CRUD, ServiceProviderConfig endpoint
 - **MFA** — TOTP + WebAuthn/Passkeys (FIDO2, phishing-resistant). Trusted device management ("remember this device 30 days"). Email OTP fallback for clinical staff without smartphones. Emergency recovery workflow (email-verified + admin-approved bypass). Per-org enforcement with configurable grace period (default 7 days)
-- **Billing** — Stripe integration with Free / Clinical Documentation ($49/mo) / Pro ($99/mo) / Enterprise ($499/mo) tiers
+- **Billing** — Stripe integration with Free / Starter ($79/mo) / Professional ($149/mo) / Enterprise ($999/mo) tiers
 - **HIPAA compliant** — session timeouts, session fixation prevention, audit logging (PHI access on all sensitive endpoints), MFA, PHI field encryption (AES-256-GCM), PostgreSQL Row-Level Security (RLS) on all tenant-scoped tables, per-org KMS envelope encryption, org-scoped rate limiting, data retention, GDPR/CCPA data export and right-to-erasure
 - **Learning Management System** — AI-generated training courses from call analysis, lesson tracking
 - **Marketing attribution** — UTM parameter tracking, campaign source/medium, ROI calculation
@@ -69,7 +69,7 @@ AI-powered call quality analysis and clinical documentation for healthcare and c
 ## Quick Start
 
 ### Prerequisites
-- Node.js 18+
+- Node.js 20+ (see `.nvmrc`)
 - (Optional) PostgreSQL 15+ with pgvector extension
 - (Optional) Redis 7+
 
@@ -154,8 +154,8 @@ shared/
 
 data/dental/          # Dental-specific reference data (CDT codes, prompt templates)
 deploy/ec2/           # EC2 deployment (Caddy, systemd, bootstrap script)
-tests/                # 27 unit test files (Node test runner)
-tests/e2e/            # 11 Playwright E2E spec files
+tests/                # 61 unit test files (Node test runner)
+tests/e2e/            # 12 Playwright E2E spec files
 ```
 
 ## Commands
@@ -165,7 +165,8 @@ tests/e2e/            # 11 Playwright E2E spec files
 | `npm run dev` | Dev server with Vite HMR (port 5000) |
 | `npm run build` | Production build (Vite frontend + esbuild backend) |
 | `npm run start` | Start production server |
-| `npm run test` | Run unit test suite |
+| `npm run test` | Run unit test suite (1171 tests) |
+| `npm run test:coverage` | Run tests with c8 coverage (text + lcov) |
 | `npm run test:e2e` | Run Playwright E2E tests |
 | `npm run test:e2e:ui` | Open Playwright interactive UI |
 | `npm run check` | TypeScript type check |
@@ -173,6 +174,8 @@ tests/e2e/            # 11 Playwright E2E spec files
 | `npm run db:push` | Push Drizzle schema to PostgreSQL |
 | `npm run db:studio` | Open Drizzle Studio (DB GUI) |
 | `npm run db:migrate` | Run database migrations |
+| `npm run lint` | ESLint (zero-warning policy in CI) |
+| `npm run format:check` | Prettier check (CI uses this) |
 | `npm run seed` | Seed sample data |
 
 ## Storage Backends
@@ -245,7 +248,7 @@ Observatory QA implements healthcare-grade security controls:
 npm run test
 ```
 
-27 unit test files covering schemas, routes, multi-tenancy, RBAC, billing, API keys, clinical workflows, EHR, PHI encryption, SSO, and more. Uses Node.js built-in test runner via tsx. Plus 11 Playwright E2E specs for browser-level testing.
+61 unit test files (1171 tests) covering schemas, routes, multi-tenancy, RBAC, billing, API keys, clinical workflows, EHR, PHI encryption, SSO, speaker detection, RAG pipeline, clinical amendments, and more. Uses Node.js built-in test runner via tsx. Plus 12 Playwright E2E specs for browser-level testing.
 
 ### E2E Tests (Playwright)
 ```bash

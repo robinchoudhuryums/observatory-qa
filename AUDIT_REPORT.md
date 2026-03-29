@@ -1,8 +1,8 @@
 # Observatory QA - Comprehensive Codebase Audit Report
 
 **Date**: 2026-03-28
-**Codebase**: 327 TypeScript files, ~63,500 LOC
-**Tests**: 57 unit test files + 12 E2E specs
+**Codebase**: 327+ TypeScript files, ~63,500 LOC
+**Tests**: 61 unit test files (1171 tests) + 12 E2E specs
 
 ---
 
