@@ -87,6 +87,8 @@ export const planLimitsSchema = z.object({
   baseSeats: z.number(),                    // seats included in base price
   pricePerAdditionalSeatUsd: z.number(),    // $/seat/mo for additional seats; 0 = not applicable
   overagePricePerCallUsd: z.number(),       // $/call over quota; 0 = hard block at limit
+  /** Monthly add-on price for clinical documentation (0 = included or not available) */
+  clinicalDocumentationAddOnUsd: z.number().default(0),
 });
 export type PlanLimits = z.infer<typeof planLimitsSchema>;
 
@@ -102,16 +104,17 @@ export const PLAN_DEFINITIONS: Record<PlanTier, { name: string; description: str
       storageMb: 500,
       aiAnalysesPerMonth: 50,
       apiCallsPerMonth: 1000,
-      maxUsers: 3,
+      maxUsers: 2,
       customPromptTemplates: false,
       ragEnabled: false,
       ssoEnabled: false,
       prioritySupport: false,
       clinicalDocumentationEnabled: false,
       abTestingEnabled: false,
-      baseSeats: 3,
+      baseSeats: 2,
       pricePerAdditionalSeatUsd: 0,
-      overagePricePerCallUsd: 0,
+      overagePricePerCallUsd: 0, // Hard block at limit (no overage on free)
+      clinicalDocumentationAddOnUsd: 0, // Not available
     },
   },
   starter: {
@@ -130,18 +133,19 @@ export const PLAN_DEFINITIONS: Record<PlanTier, { name: string; description: str
       ragEnabled: true,
       ssoEnabled: false,
       prioritySupport: false,
-      clinicalDocumentationEnabled: false,
+      clinicalDocumentationEnabled: false, // Available as $49/mo add-on
       abTestingEnabled: false,
       baseSeats: 5,
-      pricePerAdditionalSeatUsd: 12,
+      pricePerAdditionalSeatUsd: 15,
       overagePricePerCallUsd: 0.35,
+      clinicalDocumentationAddOnUsd: 49, // $49/mo add-on (Starter + Clinical = $128/mo)
     },
   },
   professional: {
     name: "Professional",
-    description: "Full QA platform with clinical documentation for healthcare teams",
-    monthlyPriceUsd: 149,
-    yearlyPriceUsd: 1428, // $119/mo billed yearly
+    description: "Full QA + clinical documentation platform for healthcare teams",
+    monthlyPriceUsd: 199,
+    yearlyPriceUsd: 1908, // $159/mo billed yearly
     trialDays: 14,
     limits: {
       callsPerMonth: 1000,
@@ -153,34 +157,36 @@ export const PLAN_DEFINITIONS: Record<PlanTier, { name: string; description: str
       ragEnabled: true,
       ssoEnabled: false,
       prioritySupport: true,
-      clinicalDocumentationEnabled: true,
+      clinicalDocumentationEnabled: true, // Included
       abTestingEnabled: true,
       baseSeats: 10,
-      pricePerAdditionalSeatUsd: 18,
+      pricePerAdditionalSeatUsd: 20,
       overagePricePerCallUsd: 0.25,
+      clinicalDocumentationAddOnUsd: 0, // Included in base price
     },
   },
   enterprise: {
     name: "Enterprise",
-    description: "Unlimited scale, SSO, and dedicated support for large organizations",
+    description: "High-volume QA with SSO, SCIM, and dedicated support",
     monthlyPriceUsd: 999,
     yearlyPriceUsd: 9588, // $799/mo billed yearly
     contactSales: true,
     limits: {
-      callsPerMonth: -1,
+      callsPerMonth: 5000, // Capped (was unlimited) — overage at $0.15/call
       storageMb: 512000,
-      aiAnalysesPerMonth: -1,
+      aiAnalysesPerMonth: 5000,
       apiCallsPerMonth: -1,
       maxUsers: -1,
       customPromptTemplates: true,
       ragEnabled: true,
       ssoEnabled: true,
       prioritySupport: true,
-      clinicalDocumentationEnabled: true,
+      clinicalDocumentationEnabled: true, // Included
       abTestingEnabled: true,
       baseSeats: 25,
       pricePerAdditionalSeatUsd: 25,
-      overagePricePerCallUsd: 0.10,
+      overagePricePerCallUsd: 0.15,
+      clinicalDocumentationAddOnUsd: 0, // Included in base price
     },
   },
 };

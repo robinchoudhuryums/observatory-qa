@@ -30,7 +30,7 @@ AI-powered call quality analysis and clinical documentation for healthcare and c
 - **SSO** — SAML 2.0 + OIDC single sign-on (Enterprise plan). IDP-initiated login, group-to-role mapping, per-org session limits, SLO sync logout, certificate rotation workflow with dual-cert support
 - **SCIM 2.0** — Automated user lifecycle management (Enterprise plan). Okta/Azure AD provisioning: create users when they join, deactivate when they leave. Bearer token auth, full Users CRUD, ServiceProviderConfig endpoint
 - **MFA** — TOTP + WebAuthn/Passkeys (FIDO2, phishing-resistant). Trusted device management ("remember this device 30 days"). Email OTP fallback for clinical staff without smartphones. Emergency recovery workflow (email-verified + admin-approved bypass). Per-org enforcement with configurable grace period (default 7 days)
-- **Billing** — Stripe integration with Free / Starter ($79/mo) / Professional ($149/mo) / Enterprise ($999/mo) tiers
+- **Billing** — Stripe integration with Free / Starter ($79/mo) / Professional ($199/mo) / Enterprise ($999/mo) tiers, per-call overage pricing, Clinical Documentation add-on ($49/mo for Starter)
 - **HIPAA compliant** — session timeouts, session fixation prevention, audit logging (PHI access on all sensitive endpoints), MFA, PHI field encryption (AES-256-GCM), PostgreSQL Row-Level Security (RLS) on all tenant-scoped tables, per-org KMS envelope encryption, org-scoped rate limiting, data retention, GDPR/CCPA data export and right-to-erasure
 - **Learning Management System** — AI-generated training courses from call analysis, lesson tracking
 - **Marketing attribution** — UTM parameter tracking, campaign source/medium, ROI calculation
@@ -204,14 +204,15 @@ Configure with `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_REGION`. P
 
 ## Plan Tiers
 
-| Feature | Free | Starter ($79/mo) | Professional ($149/mo) | Enterprise ($999/mo) |
+| Feature | Free | Starter ($79/mo) | Professional ($199/mo) | Enterprise ($999/mo) |
 |---------|------|-----------------|----------------------|---------------------|
-| Calls/month | 50 | 300 | 1,000 | Unlimited |
+| Calls/month | 50 | 300 | 1,000 | 5,000 |
+| Overage | Hard block | $0.35/call | $0.25/call | $0.15/call |
 | Storage | 500 MB | 5 GB | 20 GB | 500 GB |
-| Base Seats | 3 | 5 (+$12/seat) | 10 (+$18/seat) | 25 (+$25/seat) |
+| Base Seats | 2 | 5 (+$15/seat) | 10 (+$20/seat) | 25 (+$25/seat) |
 | RAG Knowledge Base | - | Yes | Yes | Yes |
 | Custom Templates | - | Yes | Yes | Yes |
-| Clinical Notes (AI Scribe) | - | - | Yes | Yes |
+| Clinical Notes (AI Scribe) | - | +$49/mo add-on | Included | Included |
 | SSO (SAML + OIDC) | - | - | - | Yes |
 | SCIM Provisioning | - | - | - | Yes |
 

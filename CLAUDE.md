@@ -365,12 +365,12 @@ Every data entity has an `orgId` field. All storage methods take `orgId` as the 
 **Industry types** (set at registration): `general`, `dental`, `medical`, `behavioral_health`, `veterinary`
 
 **Plan tiers** (defined statically in `shared/schema.ts`):
-| Plan | Price | Calls/mo | Storage | Base Seats | RAG | Custom Templates | Clinical Docs | SSO |
-|------|-------|----------|---------|------------|-----|-----------------|---------------|-----|
-| Free | $0 | 50 | 500 MB | 3 | No | No | No | No |
-| Starter | $79/mo | 300 | 5 GB | 5 (+$12/seat) | Yes | Yes | No | No |
-| Professional | $149/mo | 1,000 | 20 GB | 10 (+$18/seat) | Yes | Yes | Yes | No |
-| Enterprise | $999/mo | Unlimited | 500 GB | 25 (+$25/seat) | Yes | Yes | Yes | Yes |
+| Plan | Price | Calls/mo | Overage | Storage | Base Seats | RAG | Clinical Docs | SSO |
+|------|-------|----------|---------|---------|------------|-----|---------------|-----|
+| Free | $0 | 50 | Hard block | 500 MB | 2 | No | No | No |
+| Starter | $79/mo | 300 | $0.35/call | 5 GB | 5 (+$15/seat) | Yes | +$49/mo add-on | No |
+| Professional | $199/mo | 1,000 | $0.25/call | 20 GB | 10 (+$20/seat) | Yes | Included | No |
+| Enterprise | $999/mo | 5,000 | $0.15/call | 500 GB | 25 (+$25/seat) | Yes | Included | Yes |
 
 ### Audio Processing Pipeline (server/routes/calls.ts)
 1. Upload audio file (multer) — requires active subscription
