@@ -160,8 +160,8 @@ jobs:
       - name: Validate schema sync coverage
         run: |
           echo "Checking that sync-schema.ts covers all Drizzle pgTable definitions..."
-          # Extract table names from Drizzle schema
-          DRIZZLE_TABLES=$(grep -oP 'pgTable\("(\K[^"]+)' server/db/schema.ts | sort)
+          # Extract table names from Drizzle schema (POSIX-compatible regex)
+          DRIZZLE_TABLES=$(grep -o 'pgTable("[^"]*"' server/db/schema.ts | sed 's/pgTable("//;s/"//' | sort)
           MISSING=""
           for TABLE in $DRIZZLE_TABLES; do
             if ! grep -q "CREATE TABLE IF NOT EXISTS ${TABLE}" server/db/sync-schema.ts 2>/dev/null; then
@@ -171,7 +171,7 @@ jobs:
           if [ -n "$MISSING" ]; then
             echo "::warning::Tables in schema.ts but missing from sync-schema.ts:$MISSING"
           else
-            echo "All ${#DRIZZLE_TABLES} Drizzle tables covered in sync-schema.ts"
+            echo "All Drizzle tables covered in sync-schema.ts"
           fi
 
       - name: Build frontend + backend
