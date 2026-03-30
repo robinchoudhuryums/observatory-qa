@@ -37,8 +37,8 @@ export class DentrixAdapter implements IEhrAdapter {
   private buildHeaders(config: EhrConnectionConfig): Record<string, string> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      "Accept": "application/json",
-      "Authorization": `Bearer ${config.apiKey || ""}`,
+      Accept: "application/json",
+      Authorization: `Bearer ${config.apiKey || ""}`,
     };
     if (config.options?.clinicId) {
       headers["X-Clinic-Id"] = config.options.clinicId;
@@ -49,7 +49,9 @@ export class DentrixAdapter implements IEhrAdapter {
   private async request<T>(config: EhrConnectionConfig, method: string, path: string, body?: unknown): Promise<T> {
     const url = `${config.baseUrl.replace(/\/$/, "")}${path}`;
     return ehrRequest<T>({
-      method, url, body,
+      method,
+      url,
+      body,
       headers: this.buildHeaders(config),
       systemLabel: "Dentrix",
     });
@@ -59,7 +61,9 @@ export class DentrixAdapter implements IEhrAdapter {
     try {
       // Dentrix Ascend uses /v1/practices to verify the token and get practice info
       const result = await this.request<{ version?: string; practiceId?: string; status?: string }>(
-        config, "GET", "/v1/practices"
+        config,
+        "GET",
+        "/v1/practices",
       );
       return { connected: true, version: result?.version || "Dentrix Ascend" };
     } catch (err) {
@@ -72,7 +76,7 @@ export class DentrixAdapter implements IEhrAdapter {
 
   async searchPatients(
     config: EhrConnectionConfig,
-    query: { name?: string; dob?: string; phone?: string }
+    query: { name?: string; dob?: string; phone?: string },
   ): Promise<EhrPatient[]> {
     const params = new URLSearchParams();
     if (query.name) params.set("name", query.name);
@@ -81,18 +85,18 @@ export class DentrixAdapter implements IEhrAdapter {
     params.set("limit", "20");
 
     const response = await this.request<{ patients?: DentrixPatient[]; data?: DentrixPatient[] }>(
-      config, "GET", `/v1/patients?${params.toString()}`
+      config,
+      "GET",
+      `/v1/patients?${params.toString()}`,
     );
 
     const patients = response.patients || response.data || [];
-    return patients.map(p => this.mapPatient(p));
+    return patients.map((p) => this.mapPatient(p));
   }
 
   async getPatient(config: EhrConnectionConfig, ehrPatientId: string): Promise<EhrPatient | null> {
     try {
-      const patient = await this.request<DentrixPatient>(
-        config, "GET", `/v1/patients/${ehrPatientId}`
-      );
+      const patient = await this.request<DentrixPatient>(config, "GET", `/v1/patients/${ehrPatientId}`);
       return this.mapPatient(patient);
     } catch {
       return null;
@@ -101,7 +105,7 @@ export class DentrixAdapter implements IEhrAdapter {
 
   async getAppointments(
     config: EhrConnectionConfig,
-    params: { startDate: string; endDate: string; providerId?: string }
+    params: { startDate: string; endDate: string; providerId?: string },
   ): Promise<EhrAppointment[]> {
     const queryParams = new URLSearchParams({
       startDate: params.startDate,
@@ -110,11 +114,13 @@ export class DentrixAdapter implements IEhrAdapter {
     if (params.providerId) queryParams.set("providerId", params.providerId);
 
     const response = await this.request<{ appointments?: DentrixAppointment[]; data?: DentrixAppointment[] }>(
-      config, "GET", `/v1/appointments?${queryParams.toString()}`
+      config,
+      "GET",
+      `/v1/appointments?${queryParams.toString()}`,
     );
 
     const appointments = response.appointments || response.data || [];
-    return appointments.map(a => this.mapAppointment(a));
+    return appointments.map((a) => this.mapAppointment(a));
   }
 
   async getTodayAppointments(config: EhrConnectionConfig, providerId?: string): Promise<EhrAppointment[]> {
@@ -124,17 +130,15 @@ export class DentrixAdapter implements IEhrAdapter {
 
   async createAppointment(config: EhrConnectionConfig, apt: EhrAppointmentCreate): Promise<EhrSyncResult> {
     try {
-      const result = await this.request<{ appointmentId?: string; id?: string }>(
-        config, "POST", "/v1/appointments", {
-          patientId: apt.patientId,
-          providerId: apt.providerId,
-          date: apt.date,
-          startTime: apt.startTime,
-          durationMinutes: apt.duration,
-          procedures: apt.procedures,
-          notes: apt.notes,
-        }
-      );
+      const result = await this.request<{ appointmentId?: string; id?: string }>(config, "POST", "/v1/appointments", {
+        patientId: apt.patientId,
+        providerId: apt.providerId,
+        date: apt.date,
+        startTime: apt.startTime,
+        durationMinutes: apt.duration,
+        procedures: apt.procedures,
+        notes: apt.notes,
+      });
 
       return {
         success: true,
@@ -158,31 +162,27 @@ export class DentrixAdapter implements IEhrAdapter {
       let endpoint = "/v1/clinical-notes";
 
       try {
-        result = await this.request<{ noteId?: string; id?: string }>(
-          config, "POST", endpoint, {
-            patientId: note.patientId,
-            providerId: note.providerId || config.options?.practitionerId,
-            date: note.date,
-            type: note.noteType?.toUpperCase() || "SOAP",
-            content: note.content,
-            procedureCodes: note.procedureCodes?.map(c => c.code),
-            diagnosisCodes: note.diagnosisCodes?.map(c => c.code),
-          }
-        );
+        result = await this.request<{ noteId?: string; id?: string }>(config, "POST", endpoint, {
+          patientId: note.patientId,
+          providerId: note.providerId || config.options?.practitionerId,
+          date: note.date,
+          type: note.noteType?.toUpperCase() || "SOAP",
+          content: note.content,
+          procedureCodes: note.procedureCodes?.map((c) => c.code),
+          diagnosisCodes: note.diagnosisCodes?.map((c) => c.code),
+        });
       } catch (noteErr) {
         // If clinical-notes endpoint fails, try patient communications
         const msg = noteErr instanceof Error ? noteErr.message : "";
         if (msg.includes("404") || msg.includes("405")) {
           endpoint = "/v1/patient-communications";
-          result = await this.request<{ communicationId?: string; id?: string }>(
-            config, "POST", endpoint, {
-              patientId: note.patientId,
-              providerId: note.providerId || config.options?.practitionerId,
-              date: note.date,
-              type: "clinical_note",
-              note: note.content,
-            }
-          );
+          result = await this.request<{ communicationId?: string; id?: string }>(config, "POST", endpoint, {
+            patientId: note.patientId,
+            providerId: note.providerId || config.options?.practitionerId,
+            date: note.date,
+            type: "clinical_note",
+            note: note.content,
+          });
         } else {
           throw noteErr;
         }
@@ -205,11 +205,13 @@ export class DentrixAdapter implements IEhrAdapter {
   async getPatientTreatmentPlans(config: EhrConnectionConfig, patientId: string): Promise<EhrTreatmentPlan[]> {
     try {
       const response = await this.request<{ treatmentPlans?: DentrixTreatmentPlan[]; data?: DentrixTreatmentPlan[] }>(
-        config, "GET", `/v1/patients/${patientId}/treatment-plans`
+        config,
+        "GET",
+        `/v1/patients/${patientId}/treatment-plans`,
       );
 
       const plans = response.treatmentPlans || response.data || [];
-      return plans.map(plan => this.mapTreatmentPlan(plan, patientId));
+      return plans.map((plan) => this.mapTreatmentPlan(plan, patientId));
     } catch {
       return [];
     }
@@ -218,16 +220,14 @@ export class DentrixAdapter implements IEhrAdapter {
   async updateTreatmentPlan(
     config: EhrConnectionConfig,
     planId: string,
-    update: EhrTreatmentPlanUpdate
+    update: EhrTreatmentPlanUpdate,
   ): Promise<EhrSyncResult> {
     try {
-      await this.request<{ id?: string }>(
-        config, "PATCH", `/v1/treatment-plans/${planId}`, {
-          status: update.status,
-          notes: update.notes,
-          phaseUpdates: update.phaseUpdates,
-        }
-      );
+      await this.request<{ id?: string }>(config, "PATCH", `/v1/treatment-plans/${planId}`, {
+        status: update.status,
+        notes: update.notes,
+        phaseUpdates: update.phaseUpdates,
+      });
 
       return {
         success: true,
@@ -256,14 +256,17 @@ export class DentrixAdapter implements IEhrAdapter {
       dateOfBirth: p.dateOfBirth || p.dob || p.birthDate || "",
       phone: p.primaryPhone || p.mobilePhone || p.homePhone || p.phone || undefined,
       email: p.email || p.emailAddress || undefined,
-      insurance: (p.primaryInsurance || p.insurance) ? {
-        carrier: p.primaryInsurance?.carrier || p.insurance?.name || "",
-        groupNumber: p.primaryInsurance?.groupNumber || p.insurance?.groupNumber || undefined,
-        subscriberId: p.primaryInsurance?.subscriberId || p.insurance?.memberId || undefined,
-        planType: p.primaryInsurance?.planType || p.insurance?.planType || undefined,
-      } : undefined,
-      allergies: p.allergies?.map(a => typeof a === "string" ? a : a.name || String(a)) || undefined,
-      medications: p.medications?.map(m => typeof m === "string" ? m : m.name || String(m)) || undefined,
+      insurance:
+        p.primaryInsurance || p.insurance
+          ? {
+              carrier: p.primaryInsurance?.carrier || p.insurance?.name || "",
+              groupNumber: p.primaryInsurance?.groupNumber || p.insurance?.groupNumber || undefined,
+              subscriberId: p.primaryInsurance?.subscriberId || p.insurance?.memberId || undefined,
+              planType: p.primaryInsurance?.planType || p.insurance?.planType || undefined,
+            }
+          : undefined,
+      allergies: p.allergies?.map((a) => (typeof a === "string" ? a : a.name || String(a))) || undefined,
+      medications: p.medications?.map((m) => (typeof m === "string" ? m : m.name || String(m))) || undefined,
       medicalAlerts: p.medicalAlerts || p.alerts || undefined,
       lastVisitDate: p.lastVisitDate || p.lastAppointmentDate || undefined,
     };
@@ -280,7 +283,7 @@ export class DentrixAdapter implements IEhrAdapter {
       startTime: a.startTime || a.time || (a.date || "").split("T")[1]?.slice(0, 5) || "",
       duration: a.durationMinutes || a.duration || 30,
       status: this.mapAptStatus(a.status || a.appointmentStatus),
-      procedures: a.procedures?.map(p => ({ code: p.code, description: p.description || p.name || "" })),
+      procedures: a.procedures?.map((p) => ({ code: p.code, description: p.description || p.name || "" })),
       notes: a.notes || a.note || undefined,
     };
   }
@@ -294,7 +297,7 @@ export class DentrixAdapter implements IEhrAdapter {
       phases: (plan.phases || []).map((phase, i) => ({
         phase: phase.phaseNumber || i + 1,
         description: phase.description || `Phase ${i + 1}`,
-        procedures: (phase.procedures || []).map(p => ({
+        procedures: (phase.procedures || []).map((p) => ({
           code: p.procedureCode || p.code || "",
           description: p.procedureDescription || p.description || "",
           toothNumber: p.toothNumber || p.tooth || undefined,
@@ -313,25 +316,58 @@ export class DentrixAdapter implements IEhrAdapter {
 
   private mapAptStatus(status: string | undefined): EhrAppointment["status"] {
     switch (status?.toLowerCase()) {
-      case "scheduled": case "booked": return "scheduled";
-      case "confirmed": return "confirmed";
-      case "checked_in": case "arrived": case "in_office": return "checked_in";
-      case "in_progress": case "in_chair": case "being_seen": return "in_progress";
-      case "completed": case "complete": case "done": return "completed";
-      case "cancelled": case "canceled": return "cancelled";
-      case "no_show": case "noshow": case "missed": return "no_show";
-      default: return "scheduled";
+      case "scheduled":
+      case "booked":
+        return "scheduled";
+      case "confirmed":
+        return "confirmed";
+      case "checked_in":
+      case "arrived":
+      case "in_office":
+        return "checked_in";
+      case "in_progress":
+      case "in_chair":
+      case "being_seen":
+        return "in_progress";
+      case "completed":
+      case "complete":
+      case "done":
+        return "completed";
+      case "cancelled":
+      case "canceled":
+        return "cancelled";
+      case "no_show":
+      case "noshow":
+      case "missed":
+        return "no_show";
+      default:
+        return "scheduled";
     }
   }
 
   private mapPlanStatus(status: string | undefined): EhrTreatmentPlan["status"] {
     switch (status?.toLowerCase()) {
-      case "proposed": case "pending": case "draft": return "proposed";
-      case "accepted": case "approved": case "active": return "accepted";
-      case "in_progress": case "started": return "in_progress";
-      case "completed": case "done": case "finished": return "completed";
-      case "declined": case "rejected": case "cancelled": return "declined";
-      default: return "proposed";
+      case "proposed":
+      case "pending":
+      case "draft":
+        return "proposed";
+      case "accepted":
+      case "approved":
+      case "active":
+        return "accepted";
+      case "in_progress":
+      case "started":
+        return "in_progress";
+      case "completed":
+      case "done":
+      case "finished":
+        return "completed";
+      case "declined":
+      case "rejected":
+      case "cancelled":
+        return "declined";
+      default:
+        return "proposed";
     }
   }
 }

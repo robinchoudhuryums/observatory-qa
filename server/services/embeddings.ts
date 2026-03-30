@@ -8,10 +8,7 @@
  * Max input: 8,192 tokens (~8,000 characters with safety margin)
  */
 import { createHash } from "crypto";
-import {
-  BedrockRuntimeClient,
-  InvokeModelCommand,
-} from "@aws-sdk/client-bedrock-runtime";
+import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
 import { fromEnv, fromInstanceMetadata } from "@aws-sdk/credential-providers";
 import type { AwsCredentialIdentityProvider } from "@aws-sdk/types";
 import { logger } from "./logger";
@@ -34,12 +31,15 @@ interface CachedEmbedding {
 const embeddingCache = new Map<string, CachedEmbedding>();
 
 // Prune expired cache entries every 10 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of Array.from(embeddingCache)) {
-    if (now > entry.expiresAt) embeddingCache.delete(key);
-  }
-}, 10 * 60 * 1000).unref();
+setInterval(
+  () => {
+    const now = Date.now();
+    for (const [key, entry] of Array.from(embeddingCache)) {
+      if (now > entry.expiresAt) embeddingCache.delete(key);
+    }
+  },
+  10 * 60 * 1000,
+).unref();
 
 function getCacheKey(text: string): string {
   return createHash("sha256").update(text.slice(0, MAX_INPUT_CHARS)).digest("hex");
@@ -95,7 +95,10 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   // Truncate to model's input limit, warn if content was lost
   const inputText = text.slice(0, MAX_INPUT_CHARS);
   if (text.length > MAX_INPUT_CHARS) {
-    logger.warn({ originalLength: text.length, truncatedTo: MAX_INPUT_CHARS }, "Embedding input truncated — tail content lost");
+    logger.warn(
+      { originalLength: text.length, truncatedTo: MAX_INPUT_CHARS },
+      "Embedding input truncated — tail content lost",
+    );
   }
 
   // Check cache first (deduplicates identical queries within TTL)
@@ -130,10 +133,12 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 
     // Validate embedding dimensions and values
     if (!Array.isArray(embedding) || embedding.length !== EMBED_DIMENSIONS) {
-      throw new Error(`Unexpected embedding dimensions: expected ${EMBED_DIMENSIONS}, got ${Array.isArray(embedding) ? embedding.length : 'non-array'}`);
+      throw new Error(
+        `Unexpected embedding dimensions: expected ${EMBED_DIMENSIONS}, got ${Array.isArray(embedding) ? embedding.length : "non-array"}`,
+      );
     }
     // Guard against NaN/Infinity values that would corrupt pgvector operations
-    if (embedding.some(v => !Number.isFinite(v))) {
+    if (embedding.some((v) => !Number.isFinite(v))) {
       throw new Error("Embedding contains NaN or Infinity values — aborting to prevent pgvector corruption");
     }
 
@@ -173,12 +178,12 @@ export async function generateEmbeddingsBatch(
     const batch = texts.slice(i, i + concurrency);
     const batchNum = Math.floor(i / concurrency) + 1;
     const totalBatches = Math.ceil(texts.length / concurrency);
-    logger.info({ batch: batchNum, totalBatches, batchSize: batch.length, total: texts.length },
-      `Generating embeddings batch ${batchNum}/${totalBatches}`);
-
-    const batchResults = await Promise.all(
-      batch.map((text) => generateEmbedding(text)),
+    logger.info(
+      { batch: batchNum, totalBatches, batchSize: batch.length, total: texts.length },
+      `Generating embeddings batch ${batchNum}/${totalBatches}`,
     );
+
+    const batchResults = await Promise.all(batch.map((text) => generateEmbedding(text)));
 
     for (let j = 0; j < batchResults.length; j++) {
       results[i + j] = batchResults[j];

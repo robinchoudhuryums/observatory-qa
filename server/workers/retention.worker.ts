@@ -49,7 +49,10 @@ export function createRetentionWorker(
       if (storage.purgeExpiredAuditLogs) {
         const auditPurged = await storage.purgeExpiredAuditLogs(orgId, AUDIT_LOG_RETENTION_DAYS);
         if (auditPurged > 0) {
-          logger.info({ orgId, auditPurged, auditRetentionDays: AUDIT_LOG_RETENTION_DAYS }, "Retention worker: old audit logs purged");
+          logger.info(
+            { orgId, auditPurged, auditRetentionDays: AUDIT_LOG_RETENTION_DAYS },
+            "Retention worker: old audit logs purged",
+          );
           // Audit-log the audit-log purge too (meta, but required by HIPAA)
           logPhiAccess({
             event: "audit_log_retention_purge",

@@ -27,14 +27,12 @@ import type { EhrConnectionConfig } from "../services/ehr/types.js";
 
 type GetStorage = () => any;
 
-export function createEhrNotePushWorker(
-  connection: ConnectionOptions,
-  getStorage: GetStorage,
-): Worker<EhrNotePushJob> {
+export function createEhrNotePushWorker(connection: ConnectionOptions, getStorage: GetStorage): Worker<EhrNotePushJob> {
   const worker = new Worker<EhrNotePushJob>(
     "ehr-note-push",
     async (job: Job<EhrNotePushJob>) => {
-      const { orgId, callId, ehrPatientId, ehrProviderId, noteContent, noteType, procedureCodes, diagnosisCodes } = job.data;
+      const { orgId, callId, ehrPatientId, ehrProviderId, noteContent, noteType, procedureCodes, diagnosisCodes } =
+        job.data;
 
       logger.info({ jobId: job.id, callId, orgId, attempt: job.attemptsMade }, "Processing EHR note push");
 
@@ -103,7 +101,10 @@ export function createEhrNotePushWorker(
     const { orgId, callId } = job.data;
 
     if (job.attemptsMade >= (job.opts.attempts || 5)) {
-      logger.error({ callId, orgId, err: err.message, attempts: job.attemptsMade }, "EHR note push permanently failed — moving to dead letter");
+      logger.error(
+        { callId, orgId, err: err.message, attempts: job.attemptsMade },
+        "EHR note push permanently failed — moving to dead letter",
+      );
 
       await moveToDeadLetter(
         "ehr-note-push",
@@ -128,13 +129,18 @@ export function createEhrNotePushWorker(
             },
           });
         }
-      } catch { /* best-effort */ }
+      } catch {
+        /* best-effort */
+      }
     } else {
-      logger.warn({ callId, orgId, attempt: job.attemptsMade, err: err.message }, "EHR note push attempt failed — will retry");
+      logger.warn(
+        { callId, orgId, attempt: job.attemptsMade, err: err.message },
+        "EHR note push attempt failed — will retry",
+      );
     }
   });
 
-  worker.on("completed", job => {
+  worker.on("completed", (job) => {
     logger.debug({ jobId: job.id, callId: job.data.callId }, "EHR note push job completed");
   });
 

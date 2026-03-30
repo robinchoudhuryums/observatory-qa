@@ -17,12 +17,15 @@ import { logger } from "../services/logger";
 
 // In-memory token store (fallback when PostgreSQL is not available)
 // In production with PostgreSQL, tokens are stored in the password_reset_tokens table
-const memoryTokens = new Map<string, {
-  userId: string;
-  orgId: string;
-  expiresAt: Date;
-  usedAt?: Date;
-}>();
+const memoryTokens = new Map<
+  string,
+  {
+    userId: string;
+    orgId: string;
+    expiresAt: Date;
+    usedAt?: Date;
+  }
+>();
 
 async function storeResetToken(userId: string, orgId: string, tokenHash: string, expiresAt: Date): Promise<void> {
   // Try PostgreSQL first
@@ -54,7 +57,9 @@ async function validateAndConsumeToken(tokenHash: string): Promise<{ userId: str
     if (db) {
       const { passwordResetTokens } = await import("../db/schema");
       const { eq } = await import("drizzle-orm");
-      const rows = await db.select().from(passwordResetTokens)
+      const rows = await db
+        .select()
+        .from(passwordResetTokens)
         .where(eq(passwordResetTokens.tokenHash, tokenHash))
         .limit(1);
       const row = rows[0];
@@ -63,9 +68,7 @@ async function validateAndConsumeToken(tokenHash: string): Promise<{ userId: str
       if (new Date(row.expiresAt) < new Date()) return null; // Expired
 
       // Mark as used
-      await db.update(passwordResetTokens)
-        .set({ usedAt: new Date() })
-        .where(eq(passwordResetTokens.id, row.id));
+      await db.update(passwordResetTokens).set({ usedAt: new Date() }).where(eq(passwordResetTokens.id, row.id));
       return { userId: row.userId, orgId: (row as any).orgId || "" };
     }
   } catch (err) {
@@ -85,7 +88,6 @@ async function validateAndConsumeToken(tokenHash: string): Promise<{ userId: str
 }
 
 export function registerPasswordResetRoutes(app: Express): void {
-
   /**
    * Request a password reset. Accepts username (which may be an email).
    * Always returns 200 to prevent user enumeration.
@@ -116,8 +118,7 @@ export function registerPasswordResetRoutes(app: Express): void {
       await storeResetToken(user.id, user.orgId, tokenHash, expiresAt);
 
       // Build reset URL — use the request origin or a configured base URL
-      const baseUrl = process.env.APP_BASE_URL
-        || `${req.protocol}://${req.get("host")}`;
+      const baseUrl = process.env.APP_BASE_URL || `${req.protocol}://${req.get("host")}`;
       const resetUrl = `${baseUrl}/auth?reset=${rawToken}`;
 
       const emailOpts = buildPasswordResetEmail(resetUrl, user.name, orgName);

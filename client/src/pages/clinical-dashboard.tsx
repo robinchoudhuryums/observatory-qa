@@ -7,10 +7,40 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
-import {  RiStethoscopeLine, RiFileTextLine, RiAlertLine, RiTimeLine, RiAddLine, RiPulseLine, RiBookOpenLine, RiArrowRightUpLine, RiBarChartBoxLine, RiSearchLine, RiSparklingLine, RiArrowRightSLine, RiCheckDoubleLine, RiBrainLine, RiTimerLine, RiPieChartLine, RiFilterLine, RiUploadLine, RiInputMethodLine  } from "@remixicon/react";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart as RechartsPie, Pie, Cell, LineChart, Line,
+  RiStethoscopeLine,
+  RiFileTextLine,
+  RiAlertLine,
+  RiTimeLine,
+  RiAddLine,
+  RiPulseLine,
+  RiBookOpenLine,
+  RiArrowRightUpLine,
+  RiBarChartBoxLine,
+  RiSearchLine,
+  RiSparklingLine,
+  RiArrowRightSLine,
+  RiCheckDoubleLine,
+  RiBrainLine,
+  RiTimerLine,
+  RiPieChartLine,
+  RiFilterLine,
+  RiUploadLine,
+  RiInputMethodLine,
+} from "@remixicon/react";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart as RechartsPie,
+  Pie,
+  Cell,
+  LineChart,
+  Line,
 } from "recharts";
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -82,8 +112,11 @@ interface StyleAnalysisResult {
 
 const CHART_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4"];
 const FORMAT_LABELS: Record<string, string> = {
-  soap: "SOAP", dap: "DAP", birp: "BIRP",
-  hpi_focused: "HPI-Focused", procedure_note: "Procedure",
+  soap: "SOAP",
+  dap: "DAP",
+  birp: "BIRP",
+  hpi_focused: "HPI-Focused",
+  procedure_note: "Procedure",
 };
 
 // ─── Helper: fetch wrapper for mutations ──────────────────────────────
@@ -107,7 +140,11 @@ export default function ClinicalDashboardPage() {
   const [templateSearch, setTemplateSearch] = useState("");
 
   // Data queries
-  const { data: metrics, isLoading: metricsLoading, isRefetching: metricsRefetching } = useQuery<ClinicalMetrics>({
+  const {
+    data: metrics,
+    isLoading: metricsLoading,
+    isRefetching: metricsRefetching,
+  } = useQuery<ClinicalMetrics>({
     queryKey: ["/api/clinical/metrics"],
     staleTime: 30000,
     gcTime: 300000,
@@ -134,7 +171,8 @@ export default function ClinicalDashboardPage() {
     queryKey: ["/api/clinical/style-learning"],
     queryFn: async () => {
       const res = await fetch("/api/clinical/style-learning/analyze", {
-        method: "POST", credentials: "include",
+        method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
       });
       if (!res.ok) return { success: false, noteCount: 0 };
@@ -144,14 +182,15 @@ export default function ClinicalDashboardPage() {
   });
 
   const applyStyleMutation = useMutation({
-    mutationFn: (prefs: Record<string, unknown>) => apiPost("/api/clinical/style-learning/apply", { preferences: prefs }),
+    mutationFn: (prefs: Record<string, unknown>) =>
+      apiPost("/api/clinical/style-learning/apply", { preferences: prefs }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/clinical/provider-preferences"] }),
   });
 
   // RiFilterLine clinical calls
   const clinicalCategories = ["clinical_encounter", "telemedicine", "dental_encounter", "dental_consultation"];
   const calls = (Array.isArray(callsData) ? callsData : callsData?.data || [])
-    .filter(c => c.callCategory && clinicalCategories.includes(c.callCategory))
+    .filter((c) => c.callCategory && clinicalCategories.includes(c.callCategory))
     .slice(0, 20);
 
   if (metricsLoading) {
@@ -164,7 +203,8 @@ export default function ClinicalDashboardPage() {
 
   // Chart data
   const formatPieData = Object.entries(metrics?.formatDistribution || {}).map(([name, value]) => ({
-    name: FORMAT_LABELS[name] || name, value,
+    name: FORMAT_LABELS[name] || name,
+    value,
   }));
 
   const specialtyPieData = Object.entries(metrics?.specialtyDistribution || {})
@@ -172,7 +212,7 @@ export default function ClinicalDashboardPage() {
     .slice(0, 7)
     .map(([name, value]) => ({ name: name.replace(/_/g, " "), value }));
 
-  const trendData = (metrics?.attestationTrend || []).map(d => ({
+  const trendData = (metrics?.attestationTrend || []).map((d) => ({
     ...d,
     date: d.date.slice(5), // MM-DD
   }));
@@ -292,10 +332,7 @@ export default function ClinicalDashboardPage() {
               <span className="text-3xl font-bold">{metrics?.avgDocumentationCompleteness?.toFixed(1) || "—"}</span>
               <span className="text-muted-foreground">/10</span>
             </div>
-            <Progress
-              value={(metrics?.avgDocumentationCompleteness || 0) * 10}
-              className="h-2"
-            />
+            <Progress value={(metrics?.avgDocumentationCompleteness || 0) * 10} className="h-2" />
             {metrics?.completenessDistribution && (
               <div className="mt-4 h-32">
                 <ResponsiveContainer width="100%" height="100%">
@@ -324,10 +361,7 @@ export default function ClinicalDashboardPage() {
               <span className="text-3xl font-bold">{metrics?.avgClinicalAccuracy?.toFixed(1) || "—"}</span>
               <span className="text-muted-foreground">/10</span>
             </div>
-            <Progress
-              value={(metrics?.avgClinicalAccuracy || 0) * 10}
-              className="h-2"
-            />
+            <Progress value={(metrics?.avgClinicalAccuracy || 0) * 10} className="h-2" />
             {trendData.length > 0 && (
               <div className="mt-4 h-32">
                 <ResponsiveContainer width="100%" height="100%">
@@ -337,7 +371,14 @@ export default function ClinicalDashboardPage() {
                     <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
                     <Tooltip />
                     <Line type="monotone" dataKey="total" stroke="#94a3b8" strokeWidth={1.5} dot={false} name="Total" />
-                    <Line type="monotone" dataKey="attested" stroke="#10b981" strokeWidth={2} dot={false} name="Attested" />
+                    <Line
+                      type="monotone"
+                      dataKey="attested"
+                      stroke="#10b981"
+                      strokeWidth={2}
+                      dot={false}
+                      name="Attested"
+                    />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -363,8 +404,10 @@ export default function ClinicalDashboardPage() {
                     <RechartsPie>
                       <Pie
                         data={formatPieData}
-                        cx="50%" cy="50%"
-                        innerRadius={40} outerRadius={70}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={40}
+                        outerRadius={70}
                         paddingAngle={2}
                         dataKey="value"
                         label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
@@ -395,8 +438,10 @@ export default function ClinicalDashboardPage() {
                     <RechartsPie>
                       <Pie
                         data={specialtyPieData}
-                        cx="50%" cy="50%"
-                        innerRadius={40} outerRadius={70}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={40}
+                        outerRadius={70}
                         paddingAngle={2}
                         dataKey="value"
                         label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
@@ -452,7 +497,7 @@ export default function ClinicalDashboardPage() {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {calls.map(call => (
+                  {calls.map((call) => (
                     <div
                       key={call.id}
                       className="flex items-center justify-between py-3 px-3 rounded-md hover:bg-muted/50 border border-transparent hover:border-border transition-colors cursor-pointer"
@@ -496,7 +541,9 @@ export default function ClinicalDashboardPage() {
                             </Badge>
                           )
                         ) : call.status === "completed" ? (
-                          <Badge variant="outline" className="text-xs text-muted-foreground">No note</Badge>
+                          <Badge variant="outline" className="text-xs text-muted-foreground">
+                            No note
+                          </Badge>
                         ) : null}
                         {call.analysis?.clinicalNote?.documentationCompleteness != null && (
                           <span className="text-xs text-muted-foreground font-mono">
@@ -522,7 +569,8 @@ export default function ClinicalDashboardPage() {
                 Provider Style Learning
               </CardTitle>
               <CardDescription>
-                AI analyzes your attested notes to learn your documentation style and automatically adapt future note generation.
+                AI analyzes your attested notes to learn your documentation style and automatically adapt future note
+                generation.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -536,7 +584,8 @@ export default function ClinicalDashboardPage() {
                   <RiBrainLine className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
                   <h3 className="text-lg font-semibold">Not enough data yet</h3>
                   <p className="text-muted-foreground mt-2 max-w-md mx-auto">
-                    {styleResult?.message || "Attest at least 3 clinical notes so the AI can learn your documentation style."}
+                    {styleResult?.message ||
+                      "Attest at least 3 clinical notes so the AI can learn your documentation style."}
                   </p>
                   <p className="text-sm text-muted-foreground mt-1">
                     Notes analyzed: {styleResult?.noteCount || 0} / 3 required
@@ -550,7 +599,8 @@ export default function ClinicalDashboardPage() {
                     <div className="p-4 rounded-lg border bg-muted/30">
                       <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Preferred Format</p>
                       <p className="text-lg font-semibold capitalize">
-                        {FORMAT_LABELS[styleResult.analysis!.noteFormat.value] || styleResult.analysis!.noteFormat.value}
+                        {FORMAT_LABELS[styleResult.analysis!.noteFormat.value] ||
+                          styleResult.analysis!.noteFormat.value}
                       </p>
                       <div className="flex items-center gap-2 mt-1">
                         <Progress value={styleResult.analysis!.noteFormat.confidence * 100} className="h-1 flex-1" />
@@ -563,9 +613,14 @@ export default function ClinicalDashboardPage() {
                     {/* Abbreviation Level */}
                     <div className="p-4 rounded-lg border bg-muted/30">
                       <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Abbreviation Level</p>
-                      <p className="text-lg font-semibold capitalize">{styleResult.analysis!.abbreviationLevel.value}</p>
+                      <p className="text-lg font-semibold capitalize">
+                        {styleResult.analysis!.abbreviationLevel.value}
+                      </p>
                       <div className="flex items-center gap-2 mt-1">
-                        <Progress value={styleResult.analysis!.abbreviationLevel.confidence * 100} className="h-1 flex-1" />
+                        <Progress
+                          value={styleResult.analysis!.abbreviationLevel.confidence * 100}
+                          className="h-1 flex-1"
+                        />
                         <span className="text-xs text-muted-foreground">
                           {Math.round(styleResult.analysis!.abbreviationLevel.confidence * 100)}%
                         </span>
@@ -577,7 +632,10 @@ export default function ClinicalDashboardPage() {
                       <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Section Emphasis</p>
                       <p className="text-lg font-semibold capitalize">{styleResult.analysis!.sectionEmphasis.value}</p>
                       <div className="flex items-center gap-2 mt-1">
-                        <Progress value={styleResult.analysis!.sectionEmphasis.confidence * 100} className="h-1 flex-1" />
+                        <Progress
+                          value={styleResult.analysis!.sectionEmphasis.confidence * 100}
+                          className="h-1 flex-1"
+                        />
                         <span className="text-xs text-muted-foreground">
                           {Math.round(styleResult.analysis!.sectionEmphasis.confidence * 100)}%
                         </span>
@@ -620,7 +678,9 @@ export default function ClinicalDashboardPage() {
                         <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Common Phrases</p>
                         <div className="flex flex-wrap gap-1.5">
                           {styleResult.analysis!.commonPhrases.value.slice(0, 8).map((phrase, i) => (
-                            <Badge key={i} variant="outline" className="text-xs">{phrase}</Badge>
+                            <Badge key={i} variant="outline" className="text-xs">
+                              {phrase}
+                            </Badge>
                           ))}
                         </div>
                       </div>
@@ -637,8 +697,11 @@ export default function ClinicalDashboardPage() {
                       disabled={applyStyleMutation.isPending}
                     >
                       <RiSparklingLine className="w-4 h-4 mr-2" />
-                      {applyStyleMutation.isPending ? "Applying..." :
-                        applyStyleMutation.isSuccess ? "Applied!" : "Apply Preferences"}
+                      {applyStyleMutation.isPending
+                        ? "Applying..."
+                        : applyStyleMutation.isSuccess
+                          ? "Applied!"
+                          : "Apply Preferences"}
                     </Button>
                   </div>
                 </div>
@@ -664,7 +727,7 @@ export default function ClinicalDashboardPage() {
                   <Input
                     placeholder="Search templates..."
                     value={templateSearch}
-                    onChange={e => setTemplateSearch(e.target.value)}
+                    onChange={(e) => setTemplateSearch(e.target.value)}
                     className="pl-9"
                   />
                 </div>
@@ -683,7 +746,7 @@ export default function ClinicalDashboardPage() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {templates.map(tmpl => (
+                  {templates.map((tmpl) => (
                     <div
                       key={tmpl.id}
                       className="p-4 rounded-lg border hover:border-primary/50 hover:bg-muted/30 transition-colors cursor-pointer"

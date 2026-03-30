@@ -58,20 +58,19 @@ export function registerFeedbackRoutes(app: Express) {
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
       const allFeedback = await storage.listFeedback(orgId);
-      const npsScores = allFeedback.filter(f => f.type === "nps" && f.rating != null);
-      const featureRatings = allFeedback.filter(f => f.type === "feature_rating" && f.rating != null);
+      const npsScores = allFeedback.filter((f) => f.type === "nps" && f.rating != null);
+      const featureRatings = allFeedback.filter((f) => f.type === "feature_rating" && f.rating != null);
 
       // NPS calculation: (promoters - detractors) / total * 100
-      const promoters = npsScores.filter(f => (f.rating || 0) >= 9).length;
-      const detractors = npsScores.filter(f => (f.rating || 0) <= 6).length;
-      const npsScore = npsScores.length > 0
-        ? Math.round(((promoters - detractors) / npsScores.length) * 100)
-        : null;
+      const promoters = npsScores.filter((f) => (f.rating || 0) >= 9).length;
+      const detractors = npsScores.filter((f) => (f.rating || 0) <= 6).length;
+      const npsScore = npsScores.length > 0 ? Math.round(((promoters - detractors) / npsScores.length) * 100) : null;
 
       // Average feature rating
-      const avgFeatureRating = featureRatings.length > 0
-        ? featureRatings.reduce((sum, f) => sum + (f.rating || 0), 0) / featureRatings.length
-        : null;
+      const avgFeatureRating =
+        featureRatings.length > 0
+          ? featureRatings.reduce((sum, f) => sum + (f.rating || 0), 0) / featureRatings.length
+          : null;
 
       // Breakdown by type
       const byType: Record<string, number> = {};
@@ -87,10 +86,9 @@ export function registerFeedbackRoutes(app: Express) {
         byContext[ctx].count++;
       }
       for (const ctx of Object.keys(byContext)) {
-        const ratings = allFeedback.filter(f => (f.context || "general") === ctx && f.rating != null);
-        byContext[ctx].avgRating = ratings.length > 0
-          ? ratings.reduce((sum, f) => sum + (f.rating || 0), 0) / ratings.length
-          : null;
+        const ratings = allFeedback.filter((f) => (f.context || "general") === ctx && f.rating != null);
+        byContext[ctx].avgRating =
+          ratings.length > 0 ? ratings.reduce((sum, f) => sum + (f.rating || 0), 0) / ratings.length : null;
       }
 
       res.json({

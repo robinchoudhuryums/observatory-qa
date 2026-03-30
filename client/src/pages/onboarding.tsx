@@ -11,7 +11,21 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useOrganization } from "@/hooks/use-organization";
 import { REFERENCE_DOC_CATEGORIES, type ReferenceDocCategory } from "@shared/schema";
-import {  RiBuilding2Line, RiUploadLine, RiPaletteLine, RiFileTextLine, RiCheckLine, RiArrowRightSLine, RiArrowLeftSLine, RiCloseLine, RiSparklingLine, RiErrorWarningLine, RiBookOpenLine, RiImageLine, RiSettings3Line  } from "@remixicon/react";
+import {
+  RiBuilding2Line,
+  RiUploadLine,
+  RiPaletteLine,
+  RiFileTextLine,
+  RiCheckLine,
+  RiArrowRightSLine,
+  RiArrowLeftSLine,
+  RiCloseLine,
+  RiSparklingLine,
+  RiErrorWarningLine,
+  RiBookOpenLine,
+  RiImageLine,
+  RiSettings3Line,
+} from "@remixicon/react";
 
 const CATEGORY_LABELS: Record<string, string> = {
   employee_handbook: "Employee Handbook",
@@ -72,9 +86,7 @@ export default function OnboardingWizard() {
       <div className="w-full bg-muted/50 border-b border-border">
         <div className="max-w-3xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between mb-3">
-            <h1 className="text-lg font-semibold text-foreground">
-              Set up {org?.name || "your organization"}
-            </h1>
+            <h1 className="text-lg font-semibold text-foreground">Set up {org?.name || "your organization"}</h1>
             <Button
               variant="ghost"
               size="sm"
@@ -90,9 +102,7 @@ export default function OnboardingWizard() {
             {STEPS.map((s, i) => (
               <div
                 key={s}
-                className={`h-1.5 flex-1 rounded-full transition-colors ${
-                  i <= stepIndex ? "bg-primary" : "bg-muted"
-                }`}
+                className={`h-1.5 flex-1 rounded-full transition-colors ${i <= stepIndex ? "bg-primary" : "bg-muted"}`}
               />
             ))}
           </div>
@@ -134,12 +144,10 @@ function WelcomeStep({ onNext, orgName }: { onNext: () => void; orgName?: string
         <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto">
           <RiBuilding2Line className="w-8 h-8 text-primary" />
         </div>
-        <h2 className="text-2xl font-bold text-foreground">
-          Welcome to Observatory{orgName ? `, ${orgName}` : ""}!
-        </h2>
+        <h2 className="text-2xl font-bold text-foreground">Welcome to Observatory{orgName ? `, ${orgName}` : ""}!</h2>
         <p className="text-muted-foreground max-w-md mx-auto">
-          Let's personalize your workspace. You can upload your company logo for automatic branding
-          and add reference documents to enhance AI call analysis.
+          Let's personalize your workspace. You can upload your company logo for automatic branding and add reference
+          documents to enhance AI call analysis.
         </p>
       </div>
 
@@ -192,53 +200,59 @@ function BrandingStep({ onNext, onBack }: { onNext: () => void; onBack: () => vo
   const [primaryColor, setPrimaryColor] = useState(org?.settings?.branding?.primaryColor || "");
   const [secondaryColor, setSecondaryColor] = useState((org?.settings?.branding as any)?.secondaryColor || "");
 
-  const handleLogoSelect = useCallback(async (file: File) => {
-    // Show preview immediately
-    const reader = new FileReader();
-    reader.onload = (e) => setLogoPreview(e.target?.result as string);
-    reader.readAsDataURL(file);
+  const handleLogoSelect = useCallback(
+    async (file: File) => {
+      // Show preview immediately
+      const reader = new FileReader();
+      reader.onload = (e) => setLogoPreview(e.target?.result as string);
+      reader.readAsDataURL(file);
 
-    // RiUploadLine to server
-    setIsUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append("logo", file);
+      // RiUploadLine to server
+      setIsUploading(true);
+      try {
+        const formData = new FormData();
+        formData.append("logo", file);
 
-      const res = await fetch("/api/onboarding/logo", {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
+        const res = await fetch("/api/onboarding/logo", {
+          method: "POST",
+          body: formData,
+          credentials: "include",
+        });
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ message: "Upload failed" }));
-        throw new Error(err.message);
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ message: "Upload failed" }));
+          throw new Error(err.message);
+        }
+
+        const data = await res.json();
+        if (data.extractedColors) {
+          setExtractedColors(data.extractedColors);
+          setPrimaryColor(data.extractedColors.primary);
+          setSecondaryColor(data.extractedColors.secondary);
+        }
+
+        queryClient.invalidateQueries({ queryKey: ["/api/organization"] });
+        toast({ title: "Logo uploaded successfully" });
+      } catch (error) {
+        toast({ title: "Upload failed", description: (error as Error).message, variant: "destructive" });
+        setLogoPreview(null);
+      } finally {
+        setIsUploading(false);
       }
+    },
+    [queryClient, toast],
+  );
 
-      const data = await res.json();
-      if (data.extractedColors) {
-        setExtractedColors(data.extractedColors);
-        setPrimaryColor(data.extractedColors.primary);
-        setSecondaryColor(data.extractedColors.secondary);
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      const file = e.dataTransfer.files[0];
+      if (file && file.type.startsWith("image/")) {
+        handleLogoSelect(file);
       }
-
-      queryClient.invalidateQueries({ queryKey: ["/api/organization"] });
-      toast({ title: "Logo uploaded successfully" });
-    } catch (error) {
-      toast({ title: "Upload failed", description: (error as Error).message, variant: "destructive" });
-      setLogoPreview(null);
-    } finally {
-      setIsUploading(false);
-    }
-  }, [queryClient, toast]);
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (file && file.type.startsWith("image/")) {
-      handleLogoSelect(file);
-    }
-  }, [handleLogoSelect]);
+    },
+    [handleLogoSelect],
+  );
 
   const saveBranding = useMutation({
     mutationFn: async () => {
@@ -269,8 +283,8 @@ function BrandingStep({ onNext, onBack }: { onNext: () => void; onBack: () => vo
           Company Branding
         </h2>
         <p className="text-sm text-muted-foreground">
-          Upload your company logo and we'll automatically extract your brand colors.
-          You can adjust the colors manually afterward.
+          Upload your company logo and we'll automatically extract your brand colors. You can adjust the colors manually
+          afterward.
         </p>
       </div>
 
@@ -329,7 +343,9 @@ function BrandingStep({ onNext, onBack }: { onNext: () => void; onBack: () => vo
             {extractedColors ? "Colors extracted from logo" : "Brand Colors"}
           </span>
           {extractedColors && (
-            <Badge variant="outline" className="text-xs">Auto-detected</Badge>
+            <Badge variant="outline" className="text-xs">
+              Auto-detected
+            </Badge>
           )}
         </div>
 
@@ -376,10 +392,18 @@ function BrandingStep({ onNext, onBack }: { onNext: () => void; onBack: () => vo
             <span className="text-xs text-muted-foreground">Preview:</span>
             <div className="flex gap-1">
               {primaryColor && (
-                <div className="w-8 h-8 rounded-md border border-border" style={{ backgroundColor: primaryColor }} title="Primary" />
+                <div
+                  className="w-8 h-8 rounded-md border border-border"
+                  style={{ backgroundColor: primaryColor }}
+                  title="Primary"
+                />
               )}
               {secondaryColor && (
-                <div className="w-8 h-8 rounded-md border border-border" style={{ backgroundColor: secondaryColor }} title="Secondary" />
+                <div
+                  className="w-8 h-8 rounded-md border border-border"
+                  style={{ backgroundColor: secondaryColor }}
+                  title="Secondary"
+                />
               )}
             </div>
           </div>
@@ -389,7 +413,8 @@ function BrandingStep({ onNext, onBack }: { onNext: () => void; onBack: () => vo
       {/* Navigation */}
       <div className="flex justify-between pt-4">
         <Button variant="outline" onClick={onBack}>
-          <RiArrowLeftSLine className="w-4 h-4 mr-2" />Back
+          <RiArrowLeftSLine className="w-4 h-4 mr-2" />
+          Back
         </Button>
         <Button onClick={() => saveBranding.mutate()} disabled={saveBranding.isPending}>
           {saveBranding.isPending ? "Saving..." : "Continue"}
@@ -415,34 +440,37 @@ function DocumentsStep({ onNext, onBack }: { onNext: () => void; onBack: () => v
     queryKey: ["/api/reference-documents"],
   });
 
-  const handleDocUpload = useCallback(async (file: File) => {
-    setIsUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append("document", file);
-      formData.append("name", docName || file.name.replace(/\.[^.]+$/, ""));
-      formData.append("category", selectedCategory);
+  const handleDocUpload = useCallback(
+    async (file: File) => {
+      setIsUploading(true);
+      try {
+        const formData = new FormData();
+        formData.append("document", file);
+        formData.append("name", docName || file.name.replace(/\.[^.]+$/, ""));
+        formData.append("category", selectedCategory);
 
-      const res = await fetch("/api/reference-documents", {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
+        const res = await fetch("/api/reference-documents", {
+          method: "POST",
+          body: formData,
+          credentials: "include",
+        });
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ message: "Upload failed" }));
-        throw new Error(err.message);
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ message: "Upload failed" }));
+          throw new Error(err.message);
+        }
+
+        queryClient.invalidateQueries({ queryKey: ["/api/reference-documents"] });
+        setDocName("");
+        toast({ title: "Document uploaded", description: `${file.name} is now available for AI analysis` });
+      } catch (error) {
+        toast({ title: "Upload failed", description: (error as Error).message, variant: "destructive" });
+      } finally {
+        setIsUploading(false);
       }
-
-      queryClient.invalidateQueries({ queryKey: ["/api/reference-documents"] });
-      setDocName("");
-      toast({ title: "Document uploaded", description: `${file.name} is now available for AI analysis` });
-    } catch (error) {
-      toast({ title: "Upload failed", description: (error as Error).message, variant: "destructive" });
-    } finally {
-      setIsUploading(false);
-    }
-  }, [docName, selectedCategory, queryClient, toast]);
+    },
+    [docName, selectedCategory, queryClient, toast],
+  );
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -461,8 +489,8 @@ function DocumentsStep({ onNext, onBack }: { onNext: () => void; onBack: () => v
           Company Reference Documents
         </h2>
         <p className="text-sm text-muted-foreground">
-          Upload documents that contain your company's guidelines, procedures, and product information.
-          These will be used to provide context during AI call analysis for more accurate scoring and feedback.
+          Upload documents that contain your company's guidelines, procedures, and product information. These will be
+          used to provide context during AI call analysis for more accurate scoring and feedback.
         </p>
       </div>
 
@@ -510,12 +538,7 @@ function DocumentsStep({ onNext, onBack }: { onNext: () => void; onBack: () => v
               if (file) handleDocUpload(file);
             }}
           />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isUploading}
-          >
+          <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
             {isUploading ? "Uploading..." : "Choose File"}
           </Button>
           <span className="text-xs text-muted-foreground self-center">
@@ -535,7 +558,9 @@ function DocumentsStep({ onNext, onBack }: { onNext: () => void; onBack: () => v
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-foreground truncate">{doc.name}</p>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Badge variant="outline" className="text-xs">{CATEGORY_LABELS[doc.category] || doc.category}</Badge>
+                    <Badge variant="outline" className="text-xs">
+                      {CATEGORY_LABELS[doc.category] || doc.category}
+                    </Badge>
                     <span>{(doc.fileSize / 1024).toFixed(0)} KB</span>
                   </div>
                 </div>
@@ -557,8 +582,8 @@ function DocumentsStep({ onNext, onBack }: { onNext: () => void; onBack: () => v
         <div className="flex items-start gap-2 p-3 rounded-lg bg-muted/50 border border-border">
           <RiErrorWarningLine className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
           <p className="text-xs text-muted-foreground">
-            No documents uploaded yet. This step is optional — the AI will still analyze calls,
-            but having company-specific context leads to more accurate scoring and relevant feedback.
+            No documents uploaded yet. This step is optional — the AI will still analyze calls, but having
+            company-specific context leads to more accurate scoring and relevant feedback.
           </p>
         </div>
       )}
@@ -566,7 +591,8 @@ function DocumentsStep({ onNext, onBack }: { onNext: () => void; onBack: () => v
       {/* Navigation */}
       <div className="flex justify-between pt-4">
         <Button variant="outline" onClick={onBack}>
-          <RiArrowLeftSLine className="w-4 h-4 mr-2" />Back
+          <RiArrowLeftSLine className="w-4 h-4 mr-2" />
+          Back
         </Button>
         <Button onClick={onNext}>
           {uploadedDocs.length > 0 ? "Continue" : "Skip for Now"}
@@ -580,7 +606,15 @@ function DocumentsStep({ onNext, onBack }: { onNext: () => void; onBack: () => v
 // =============================================================================
 // STEP 4: Complete
 // =============================================================================
-function CompleteStep({ onFinish, onBack, isLoading }: { onFinish: () => void; onBack: () => void; isLoading: boolean }) {
+function CompleteStep({
+  onFinish,
+  onBack,
+  isLoading,
+}: {
+  onFinish: () => void;
+  onBack: () => void;
+  isLoading: boolean;
+}) {
   const { data: org } = useOrganization();
   const { data: docs = [] } = useQuery<UploadedDoc[]>({ queryKey: ["/api/reference-documents"] });
 
@@ -602,19 +636,38 @@ function CompleteStep({ onFinish, onBack, isLoading }: { onFinish: () => void; o
       </div>
 
       <div className="grid grid-cols-1 gap-3 text-left max-w-sm mx-auto">
-        <SummaryItem icon={<RiBuilding2Line className="w-4 h-4" />} label="Organization" value={org?.name || "Created"} done />
-        <SummaryItem icon={<RiImageLine className="w-4 h-4" />} label="Company Logo" value={hasLogo ? "Uploaded" : "Not uploaded"} done={hasLogo} />
-        <SummaryItem icon={<RiPaletteLine className="w-4 h-4" />} label="Brand Colors" value={hasColors ? "Configured" : "Using defaults"} done={hasColors} />
-        <SummaryItem icon={<RiFileTextLine className="w-4 h-4" />} label="Reference Documents" value={hasDocs ? `${docs.length} uploaded` : "None uploaded"} done={hasDocs} />
+        <SummaryItem
+          icon={<RiBuilding2Line className="w-4 h-4" />}
+          label="Organization"
+          value={org?.name || "Created"}
+          done
+        />
+        <SummaryItem
+          icon={<RiImageLine className="w-4 h-4" />}
+          label="Company Logo"
+          value={hasLogo ? "Uploaded" : "Not uploaded"}
+          done={hasLogo}
+        />
+        <SummaryItem
+          icon={<RiPaletteLine className="w-4 h-4" />}
+          label="Brand Colors"
+          value={hasColors ? "Configured" : "Using defaults"}
+          done={hasColors}
+        />
+        <SummaryItem
+          icon={<RiFileTextLine className="w-4 h-4" />}
+          label="Reference Documents"
+          value={hasDocs ? `${docs.length} uploaded` : "None uploaded"}
+          done={hasDocs}
+        />
       </div>
 
-      <p className="text-xs text-muted-foreground">
-        You can always update these in Settings later.
-      </p>
+      <p className="text-xs text-muted-foreground">You can always update these in Settings later.</p>
 
       <div className="flex justify-between pt-4">
         <Button variant="outline" onClick={onBack}>
-          <RiArrowLeftSLine className="w-4 h-4 mr-2" />Back
+          <RiArrowLeftSLine className="w-4 h-4 mr-2" />
+          Back
         </Button>
         <Button onClick={onFinish} disabled={isLoading} size="lg">
           {isLoading ? "Finishing..." : "Go to Dashboard"}
@@ -625,7 +678,17 @@ function CompleteStep({ onFinish, onBack, isLoading }: { onFinish: () => void; o
   );
 }
 
-function SummaryItem({ icon, label, value, done }: { icon: React.ReactNode; label: string; value: string; done: boolean }) {
+function SummaryItem({
+  icon,
+  label,
+  value,
+  done,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  done: boolean;
+}) {
   return (
     <div className="flex items-center gap-3 p-3 rounded-lg border border-border">
       <div className={`shrink-0 ${done ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}`}>

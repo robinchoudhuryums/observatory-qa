@@ -70,12 +70,15 @@ function clearMfaAttempts(sessionId: string): void {
 }
 
 // Prune stale MFA attempt records every 5 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, record] of Array.from(mfaAttempts)) {
-    if (now - record.lastAttempt > MFA_LOCKOUT_MS * 2) mfaAttempts.delete(key);
-  }
-}, 5 * 60 * 1000).unref();
+setInterval(
+  () => {
+    const now = Date.now();
+    for (const [key, record] of Array.from(mfaAttempts)) {
+      if (now - record.lastAttempt > MFA_LOCKOUT_MS * 2) mfaAttempts.delete(key);
+    }
+  },
+  5 * 60 * 1000,
+).unref();
 
 /**
  * Generate N random backup codes (8-char alphanumeric).
@@ -163,7 +166,9 @@ export function registerMfaRoutes(app: Express): void {
           resourceType: "auth",
           detail: "Invalid TOTP code during MFA enable",
         });
-        return res.status(400).json({ message: "Invalid verification code. Check your authenticator app and try again." });
+        return res
+          .status(400)
+          .json({ message: "Invalid verification code. Check your authenticator app and try again." });
       }
 
       // Generate backup codes
@@ -275,10 +280,14 @@ export function registerMfaRoutes(app: Express): void {
             const devices: any[] = (dbUser as any)?.mfaTrustedDevices || [];
             const active = devices.filter((d: any) => new Date(d.expiresAt) > new Date());
             await storage.updateUser(user.orgId, user.id, {
-              mfaTrustedDevices: [...active, { tokenHash, name: deviceName, createdAt: new Date().toISOString(), expiresAt }],
+              mfaTrustedDevices: [
+                ...active,
+                { tokenHash, name: deviceName, createdAt: new Date().toISOString(), expiresAt },
+              ],
             } as any);
             res.cookie("mfa_td", `${user.id}:${token}`, {
-              httpOnly: true, sameSite: "lax",
+              httpOnly: true,
+              sameSite: "lax",
               secure: process.env.NODE_ENV === "production",
               maxAge: 30 * 24 * 60 * 60 * 1000,
             });
@@ -393,7 +402,9 @@ export function registerMfaRoutes(app: Express): void {
       // Check if org enforces MFA
       const org = await storage.getOrganization(req.orgId!);
       if (org?.settings?.mfaRequired) {
-        return res.status(403).json({ message: "Your organization requires MFA. Contact an admin to change this policy." });
+        return res
+          .status(403)
+          .json({ message: "Your organization requires MFA. Contact an admin to change this policy." });
       }
 
       const secret = decryptMfaSecret(user.mfaSecret);
@@ -472,7 +483,10 @@ export function registerMfaRoutes(app: Express): void {
       const org = await storage.getOrganization(req.orgId!);
       const rpName = org?.settings?.branding?.appName || "Observatory QA";
       const hostname = req.hostname || "localhost";
-      const existingCredentials = ((user as any).webauthnCredentials || []) as Array<{ credentialId: string; transports?: string[] }>;
+      const existingCredentials = ((user as any).webauthnCredentials || []) as Array<{
+        credentialId: string;
+        transports?: string[];
+      }>;
 
       const options = await generateRegistrationOptions({
         rpName,
@@ -504,7 +518,8 @@ export function registerMfaRoutes(app: Express): void {
     try {
       const { response, credentialName } = req.body as { response: any; credentialName?: string };
       const expectedChallenge = (req.session as any).webauthnChallenge;
-      if (!expectedChallenge) return res.status(400).json({ message: "No registration challenge found. Start registration again." });
+      if (!expectedChallenge)
+        return res.status(400).json({ message: "No registration challenge found. Start registration again." });
 
       const hostname = req.hostname || "localhost";
       const expectedOrigin = `${req.protocol}://${req.get("host") || hostname}`;
@@ -554,7 +569,11 @@ export function registerMfaRoutes(app: Express): void {
         detail: `WebAuthn credential registered: ${newCredential.name}`,
       });
 
-      res.json({ message: "Passkey registered successfully.", credentialId: newCredential.credentialId, name: newCredential.name });
+      res.json({
+        message: "Passkey registered successfully.",
+        credentialId: newCredential.credentialId,
+        name: newCredential.name,
+      });
     } catch (error) {
       logger.error({ err: error }, "WebAuthn register-verify failed");
       res.status(500).json({ message: "Failed to verify registration" });
@@ -571,7 +590,10 @@ export function registerMfaRoutes(app: Express): void {
       const user = await storage.getUser(userId);
       if (!user) return res.status(400).json({ message: "User not found" });
 
-      const existingCredentials = ((user as any).webauthnCredentials || []) as Array<{ credentialId: string; transports?: string[] }>;
+      const existingCredentials = ((user as any).webauthnCredentials || []) as Array<{
+        credentialId: string;
+        transports?: string[];
+      }>;
       const hostname = req.hostname || "localhost";
 
       const options = await generateAuthenticationOptions({
@@ -656,8 +678,12 @@ export function registerMfaRoutes(app: Express): void {
 
       const org = await storage.getOrganization(user.orgId);
       const sessionUser = {
-        id: user.id, username: user.username, name: user.name,
-        role: user.role, orgId: user.orgId, orgSlug: org?.slug || "default",
+        id: user.id,
+        username: user.username,
+        name: user.name,
+        role: user.role,
+        orgId: user.orgId,
+        orgSlug: org?.slug || "default",
       };
 
       req.session.regenerate((regenErr) => {
@@ -667,8 +693,11 @@ export function registerMfaRoutes(app: Express): void {
           if (loginErr) return res.status(500).json({ message: "Login failed" });
 
           logPhiAccess({
-            userId: user.id, username: user.username, orgId: user.orgId,
-            event: "webauthn_login_success", resourceType: "auth",
+            userId: user.id,
+            username: user.username,
+            orgId: user.orgId,
+            event: "webauthn_login_success",
+            resourceType: "auth",
             detail: `WebAuthn authentication completed`,
             ip: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress,
           });
@@ -683,10 +712,14 @@ export function registerMfaRoutes(app: Express): void {
             // Prune expired devices
             const active = devices.filter((d: any) => new Date(d.expiresAt) > new Date());
             await storage.updateUser(user.orgId, user.id, {
-              mfaTrustedDevices: [...active, { tokenHash, name: deviceName, createdAt: new Date().toISOString(), expiresAt }],
+              mfaTrustedDevices: [
+                ...active,
+                { tokenHash, name: deviceName, createdAt: new Date().toISOString(), expiresAt },
+              ],
             } as any);
             res.cookie("mfa_td", `${user.id}:${token}`, {
-              httpOnly: true, sameSite: "lax",
+              httpOnly: true,
+              sameSite: "lax",
               secure: process.env.NODE_ENV === "production",
               maxAge: 30 * 24 * 60 * 60 * 1000,
             });
@@ -797,12 +830,15 @@ export function registerMfaRoutes(app: Express): void {
   // on instance A can be verified on instance B. Low priority: 10-minute TTL,
   // low volume, and same-session affinity usually routes to the same instance.
   const emailOtpStore = new Map<string, { codeHash: string; expiresAt: number; attempts: number }>();
-  setInterval(() => {
-    const now = Date.now();
-    for (const [k, v] of Array.from(emailOtpStore)) {
-      if (v.expiresAt < now) emailOtpStore.delete(k);
-    }
-  }, 5 * 60 * 1000).unref();
+  setInterval(
+    () => {
+      const now = Date.now();
+      for (const [k, v] of Array.from(emailOtpStore)) {
+        if (v.expiresAt < now) emailOtpStore.delete(k);
+      }
+    },
+    5 * 60 * 1000,
+  ).unref();
 
   app.post("/api/auth/mfa/email-otp/send", async (req, res) => {
     try {
@@ -841,8 +877,11 @@ export function registerMfaRoutes(app: Express): void {
       });
 
       logPhiAccess({
-        userId: user.id, username: user.username, orgId: user.orgId,
-        event: "email_otp_sent", resourceType: "auth",
+        userId: user.id,
+        username: user.username,
+        orgId: user.orgId,
+        event: "email_otp_sent",
+        resourceType: "auth",
         detail: "Email OTP sent for MFA login",
         ip: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress,
       });
@@ -891,8 +930,12 @@ export function registerMfaRoutes(app: Express): void {
 
       const org = await storage.getOrganization(user.orgId);
       const sessionUser = {
-        id: user.id, username: user.username, name: user.name,
-        role: user.role, orgId: user.orgId, orgSlug: org?.slug || "default",
+        id: user.id,
+        username: user.username,
+        name: user.name,
+        role: user.role,
+        orgId: user.orgId,
+        orgSlug: org?.slug || "default",
       };
 
       req.session.regenerate((regenErr) => {
@@ -902,8 +945,11 @@ export function registerMfaRoutes(app: Express): void {
           if (loginErr) return res.status(500).json({ message: "Login failed" });
 
           logPhiAccess({
-            userId: user.id, username: user.username, orgId: user.orgId,
-            event: "email_otp_verify_success", resourceType: "auth",
+            userId: user.id,
+            username: user.username,
+            orgId: user.orgId,
+            event: "email_otp_verify_success",
+            resourceType: "auth",
             detail: "Email OTP verification completed, session created",
             ip: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress,
           });
@@ -922,17 +968,28 @@ export function registerMfaRoutes(app: Express): void {
 
   // In-memory recovery store: token → { userId, orgId, emailVerified, status, useTokenHash, useTokenExpiresAt }
   // For production/multi-instance: persist to mfa_recovery_requests table
-  const recoveryStore = new Map<string, {
-    userId: string; orgId: string; tokenHash: string;
-    emailVerified: boolean; status: "pending" | "email_verified" | "approved" | "denied" | "used";
-    useTokenHash?: string; useTokenExpiresAt?: number; createdAt: number;
-  }>();
-  setInterval(() => {
-    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-    for (const [k, v] of Array.from(recoveryStore)) {
-      if (v.createdAt < cutoff) recoveryStore.delete(k);
+  const recoveryStore = new Map<
+    string,
+    {
+      userId: string;
+      orgId: string;
+      tokenHash: string;
+      emailVerified: boolean;
+      status: "pending" | "email_verified" | "approved" | "denied" | "used";
+      useTokenHash?: string;
+      useTokenExpiresAt?: number;
+      createdAt: number;
     }
-  }, 60 * 60 * 1000).unref();
+  >();
+  setInterval(
+    () => {
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      for (const [k, v] of Array.from(recoveryStore)) {
+        if (v.createdAt < cutoff) recoveryStore.delete(k);
+      }
+    },
+    60 * 60 * 1000,
+  ).unref();
 
   // Step 1: User requests bypass
   app.post("/api/auth/mfa/recovery/request", async (req, res) => {
@@ -946,7 +1003,12 @@ export function registerMfaRoutes(app: Express): void {
 
       // Rate limit: one active request per user
       for (const [, v] of Array.from(recoveryStore)) {
-        if (v.userId === userId && v.status !== "used" && v.status !== "denied" && v.createdAt > Date.now() - 24 * 60 * 60 * 1000) {
+        if (
+          v.userId === userId &&
+          v.status !== "used" &&
+          v.status !== "denied" &&
+          v.createdAt > Date.now() - 24 * 60 * 60 * 1000
+        ) {
           return res.status(429).json({ message: "A recovery request is already pending." });
         }
       }
@@ -954,8 +1016,12 @@ export function registerMfaRoutes(app: Express): void {
       const token = randomBytes(32).toString("hex");
       const tokenHash = createHash("sha256").update(token).digest("hex");
       recoveryStore.set(tokenHash, {
-        userId: user.id, orgId: user.orgId, tokenHash,
-        emailVerified: false, status: "pending", createdAt: Date.now(),
+        userId: user.id,
+        orgId: user.orgId,
+        tokenHash,
+        emailVerified: false,
+        status: "pending",
+        createdAt: Date.now(),
       });
 
       // Send email to verify ownership
@@ -971,13 +1037,18 @@ export function registerMfaRoutes(app: Express): void {
       }
 
       logPhiAccess({
-        userId: user.id, username: user.username, orgId: user.orgId,
-        event: "mfa_recovery_requested", resourceType: "auth",
+        userId: user.id,
+        username: user.username,
+        orgId: user.orgId,
+        event: "mfa_recovery_requested",
+        resourceType: "auth",
         detail: "Emergency MFA bypass requested",
         ip: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress,
       });
 
-      res.json({ message: "Recovery request submitted. Check your email to verify ownership, then wait for admin approval." });
+      res.json({
+        message: "Recovery request submitted. Check your email to verify ownership, then wait for admin approval.",
+      });
     } catch (error) {
       logger.error({ err: error }, "MFA recovery request failed");
       res.status(500).json({ message: "Failed to submit recovery request" });
@@ -1006,9 +1077,7 @@ export function registerMfaRoutes(app: Express): void {
       const user = await storage.getUser(record.userId);
       if (user) {
         const admins = await storage.listUsersByOrg(record.orgId);
-        const adminEmails = admins
-          .filter((u) => u.role === "admin" && u.username.includes("@"))
-          .map((u) => u.username);
+        const adminEmails = admins.filter((u) => u.role === "admin" && u.username.includes("@")).map((u) => u.username);
 
         for (const adminEmail of adminEmails) {
           await sendEmail({
@@ -1020,8 +1089,11 @@ export function registerMfaRoutes(app: Express): void {
         }
 
         logPhiAccess({
-          userId: user.id, username: user.username, orgId: user.orgId,
-          event: "mfa_recovery_email_verified", resourceType: "auth",
+          userId: user.id,
+          username: user.username,
+          orgId: user.orgId,
+          event: "mfa_recovery_email_verified",
+          resourceType: "auth",
           detail: "Email verified for MFA recovery request",
           ip: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress,
         });
@@ -1069,8 +1141,12 @@ export function registerMfaRoutes(app: Express): void {
 
       const org = await storage.getOrganization(user.orgId);
       const sessionUser = {
-        id: user.id, username: user.username, name: user.name,
-        role: user.role, orgId: user.orgId, orgSlug: org?.slug || "default",
+        id: user.id,
+        username: user.username,
+        name: user.name,
+        role: user.role,
+        orgId: user.orgId,
+        orgSlug: org?.slug || "default",
       };
 
       req.session.regenerate((regenErr) => {
@@ -1080,8 +1156,11 @@ export function registerMfaRoutes(app: Express): void {
           if (loginErr) return res.status(500).json({ message: "Login failed" });
 
           logPhiAccess({
-            userId: user.id, username: user.username, orgId: user.orgId,
-            event: "mfa_recovery_used", resourceType: "auth",
+            userId: user.id,
+            username: user.username,
+            orgId: user.orgId,
+            event: "mfa_recovery_used",
+            resourceType: "auth",
             detail: "MFA recovery token used — emergency bypass login completed",
             ip: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress,
           });

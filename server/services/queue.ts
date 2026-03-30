@@ -115,8 +115,8 @@ export function initQueues(): boolean {
     const defaultOpts = {
       connection,
       defaultJobOptions: {
-        removeOnComplete: { count: 500 },    // Tighter: keep 500 (was 1000)
-        removeOnFail: { count: 1000 },       // Tighter: keep 1000 (was 5000)
+        removeOnComplete: { count: 500 }, // Tighter: keep 500 (was 1000)
+        removeOnFail: { count: 1000 }, // Tighter: keep 1000 (was 5000)
       },
     };
 
@@ -168,8 +168,8 @@ export function initQueues(): boolean {
     deadLetterQueue = new Queue<DeadLetterJob>("dead-letter", {
       connection,
       defaultJobOptions: {
-        removeOnComplete: { age: 7 * 24 * 3600 },  // Keep completed DLQ jobs for 7 days
-        removeOnFail: false,                          // Never auto-remove failed DLQ entries
+        removeOnComplete: { age: 7 * 24 * 3600 }, // Keep completed DLQ jobs for 7 days
+        removeOnFail: false, // Never auto-remove failed DLQ entries
       },
     });
 
@@ -262,7 +262,10 @@ export async function enqueueCallRetry(
   if (retryCount >= MAX_RETRIES) {
     logger.warn({ callId, orgId, retryCount }, "Call retry limit reached — moving to dead letter queue");
     await moveToDeadLetter("audio-processing", callId, orgId, "Max retries exceeded for in-process call processing", {
-      callId, fileName, callCategory: callCategory || "", retryCount,
+      callId,
+      fileName,
+      callCategory: callCategory || "",
+      retryCount,
     });
     return false;
   }
@@ -274,13 +277,20 @@ export async function enqueueCallRetry(
 
   try {
     const jobId = `call-retry-${callId}-${retryCount + 1}`;
-    await audioQueue.add("process-call", {
-      orgId, callId, fileName, callCategory,
-    }, {
-      jobId,
-      delay: 30_000 * (retryCount + 1), // 30s, 60s
-      attempts: 1, // Queue-level retries already handled above
-    });
+    await audioQueue.add(
+      "process-call",
+      {
+        orgId,
+        callId,
+        fileName,
+        callCategory,
+      },
+      {
+        jobId,
+        delay: 30_000 * (retryCount + 1), // 30s, 60s
+        attempts: 1, // Queue-level retries already handled above
+      },
+    );
     logger.info({ callId, orgId, retryCount: retryCount + 1 }, "Failed call enqueued for retry");
     return true;
   } catch (err) {
@@ -364,9 +374,13 @@ export async function trackUsage(event: UsageMeteringJob): Promise<void> {
  */
 export async function enqueueRetention(orgId: string, retentionDays: number): Promise<void> {
   if (retentionQueue) {
-    await retentionQueue.add("retention", { orgId, retentionDays }, {
-      jobId: `retention-${orgId}`, // Deduplicate per org (BullMQ disallows colons in job IDs)
-    });
+    await retentionQueue.add(
+      "retention",
+      { orgId, retentionDays },
+      {
+        jobId: `retention-${orgId}`, // Deduplicate per org (BullMQ disallows colons in job IDs)
+      },
+    );
   }
 }
 
@@ -402,7 +416,15 @@ export async function enqueueReanalysis(job: BulkReanalysisJob): Promise<boolean
  * Close all queues on shutdown.
  */
 export async function closeQueues(): Promise<void> {
-  const queues = [audioQueue, reanalysisQueue, retentionQueue, usageQueue, indexingQueue, deadLetterQueue, ehrNotePushQueue];
+  const queues = [
+    audioQueue,
+    reanalysisQueue,
+    retentionQueue,
+    usageQueue,
+    indexingQueue,
+    deadLetterQueue,
+    ehrNotePushQueue,
+  ];
   await Promise.all(queues.filter(Boolean).map((q) => q!.close()));
   audioQueue = null;
   reanalysisQueue = null;

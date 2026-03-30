@@ -1,7 +1,14 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {  RiMicLine, RiCheckboxBlankLine, RiArrowGoBackLine, RiCheckLine, RiErrorWarningLine, RiTimerLine  } from "@remixicon/react";
+import {
+  RiMicLine,
+  RiCheckboxBlankLine,
+  RiArrowGoBackLine,
+  RiCheckLine,
+  RiErrorWarningLine,
+  RiTimerLine,
+} from "@remixicon/react";
 
 interface AudioRecorderProps {
   onRecordingComplete: (file: File) => void;
@@ -57,7 +64,6 @@ export default function AudioRecorder({ onRecordingComplete }: AudioRecorderProp
       }
       if (audioUrl) URL.revokeObjectURL(audioUrl);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const stopVisualization = useCallback(() => {
@@ -116,7 +122,9 @@ export default function AudioRecorder({ onRecordingComplete }: AudioRecorderProp
     setError(null);
 
     if (!isSupported) {
-      setError("Your browser does not support audio recording. Please use a modern browser like Chrome, Firefox, or Edge.");
+      setError(
+        "Your browser does not support audio recording. Please use a modern browser like Chrome, Firefox, or Edge.",
+      );
       return;
     }
 
@@ -237,8 +245,8 @@ export default function AudioRecorder({ onRecordingComplete }: AudioRecorderProp
             <div>
               <p className="font-medium">Browser Not Supported</p>
               <p className="text-sm text-muted-foreground mt-1">
-                Audio recording requires a modern browser with MediaRecorder support (Chrome, Firefox, or Edge).
-                Please update your browser or switch to a supported one.
+                Audio recording requires a modern browser with MediaRecorder support (Chrome, Firefox, or Edge). Please
+                update your browser or switch to a supported one.
               </p>
             </div>
           </div>
@@ -267,9 +275,7 @@ export default function AudioRecorder({ onRecordingComplete }: AudioRecorderProp
               <RiMicLine className="w-8 h-8 text-red-600 dark:text-red-400" />
             </div>
             <div className="text-center">
-              <p className="text-sm text-muted-foreground">
-                Click to start recording from your microphone.
-              </p>
+              <p className="text-sm text-muted-foreground">Click to start recording from your microphone.</p>
               <p className="text-xs text-muted-foreground mt-1">
                 Put your phone on speaker and position it near the microphone.
               </p>
@@ -290,9 +296,7 @@ export default function AudioRecorder({ onRecordingComplete }: AudioRecorderProp
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500" />
               </span>
-              <span className="text-2xl font-mono font-semibold text-foreground">
-                {formatTime(elapsed)}
-              </span>
+              <span className="text-2xl font-mono font-semibold text-foreground">{formatTime(elapsed)}</span>
             </div>
 
             {/* Waveform canvas */}
@@ -310,12 +314,7 @@ export default function AudioRecorder({ onRecordingComplete }: AudioRecorderProp
             />
 
             {/* Stop button */}
-            <Button
-              onClick={stopRecording}
-              variant="destructive"
-              size="lg"
-              className="gap-2"
-            >
+            <Button onClick={stopRecording} variant="destructive" size="lg" className="gap-2">
               <RiCheckboxBlankLine className="w-4 h-4" />
               Stop Recording
             </Button>
@@ -327,17 +326,11 @@ export default function AudioRecorder({ onRecordingComplete }: AudioRecorderProp
           <div className="flex flex-col items-center space-y-4">
             <div className="text-center">
               <p className="text-sm font-medium text-foreground">Recording Preview</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Duration: {formatTime(elapsed)}
-              </p>
+              <p className="text-xs text-muted-foreground mt-1">Duration: {formatTime(elapsed)}</p>
             </div>
 
             {/* Audio playback */}
-            <audio
-              controls
-              src={audioUrl}
-              className="w-full max-w-md"
-            />
+            <audio controls src={audioUrl} className="w-full max-w-md" />
 
             {/* Actions */}
             <div className="flex items-center gap-3">

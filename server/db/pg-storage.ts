@@ -17,36 +17,67 @@ import type { Database } from "./index";
 import type { ObjectStorageClient } from "../storage";
 import type { IStorage } from "../storage";
 import type {
-  User, InsertUser,
-  Employee, InsertEmployee,
-  Call, InsertCall,
-  Transcript, InsertTranscript,
-  SentimentAnalysis, InsertSentimentAnalysis,
-  CallAnalysis, InsertCallAnalysis,
-  CallWithDetails, CallSummary, DashboardMetrics, SentimentDistribution, TopPerformer,
-  AccessRequest, InsertAccessRequest,
-  PromptTemplate, InsertPromptTemplate,
-  CoachingSession, InsertCoachingSession,
-  Organization, InsertOrganization,
-  Invitation, InsertInvitation,
-  ApiKey, InsertApiKey,
-  Subscription, InsertSubscription,
-  ReferenceDocument, InsertReferenceDocument,
-  ABTest, InsertABTest,
+  User,
+  InsertUser,
+  Employee,
+  InsertEmployee,
+  Call,
+  InsertCall,
+  Transcript,
+  InsertTranscript,
+  SentimentAnalysis,
+  InsertSentimentAnalysis,
+  CallAnalysis,
+  InsertCallAnalysis,
+  CallWithDetails,
+  CallSummary,
+  DashboardMetrics,
+  SentimentDistribution,
+  TopPerformer,
+  AccessRequest,
+  InsertAccessRequest,
+  PromptTemplate,
+  InsertPromptTemplate,
+  CoachingSession,
+  InsertCoachingSession,
+  Organization,
+  InsertOrganization,
+  Invitation,
+  InsertInvitation,
+  ApiKey,
+  InsertApiKey,
+  Subscription,
+  InsertSubscription,
+  ReferenceDocument,
+  InsertReferenceDocument,
+  ABTest,
+  InsertABTest,
   UsageRecord,
-  LiveSession, InsertLiveSession,
-  Feedback, InsertFeedback,
+  LiveSession,
+  InsertLiveSession,
+  Feedback,
+  InsertFeedback,
   EmployeeBadge,
-  InsuranceNarrative, InsertInsuranceNarrative,
-  CallRevenue, InsertCallRevenue,
-  CalibrationSession, InsertCalibrationSession,
-  CalibrationEvaluation, InsertCalibrationEvaluation,
-  LearningModule, InsertLearningModule,
-  LearningPath, InsertLearningPath,
-  LearningProgress, InsertLearningProgress,
-  MarketingCampaign, InsertMarketingCampaign,
-  CallAttribution, InsertCallAttribution,
-  CallShare, InsertCallShare,
+  InsuranceNarrative,
+  InsertInsuranceNarrative,
+  CallRevenue,
+  InsertCallRevenue,
+  CalibrationSession,
+  InsertCalibrationSession,
+  CalibrationEvaluation,
+  InsertCalibrationEvaluation,
+  LearningModule,
+  InsertLearningModule,
+  LearningPath,
+  InsertLearningPath,
+  LearningProgress,
+  InsertLearningProgress,
+  MarketingCampaign,
+  InsertMarketingCampaign,
+  CallAttribution,
+  InsertCallAttribution,
+  CallShare,
+  InsertCallShare,
 } from "@shared/schema";
 import * as tables from "./schema";
 import { normalizeAnalysis } from "../storage";
@@ -131,18 +162,22 @@ export class PostgresStorage implements IStorage {
 
   async createOrganization(org: InsertOrganization): Promise<Organization> {
     const id = randomUUID();
-    const [row] = await this.db.insert(tables.organizations).values({
-      id,
-      name: org.name,
-      slug: org.slug,
-      status: org.status || "active",
-      settings: org.settings || null,
-    }).returning();
+    const [row] = await this.db
+      .insert(tables.organizations)
+      .values({
+        id,
+        name: org.name,
+        slug: org.slug,
+        status: org.status || "active",
+        settings: org.settings || null,
+      })
+      .returning();
     return this.mapOrg(row);
   }
 
   async updateOrganization(orgId: string, updates: Partial<Organization>): Promise<Organization | undefined> {
-    const [row] = await this.db.update(tables.organizations)
+    const [row] = await this.db
+      .update(tables.organizations)
       .set({
         ...(updates.name !== undefined ? { name: updates.name } : {}),
         ...(updates.slug !== undefined ? { slug: updates.slug } : {}),
@@ -168,26 +203,32 @@ export class PostgresStorage implements IStorage {
   async getUserByUsername(username: string, orgId?: string): Promise<User | undefined> {
     const conditions = [eq(tables.users.username, username)];
     if (orgId) conditions.push(eq(tables.users.orgId, orgId));
-    const rows = await this.db.select().from(tables.users).where(and(...conditions)).limit(1);
+    const rows = await this.db
+      .select()
+      .from(tables.users)
+      .where(and(...conditions))
+      .limit(1);
     return rows[0] ? this.mapUser(rows[0]) : undefined;
   }
 
   async createUser(user: InsertUser): Promise<User> {
     const id = randomUUID();
-    const [row] = await this.db.insert(tables.users).values({
-      id,
-      orgId: user.orgId || "",
-      username: user.username,
-      passwordHash: user.passwordHash,
-      name: user.name,
-      role: user.role || "viewer",
-    }).returning();
+    const [row] = await this.db
+      .insert(tables.users)
+      .values({
+        id,
+        orgId: user.orgId || "",
+        username: user.username,
+        passwordHash: user.passwordHash,
+        name: user.name,
+        role: user.role || "viewer",
+      })
+      .returning();
     return this.mapUser(row);
   }
 
   async listUsersByOrg(orgId: string): Promise<User[]> {
-    const rows = await this.db.select().from(tables.users)
-      .where(eq(tables.users.orgId, orgId));
+    const rows = await this.db.select().from(tables.users).where(eq(tables.users.orgId, orgId));
     return rows.map((r) => this.mapUser(r));
   }
 
@@ -199,7 +240,8 @@ export class PostgresStorage implements IStorage {
 
     if (Object.keys(setClause).length === 0) return this.getUser(id);
 
-    const [row] = await this.db.update(tables.users)
+    const [row] = await this.db
+      .update(tables.users)
       .set(setClause)
       .where(and(eq(tables.users.id, id), eq(tables.users.orgId, orgId)))
       .returning();
@@ -207,20 +249,23 @@ export class PostgresStorage implements IStorage {
   }
 
   async deleteUser(orgId: string, id: string): Promise<void> {
-    await this.db.delete(tables.users)
-      .where(and(eq(tables.users.id, id), eq(tables.users.orgId, orgId)));
+    await this.db.delete(tables.users).where(and(eq(tables.users.id, id), eq(tables.users.orgId, orgId)));
   }
 
   // --- Employee operations ---
   async getEmployee(orgId: string, id: string): Promise<Employee | undefined> {
-    const rows = await this.db.select().from(tables.employees)
+    const rows = await this.db
+      .select()
+      .from(tables.employees)
       .where(and(eq(tables.employees.id, id), eq(tables.employees.orgId, orgId)))
       .limit(1);
     return rows[0] ? this.mapEmployee(rows[0]) : undefined;
   }
 
   async getEmployeeByEmail(orgId: string, email: string): Promise<Employee | undefined> {
-    const rows = await this.db.select().from(tables.employees)
+    const rows = await this.db
+      .select()
+      .from(tables.employees)
       .where(and(eq(tables.employees.orgId, orgId), eq(tables.employees.email, email)))
       .limit(1);
     return rows[0] ? this.mapEmployee(rows[0]) : undefined;
@@ -228,21 +273,25 @@ export class PostgresStorage implements IStorage {
 
   async createEmployee(orgId: string, employee: InsertEmployee): Promise<Employee> {
     const id = randomUUID();
-    const [row] = await this.db.insert(tables.employees).values({
-      id,
-      orgId,
-      name: employee.name,
-      email: employee.email,
-      role: employee.role,
-      initials: employee.initials,
-      status: employee.status || "Active",
-      subTeam: employee.subTeam,
-    }).returning();
+    const [row] = await this.db
+      .insert(tables.employees)
+      .values({
+        id,
+        orgId,
+        name: employee.name,
+        email: employee.email,
+        role: employee.role,
+        initials: employee.initials,
+        status: employee.status || "Active",
+        subTeam: employee.subTeam,
+      })
+      .returning();
     return this.mapEmployee(row);
   }
 
   async updateEmployee(orgId: string, id: string, updates: Partial<Employee>): Promise<Employee | undefined> {
-    const [row] = await this.db.update(tables.employees)
+    const [row] = await this.db
+      .update(tables.employees)
       .set({
         ...(updates.name !== undefined ? { name: updates.name } : {}),
         ...(updates.email !== undefined ? { email: updates.email } : {}),
@@ -263,22 +312,30 @@ export class PostgresStorage implements IStorage {
 
   // --- Count operations (SQL COUNT for efficiency) ---
   async countUsersByOrg(orgId: string): Promise<number> {
-    const [result] = await this.db.select({ count: sql<number>`count(*)::int` })
-      .from(tables.users).where(eq(tables.users.orgId, orgId));
+    const [result] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(tables.users)
+      .where(eq(tables.users.orgId, orgId));
     return result?.count || 0;
   }
 
   async countCallsByOrg(orgId: string): Promise<number> {
-    const [result] = await this.db.select({ count: sql<number>`count(*)::int` })
-      .from(tables.calls).where(eq(tables.calls.orgId, orgId));
+    const [result] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(tables.calls)
+      .where(eq(tables.calls.orgId, orgId));
     return result?.count || 0;
   }
 
-  async countCallsByOrgAndStatus(orgId: string): Promise<{ pending: number; processing: number; completed: number; failed: number }> {
-    const rows = await this.db.select({
-      status: tables.calls.status,
-      count: sql<number>`count(*)::int`,
-    }).from(tables.calls)
+  async countCallsByOrgAndStatus(
+    orgId: string,
+  ): Promise<{ pending: number; processing: number; completed: number; failed: number }> {
+    const rows = await this.db
+      .select({
+        status: tables.calls.status,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(tables.calls)
       .where(eq(tables.calls.orgId, orgId))
       .groupBy(tables.calls.status);
 
@@ -291,7 +348,9 @@ export class PostgresStorage implements IStorage {
 
   // --- Call operations ---
   async getCall(orgId: string, id: string): Promise<Call | undefined> {
-    const rows = await this.db.select().from(tables.calls)
+    const rows = await this.db
+      .select()
+      .from(tables.calls)
       .where(and(eq(tables.calls.id, id), eq(tables.calls.orgId, orgId)))
       .limit(1);
     return rows[0] ? this.mapCall(rows[0]) : undefined;
@@ -299,31 +358,34 @@ export class PostgresStorage implements IStorage {
 
   async createCall(orgId: string, call: InsertCall): Promise<Call> {
     const id = randomUUID();
-    const [row] = await this.db.insert(tables.calls).values({
-      id,
-      orgId,
-      employeeId: call.employeeId,
-      fileName: call.fileName,
-      filePath: call.filePath,
-      status: call.status || "pending",
-      duration: call.duration,
-      assemblyAiId: call.assemblyAiId,
-      callCategory: call.callCategory,
-      tags: call.tags || null,
-      channel: call.channel || "voice",
-      emailSubject: call.emailSubject,
-      emailFrom: call.emailFrom,
-      emailTo: call.emailTo,
-      emailCc: call.emailCc,
-      emailBody: call.emailBody,
-      emailBodyHtml: call.emailBodyHtml,
-      emailMessageId: call.emailMessageId,
-      emailThreadId: call.emailThreadId,
-      emailReceivedAt: call.emailReceivedAt ? new Date(call.emailReceivedAt) : undefined,
-      chatPlatform: call.chatPlatform,
-      messageCount: call.messageCount,
-      fileHash: call.fileHash,
-    }).returning();
+    const [row] = await this.db
+      .insert(tables.calls)
+      .values({
+        id,
+        orgId,
+        employeeId: call.employeeId,
+        fileName: call.fileName,
+        filePath: call.filePath,
+        status: call.status || "pending",
+        duration: call.duration,
+        assemblyAiId: call.assemblyAiId,
+        callCategory: call.callCategory,
+        tags: call.tags || null,
+        channel: call.channel || "voice",
+        emailSubject: call.emailSubject,
+        emailFrom: call.emailFrom,
+        emailTo: call.emailTo,
+        emailCc: call.emailCc,
+        emailBody: call.emailBody,
+        emailBodyHtml: call.emailBodyHtml,
+        emailMessageId: call.emailMessageId,
+        emailThreadId: call.emailThreadId,
+        emailReceivedAt: call.emailReceivedAt ? new Date(call.emailReceivedAt) : undefined,
+        chatPlatform: call.chatPlatform,
+        messageCount: call.messageCount,
+        fileHash: call.fileHash,
+      })
+      .returning();
     return this.mapCall(row);
   }
 
@@ -346,10 +408,12 @@ export class PostgresStorage implements IStorage {
     if (updates.emailCc !== undefined) setClause.emailCc = updates.emailCc;
     if (updates.emailMessageId !== undefined) setClause.emailMessageId = updates.emailMessageId;
     if (updates.emailThreadId !== undefined) setClause.emailThreadId = updates.emailThreadId;
-    if (updates.emailReceivedAt !== undefined) setClause.emailReceivedAt = updates.emailReceivedAt ? new Date(updates.emailReceivedAt) : null;
+    if (updates.emailReceivedAt !== undefined)
+      setClause.emailReceivedAt = updates.emailReceivedAt ? new Date(updates.emailReceivedAt) : null;
     if (updates.fileHash !== undefined) setClause.fileHash = updates.fileHash;
 
-    const [row] = await this.db.update(tables.calls)
+    const [row] = await this.db
+      .update(tables.calls)
       .set(setClause)
       .where(and(eq(tables.calls.id, id), eq(tables.calls.orgId, orgId)))
       .returning();
@@ -358,8 +422,7 @@ export class PostgresStorage implements IStorage {
 
   async deleteCall(orgId: string, id: string): Promise<void> {
     // Cascading deletes handle transcripts, sentiments, analyses
-    await this.db.delete(tables.calls)
-      .where(and(eq(tables.calls.id, id), eq(tables.calls.orgId, orgId)));
+    await this.db.delete(tables.calls).where(and(eq(tables.calls.id, id), eq(tables.calls.orgId, orgId)));
     // Clean up audio from blob storage
     if (this.blobClient) {
       try {
@@ -371,25 +434,29 @@ export class PostgresStorage implements IStorage {
   }
 
   async getCallByFileHash(orgId: string, fileHash: string): Promise<Call | undefined> {
-    const rows = await this.db.select().from(tables.calls)
-      .where(and(
-        eq(tables.calls.orgId, orgId),
-        eq(tables.calls.fileHash, fileHash),
-        sql`${tables.calls.status} != 'failed'`
-      ))
+    const rows = await this.db
+      .select()
+      .from(tables.calls)
+      .where(
+        and(
+          eq(tables.calls.orgId, orgId),
+          eq(tables.calls.fileHash, fileHash),
+          sql`${tables.calls.status} != 'failed'`,
+        ),
+      )
       .limit(1);
     return rows[0] ? this.mapCall(rows[0]) : undefined;
   }
 
   async getCallByAssemblyAiId(transcriptId: string): Promise<Call | null> {
-    const rows = await this.db.select().from(tables.calls)
-      .where(eq(tables.calls.assemblyAiId, transcriptId))
-      .limit(1);
+    const rows = await this.db.select().from(tables.calls).where(eq(tables.calls.assemblyAiId, transcriptId)).limit(1);
     return rows[0] ? this.mapCall(rows[0]) : null;
   }
 
   async getAllCalls(orgId: string): Promise<Call[]> {
-    const rows = await this.db.select().from(tables.calls)
+    const rows = await this.db
+      .select()
+      .from(tables.calls)
       .where(eq(tables.calls.orgId, orgId))
       .orderBy(desc(tables.calls.uploadedAt));
     return rows.map((r) => this.mapCall(r));
@@ -410,7 +477,8 @@ export class PostgresStorage implements IStorage {
       if (filters.status) conditions.push(eq(tables.calls.status, filters.status));
       if (filters.employee) conditions.push(eq(tables.calls.employeeId, filters.employee));
 
-      let query = this.db.select({ call: tables.calls })
+      let query = this.db
+        .select({ call: tables.calls })
         .from(tables.calls)
         .innerJoin(tables.sentimentAnalyses, eq(tables.calls.id, tables.sentimentAnalyses.callId))
         .where(and(...conditions))
@@ -429,7 +497,9 @@ export class PostgresStorage implements IStorage {
       if (filters.status) conditions.push(eq(tables.calls.status, filters.status));
       if (filters.employee) conditions.push(eq(tables.calls.employeeId, filters.employee));
 
-      let query = this.db.select().from(tables.calls)
+      let query = this.db
+        .select()
+        .from(tables.calls)
         .where(and(...conditions))
         .orderBy(desc(tables.calls.uploadedAt));
 
@@ -451,19 +521,27 @@ export class PostgresStorage implements IStorage {
     // Batch-load related data scoped to matched call IDs (chunked to avoid parameter limits)
     const [empRows, txRows, sentRows, analysisRows] = await Promise.all([
       empIdsNeeded.length > 0
-        ? chunkedInArray(this.db, (ids) =>
-            this.db.select().from(tables.employees).where(inArray(tables.employees.id, ids)),
-          empIdsNeeded)
+        ? chunkedInArray(
+            this.db,
+            (ids) => this.db.select().from(tables.employees).where(inArray(tables.employees.id, ids)),
+            empIdsNeeded,
+          )
         : Promise.resolve([]),
-      chunkedInArray(this.db, (ids) =>
-        this.db.select().from(tables.transcripts).where(inArray(tables.transcripts.callId, ids)),
-      callIds),
-      chunkedInArray(this.db, (ids) =>
-        this.db.select().from(tables.sentimentAnalyses).where(inArray(tables.sentimentAnalyses.callId, ids)),
-      callIds),
-      chunkedInArray(this.db, (ids) =>
-        this.db.select().from(tables.callAnalyses).where(inArray(tables.callAnalyses.callId, ids)),
-      callIds),
+      chunkedInArray(
+        this.db,
+        (ids) => this.db.select().from(tables.transcripts).where(inArray(tables.transcripts.callId, ids)),
+        callIds,
+      ),
+      chunkedInArray(
+        this.db,
+        (ids) => this.db.select().from(tables.sentimentAnalyses).where(inArray(tables.sentimentAnalyses.callId, ids)),
+        callIds,
+      ),
+      chunkedInArray(
+        this.db,
+        (ids) => this.db.select().from(tables.callAnalyses).where(inArray(tables.callAnalyses.callId, ids)),
+        callIds,
+      ),
     ]);
 
     const empMap = new Map(empRows.map((e) => [e.id, this.mapEmployee(e)]));
@@ -492,7 +570,9 @@ export class PostgresStorage implements IStorage {
     if (filters.status) conditions.push(eq(tables.calls.status, filters.status));
     if (filters.employee) conditions.push(eq(tables.calls.employeeId, filters.employee));
 
-    const callRows = await this.db.select().from(tables.calls)
+    const callRows = await this.db
+      .select()
+      .from(tables.calls)
       .where(and(...conditions))
       .orderBy(desc(tables.calls.uploadedAt));
 
@@ -548,46 +628,57 @@ export class PostgresStorage implements IStorage {
 
   async createCallShare(orgId: string, share: InsertCallShare): Promise<CallShare> {
     const id = randomUUID();
-    const row = await this.db.insert(tables.callShares).values({
-      id,
-      orgId,
-      callId: share.callId,
-      tokenHash: share.tokenHash,
-      tokenPrefix: share.tokenPrefix,
-      viewerLabel: share.viewerLabel ?? null,
-      expiresAt: new Date(share.expiresAt),
-      createdBy: share.createdBy,
-    }).returning();
+    const row = await this.db
+      .insert(tables.callShares)
+      .values({
+        id,
+        orgId,
+        callId: share.callId,
+        tokenHash: share.tokenHash,
+        tokenPrefix: share.tokenPrefix,
+        viewerLabel: share.viewerLabel ?? null,
+        expiresAt: new Date(share.expiresAt),
+        createdBy: share.createdBy,
+      })
+      .returning();
     return this.mapCallShare(row[0]);
   }
 
   async getCallShareByToken(tokenHash: string): Promise<CallShare | undefined> {
-    const rows = await this.db.select().from(tables.callShares)
+    const rows = await this.db
+      .select()
+      .from(tables.callShares)
       .where(eq(tables.callShares.tokenHash, tokenHash))
       .limit(1);
     return rows[0] ? this.mapCallShare(rows[0]) : undefined;
   }
 
   async listCallShares(orgId: string, callId: string): Promise<CallShare[]> {
-    const rows = await this.db.select().from(tables.callShares)
+    const rows = await this.db
+      .select()
+      .from(tables.callShares)
       .where(and(eq(tables.callShares.orgId, orgId), eq(tables.callShares.callId, callId)))
       .orderBy(desc(tables.callShares.createdAt));
     return rows.map((r) => this.mapCallShare(r));
   }
 
   async deleteCallShare(orgId: string, id: string): Promise<void> {
-    await this.db.delete(tables.callShares)
+    await this.db
+      .delete(tables.callShares)
       .where(and(eq(tables.callShares.id, id), eq(tables.callShares.orgId, orgId)));
   }
 
   async deleteExpiredCallShares(orgId: string): Promise<void> {
-    await this.db.delete(tables.callShares)
+    await this.db
+      .delete(tables.callShares)
       .where(and(eq(tables.callShares.orgId, orgId), lt(tables.callShares.expiresAt, new Date())));
   }
 
   // --- Transcript operations ---
   async getTranscript(orgId: string, callId: string): Promise<Transcript | undefined> {
-    const rows = await this.db.select().from(tables.transcripts)
+    const rows = await this.db
+      .select()
+      .from(tables.transcripts)
       .where(and(eq(tables.transcripts.callId, callId), eq(tables.transcripts.orgId, orgId)))
       .limit(1);
     return rows[0] ? this.mapTranscript(rows[0]) : undefined;
@@ -595,26 +686,34 @@ export class PostgresStorage implements IStorage {
 
   async createTranscript(orgId: string, transcript: InsertTranscript): Promise<Transcript> {
     const id = randomUUID();
-    const [row] = await this.db.insert(tables.transcripts).values({
-      id,
-      orgId,
-      callId: transcript.callId,
-      text: typeof transcript.text === "string" ? encryptField(transcript.text) : transcript.text,
-      confidence: transcript.confidence,
-      words: transcript.words || null,
-      corrections: (transcript as any).corrections || null,
-      correctedText: (transcript as any).correctedText || null,
-    }).returning();
+    const [row] = await this.db
+      .insert(tables.transcripts)
+      .values({
+        id,
+        orgId,
+        callId: transcript.callId,
+        text: typeof transcript.text === "string" ? encryptField(transcript.text) : transcript.text,
+        confidence: transcript.confidence,
+        words: transcript.words || null,
+        corrections: (transcript as any).corrections || null,
+        correctedText: (transcript as any).correctedText || null,
+      })
+      .returning();
     return this.mapTranscript(row);
   }
 
-  async updateTranscript(orgId: string, callId: string, updates: { text?: string; corrections?: any[]; correctedText?: string }): Promise<Transcript | undefined> {
+  async updateTranscript(
+    orgId: string,
+    callId: string,
+    updates: { text?: string; corrections?: any[]; correctedText?: string },
+  ): Promise<Transcript | undefined> {
     const setClause: Record<string, unknown> = {};
     if (updates.text !== undefined) setClause.text = encryptField(updates.text);
     if (updates.corrections !== undefined) setClause.corrections = updates.corrections;
     if (updates.correctedText !== undefined) setClause.correctedText = updates.correctedText;
     if (Object.keys(setClause).length === 0) return this.getTranscript(orgId, callId);
-    const rows = await this.db.update(tables.transcripts)
+    const rows = await this.db
+      .update(tables.transcripts)
       .set(setClause as any)
       .where(and(eq(tables.transcripts.callId, callId), eq(tables.transcripts.orgId, orgId)))
       .returning();
@@ -623,7 +722,9 @@ export class PostgresStorage implements IStorage {
 
   // --- Sentiment operations ---
   async getSentimentAnalysis(orgId: string, callId: string): Promise<SentimentAnalysis | undefined> {
-    const rows = await this.db.select().from(tables.sentimentAnalyses)
+    const rows = await this.db
+      .select()
+      .from(tables.sentimentAnalyses)
       .where(and(eq(tables.sentimentAnalyses.callId, callId), eq(tables.sentimentAnalyses.orgId, orgId)))
       .limit(1);
     return rows[0] ? this.mapSentiment(rows[0]) : undefined;
@@ -631,20 +732,25 @@ export class PostgresStorage implements IStorage {
 
   async createSentimentAnalysis(orgId: string, sentiment: InsertSentimentAnalysis): Promise<SentimentAnalysis> {
     const id = randomUUID();
-    const [row] = await this.db.insert(tables.sentimentAnalyses).values({
-      id,
-      orgId,
-      callId: sentiment.callId,
-      overallSentiment: sentiment.overallSentiment,
-      overallScore: sentiment.overallScore,
-      segments: sentiment.segments || null,
-    }).returning();
+    const [row] = await this.db
+      .insert(tables.sentimentAnalyses)
+      .values({
+        id,
+        orgId,
+        callId: sentiment.callId,
+        overallSentiment: sentiment.overallSentiment,
+        overallScore: sentiment.overallScore,
+        segments: sentiment.segments || null,
+      })
+      .returning();
     return this.mapSentiment(row);
   }
 
   // --- Call analysis operations ---
   async getCallAnalysis(orgId: string, callId: string): Promise<CallAnalysis | undefined> {
-    const rows = await this.db.select().from(tables.callAnalyses)
+    const rows = await this.db
+      .select()
+      .from(tables.callAnalyses)
       .where(and(eq(tables.callAnalyses.callId, callId), eq(tables.callAnalyses.orgId, orgId)))
       .limit(1);
     return rows[0] ? this.mapAnalysis(rows[0]) : undefined;
@@ -652,35 +758,43 @@ export class PostgresStorage implements IStorage {
 
   async createCallAnalysis(orgId: string, analysis: InsertCallAnalysis): Promise<CallAnalysis> {
     const id = randomUUID();
-    const [row] = await this.db.insert(tables.callAnalyses).values({
-      id,
-      orgId,
-      callId: analysis.callId,
-      performanceScore: analysis.performanceScore,
-      talkTimeRatio: analysis.talkTimeRatio,
-      responseTime: analysis.responseTime,
-      keywords: analysis.keywords || null,
-      topics: analysis.topics || null,
-      summary: typeof analysis.summary === "string" ? encryptField(analysis.summary) : analysis.summary,
-      actionItems: analysis.actionItems || null,
-      feedback: analysis.feedback || null,
-      lemurResponse: analysis.lemurResponse || null,
-      callPartyType: analysis.callPartyType,
-      flags: analysis.flags || null,
-      manualEdits: analysis.manualEdits || null,
-      confidenceScore: analysis.confidenceScore,
-      confidenceFactors: analysis.confidenceFactors || null,
-      subScores: analysis.subScores || null,
-      detectedAgentName: analysis.detectedAgentName,
-      clinicalNote: analysis.clinicalNote || null,
-    }).returning();
+    const [row] = await this.db
+      .insert(tables.callAnalyses)
+      .values({
+        id,
+        orgId,
+        callId: analysis.callId,
+        performanceScore: analysis.performanceScore,
+        talkTimeRatio: analysis.talkTimeRatio,
+        responseTime: analysis.responseTime,
+        keywords: analysis.keywords || null,
+        topics: analysis.topics || null,
+        summary: typeof analysis.summary === "string" ? encryptField(analysis.summary) : analysis.summary,
+        actionItems: analysis.actionItems || null,
+        feedback: analysis.feedback || null,
+        lemurResponse: analysis.lemurResponse || null,
+        callPartyType: analysis.callPartyType,
+        flags: analysis.flags || null,
+        manualEdits: analysis.manualEdits || null,
+        confidenceScore: analysis.confidenceScore,
+        confidenceFactors: analysis.confidenceFactors || null,
+        subScores: analysis.subScores || null,
+        detectedAgentName: analysis.detectedAgentName,
+        clinicalNote: analysis.clinicalNote || null,
+      })
+      .returning();
     return this.mapAnalysis(row);
   }
 
-  async updateCallAnalysis(orgId: string, callId: string, updates: Partial<InsertCallAnalysis>): Promise<CallAnalysis | undefined> {
+  async updateCallAnalysis(
+    orgId: string,
+    callId: string,
+    updates: Partial<InsertCallAnalysis>,
+  ): Promise<CallAnalysis | undefined> {
     const setClause: Record<string, unknown> = {};
     if (updates.performanceScore !== undefined) setClause.performanceScore = updates.performanceScore;
-    if (updates.summary !== undefined) setClause.summary = typeof updates.summary === "string" ? encryptField(updates.summary) : updates.summary;
+    if (updates.summary !== undefined)
+      setClause.summary = typeof updates.summary === "string" ? encryptField(updates.summary) : updates.summary;
     if (updates.topics !== undefined) setClause.topics = updates.topics;
     if (updates.actionItems !== undefined) setClause.actionItems = updates.actionItems;
     if (updates.feedback !== undefined) setClause.feedback = updates.feedback;
@@ -699,7 +813,8 @@ export class PostgresStorage implements IStorage {
 
     if (Object.keys(setClause).length === 0) return this.getCallAnalysis(orgId, callId);
 
-    const [row] = await this.db.update(tables.callAnalyses)
+    const [row] = await this.db
+      .update(tables.callAnalyses)
       .set(setClause)
       .where(and(eq(tables.callAnalyses.callId, callId), eq(tables.callAnalyses.orgId, orgId)))
       .returning();
@@ -708,12 +823,12 @@ export class PostgresStorage implements IStorage {
 
   // --- Dashboard metrics (single consolidated query) ---
   async getDashboardMetrics(orgId: string): Promise<DashboardMetrics> {
-    const [row] = await this.db.execute(sql`
+    const [row] = (await this.db.execute(sql`
       SELECT
         (SELECT count(*)::int FROM ${tables.calls} WHERE ${tables.calls.orgId} = ${orgId}) AS call_count,
         (SELECT coalesce(avg(cast(${tables.sentimentAnalyses.overallScore} as float)) * 10, 0) FROM ${tables.sentimentAnalyses} WHERE ${tables.sentimentAnalyses.orgId} = ${orgId}) AS avg_sentiment,
         (SELECT coalesce(avg(cast(${tables.callAnalyses.performanceScore} as float)), 0) FROM ${tables.callAnalyses} WHERE ${tables.callAnalyses.orgId} = ${orgId}) AS avg_performance
-    `) as any;
+    `)) as any;
 
     return {
       totalCalls: row?.call_count || 0,
@@ -724,10 +839,12 @@ export class PostgresStorage implements IStorage {
   }
 
   async getSentimentDistribution(orgId: string): Promise<SentimentDistribution> {
-    const rows = await this.db.select({
-      sentiment: tables.sentimentAnalyses.overallSentiment,
-      count: sql<number>`count(*)::int`,
-    }).from(tables.sentimentAnalyses)
+    const rows = await this.db
+      .select({
+        sentiment: tables.sentimentAnalyses.overallSentiment,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(tables.sentimentAnalyses)
       .where(eq(tables.sentimentAnalyses.orgId, orgId))
       .groupBy(tables.sentimentAnalyses.overallSentiment);
 
@@ -743,19 +860,18 @@ export class PostgresStorage implements IStorage {
     // Single query: JOIN calls → analyses → employees, aggregate in SQL
     // HAVING count(*) >= 5 prevents employees with 1-2 calls from dominating the leaderboard
     const MIN_CALLS_FOR_RANKING = 5;
-    const rows = await this.db.select({
-      employeeId: tables.calls.employeeId,
-      employeeName: tables.employees.name,
-      employeeRole: tables.employees.role,
-      avgScore: sql<number>`avg(cast(${tables.callAnalyses.performanceScore} as float))`,
-      totalCalls: sql<number>`count(*)::int`,
-    }).from(tables.calls)
+    const rows = await this.db
+      .select({
+        employeeId: tables.calls.employeeId,
+        employeeName: tables.employees.name,
+        employeeRole: tables.employees.role,
+        avgScore: sql<number>`avg(cast(${tables.callAnalyses.performanceScore} as float))`,
+        totalCalls: sql<number>`count(*)::int`,
+      })
+      .from(tables.calls)
       .innerJoin(tables.callAnalyses, eq(tables.calls.id, tables.callAnalyses.callId))
       .innerJoin(tables.employees, eq(tables.calls.employeeId, tables.employees.id))
-      .where(and(
-        eq(tables.calls.orgId, orgId),
-        sql`${tables.calls.employeeId} is not null`,
-      ))
+      .where(and(eq(tables.calls.orgId, orgId), sql`${tables.calls.employeeId} is not null`))
       .groupBy(tables.calls.employeeId, tables.employees.id, tables.employees.name, tables.employees.role)
       .having(sql`count(*) >= ${MIN_CALLS_FOR_RANKING}`)
       .orderBy(sql`avg(cast(${tables.callAnalyses.performanceScore} as float)) desc`)
@@ -774,7 +890,10 @@ export class PostgresStorage implements IStorage {
    * Get clinical call metrics without loading all calls into memory.
    * Queries only calls matching clinical categories with their analysis JSONB data.
    */
-  async getClinicalCallMetrics(orgId: string, clinicalCategories: string[]): Promise<{
+  async getClinicalCallMetrics(
+    orgId: string,
+    clinicalCategories: string[],
+  ): Promise<{
     totalEncounters: number;
     completed: number;
     notesWithData: Array<{
@@ -783,42 +902,49 @@ export class PostgresStorage implements IStorage {
     }>;
   }> {
     // Count total encounters matching clinical categories
-    const [totalRow] = await this.db.select({
-      count: sql<number>`count(*)::int`,
-    }).from(tables.calls)
-      .where(and(
-        eq(tables.calls.orgId, orgId),
-        inArray(tables.calls.callCategory!, clinicalCategories),
-      ));
+    const [totalRow] = await this.db
+      .select({
+        count: sql<number>`count(*)::int`,
+      })
+      .from(tables.calls)
+      .where(and(eq(tables.calls.orgId, orgId), inArray(tables.calls.callCategory!, clinicalCategories)));
 
     // Count completed encounters
-    const [completedRow] = await this.db.select({
-      count: sql<number>`count(*)::int`,
-    }).from(tables.calls)
-      .where(and(
-        eq(tables.calls.orgId, orgId),
-        eq(tables.calls.status, "completed"),
-        inArray(tables.calls.callCategory!, clinicalCategories),
-      ));
+    const [completedRow] = await this.db
+      .select({
+        count: sql<number>`count(*)::int`,
+      })
+      .from(tables.calls)
+      .where(
+        and(
+          eq(tables.calls.orgId, orgId),
+          eq(tables.calls.status, "completed"),
+          inArray(tables.calls.callCategory!, clinicalCategories),
+        ),
+      );
 
     // Fetch only completed clinical calls that have analyses with clinical notes
     // This is a JOIN on two tables, not loading ALL calls + ALL analyses
-    const noteRows = await this.db.select({
-      clinicalNote: tables.callAnalyses.clinicalNote,
-      uploadedAt: tables.calls.uploadedAt,
-    }).from(tables.calls)
+    const noteRows = await this.db
+      .select({
+        clinicalNote: tables.callAnalyses.clinicalNote,
+        uploadedAt: tables.calls.uploadedAt,
+      })
+      .from(tables.calls)
       .innerJoin(tables.callAnalyses, eq(tables.calls.id, tables.callAnalyses.callId))
-      .where(and(
-        eq(tables.calls.orgId, orgId),
-        eq(tables.calls.status, "completed"),
-        inArray(tables.calls.callCategory!, clinicalCategories),
-        sql`${tables.callAnalyses.clinicalNote} is not null`,
-      ));
+      .where(
+        and(
+          eq(tables.calls.orgId, orgId),
+          eq(tables.calls.status, "completed"),
+          inArray(tables.calls.callCategory!, clinicalCategories),
+          sql`${tables.callAnalyses.clinicalNote} is not null`,
+        ),
+      );
 
     return {
       totalEncounters: totalRow?.count || 0,
       completed: completedRow?.count || 0,
-      notesWithData: noteRows.map(r => ({
+      notesWithData: noteRows.map((r) => ({
         clinicalNote: r.clinicalNote as any,
         uploadedAt: r.uploadedAt?.toISOString() || null,
       })),
@@ -829,25 +955,34 @@ export class PostgresStorage implements IStorage {
    * Get attested clinical notes without loading all calls.
    * Returns only analyses with providerAttested clinical notes for matching categories.
    */
-  async getAttestedClinicalNotes(orgId: string, clinicalCategories: string[]): Promise<Array<{
-    clinicalNote: any;
-    uploadedAt: string | null;
-  }>> {
-    const rows = await this.db.select({
-      clinicalNote: tables.callAnalyses.clinicalNote,
-      uploadedAt: tables.calls.uploadedAt,
-    }).from(tables.calls)
+  async getAttestedClinicalNotes(
+    orgId: string,
+    clinicalCategories: string[],
+  ): Promise<
+    Array<{
+      clinicalNote: any;
+      uploadedAt: string | null;
+    }>
+  > {
+    const rows = await this.db
+      .select({
+        clinicalNote: tables.callAnalyses.clinicalNote,
+        uploadedAt: tables.calls.uploadedAt,
+      })
+      .from(tables.calls)
       .innerJoin(tables.callAnalyses, eq(tables.calls.id, tables.callAnalyses.callId))
-      .where(and(
-        eq(tables.calls.orgId, orgId),
-        eq(tables.calls.status, "completed"),
-        inArray(tables.calls.callCategory!, clinicalCategories),
-        sql`${tables.callAnalyses.clinicalNote} is not null`,
-        sql`(${tables.callAnalyses.clinicalNote}->>'providerAttested')::boolean = true`,
-      ))
+      .where(
+        and(
+          eq(tables.calls.orgId, orgId),
+          eq(tables.calls.status, "completed"),
+          inArray(tables.calls.callCategory!, clinicalCategories),
+          sql`${tables.callAnalyses.clinicalNote} is not null`,
+          sql`(${tables.callAnalyses.clinicalNote}->>'providerAttested')::boolean = true`,
+        ),
+      )
       .orderBy(desc(tables.calls.uploadedAt));
 
-    return rows.map(r => ({
+    return rows.map((r) => ({
       clinicalNote: r.clinicalNote,
       uploadedAt: r.uploadedAt?.toISOString() || null,
     }));
@@ -862,42 +997,44 @@ export class PostgresStorage implements IStorage {
     const pattern = `%${query}%`;
 
     // Search transcripts — uses transcripts_text_search_idx GIN index
-    const matchingTranscripts = await this.db.select({ callId: tables.transcripts.callId })
+    const matchingTranscripts = await this.db
+      .select({ callId: tables.transcripts.callId })
       .from(tables.transcripts)
-      .where(and(
-        eq(tables.transcripts.orgId, orgId),
-        useFullText
-          ? sql`to_tsvector('english', coalesce(${tables.transcripts.text}, '')) @@ ${tsQuery}`
-          : ilike(tables.transcripts.text, pattern),
-      ));
+      .where(
+        and(
+          eq(tables.transcripts.orgId, orgId),
+          useFullText
+            ? sql`to_tsvector('english', coalesce(${tables.transcripts.text}, '')) @@ ${tsQuery}`
+            : ilike(tables.transcripts.text, pattern),
+        ),
+      );
 
     // Search analysis summaries and topics — uses analyses_summary_search_idx GIN index
-    const matchingAnalyses = await this.db.select({ callId: tables.callAnalyses.callId })
+    const matchingAnalyses = await this.db
+      .select({ callId: tables.callAnalyses.callId })
       .from(tables.callAnalyses)
-      .where(and(
-        eq(tables.callAnalyses.orgId, orgId),
-        or(
-          useFullText
-            ? sql`to_tsvector('english', coalesce(${tables.callAnalyses.summary}, '')) @@ ${tsQuery}`
-            : ilike(tables.callAnalyses.summary, pattern),
-          sql`${tables.callAnalyses.topics}::text ILIKE ${pattern}`,
+      .where(
+        and(
+          eq(tables.callAnalyses.orgId, orgId),
+          or(
+            useFullText
+              ? sql`to_tsvector('english', coalesce(${tables.callAnalyses.summary}, '')) @@ ${tsQuery}`
+              : ilike(tables.callAnalyses.summary, pattern),
+            sql`${tables.callAnalyses.topics}::text ILIKE ${pattern}`,
+          ),
         ),
-      ));
+      );
 
-    const callIds = new Set([
-      ...matchingTranscripts.map(t => t.callId),
-      ...matchingAnalyses.map(a => a.callId),
-    ]);
+    const callIds = new Set([...matchingTranscripts.map((t) => t.callId), ...matchingAnalyses.map((a) => a.callId)]);
 
     if (callIds.size === 0) return [];
 
     // Fetch only the matching calls with their details (not all calls)
     const matchedCallIds = Array.from(callIds);
-    const callRows = await this.db.select().from(tables.calls)
-      .where(and(
-        eq(tables.calls.orgId, orgId),
-        inArray(tables.calls.id, matchedCallIds),
-      ))
+    const callRows = await this.db
+      .select()
+      .from(tables.calls)
+      .where(and(eq(tables.calls.orgId, orgId), inArray(tables.calls.id, matchedCallIds)))
       .orderBy(desc(tables.calls.uploadedAt));
 
     if (callRows.length === 0) return [];
@@ -931,7 +1068,13 @@ export class PostgresStorage implements IStorage {
   }
 
   // --- Audio operations (delegates to blob storage) ---
-  async uploadAudio(orgId: string, callId: string, fileName: string, buffer: Buffer, contentType: string): Promise<void> {
+  async uploadAudio(
+    orgId: string,
+    callId: string,
+    fileName: string,
+    buffer: Buffer,
+    contentType: string,
+  ): Promise<void> {
     if (!this.blobClient) throw new Error("No blob storage client configured for audio files");
     await this.blobClient.uploadFile(`orgs/${orgId}/audio/${callId}/${fileName}`, buffer, contentType);
   }
@@ -944,9 +1087,7 @@ export class PostgresStorage implements IStorage {
   async downloadAudio(orgId: string, objectName: string): Promise<Buffer | undefined> {
     if (!this.blobClient) return undefined;
     // Always enforce the org prefix for tenant isolation
-    const safePath = objectName.startsWith("orgs/")
-      ? objectName
-      : `orgs/${orgId}/${objectName}`;
+    const safePath = objectName.startsWith("orgs/") ? objectName : `orgs/${orgId}/${objectName}`;
     // Validate the path belongs to this org
     if (!safePath.startsWith(`orgs/${orgId}/`)) {
       logger.warn({ orgId, objectName }, "Cross-org audio access blocked");
@@ -958,38 +1099,50 @@ export class PostgresStorage implements IStorage {
   // --- Access requests ---
   async createAccessRequest(orgId: string, request: InsertAccessRequest): Promise<AccessRequest> {
     const id = randomUUID();
-    const [row] = await this.db.insert(tables.accessRequests).values({
-      id,
-      orgId,
-      name: request.name,
-      email: request.email,
-      reason: request.reason,
-      requestedRole: request.requestedRole || "viewer",
-    }).returning();
+    const [row] = await this.db
+      .insert(tables.accessRequests)
+      .values({
+        id,
+        orgId,
+        name: request.name,
+        email: request.email,
+        reason: request.reason,
+        requestedRole: request.requestedRole || "viewer",
+      })
+      .returning();
     return this.mapAccessRequest(row);
   }
 
   async getAllAccessRequests(orgId: string): Promise<AccessRequest[]> {
-    const rows = await this.db.select().from(tables.accessRequests)
+    const rows = await this.db
+      .select()
+      .from(tables.accessRequests)
       .where(eq(tables.accessRequests.orgId, orgId))
       .orderBy(desc(tables.accessRequests.createdAt));
     return rows.map((r) => this.mapAccessRequest(r));
   }
 
   async getAccessRequest(orgId: string, id: string): Promise<AccessRequest | undefined> {
-    const rows = await this.db.select().from(tables.accessRequests)
+    const rows = await this.db
+      .select()
+      .from(tables.accessRequests)
       .where(and(eq(tables.accessRequests.id, id), eq(tables.accessRequests.orgId, orgId)))
       .limit(1);
     return rows[0] ? this.mapAccessRequest(rows[0]) : undefined;
   }
 
-  async updateAccessRequest(orgId: string, id: string, updates: Partial<AccessRequest>): Promise<AccessRequest | undefined> {
+  async updateAccessRequest(
+    orgId: string,
+    id: string,
+    updates: Partial<AccessRequest>,
+  ): Promise<AccessRequest | undefined> {
     const setClause: Record<string, unknown> = {};
     if (updates.status !== undefined) setClause.status = updates.status;
     if (updates.reviewedBy !== undefined) setClause.reviewedBy = updates.reviewedBy;
     if (updates.reviewedAt !== undefined) setClause.reviewedAt = new Date(updates.reviewedAt);
 
-    const [row] = await this.db.update(tables.accessRequests)
+    const [row] = await this.db
+      .update(tables.accessRequests)
       .set(setClause)
       .where(and(eq(tables.accessRequests.id, id), eq(tables.accessRequests.orgId, orgId)))
       .returning();
@@ -998,47 +1151,59 @@ export class PostgresStorage implements IStorage {
 
   // --- Prompt templates ---
   async getPromptTemplate(orgId: string, id: string): Promise<PromptTemplate | undefined> {
-    const rows = await this.db.select().from(tables.promptTemplates)
+    const rows = await this.db
+      .select()
+      .from(tables.promptTemplates)
       .where(and(eq(tables.promptTemplates.id, id), eq(tables.promptTemplates.orgId, orgId)))
       .limit(1);
     return rows[0] ? this.mapPromptTemplate(rows[0]) : undefined;
   }
 
   async getPromptTemplateByCategory(orgId: string, callCategory: string): Promise<PromptTemplate | undefined> {
-    const rows = await this.db.select().from(tables.promptTemplates)
-      .where(and(
-        eq(tables.promptTemplates.orgId, orgId),
-        eq(tables.promptTemplates.callCategory, callCategory),
-        eq(tables.promptTemplates.isActive, true),
-      ))
+    const rows = await this.db
+      .select()
+      .from(tables.promptTemplates)
+      .where(
+        and(
+          eq(tables.promptTemplates.orgId, orgId),
+          eq(tables.promptTemplates.callCategory, callCategory),
+          eq(tables.promptTemplates.isActive, true),
+        ),
+      )
       .limit(1);
     return rows[0] ? this.mapPromptTemplate(rows[0]) : undefined;
   }
 
   async getAllPromptTemplates(orgId: string): Promise<PromptTemplate[]> {
-    const rows = await this.db.select().from(tables.promptTemplates)
-      .where(eq(tables.promptTemplates.orgId, orgId));
+    const rows = await this.db.select().from(tables.promptTemplates).where(eq(tables.promptTemplates.orgId, orgId));
     return rows.map((r) => this.mapPromptTemplate(r));
   }
 
   async createPromptTemplate(orgId: string, template: InsertPromptTemplate): Promise<PromptTemplate> {
     const id = randomUUID();
-    const [row] = await this.db.insert(tables.promptTemplates).values({
-      id,
-      orgId,
-      callCategory: template.callCategory,
-      name: template.name,
-      evaluationCriteria: template.evaluationCriteria,
-      requiredPhrases: template.requiredPhrases || null,
-      scoringWeights: template.scoringWeights || null,
-      additionalInstructions: template.additionalInstructions,
-      isActive: template.isActive ?? true,
-      updatedBy: template.updatedBy,
-    }).returning();
+    const [row] = await this.db
+      .insert(tables.promptTemplates)
+      .values({
+        id,
+        orgId,
+        callCategory: template.callCategory,
+        name: template.name,
+        evaluationCriteria: template.evaluationCriteria,
+        requiredPhrases: template.requiredPhrases || null,
+        scoringWeights: template.scoringWeights || null,
+        additionalInstructions: template.additionalInstructions,
+        isActive: template.isActive ?? true,
+        updatedBy: template.updatedBy,
+      })
+      .returning();
     return this.mapPromptTemplate(row);
   }
 
-  async updatePromptTemplate(orgId: string, id: string, updates: Partial<PromptTemplate>): Promise<PromptTemplate | undefined> {
+  async updatePromptTemplate(
+    orgId: string,
+    id: string,
+    updates: Partial<PromptTemplate>,
+  ): Promise<PromptTemplate | undefined> {
     const setClause: Record<string, unknown> = { updatedAt: new Date() };
     if (updates.name !== undefined) setClause.name = updates.name;
     if (updates.callCategory !== undefined) setClause.callCategory = updates.callCategory;
@@ -1049,7 +1214,8 @@ export class PostgresStorage implements IStorage {
     if (updates.isActive !== undefined) setClause.isActive = updates.isActive;
     if (updates.updatedBy !== undefined) setClause.updatedBy = updates.updatedBy;
 
-    const [row] = await this.db.update(tables.promptTemplates)
+    const [row] = await this.db
+      .update(tables.promptTemplates)
       .set(setClause)
       .where(and(eq(tables.promptTemplates.id, id), eq(tables.promptTemplates.orgId, orgId)))
       .returning();
@@ -1057,52 +1223,60 @@ export class PostgresStorage implements IStorage {
   }
 
   async deletePromptTemplate(orgId: string, id: string): Promise<void> {
-    await this.db.delete(tables.promptTemplates)
+    await this.db
+      .delete(tables.promptTemplates)
       .where(and(eq(tables.promptTemplates.id, id), eq(tables.promptTemplates.orgId, orgId)));
   }
 
   // --- Coaching sessions ---
   async createCoachingSession(orgId: string, session: InsertCoachingSession): Promise<CoachingSession> {
     const id = randomUUID();
-    const [row] = await this.db.insert(tables.coachingSessions).values({
-      id,
-      orgId,
-      employeeId: session.employeeId,
-      callId: session.callId,
-      assignedBy: session.assignedBy,
-      category: session.category || "general",
-      title: session.title,
-      notes: session.notes,
-      actionPlan: session.actionPlan || null,
-      status: session.status || "pending",
-      dueDate: session.dueDate ? new Date(session.dueDate) : null,
-    }).returning();
+    const [row] = await this.db
+      .insert(tables.coachingSessions)
+      .values({
+        id,
+        orgId,
+        employeeId: session.employeeId,
+        callId: session.callId,
+        assignedBy: session.assignedBy,
+        category: session.category || "general",
+        title: session.title,
+        notes: session.notes,
+        actionPlan: session.actionPlan || null,
+        status: session.status || "pending",
+        dueDate: session.dueDate ? new Date(session.dueDate) : null,
+      })
+      .returning();
     return this.mapCoachingSession(row);
   }
 
   async getCoachingSession(orgId: string, id: string): Promise<CoachingSession | undefined> {
-    const rows = await this.db.select().from(tables.coachingSessions)
+    const rows = await this.db
+      .select()
+      .from(tables.coachingSessions)
       .where(and(eq(tables.coachingSessions.id, id), eq(tables.coachingSessions.orgId, orgId)))
       .limit(1);
     return rows[0] ? this.mapCoachingSession(rows[0]) : undefined;
   }
 
   async getAllCoachingSessions(orgId: string): Promise<CoachingSession[]> {
-    const rows = await this.db.select().from(tables.coachingSessions)
-      .where(eq(tables.coachingSessions.orgId, orgId));
+    const rows = await this.db.select().from(tables.coachingSessions).where(eq(tables.coachingSessions.orgId, orgId));
     return rows.map((r) => this.mapCoachingSession(r));
   }
 
   async getCoachingSessionsByEmployee(orgId: string, employeeId: string): Promise<CoachingSession[]> {
-    const rows = await this.db.select().from(tables.coachingSessions)
-      .where(and(
-        eq(tables.coachingSessions.orgId, orgId),
-        eq(tables.coachingSessions.employeeId, employeeId),
-      ));
+    const rows = await this.db
+      .select()
+      .from(tables.coachingSessions)
+      .where(and(eq(tables.coachingSessions.orgId, orgId), eq(tables.coachingSessions.employeeId, employeeId)));
     return rows.map((r) => this.mapCoachingSession(r));
   }
 
-  async updateCoachingSession(orgId: string, id: string, updates: Partial<CoachingSession>): Promise<CoachingSession | undefined> {
+  async updateCoachingSession(
+    orgId: string,
+    id: string,
+    updates: Partial<CoachingSession>,
+  ): Promise<CoachingSession | undefined> {
     const setClause: Record<string, unknown> = {};
     if (updates.title !== undefined) setClause.title = updates.title;
     if (updates.notes !== undefined) setClause.notes = updates.notes;
@@ -1110,42 +1284,61 @@ export class PostgresStorage implements IStorage {
     if (updates.status !== undefined) setClause.status = updates.status;
     if (updates.actionPlan !== undefined) setClause.actionPlan = updates.actionPlan;
     if (updates.dueDate !== undefined) setClause.dueDate = updates.dueDate ? new Date(updates.dueDate) : null;
-    if (updates.completedAt !== undefined) setClause.completedAt = updates.completedAt ? new Date(updates.completedAt) : null;
-    if ((updates as any).selfAssessmentScore !== undefined) setClause.selfAssessmentScore = (updates as any).selfAssessmentScore;
-    if ((updates as any).selfAssessmentNotes !== undefined) setClause.selfAssessmentNotes = (updates as any).selfAssessmentNotes;
-    if ((updates as any).selfAssessedAt !== undefined) setClause.selfAssessedAt = (updates as any).selfAssessedAt ? new Date((updates as any).selfAssessedAt) : null;
-    if ((updates as any).effectivenessSnapshot !== undefined) setClause.effectivenessSnapshot = (updates as any).effectivenessSnapshot;
-    if ((updates as any).effectivenessCalculatedAt !== undefined) setClause.effectivenessCalculatedAt = (updates as any).effectivenessCalculatedAt ? new Date((updates as any).effectivenessCalculatedAt) : null;
+    if (updates.completedAt !== undefined)
+      setClause.completedAt = updates.completedAt ? new Date(updates.completedAt) : null;
+    if ((updates as any).selfAssessmentScore !== undefined)
+      setClause.selfAssessmentScore = (updates as any).selfAssessmentScore;
+    if ((updates as any).selfAssessmentNotes !== undefined)
+      setClause.selfAssessmentNotes = (updates as any).selfAssessmentNotes;
+    if ((updates as any).selfAssessedAt !== undefined)
+      setClause.selfAssessedAt = (updates as any).selfAssessedAt ? new Date((updates as any).selfAssessedAt) : null;
+    if ((updates as any).effectivenessSnapshot !== undefined)
+      setClause.effectivenessSnapshot = (updates as any).effectivenessSnapshot;
+    if ((updates as any).effectivenessCalculatedAt !== undefined)
+      setClause.effectivenessCalculatedAt = (updates as any).effectivenessCalculatedAt
+        ? new Date((updates as any).effectivenessCalculatedAt)
+        : null;
     if ((updates as any).templateId !== undefined) setClause.templateId = (updates as any).templateId;
 
-    const [row] = await this.db.update(tables.coachingSessions)
+    const [row] = await this.db
+      .update(tables.coachingSessions)
       .set(setClause)
       .where(and(eq(tables.coachingSessions.id, id), eq(tables.coachingSessions.orgId, orgId)))
       .returning();
     return row ? this.mapCoachingSession(row) : undefined;
   }
 
-  async getCoachingAnalytics(orgId: string, from?: Date, to?: Date): Promise<import("@shared/schema").CoachingAnalytics> {
+  async getCoachingAnalytics(
+    orgId: string,
+    from?: Date,
+    to?: Date,
+  ): Promise<import("@shared/schema").CoachingAnalytics> {
     const conditions: any[] = [eq(tables.coachingSessions.orgId, orgId)];
     if (from) conditions.push(gte(tables.coachingSessions.createdAt, from));
     if (to) conditions.push(lte(tables.coachingSessions.createdAt, to));
 
-    const sessions = await this.db.select().from(tables.coachingSessions).where(and(...conditions));
-    const mapped = sessions.map(r => this.mapCoachingSession(r));
+    const sessions = await this.db
+      .select()
+      .from(tables.coachingSessions)
+      .where(and(...conditions));
+    const mapped = sessions.map((r) => this.mapCoachingSession(r));
 
-    const completed = mapped.filter(s => s.status === "completed");
-    const dismissed = mapped.filter(s => s.status === "dismissed");
-    const pending = mapped.filter(s => s.status === "pending" || s.status === "in_progress");
+    const completed = mapped.filter((s) => s.status === "completed");
+    const dismissed = mapped.filter((s) => s.status === "dismissed");
+    const pending = mapped.filter((s) => s.status === "pending" || s.status === "in_progress");
     const now = Date.now();
-    const overdue = mapped.filter(s => s.dueDate && new Date(s.dueDate).getTime() < now && s.status !== "completed" && s.status !== "dismissed");
-    const automated = mapped.filter(s => (s as any).automatedTrigger);
+    const overdue = mapped.filter(
+      (s) => s.dueDate && new Date(s.dueDate).getTime() < now && s.status !== "completed" && s.status !== "dismissed",
+    );
+    const automated = mapped.filter((s) => (s as any).automatedTrigger);
 
-    const avgClose = completed.length > 0
-      ? completed.reduce((sum, s) => {
-          if (!s.completedAt || !s.createdAt) return sum;
-          return sum + (new Date(s.completedAt).getTime() - new Date(s.createdAt).getTime()) / 3600000;
-        }, 0) / completed.length
-      : null;
+    const avgClose =
+      completed.length > 0
+        ? completed.reduce((sum, s) => {
+            if (!s.completedAt || !s.createdAt) return sum;
+            return sum + (new Date(s.completedAt).getTime() - new Date(s.createdAt).getTime()) / 3600000;
+          }, 0) / completed.length
+        : null;
 
     const byCategory: Record<string, number> = {};
     const byManager: Record<string, { total: number; completed: number; rate: number }> = {};
@@ -1198,34 +1391,47 @@ export class PostgresStorage implements IStorage {
   }
 
   // --- Coaching templates ---
-  async createCoachingTemplate(orgId: string, template: import("@shared/schema").InsertCoachingTemplate): Promise<import("@shared/schema").CoachingTemplate> {
+  async createCoachingTemplate(
+    orgId: string,
+    template: import("@shared/schema").InsertCoachingTemplate,
+  ): Promise<import("@shared/schema").CoachingTemplate> {
     const id = randomUUID();
-    const [row] = await this.db.execute(sql`
+    const [row] = (await this.db.execute(sql`
       INSERT INTO coaching_templates (id, org_id, name, category, description, action_plan, tags, created_by, usage_count)
       VALUES (${id}, ${orgId}, ${template.name}, ${template.category || "general"}, ${template.description || null},
               ${JSON.stringify(template.actionPlan || [])}, ${JSON.stringify(template.tags || [])},
               ${template.createdBy}, 0)
       RETURNING *
-    `) as any;
+    `)) as any;
     return this.mapCoachingTemplate(row.rows ? row.rows[0] : row);
   }
 
   async getCoachingTemplate(orgId: string, id: string): Promise<import("@shared/schema").CoachingTemplate | undefined> {
-    const result = await this.db.execute(sql`SELECT * FROM coaching_templates WHERE id = ${id} AND org_id = ${orgId} LIMIT 1`) as any;
+    const result = (await this.db.execute(
+      sql`SELECT * FROM coaching_templates WHERE id = ${id} AND org_id = ${orgId} LIMIT 1`,
+    )) as any;
     const rows = result.rows || result;
     return rows[0] ? this.mapCoachingTemplate(rows[0]) : undefined;
   }
 
   async listCoachingTemplates(orgId: string, category?: string): Promise<import("@shared/schema").CoachingTemplate[]> {
     const result = category
-      ? await this.db.execute(sql`SELECT * FROM coaching_templates WHERE org_id = ${orgId} AND category = ${category} ORDER BY usage_count DESC, created_at DESC`) as any
-      : await this.db.execute(sql`SELECT * FROM coaching_templates WHERE org_id = ${orgId} ORDER BY usage_count DESC, created_at DESC`) as any;
+      ? ((await this.db.execute(
+          sql`SELECT * FROM coaching_templates WHERE org_id = ${orgId} AND category = ${category} ORDER BY usage_count DESC, created_at DESC`,
+        )) as any)
+      : ((await this.db.execute(
+          sql`SELECT * FROM coaching_templates WHERE org_id = ${orgId} ORDER BY usage_count DESC, created_at DESC`,
+        )) as any);
     const rows = result.rows || result;
     return Array.isArray(rows) ? rows.map((r: any) => this.mapCoachingTemplate(r)) : [];
   }
 
-  async updateCoachingTemplate(orgId: string, id: string, updates: Partial<import("@shared/schema").CoachingTemplate>): Promise<import("@shared/schema").CoachingTemplate | undefined> {
-    const result = await this.db.execute(sql`
+  async updateCoachingTemplate(
+    orgId: string,
+    id: string,
+    updates: Partial<import("@shared/schema").CoachingTemplate>,
+  ): Promise<import("@shared/schema").CoachingTemplate | undefined> {
+    const result = (await this.db.execute(sql`
       UPDATE coaching_templates SET
         name = COALESCE(${updates.name ?? null}, name),
         category = COALESCE(${updates.category ?? null}, category),
@@ -1235,7 +1441,7 @@ export class PostgresStorage implements IStorage {
         updated_at = NOW()
       WHERE id = ${id} AND org_id = ${orgId}
       RETURNING *
-    `) as any;
+    `)) as any;
     const rows = result.rows || result;
     return rows[0] ? this.mapCoachingTemplate(rows[0]) : undefined;
   }
@@ -1245,7 +1451,9 @@ export class PostgresStorage implements IStorage {
   }
 
   async incrementTemplateUsage(orgId: string, id: string): Promise<void> {
-    await this.db.execute(sql`UPDATE coaching_templates SET usage_count = usage_count + 1 WHERE id = ${id} AND org_id = ${orgId}`);
+    await this.db.execute(
+      sql`UPDATE coaching_templates SET usage_count = usage_count + 1 WHERE id = ${id} AND org_id = ${orgId}`,
+    );
   }
 
   private mapCoachingTemplate(row: any): import("@shared/schema").CoachingTemplate {
@@ -1265,41 +1473,55 @@ export class PostgresStorage implements IStorage {
   }
 
   // --- Automation rules ---
-  async createAutomationRule(orgId: string, rule: import("@shared/schema").InsertAutomationRule): Promise<import("@shared/schema").AutomationRule> {
+  async createAutomationRule(
+    orgId: string,
+    rule: import("@shared/schema").InsertAutomationRule,
+  ): Promise<import("@shared/schema").AutomationRule> {
     const id = randomUUID();
-    const result = await this.db.execute(sql`
+    const result = (await this.db.execute(sql`
       INSERT INTO automation_rules (id, org_id, name, is_enabled, trigger_type, conditions, actions, created_by, trigger_count)
       VALUES (${id}, ${orgId}, ${rule.name}, ${rule.isEnabled !== false}, ${rule.triggerType},
               ${JSON.stringify(rule.conditions)}, ${JSON.stringify(rule.actions)}, ${rule.createdBy}, 0)
       RETURNING *
-    `) as any;
+    `)) as any;
     const rows = result.rows || result;
     return this.mapAutomationRule(rows[0] || rows);
   }
 
   async getAutomationRule(orgId: string, id: string): Promise<import("@shared/schema").AutomationRule | undefined> {
-    const result = await this.db.execute(sql`SELECT * FROM automation_rules WHERE id = ${id} AND org_id = ${orgId} LIMIT 1`) as any;
+    const result = (await this.db.execute(
+      sql`SELECT * FROM automation_rules WHERE id = ${id} AND org_id = ${orgId} LIMIT 1`,
+    )) as any;
     const rows = result.rows || result;
     return rows[0] ? this.mapAutomationRule(rows[0]) : undefined;
   }
 
   async listAutomationRules(orgId: string): Promise<import("@shared/schema").AutomationRule[]> {
-    const result = await this.db.execute(sql`SELECT * FROM automation_rules WHERE org_id = ${orgId} ORDER BY created_at DESC`) as any;
+    const result = (await this.db.execute(
+      sql`SELECT * FROM automation_rules WHERE org_id = ${orgId} ORDER BY created_at DESC`,
+    )) as any;
     const rows = result.rows || result;
     return Array.isArray(rows) ? rows.map((r: any) => this.mapAutomationRule(r)) : [];
   }
 
-  async updateAutomationRule(orgId: string, id: string, updates: Partial<import("@shared/schema").AutomationRule>): Promise<import("@shared/schema").AutomationRule | undefined> {
+  async updateAutomationRule(
+    orgId: string,
+    id: string,
+    updates: Partial<import("@shared/schema").AutomationRule>,
+  ): Promise<import("@shared/schema").AutomationRule | undefined> {
     const setClause: Record<string, unknown> = {};
     if (updates.name !== undefined) setClause.is_enabled = updates.isEnabled;
     if (updates.isEnabled !== undefined) setClause.is_enabled = updates.isEnabled;
     if (updates.conditions !== undefined) setClause.conditions = JSON.stringify(updates.conditions);
     if (updates.actions !== undefined) setClause.actions = JSON.stringify(updates.actions);
-    if ((updates as any).lastTriggeredAt !== undefined) setClause.last_triggered_at = (updates as any).lastTriggeredAt ? new Date((updates as any).lastTriggeredAt) : null;
+    if ((updates as any).lastTriggeredAt !== undefined)
+      setClause.last_triggered_at = (updates as any).lastTriggeredAt
+        ? new Date((updates as any).lastTriggeredAt)
+        : null;
     if ((updates as any).triggerCount !== undefined) setClause.trigger_count = (updates as any).triggerCount;
     setClause.updated_at = new Date();
     // Build SET via raw SQL to handle JSONB properly
-    const result = await this.db.execute(sql`
+    const result = (await this.db.execute(sql`
       UPDATE automation_rules SET
         is_enabled = COALESCE(${updates.isEnabled ?? null}, is_enabled),
         name = COALESCE(${(updates as any).name ?? null}, name),
@@ -1310,7 +1532,7 @@ export class PostgresStorage implements IStorage {
         updated_at = NOW()
       WHERE id = ${id} AND org_id = ${orgId}
       RETURNING *
-    `) as any;
+    `)) as any;
     const rows = result.rows || result;
     return rows[0] ? this.mapAutomationRule(rows[0]) : undefined;
   }
@@ -1342,21 +1564,15 @@ export class PostgresStorage implements IStorage {
     cutoff.setDate(cutoff.getDate() - retentionDays);
 
     // Get IDs of calls to purge (for audio cleanup)
-    const expiredCalls = await this.db.select({ id: tables.calls.id })
+    const expiredCalls = await this.db
+      .select({ id: tables.calls.id })
       .from(tables.calls)
-      .where(and(
-        eq(tables.calls.orgId, orgId),
-        lt(tables.calls.uploadedAt, cutoff),
-      ));
+      .where(and(eq(tables.calls.orgId, orgId), lt(tables.calls.uploadedAt, cutoff)));
 
     if (expiredCalls.length === 0) return 0;
 
     // Delete from DB (cascading deletes handle related tables)
-    await this.db.delete(tables.calls)
-      .where(and(
-        eq(tables.calls.orgId, orgId),
-        lt(tables.calls.uploadedAt, cutoff),
-      ));
+    await this.db.delete(tables.calls).where(and(eq(tables.calls.orgId, orgId), lt(tables.calls.uploadedAt, cutoff)));
 
     // Clean up audio blobs
     if (this.blobClient) {
@@ -1381,18 +1597,21 @@ export class PostgresStorage implements IStorage {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - retentionDays);
 
-    const result = await this.db.delete(tables.auditLogs)
-      .where(and(
-        eq(tables.auditLogs.orgId, orgId),
-        lt(tables.auditLogs.createdAt, cutoff),
-      ))
+    const result = await this.db
+      .delete(tables.auditLogs)
+      .where(and(eq(tables.auditLogs.orgId, orgId), lt(tables.auditLogs.createdAt, cutoff)))
       .returning({ id: tables.auditLogs.id });
 
     return result.length;
   }
 
   // --- Usage tracking ---
-  async recordUsageEvent(event: { orgId: string; eventType: string; quantity: number; metadata?: Record<string, unknown> }): Promise<void> {
+  async recordUsageEvent(event: {
+    orgId: string;
+    eventType: string;
+    quantity: number;
+    metadata?: Record<string, unknown>;
+  }): Promise<void> {
     const id = randomUUID();
     await this.db.insert(tables.usageEvents).values({
       id,
@@ -1412,16 +1631,17 @@ export class PostgresStorage implements IStorage {
       conditions.push(sql`${tables.usageEvents.createdAt} <= ${endDate}`);
     }
 
-    const rows = await this.db.select({
-      eventType: tables.usageEvents.eventType,
-      totalQuantity: sql<number>`coalesce(sum(${tables.usageEvents.quantity}), 0)`,
-      eventCount: sql<number>`count(*)::int`,
-    })
+    const rows = await this.db
+      .select({
+        eventType: tables.usageEvents.eventType,
+        totalQuantity: sql<number>`coalesce(sum(${tables.usageEvents.quantity}), 0)`,
+        eventCount: sql<number>`count(*)::int`,
+      })
       .from(tables.usageEvents)
       .where(and(...conditions))
       .groupBy(tables.usageEvents.eventType);
 
-    return rows.map(r => ({
+    return rows.map((r) => ({
       eventType: r.eventType,
       totalQuantity: Number(r.totalQuantity),
       eventCount: r.eventCount,
@@ -1431,32 +1651,39 @@ export class PostgresStorage implements IStorage {
   // --- API Key operations ---
   async createApiKey(orgId: string, apiKey: InsertApiKey): Promise<ApiKey> {
     const id = randomUUID();
-    const [row] = await this.db.insert(tables.apiKeys).values({
-      id,
-      orgId,
-      name: apiKey.name,
-      keyHash: apiKey.keyHash,
-      keyPrefix: apiKey.keyPrefix,
-      permissions: apiKey.permissions || ["read"],
-      createdBy: apiKey.createdBy,
-      status: "active",
-      expiresAt: apiKey.expiresAt ? new Date(apiKey.expiresAt) : undefined,
-    }).returning();
+    const [row] = await this.db
+      .insert(tables.apiKeys)
+      .values({
+        id,
+        orgId,
+        name: apiKey.name,
+        keyHash: apiKey.keyHash,
+        keyPrefix: apiKey.keyPrefix,
+        permissions: apiKey.permissions || ["read"],
+        createdBy: apiKey.createdBy,
+        status: "active",
+        expiresAt: apiKey.expiresAt ? new Date(apiKey.expiresAt) : undefined,
+      })
+      .returning();
     return this.mapApiKey(row);
   }
 
   async getApiKeyByHash(keyHash: string): Promise<ApiKey | undefined> {
-    const rows = await this.db.select().from(tables.apiKeys)
+    const rows = await this.db
+      .select()
+      .from(tables.apiKeys)
       .where(and(eq(tables.apiKeys.keyHash, keyHash), eq(tables.apiKeys.status, "active")))
       .limit(1);
     return rows[0] ? this.mapApiKey(rows[0]) : undefined;
   }
 
   async listApiKeys(orgId: string): Promise<ApiKey[]> {
-    const rows = await this.db.select().from(tables.apiKeys)
+    const rows = await this.db
+      .select()
+      .from(tables.apiKeys)
       .where(eq(tables.apiKeys.orgId, orgId))
       .orderBy(desc(tables.apiKeys.createdAt));
-    return rows.map(r => this.mapApiKey(r));
+    return rows.map((r) => this.mapApiKey(r));
   }
 
   async updateApiKey(orgId: string, id: string, updates: Partial<ApiKey>): Promise<ApiKey | undefined> {
@@ -1465,7 +1692,8 @@ export class PostgresStorage implements IStorage {
     if (updates.lastUsedAt) setValues.lastUsedAt = new Date(updates.lastUsedAt);
     if (updates.name) setValues.name = updates.name;
 
-    const [row] = await this.db.update(tables.apiKeys)
+    const [row] = await this.db
+      .update(tables.apiKeys)
       .set(setValues)
       .where(and(eq(tables.apiKeys.id, id), eq(tables.apiKeys.orgId, orgId)))
       .returning();
@@ -1473,8 +1701,7 @@ export class PostgresStorage implements IStorage {
   }
 
   async deleteApiKey(orgId: string, id: string): Promise<void> {
-    await this.db.delete(tables.apiKeys)
-      .where(and(eq(tables.apiKeys.id, id), eq(tables.apiKeys.orgId, orgId)));
+    await this.db.delete(tables.apiKeys).where(and(eq(tables.apiKeys.id, id), eq(tables.apiKeys.orgId, orgId)));
   }
 
   // --- Invitation operations ---
@@ -1486,31 +1713,35 @@ export class PostgresStorage implements IStorage {
       ? new Date(invitation.expiresAt)
       : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-    const [row] = await this.db.insert(tables.invitations).values({
-      id,
-      orgId,
-      email: invitation.email,
-      role: invitation.role || "viewer",
-      token,
-      invitedBy: invitation.invitedBy,
-      status: "pending",
-      expiresAt,
-    }).returning();
+    const [row] = await this.db
+      .insert(tables.invitations)
+      .values({
+        id,
+        orgId,
+        email: invitation.email,
+        role: invitation.role || "viewer",
+        token,
+        invitedBy: invitation.invitedBy,
+        status: "pending",
+        expiresAt,
+      })
+      .returning();
 
     return this.mapInvitation(row);
   }
 
   async getInvitationByToken(token: string): Promise<Invitation | undefined> {
-    const rows = await this.db.select().from(tables.invitations)
-      .where(eq(tables.invitations.token, token)).limit(1);
+    const rows = await this.db.select().from(tables.invitations).where(eq(tables.invitations.token, token)).limit(1);
     return rows[0] ? this.mapInvitation(rows[0]) : undefined;
   }
 
   async listInvitations(orgId: string): Promise<Invitation[]> {
-    const rows = await this.db.select().from(tables.invitations)
+    const rows = await this.db
+      .select()
+      .from(tables.invitations)
       .where(eq(tables.invitations.orgId, orgId))
       .orderBy(desc(tables.invitations.createdAt));
-    return rows.map(r => this.mapInvitation(r));
+    return rows.map((r) => this.mapInvitation(r));
   }
 
   async updateInvitation(orgId: string, id: string, updates: Partial<Invitation>): Promise<Invitation | undefined> {
@@ -1518,7 +1749,8 @@ export class PostgresStorage implements IStorage {
     if (updates.status) setValues.status = updates.status;
     if (updates.acceptedAt) setValues.acceptedAt = new Date(updates.acceptedAt);
 
-    const [row] = await this.db.update(tables.invitations)
+    const [row] = await this.db
+      .update(tables.invitations)
       .set(setValues)
       .where(and(eq(tables.invitations.id, id), eq(tables.invitations.orgId, orgId)))
       .returning();
@@ -1526,7 +1758,8 @@ export class PostgresStorage implements IStorage {
   }
 
   async deleteInvitation(orgId: string, id: string): Promise<void> {
-    await this.db.delete(tables.invitations)
+    await this.db
+      .delete(tables.invitations)
       .where(and(eq(tables.invitations.id, id), eq(tables.invitations.orgId, orgId)));
   }
 
@@ -1745,21 +1978,27 @@ export class PostgresStorage implements IStorage {
 
   // --- Subscription operations ---
   async getSubscription(orgId: string): Promise<Subscription | undefined> {
-    const rows = await this.db.select().from(tables.subscriptions)
+    const rows = await this.db
+      .select()
+      .from(tables.subscriptions)
       .where(eq(tables.subscriptions.orgId, orgId))
       .limit(1);
     return rows[0] ? this.mapSubscription(rows[0]) : undefined;
   }
 
   async getSubscriptionByStripeCustomerId(stripeCustomerId: string): Promise<Subscription | undefined> {
-    const rows = await this.db.select().from(tables.subscriptions)
+    const rows = await this.db
+      .select()
+      .from(tables.subscriptions)
       .where(eq(tables.subscriptions.stripeCustomerId, stripeCustomerId))
       .limit(1);
     return rows[0] ? this.mapSubscription(rows[0]) : undefined;
   }
 
   async getSubscriptionByStripeSubId(stripeSubscriptionId: string): Promise<Subscription | undefined> {
-    const rows = await this.db.select().from(tables.subscriptions)
+    const rows = await this.db
+      .select()
+      .from(tables.subscriptions)
       .where(eq(tables.subscriptions.stripeSubscriptionId, stripeSubscriptionId))
       .limit(1);
     return rows[0] ? this.mapSubscription(rows[0]) : undefined;
@@ -1771,40 +2010,47 @@ export class PostgresStorage implements IStorage {
     const now = new Date();
 
     if (existing) {
-      const [row] = await this.db.update(tables.subscriptions).set({
-        planTier: sub.planTier,
-        status: sub.status,
-        stripeCustomerId: sub.stripeCustomerId,
-        stripeSubscriptionId: sub.stripeSubscriptionId,
-        stripePriceId: sub.stripePriceId,
-        stripeSeatsItemId: sub.stripeSeatsItemId,
-        stripeOverageItemId: sub.stripeOverageItemId,
-        billingInterval: sub.billingInterval,
-        currentPeriodStart: sub.currentPeriodStart ? new Date(sub.currentPeriodStart) : undefined,
-        currentPeriodEnd: sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd) : undefined,
-        cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
-        pastDueAt: sub.pastDueAt ? new Date(sub.pastDueAt) : undefined,
-        updatedAt: now,
-      }).where(eq(tables.subscriptions.orgId, orgId)).returning();
+      const [row] = await this.db
+        .update(tables.subscriptions)
+        .set({
+          planTier: sub.planTier,
+          status: sub.status,
+          stripeCustomerId: sub.stripeCustomerId,
+          stripeSubscriptionId: sub.stripeSubscriptionId,
+          stripePriceId: sub.stripePriceId,
+          stripeSeatsItemId: sub.stripeSeatsItemId,
+          stripeOverageItemId: sub.stripeOverageItemId,
+          billingInterval: sub.billingInterval,
+          currentPeriodStart: sub.currentPeriodStart ? new Date(sub.currentPeriodStart) : undefined,
+          currentPeriodEnd: sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd) : undefined,
+          cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+          pastDueAt: sub.pastDueAt ? new Date(sub.pastDueAt) : undefined,
+          updatedAt: now,
+        })
+        .where(eq(tables.subscriptions.orgId, orgId))
+        .returning();
       return this.mapSubscription(row);
     }
 
-    const [row] = await this.db.insert(tables.subscriptions).values({
-      id,
-      orgId,
-      planTier: sub.planTier,
-      status: sub.status,
-      stripeCustomerId: sub.stripeCustomerId || null,
-      stripeSubscriptionId: sub.stripeSubscriptionId || null,
-      stripePriceId: sub.stripePriceId || null,
-      stripeSeatsItemId: sub.stripeSeatsItemId || null,
-      stripeOverageItemId: sub.stripeOverageItemId || null,
-      billingInterval: sub.billingInterval || "monthly",
-      currentPeriodStart: sub.currentPeriodStart ? new Date(sub.currentPeriodStart) : null,
-      currentPeriodEnd: sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd) : null,
-      cancelAtPeriodEnd: sub.cancelAtPeriodEnd || false,
-      pastDueAt: sub.pastDueAt ? new Date(sub.pastDueAt) : null,
-    }).returning();
+    const [row] = await this.db
+      .insert(tables.subscriptions)
+      .values({
+        id,
+        orgId,
+        planTier: sub.planTier,
+        status: sub.status,
+        stripeCustomerId: sub.stripeCustomerId || null,
+        stripeSubscriptionId: sub.stripeSubscriptionId || null,
+        stripePriceId: sub.stripePriceId || null,
+        stripeSeatsItemId: sub.stripeSeatsItemId || null,
+        stripeOverageItemId: sub.stripeOverageItemId || null,
+        billingInterval: sub.billingInterval || "monthly",
+        currentPeriodStart: sub.currentPeriodStart ? new Date(sub.currentPeriodStart) : null,
+        currentPeriodEnd: sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd) : null,
+        cancelAtPeriodEnd: sub.cancelAtPeriodEnd || false,
+        pastDueAt: sub.pastDueAt ? new Date(sub.pastDueAt) : null,
+      })
+      .returning();
     return this.mapSubscription(row);
   }
 
@@ -1823,8 +2069,11 @@ export class PostgresStorage implements IStorage {
     if (updates.cancelAtPeriodEnd !== undefined) setValues.cancelAtPeriodEnd = updates.cancelAtPeriodEnd;
     if (updates.pastDueAt !== undefined) setValues.pastDueAt = updates.pastDueAt ? new Date(updates.pastDueAt) : null;
 
-    const [row] = await this.db.update(tables.subscriptions).set(setValues)
-      .where(eq(tables.subscriptions.orgId, orgId)).returning();
+    const [row] = await this.db
+      .update(tables.subscriptions)
+      .set(setValues)
+      .where(eq(tables.subscriptions.orgId, orgId))
+      .returning();
     return row ? this.mapSubscription(row) : undefined;
   }
 
@@ -1852,61 +2101,71 @@ export class PostgresStorage implements IStorage {
   // --- Reference document operations ---
   async createReferenceDocument(orgId: string, doc: InsertReferenceDocument): Promise<ReferenceDocument> {
     const id = randomUUID();
-    const [row] = await this.db.insert(tables.referenceDocuments).values({
-      id,
-      orgId,
-      name: doc.name,
-      category: doc.category,
-      description: doc.description || null,
-      fileName: doc.fileName,
-      fileSize: doc.fileSize,
-      mimeType: doc.mimeType,
-      storagePath: doc.storagePath,
-      extractedText: doc.extractedText || null,
-      appliesTo: doc.appliesTo || null,
-      isActive: doc.isActive ?? true,
-      uploadedBy: doc.uploadedBy || null,
-      version: doc.version ?? 1,
-      previousVersionId: doc.previousVersionId || null,
-      indexingStatus: doc.indexingStatus || "pending",
-      indexingError: null,
-      sourceType: doc.sourceType || "upload",
-      sourceUrl: doc.sourceUrl || null,
-      retrievalCount: 0,
-    }).returning();
+    const [row] = await this.db
+      .insert(tables.referenceDocuments)
+      .values({
+        id,
+        orgId,
+        name: doc.name,
+        category: doc.category,
+        description: doc.description || null,
+        fileName: doc.fileName,
+        fileSize: doc.fileSize,
+        mimeType: doc.mimeType,
+        storagePath: doc.storagePath,
+        extractedText: doc.extractedText || null,
+        appliesTo: doc.appliesTo || null,
+        isActive: doc.isActive ?? true,
+        uploadedBy: doc.uploadedBy || null,
+        version: doc.version ?? 1,
+        previousVersionId: doc.previousVersionId || null,
+        indexingStatus: doc.indexingStatus || "pending",
+        indexingError: null,
+        sourceType: doc.sourceType || "upload",
+        sourceUrl: doc.sourceUrl || null,
+        retrievalCount: 0,
+      })
+      .returning();
     return this.mapReferenceDocument(row);
   }
 
   async getReferenceDocument(orgId: string, id: string): Promise<ReferenceDocument | undefined> {
-    const rows = await this.db.select().from(tables.referenceDocuments)
+    const rows = await this.db
+      .select()
+      .from(tables.referenceDocuments)
       .where(and(eq(tables.referenceDocuments.orgId, orgId), eq(tables.referenceDocuments.id, id)))
       .limit(1);
     return rows[0] ? this.mapReferenceDocument(rows[0]) : undefined;
   }
 
   async listReferenceDocuments(orgId: string): Promise<ReferenceDocument[]> {
-    const rows = await this.db.select().from(tables.referenceDocuments)
+    const rows = await this.db
+      .select()
+      .from(tables.referenceDocuments)
       .where(eq(tables.referenceDocuments.orgId, orgId))
       .orderBy(desc(tables.referenceDocuments.createdAt));
-    return rows.map(r => this.mapReferenceDocument(r));
+    return rows.map((r) => this.mapReferenceDocument(r));
   }
 
   async getReferenceDocumentsForCategory(orgId: string, callCategory: string): Promise<ReferenceDocument[]> {
-    const rows = await this.db.select().from(tables.referenceDocuments)
-      .where(and(
-        eq(tables.referenceDocuments.orgId, orgId),
-        eq(tables.referenceDocuments.isActive, true),
-      ));
+    const rows = await this.db
+      .select()
+      .from(tables.referenceDocuments)
+      .where(and(eq(tables.referenceDocuments.orgId, orgId), eq(tables.referenceDocuments.isActive, true)));
     // Filter in-memory since appliesTo is JSONB — either empty (applies to all) or includes the category
     return rows
-      .filter(r => {
+      .filter((r) => {
         const applies = r.appliesTo as string[] | null;
         return !applies || applies.length === 0 || applies.includes(callCategory);
       })
-      .map(r => this.mapReferenceDocument(r));
+      .map((r) => this.mapReferenceDocument(r));
   }
 
-  async updateReferenceDocument(orgId: string, id: string, updates: Partial<ReferenceDocument>): Promise<ReferenceDocument | undefined> {
+  async updateReferenceDocument(
+    orgId: string,
+    id: string,
+    updates: Partial<ReferenceDocument>,
+  ): Promise<ReferenceDocument | undefined> {
     const setValues: Record<string, unknown> = {};
     if (updates.name) setValues.name = updates.name;
     if (updates.category) setValues.category = updates.category;
@@ -1918,14 +2177,17 @@ export class PostgresStorage implements IStorage {
     if (updates.indexingError !== undefined) setValues.indexingError = updates.indexingError;
     if (updates.retrievalCount !== undefined) setValues.retrievalCount = updates.retrievalCount;
 
-    const [row] = await this.db.update(tables.referenceDocuments).set(setValues)
+    const [row] = await this.db
+      .update(tables.referenceDocuments)
+      .set(setValues)
       .where(and(eq(tables.referenceDocuments.orgId, orgId), eq(tables.referenceDocuments.id, id)))
       .returning();
     return row ? this.mapReferenceDocument(row) : undefined;
   }
 
   async deleteReferenceDocument(orgId: string, id: string): Promise<void> {
-    await this.db.delete(tables.referenceDocuments)
+    await this.db
+      .delete(tables.referenceDocuments)
       .where(and(eq(tables.referenceDocuments.orgId, orgId), eq(tables.referenceDocuments.id, id)));
   }
 
@@ -1973,38 +2235,45 @@ export class PostgresStorage implements IStorage {
   // --- A/B test operations (stored in ab_tests table) ---
   async createABTest(orgId: string, test: InsertABTest): Promise<ABTest> {
     const id = randomUUID();
-    const [row] = await this.db.insert(tables.abTests).values({
-      id,
-      orgId,
-      fileName: test.fileName,
-      callCategory: test.callCategory || null,
-      baselineModel: test.baselineModel,
-      testModel: test.testModel,
-      status: test.status || "processing",
-      transcriptText: test.transcriptText || null,
-      baselineAnalysis: test.baselineAnalysis || null,
-      testAnalysis: test.testAnalysis || null,
-      baselineLatencyMs: test.baselineLatencyMs || null,
-      testLatencyMs: test.testLatencyMs || null,
-      notes: test.notes || null,
-      createdBy: test.createdBy,
-      batchId: test.batchId || null,
-    }).returning();
+    const [row] = await this.db
+      .insert(tables.abTests)
+      .values({
+        id,
+        orgId,
+        fileName: test.fileName,
+        callCategory: test.callCategory || null,
+        baselineModel: test.baselineModel,
+        testModel: test.testModel,
+        status: test.status || "processing",
+        transcriptText: test.transcriptText || null,
+        baselineAnalysis: test.baselineAnalysis || null,
+        testAnalysis: test.testAnalysis || null,
+        baselineLatencyMs: test.baselineLatencyMs || null,
+        testLatencyMs: test.testLatencyMs || null,
+        notes: test.notes || null,
+        createdBy: test.createdBy,
+        batchId: test.batchId || null,
+      })
+      .returning();
     return this.mapABTest(row);
   }
 
   async getABTest(orgId: string, id: string): Promise<ABTest | undefined> {
-    const [row] = await this.db.select().from(tables.abTests)
+    const [row] = await this.db
+      .select()
+      .from(tables.abTests)
       .where(and(eq(tables.abTests.orgId, orgId), eq(tables.abTests.id, id)));
     return row ? this.mapABTest(row) : undefined;
   }
 
   async getAllABTests(orgId: string): Promise<ABTest[]> {
-    const rows = await this.db.select().from(tables.abTests)
+    const rows = await this.db
+      .select()
+      .from(tables.abTests)
       .where(eq(tables.abTests.orgId, orgId))
       .orderBy(desc(tables.abTests.createdAt))
       .limit(QUERY_HARD_CAP);
-    return rows.map(r => this.mapABTest(r));
+    return rows.map((r) => this.mapABTest(r));
   }
 
   async updateABTest(orgId: string, id: string, updates: Partial<ABTest>): Promise<ABTest | undefined> {
@@ -2018,7 +2287,8 @@ export class PostgresStorage implements IStorage {
     if (updates.notes !== undefined) values.notes = updates.notes;
     if (Object.keys(values).length === 0) return this.getABTest(orgId, id);
 
-    const [row] = await this.db.update(tables.abTests)
+    const [row] = await this.db
+      .update(tables.abTests)
       .set(values)
       .where(and(eq(tables.abTests.orgId, orgId), eq(tables.abTests.id, id)))
       .returning();
@@ -2026,8 +2296,7 @@ export class PostgresStorage implements IStorage {
   }
 
   async deleteABTest(orgId: string, id: string): Promise<void> {
-    await this.db.delete(tables.abTests)
-      .where(and(eq(tables.abTests.orgId, orgId), eq(tables.abTests.id, id)));
+    await this.db.delete(tables.abTests).where(and(eq(tables.abTests.orgId, orgId), eq(tables.abTests.id, id)));
   }
 
   private mapABTest(row: any): ABTest {
@@ -2066,11 +2335,13 @@ export class PostgresStorage implements IStorage {
   }
 
   async getUsageRecords(orgId: string): Promise<UsageRecord[]> {
-    const rows = await this.db.select().from(tables.spendRecords)
+    const rows = await this.db
+      .select()
+      .from(tables.spendRecords)
       .where(eq(tables.spendRecords.orgId, orgId))
       .orderBy(desc(tables.spendRecords.timestamp))
       .limit(QUERY_HARD_CAP);
-    return rows.map(r => ({
+    return rows.map((r) => ({
       id: r.id,
       orgId: r.orgId,
       callId: r.callId,
@@ -2117,7 +2388,9 @@ export class PostgresStorage implements IStorage {
   }
 
   async getLiveSession(orgId: string, id: string): Promise<LiveSession | undefined> {
-    const rows = await this.db.select().from(tables.liveSessions)
+    const rows = await this.db
+      .select()
+      .from(tables.liveSessions)
       .where(and(eq(tables.liveSessions.orgId, orgId), eq(tables.liveSessions.id, id)));
     if (!rows[0]) return undefined;
     return this.mapLiveSessionRow(rows[0]);
@@ -2133,7 +2406,8 @@ export class PostgresStorage implements IStorage {
     if (updates.callId !== undefined) dbUpdates.callId = updates.callId;
     if (updates.endedAt !== undefined) dbUpdates.endedAt = new Date(updates.endedAt);
 
-    const rows = await this.db.update(tables.liveSessions)
+    const rows = await this.db
+      .update(tables.liveSessions)
       .set(dbUpdates)
       .where(and(eq(tables.liveSessions.orgId, orgId), eq(tables.liveSessions.id, id)))
       .returning();
@@ -2142,16 +2416,20 @@ export class PostgresStorage implements IStorage {
   }
 
   async getActiveLiveSessions(orgId: string): Promise<LiveSession[]> {
-    const rows = await this.db.select().from(tables.liveSessions)
+    const rows = await this.db
+      .select()
+      .from(tables.liveSessions)
       .where(and(eq(tables.liveSessions.orgId, orgId), eq(tables.liveSessions.status, "active")));
-    return rows.map(r => this.mapLiveSessionRow(r));
+    return rows.map((r) => this.mapLiveSessionRow(r));
   }
 
   async getLiveSessionsByUser(orgId: string, userId: string): Promise<LiveSession[]> {
-    const rows = await this.db.select().from(tables.liveSessions)
+    const rows = await this.db
+      .select()
+      .from(tables.liveSessions)
       .where(and(eq(tables.liveSessions.orgId, orgId), eq(tables.liveSessions.createdBy, userId)))
       .orderBy(desc(tables.liveSessions.startedAt));
-    return rows.map(r => this.mapLiveSessionRow(r));
+    return rows.map((r) => this.mapLiveSessionRow(r));
   }
 
   private mapLiveSessionRow(r: typeof tables.liveSessions.$inferSelect): LiveSession {
@@ -2178,16 +2456,23 @@ export class PostgresStorage implements IStorage {
   async createFeedback(orgId: string, feedback: InsertFeedback): Promise<Feedback> {
     const id = randomUUID();
     await this.db.insert(tables.feedbacks).values({
-      id, orgId, userId: feedback.userId, type: feedback.type,
-      context: feedback.context || null, rating: feedback.rating ?? null,
-      comment: feedback.comment || null, metadata: feedback.metadata || null,
+      id,
+      orgId,
+      userId: feedback.userId,
+      type: feedback.type,
+      context: feedback.context || null,
+      rating: feedback.rating ?? null,
+      comment: feedback.comment || null,
+      metadata: feedback.metadata || null,
       status: "new",
     });
     return { ...feedback, id, orgId, status: "new", createdAt: new Date().toISOString() };
   }
 
   async getFeedback(orgId: string, id: string): Promise<Feedback | undefined> {
-    const rows = await this.db.select().from(tables.feedbacks)
+    const rows = await this.db
+      .select()
+      .from(tables.feedbacks)
       .where(and(eq(tables.feedbacks.orgId, orgId), eq(tables.feedbacks.id, id)));
     return rows[0] ? this.mapFeedbackRow(rows[0]) : undefined;
   }
@@ -2196,18 +2481,22 @@ export class PostgresStorage implements IStorage {
     const conditions = [eq(tables.feedbacks.orgId, orgId)];
     if (filters?.type) conditions.push(eq(tables.feedbacks.type, filters.type));
     if (filters?.status) conditions.push(eq(tables.feedbacks.status, filters.status));
-    const rows = await this.db.select().from(tables.feedbacks)
+    const rows = await this.db
+      .select()
+      .from(tables.feedbacks)
       .where(and(...conditions))
       .orderBy(desc(tables.feedbacks.createdAt))
       .limit(QUERY_HARD_CAP);
-    return rows.map(r => this.mapFeedbackRow(r));
+    return rows.map((r) => this.mapFeedbackRow(r));
   }
 
   async updateFeedback(orgId: string, id: string, updates: Partial<Feedback>): Promise<Feedback | undefined> {
     const dbUpdates: Record<string, unknown> = {};
     if (updates.status !== undefined) dbUpdates.status = updates.status;
     if (updates.adminResponse !== undefined) dbUpdates.adminResponse = updates.adminResponse;
-    const rows = await this.db.update(tables.feedbacks).set(dbUpdates)
+    const rows = await this.db
+      .update(tables.feedbacks)
+      .set(dbUpdates)
       .where(and(eq(tables.feedbacks.orgId, orgId), eq(tables.feedbacks.id, id)))
       .returning();
     return rows[0] ? this.mapFeedbackRow(rows[0]) : undefined;
@@ -2215,10 +2504,16 @@ export class PostgresStorage implements IStorage {
 
   private mapFeedbackRow(r: typeof tables.feedbacks.$inferSelect): Feedback {
     return {
-      id: r.id, orgId: r.orgId, userId: r.userId, type: r.type as Feedback["type"],
-      context: r.context as Feedback["context"] ?? undefined, rating: r.rating ?? undefined,
-      comment: r.comment ?? undefined, metadata: r.metadata as Record<string, unknown> ?? undefined,
-      status: r.status as Feedback["status"], adminResponse: r.adminResponse ?? undefined,
+      id: r.id,
+      orgId: r.orgId,
+      userId: r.userId,
+      type: r.type as Feedback["type"],
+      context: (r.context as Feedback["context"]) ?? undefined,
+      rating: r.rating ?? undefined,
+      comment: r.comment ?? undefined,
+      metadata: (r.metadata as Record<string, unknown>) ?? undefined,
+      status: r.status as Feedback["status"],
+      adminResponse: r.adminResponse ?? undefined,
       createdAt: toISOString(r.createdAt),
     };
   }
@@ -2226,10 +2521,15 @@ export class PostgresStorage implements IStorage {
   // ===================== GAMIFICATION =====================
 
   async getEmployeeBadges(orgId: string, employeeId: string): Promise<EmployeeBadge[]> {
-    const rows = await this.db.select().from(tables.employeeBadges)
+    const rows = await this.db
+      .select()
+      .from(tables.employeeBadges)
       .where(and(eq(tables.employeeBadges.orgId, orgId), eq(tables.employeeBadges.employeeId, employeeId)));
-    return rows.map(r => ({
-      id: r.id, orgId: r.orgId, employeeId: r.employeeId, badgeId: r.badgeId,
+    return rows.map((r) => ({
+      id: r.id,
+      orgId: r.orgId,
+      employeeId: r.employeeId,
+      badgeId: r.badgeId,
       awardedAt: toISOString(r.awardedAt) || new Date().toISOString(),
       awardedFor: r.awardedFor || undefined,
       awardedBy: r.awardedBy || undefined,
@@ -2241,7 +2541,10 @@ export class PostgresStorage implements IStorage {
     const id = randomUUID();
     try {
       await this.db.insert(tables.employeeBadges).values({
-        id, orgId, employeeId: badge.employeeId, badgeId: badge.badgeId,
+        id,
+        orgId,
+        employeeId: badge.employeeId,
+        badgeId: badge.badgeId,
         awardedFor: badge.awardedFor || null,
         awardedBy: badge.awardedBy || null,
         customMessage: badge.customMessage || null,
@@ -2249,13 +2552,18 @@ export class PostgresStorage implements IStorage {
     } catch (e: unknown) {
       // Unique constraint violation — badge already awarded
       if ((e as { code?: string }).code === "23505") {
-        const existing = await this.db.select().from(tables.employeeBadges)
-          .where(and(
-            eq(tables.employeeBadges.orgId, orgId),
-            eq(tables.employeeBadges.employeeId, badge.employeeId),
-            eq(tables.employeeBadges.badgeId, badge.badgeId),
-          ));
-        if (existing[0]) return { ...badge, id: existing[0].id, awardedAt: toISOString(existing[0].awardedAt) || badge.awardedAt };
+        const existing = await this.db
+          .select()
+          .from(tables.employeeBadges)
+          .where(
+            and(
+              eq(tables.employeeBadges.orgId, orgId),
+              eq(tables.employeeBadges.employeeId, badge.employeeId),
+              eq(tables.employeeBadges.badgeId, badge.badgeId),
+            ),
+          );
+        if (existing[0])
+          return { ...badge, id: existing[0].id, awardedAt: toISOString(existing[0].awardedAt) || badge.awardedAt };
       }
       throw e;
     }
@@ -2263,14 +2571,26 @@ export class PostgresStorage implements IStorage {
   }
 
   async getGamificationProfile(orgId: string, employeeId: string) {
-    const rows = await this.db.select().from(tables.gamificationProfiles)
+    const rows = await this.db
+      .select()
+      .from(tables.gamificationProfiles)
       .where(and(eq(tables.gamificationProfiles.orgId, orgId), eq(tables.gamificationProfiles.employeeId, employeeId)));
     if (!rows[0]) return { totalPoints: 0, currentStreak: 0, longestStreak: 0 };
-    return { totalPoints: rows[0].totalPoints, currentStreak: rows[0].currentStreak, longestStreak: rows[0].longestStreak };
+    return {
+      totalPoints: rows[0].totalPoints,
+      currentStreak: rows[0].currentStreak,
+      longestStreak: rows[0].longestStreak,
+    };
   }
 
-  async updateGamificationProfile(orgId: string, employeeId: string, updates: { totalPoints?: number; currentStreak?: number; longestStreak?: number; lastActivityDate?: string }) {
-    const existing = await this.db.select().from(tables.gamificationProfiles)
+  async updateGamificationProfile(
+    orgId: string,
+    employeeId: string,
+    updates: { totalPoints?: number; currentStreak?: number; longestStreak?: number; lastActivityDate?: string },
+  ) {
+    const existing = await this.db
+      .select()
+      .from(tables.gamificationProfiles)
       .where(and(eq(tables.gamificationProfiles.orgId, orgId), eq(tables.gamificationProfiles.employeeId, employeeId)));
     if (existing[0]) {
       const dbUpdates: Record<string, unknown> = { updatedAt: new Date() };
@@ -2278,11 +2598,16 @@ export class PostgresStorage implements IStorage {
       if (updates.currentStreak !== undefined) dbUpdates.currentStreak = updates.currentStreak;
       if (updates.longestStreak !== undefined) dbUpdates.longestStreak = updates.longestStreak;
       if (updates.lastActivityDate !== undefined) dbUpdates.lastActivityDate = updates.lastActivityDate;
-      await this.db.update(tables.gamificationProfiles).set(dbUpdates)
-        .where(and(eq(tables.gamificationProfiles.orgId, orgId), eq(tables.gamificationProfiles.employeeId, employeeId)));
+      await this.db
+        .update(tables.gamificationProfiles)
+        .set(dbUpdates)
+        .where(
+          and(eq(tables.gamificationProfiles.orgId, orgId), eq(tables.gamificationProfiles.employeeId, employeeId)),
+        );
     } else {
       await this.db.insert(tables.gamificationProfiles).values({
-        orgId, employeeId,
+        orgId,
+        employeeId,
         totalPoints: updates.totalPoints || 0,
         currentStreak: updates.currentStreak || 0,
         longestStreak: updates.longestStreak || 0,
@@ -2292,13 +2617,17 @@ export class PostgresStorage implements IStorage {
   }
 
   async getLeaderboard(orgId: string, limit = 20) {
-    const rows = await this.db.select().from(tables.gamificationProfiles)
+    const rows = await this.db
+      .select()
+      .from(tables.gamificationProfiles)
       .where(eq(tables.gamificationProfiles.orgId, orgId))
       .orderBy(desc(tables.gamificationProfiles.totalPoints))
       .limit(limit);
     const result = [];
     for (const r of rows) {
-      const badgeCount = await this.db.select({ count: sql<number>`count(*)` }).from(tables.employeeBadges)
+      const badgeCount = await this.db
+        .select({ count: sql<number>`count(*)` })
+        .from(tables.employeeBadges)
         .where(and(eq(tables.employeeBadges.orgId, orgId), eq(tables.employeeBadges.employeeId, r.employeeId)));
       result.push({
         employeeId: r.employeeId,
@@ -2316,36 +2645,57 @@ export class PostgresStorage implements IStorage {
     const id = randomUUID();
     const now = new Date();
     await this.db.insert(tables.insuranceNarratives).values({
-      id, orgId, callId: narrative.callId || null,
-      patientName: narrative.patientName, patientDob: narrative.patientDob || null,
-      memberId: narrative.memberId || null, insurerName: narrative.insurerName,
-      insurerAddress: narrative.insurerAddress || null, letterType: narrative.letterType,
-      diagnosisCodes: narrative.diagnosisCodes || null, procedureCodes: narrative.procedureCodes || null,
+      id,
+      orgId,
+      callId: narrative.callId || null,
+      patientName: narrative.patientName,
+      patientDob: narrative.patientDob || null,
+      memberId: narrative.memberId || null,
+      insurerName: narrative.insurerName,
+      insurerAddress: narrative.insurerAddress || null,
+      letterType: narrative.letterType,
+      diagnosisCodes: narrative.diagnosisCodes || null,
+      procedureCodes: narrative.procedureCodes || null,
       clinicalJustification: narrative.clinicalJustification || null,
       priorDenialReference: narrative.priorDenialReference || null,
       generatedNarrative: narrative.generatedNarrative || null,
-      status: narrative.status || "draft", createdBy: narrative.createdBy,
-      createdAt: now, updatedAt: now,
+      status: narrative.status || "draft",
+      createdBy: narrative.createdBy,
+      createdAt: now,
+      updatedAt: now,
     });
     return { ...narrative, id, orgId, createdAt: now.toISOString(), updatedAt: now.toISOString() };
   }
 
   async getInsuranceNarrative(orgId: string, id: string): Promise<InsuranceNarrative | undefined> {
-    const rows = await this.db.select().from(tables.insuranceNarratives)
+    const rows = await this.db
+      .select()
+      .from(tables.insuranceNarratives)
       .where(and(eq(tables.insuranceNarratives.orgId, orgId), eq(tables.insuranceNarratives.id, id)));
     return rows[0] ? this.mapInsuranceNarrativeRow(rows[0]) : undefined;
   }
 
-  async listInsuranceNarratives(orgId: string, filters?: { callId?: string; status?: string }): Promise<InsuranceNarrative[]> {
+  async listInsuranceNarratives(
+    orgId: string,
+    filters?: { callId?: string; status?: string },
+  ): Promise<InsuranceNarrative[]> {
     const conditions = [eq(tables.insuranceNarratives.orgId, orgId)];
     if (filters?.callId) conditions.push(eq(tables.insuranceNarratives.callId, filters.callId));
     if (filters?.status) conditions.push(eq(tables.insuranceNarratives.status, filters.status));
-    const rows = await this.db.select().from(tables.insuranceNarratives)
-      .where(and(...conditions)).orderBy(desc(tables.insuranceNarratives.createdAt)).limit(QUERY_HARD_CAP);
-    return rows.map(r => this.mapInsuranceNarrativeRow(r));
+    const rows = await this.db
+      .select()
+      .from(tables.insuranceNarratives)
+      .where(and(...conditions))
+      .orderBy(desc(tables.insuranceNarratives.createdAt))
+      .limit(QUERY_HARD_CAP);
+    return rows.map((r) => this.mapInsuranceNarrativeRow(r));
   }
 
-  async updateInsuranceNarrative(orgId: string, id: string, updates: Partial<InsuranceNarrative>): Promise<InsuranceNarrative | undefined> {
+  async updateInsuranceNarrative(
+    orgId: string,
+    id: string,
+    updates: Partial<InsuranceNarrative>,
+  ): Promise<InsuranceNarrative | undefined> {
     const dbUpdates: Record<string, unknown> = { updatedAt: new Date() };
     if (updates.generatedNarrative !== undefined) dbUpdates.generatedNarrative = updates.generatedNarrative;
     if (updates.status !== undefined) dbUpdates.status = updates.status;
@@ -2354,38 +2704,50 @@ export class PostgresStorage implements IStorage {
     if (updates.diagnosisCodes !== undefined) dbUpdates.diagnosisCodes = updates.diagnosisCodes;
     if (updates.procedureCodes !== undefined) dbUpdates.procedureCodes = updates.procedureCodes;
     if (updates.outcome !== undefined) dbUpdates.outcome = updates.outcome;
-    if (updates.outcomeDate !== undefined) dbUpdates.outcomeDate = updates.outcomeDate ? new Date(updates.outcomeDate) : null;
+    if (updates.outcomeDate !== undefined)
+      dbUpdates.outcomeDate = updates.outcomeDate ? new Date(updates.outcomeDate) : null;
     if (updates.outcomeNotes !== undefined) dbUpdates.outcomeNotes = updates.outcomeNotes;
     if (updates.denialCode !== undefined) dbUpdates.denialCode = updates.denialCode;
     if (updates.denialReason !== undefined) dbUpdates.denialReason = updates.denialReason;
-    if (updates.submissionDeadline !== undefined) dbUpdates.submissionDeadline = updates.submissionDeadline ? new Date(updates.submissionDeadline) : null;
+    if (updates.submissionDeadline !== undefined)
+      dbUpdates.submissionDeadline = updates.submissionDeadline ? new Date(updates.submissionDeadline) : null;
     if (updates.deadlineAcknowledged !== undefined) dbUpdates.deadlineAcknowledged = updates.deadlineAcknowledged;
     if (updates.payerTemplate !== undefined) dbUpdates.payerTemplate = updates.payerTemplate;
     if (updates.supportingDocuments !== undefined) dbUpdates.supportingDocuments = updates.supportingDocuments;
-    const rows = await this.db.update(tables.insuranceNarratives).set(dbUpdates)
+    const rows = await this.db
+      .update(tables.insuranceNarratives)
+      .set(dbUpdates)
       .where(and(eq(tables.insuranceNarratives.orgId, orgId), eq(tables.insuranceNarratives.id, id)))
       .returning();
     return rows[0] ? this.mapInsuranceNarrativeRow(rows[0]) : undefined;
   }
 
   async deleteInsuranceNarrative(orgId: string, id: string): Promise<void> {
-    await this.db.delete(tables.insuranceNarratives)
+    await this.db
+      .delete(tables.insuranceNarratives)
       .where(and(eq(tables.insuranceNarratives.orgId, orgId), eq(tables.insuranceNarratives.id, id)));
   }
 
   private mapInsuranceNarrativeRow(r: typeof tables.insuranceNarratives.$inferSelect): InsuranceNarrative {
     return {
-      id: r.id, orgId: r.orgId, callId: r.callId || undefined,
-      patientName: r.patientName, patientDob: r.patientDob || undefined,
-      memberId: r.memberId || undefined, insurerName: r.insurerName,
-      insurerAddress: r.insurerAddress || undefined, letterType: r.letterType,
+      id: r.id,
+      orgId: r.orgId,
+      callId: r.callId || undefined,
+      patientName: r.patientName,
+      patientDob: r.patientDob || undefined,
+      memberId: r.memberId || undefined,
+      insurerName: r.insurerName,
+      insurerAddress: r.insurerAddress || undefined,
+      letterType: r.letterType,
       diagnosisCodes: r.diagnosisCodes as InsuranceNarrative["diagnosisCodes"],
       procedureCodes: r.procedureCodes as InsuranceNarrative["procedureCodes"],
       clinicalJustification: r.clinicalJustification || undefined,
       priorDenialReference: r.priorDenialReference || undefined,
       generatedNarrative: r.generatedNarrative || undefined,
-      status: r.status as InsuranceNarrative["status"], createdBy: r.createdBy,
-      createdAt: toISOString(r.createdAt), updatedAt: toISOString(r.updatedAt),
+      status: r.status as InsuranceNarrative["status"],
+      createdBy: r.createdBy,
+      createdAt: toISOString(r.createdAt),
+      updatedAt: toISOString(r.updatedAt),
       outcome: r.outcome as InsuranceNarrative["outcome"],
       outcomeDate: toISOString(r.outcomeDate),
       outcomeNotes: r.outcomeNotes || undefined,
@@ -2404,7 +2766,9 @@ export class PostgresStorage implements IStorage {
     const id = randomUUID();
     const now = new Date();
     await this.db.insert(tables.callRevenues).values({
-      id, orgId, callId: revenue.callId,
+      id,
+      orgId,
+      callId: revenue.callId,
       estimatedRevenue: revenue.estimatedRevenue ?? null,
       actualRevenue: revenue.actualRevenue ?? null,
       revenueType: revenue.revenueType || null,
@@ -2413,7 +2777,8 @@ export class PostgresStorage implements IStorage {
       conversionStatus: revenue.conversionStatus || "unknown",
       notes: revenue.notes || null,
       updatedBy: revenue.updatedBy || null,
-      createdAt: now, updatedAt: now,
+      createdAt: now,
+      updatedAt: now,
       attributionStage: revenue.attributionStage || null,
       appointmentDate: revenue.appointmentDate ? new Date(revenue.appointmentDate) : null,
       appointmentCompleted: revenue.appointmentCompleted ?? null,
@@ -2429,7 +2794,9 @@ export class PostgresStorage implements IStorage {
   }
 
   async getCallRevenue(orgId: string, callId: string): Promise<CallRevenue | undefined> {
-    const rows = await this.db.select().from(tables.callRevenues)
+    const rows = await this.db
+      .select()
+      .from(tables.callRevenues)
       .where(and(eq(tables.callRevenues.orgId, orgId), eq(tables.callRevenues.callId, callId)));
     return rows[0] ? this.mapCallRevenueRow(rows[0]) : undefined;
   }
@@ -2437,12 +2804,20 @@ export class PostgresStorage implements IStorage {
   async listCallRevenues(orgId: string, filters?: { conversionStatus?: string }): Promise<CallRevenue[]> {
     const conditions = [eq(tables.callRevenues.orgId, orgId)];
     if (filters?.conversionStatus) conditions.push(eq(tables.callRevenues.conversionStatus, filters.conversionStatus));
-    const rows = await this.db.select().from(tables.callRevenues)
-      .where(and(...conditions)).orderBy(desc(tables.callRevenues.createdAt)).limit(QUERY_HARD_CAP);
-    return rows.map(r => this.mapCallRevenueRow(r));
+    const rows = await this.db
+      .select()
+      .from(tables.callRevenues)
+      .where(and(...conditions))
+      .orderBy(desc(tables.callRevenues.createdAt))
+      .limit(QUERY_HARD_CAP);
+    return rows.map((r) => this.mapCallRevenueRow(r));
   }
 
-  async updateCallRevenue(orgId: string, callId: string, updates: Partial<CallRevenue>): Promise<CallRevenue | undefined> {
+  async updateCallRevenue(
+    orgId: string,
+    callId: string,
+    updates: Partial<CallRevenue>,
+  ): Promise<CallRevenue | undefined> {
     const dbUpdates: Record<string, unknown> = { updatedAt: new Date() };
     if (updates.estimatedRevenue !== undefined) dbUpdates.estimatedRevenue = updates.estimatedRevenue;
     if (updates.actualRevenue !== undefined) dbUpdates.actualRevenue = updates.actualRevenue;
@@ -2453,7 +2828,8 @@ export class PostgresStorage implements IStorage {
     if (updates.notes !== undefined) dbUpdates.notes = updates.notes;
     if (updates.updatedBy !== undefined) dbUpdates.updatedBy = updates.updatedBy;
     if (updates.attributionStage !== undefined) dbUpdates.attributionStage = updates.attributionStage;
-    if (updates.appointmentDate !== undefined) dbUpdates.appointmentDate = updates.appointmentDate ? new Date(updates.appointmentDate) : null;
+    if (updates.appointmentDate !== undefined)
+      dbUpdates.appointmentDate = updates.appointmentDate ? new Date(updates.appointmentDate) : null;
     if (updates.appointmentCompleted !== undefined) dbUpdates.appointmentCompleted = updates.appointmentCompleted;
     if (updates.treatmentAccepted !== undefined) dbUpdates.treatmentAccepted = updates.treatmentAccepted;
     if (updates.paymentCollected !== undefined) dbUpdates.paymentCollected = updates.paymentCollected;
@@ -2461,20 +2837,22 @@ export class PostgresStorage implements IStorage {
     if (updates.insuranceCarrier !== undefined) dbUpdates.insuranceCarrier = updates.insuranceCarrier;
     if (updates.insuranceAmount !== undefined) dbUpdates.insuranceAmount = updates.insuranceAmount;
     if (updates.patientAmount !== undefined) dbUpdates.patientAmount = updates.patientAmount;
-    if (updates.ehrSyncedAt !== undefined) dbUpdates.ehrSyncedAt = updates.ehrSyncedAt ? new Date(updates.ehrSyncedAt) : null;
-    const rows = await this.db.update(tables.callRevenues).set(dbUpdates)
+    if (updates.ehrSyncedAt !== undefined)
+      dbUpdates.ehrSyncedAt = updates.ehrSyncedAt ? new Date(updates.ehrSyncedAt) : null;
+    const rows = await this.db
+      .update(tables.callRevenues)
+      .set(dbUpdates)
       .where(and(eq(tables.callRevenues.orgId, orgId), eq(tables.callRevenues.callId, callId)))
       .returning();
     return rows[0] ? this.mapCallRevenueRow(rows[0]) : undefined;
   }
 
   async getRevenueMetrics(orgId: string) {
-    const rows = await this.db.select().from(tables.callRevenues)
-      .where(eq(tables.callRevenues.orgId, orgId));
+    const rows = await this.db.select().from(tables.callRevenues).where(eq(tables.callRevenues.orgId, orgId));
     const totalEstimated = rows.reduce((sum, r) => sum + (r.estimatedRevenue || 0), 0);
     const totalActual = rows.reduce((sum, r) => sum + (r.actualRevenue || 0), 0);
-    const tracked = rows.filter(r => r.conversionStatus !== "unknown");
-    const converted = tracked.filter(r => r.conversionStatus === "converted");
+    const tracked = rows.filter((r) => r.conversionStatus !== "unknown");
+    const converted = tracked.filter((r) => r.conversionStatus === "converted");
     const conversionRate = tracked.length > 0 ? converted.length / tracked.length : 0;
     // Only sum actualRevenue from converted calls for accurate avg deal value
     const convertedActual = converted.reduce((sum, r) => sum + (r.actualRevenue || 0), 0);
@@ -2484,15 +2862,19 @@ export class PostgresStorage implements IStorage {
 
   private mapCallRevenueRow(r: typeof tables.callRevenues.$inferSelect): CallRevenue {
     return {
-      id: r.id, orgId: r.orgId, callId: r.callId,
+      id: r.id,
+      orgId: r.orgId,
+      callId: r.callId,
       estimatedRevenue: r.estimatedRevenue ?? undefined,
       actualRevenue: r.actualRevenue ?? undefined,
       revenueType: r.revenueType as CallRevenue["revenueType"],
       treatmentValue: r.treatmentValue ?? undefined,
       scheduledProcedures: r.scheduledProcedures as CallRevenue["scheduledProcedures"],
       conversionStatus: r.conversionStatus as CallRevenue["conversionStatus"],
-      notes: r.notes || undefined, updatedBy: r.updatedBy || undefined,
-      createdAt: toISOString(r.createdAt), updatedAt: toISOString(r.updatedAt),
+      notes: r.notes || undefined,
+      updatedBy: r.updatedBy || undefined,
+      createdAt: toISOString(r.createdAt),
+      updatedAt: toISOString(r.updatedAt),
       attributionStage: r.attributionStage as CallRevenue["attributionStage"],
       appointmentDate: toISOString(r.appointmentDate),
       appointmentCompleted: r.appointmentCompleted ?? undefined,
@@ -2512,8 +2894,12 @@ export class PostgresStorage implements IStorage {
     const id = randomUUID();
     const now = new Date();
     await this.db.insert(tables.calibrationSessions).values({
-      id, orgId, title: session.title, callId: session.callId,
-      facilitatorId: session.facilitatorId, evaluatorIds: session.evaluatorIds,
+      id,
+      orgId,
+      title: session.title,
+      callId: session.callId,
+      facilitatorId: session.facilitatorId,
+      evaluatorIds: session.evaluatorIds,
       scheduledAt: session.scheduledAt ? new Date(session.scheduledAt) : null,
       status: session.status || "scheduled",
       targetScore: session.targetScore ?? null,
@@ -2525,7 +2911,9 @@ export class PostgresStorage implements IStorage {
   }
 
   async getCalibrationSession(orgId: string, id: string): Promise<CalibrationSession | undefined> {
-    const rows = await this.db.select().from(tables.calibrationSessions)
+    const rows = await this.db
+      .select()
+      .from(tables.calibrationSessions)
       .where(and(eq(tables.calibrationSessions.orgId, orgId), eq(tables.calibrationSessions.id, id)));
     return rows[0] ? this.mapCalibrationSessionRow(rows[0]) : undefined;
   }
@@ -2533,18 +2921,27 @@ export class PostgresStorage implements IStorage {
   async listCalibrationSessions(orgId: string, filters?: { status?: string }): Promise<CalibrationSession[]> {
     const conditions = [eq(tables.calibrationSessions.orgId, orgId)];
     if (filters?.status) conditions.push(eq(tables.calibrationSessions.status, filters.status));
-    const rows = await this.db.select().from(tables.calibrationSessions)
-      .where(and(...conditions)).orderBy(desc(tables.calibrationSessions.createdAt));
-    return rows.map(r => this.mapCalibrationSessionRow(r));
+    const rows = await this.db
+      .select()
+      .from(tables.calibrationSessions)
+      .where(and(...conditions))
+      .orderBy(desc(tables.calibrationSessions.createdAt));
+    return rows.map((r) => this.mapCalibrationSessionRow(r));
   }
 
-  async updateCalibrationSession(orgId: string, id: string, updates: Partial<CalibrationSession>): Promise<CalibrationSession | undefined> {
+  async updateCalibrationSession(
+    orgId: string,
+    id: string,
+    updates: Partial<CalibrationSession>,
+  ): Promise<CalibrationSession | undefined> {
     const dbUpdates: Record<string, unknown> = {};
     if (updates.status !== undefined) dbUpdates.status = updates.status;
     if (updates.targetScore !== undefined) dbUpdates.targetScore = updates.targetScore;
     if (updates.consensusNotes !== undefined) dbUpdates.consensusNotes = updates.consensusNotes;
     if (updates.completedAt !== undefined) dbUpdates.completedAt = new Date(updates.completedAt);
-    const rows = await this.db.update(tables.calibrationSessions).set(dbUpdates)
+    const rows = await this.db
+      .update(tables.calibrationSessions)
+      .set(dbUpdates)
       .where(and(eq(tables.calibrationSessions.orgId, orgId), eq(tables.calibrationSessions.id, id)))
       .returning();
     return rows[0] ? this.mapCalibrationSessionRow(rows[0]) : undefined;
@@ -2555,57 +2952,90 @@ export class PostgresStorage implements IStorage {
     // left orphaned if the session delete fails (or vice versa).
     await this.db.transaction(async (tx) => {
       await tx.delete(tables.calibrationEvaluations).where(eq(tables.calibrationEvaluations.sessionId, id));
-      await tx.delete(tables.calibrationSessions)
+      await tx
+        .delete(tables.calibrationSessions)
         .where(and(eq(tables.calibrationSessions.orgId, orgId), eq(tables.calibrationSessions.id, id)));
     });
   }
 
-  async createCalibrationEvaluation(orgId: string, evaluation: InsertCalibrationEvaluation): Promise<CalibrationEvaluation> {
+  async createCalibrationEvaluation(
+    orgId: string,
+    evaluation: InsertCalibrationEvaluation,
+  ): Promise<CalibrationEvaluation> {
     const id = randomUUID();
     await this.db.insert(tables.calibrationEvaluations).values({
-      id, orgId, sessionId: evaluation.sessionId, evaluatorId: evaluation.evaluatorId,
-      performanceScore: evaluation.performanceScore, subScores: evaluation.subScores || null,
+      id,
+      orgId,
+      sessionId: evaluation.sessionId,
+      evaluatorId: evaluation.evaluatorId,
+      performanceScore: evaluation.performanceScore,
+      subScores: evaluation.subScores || null,
       notes: evaluation.notes || null,
     });
     return { ...evaluation, id, orgId, createdAt: new Date().toISOString() };
   }
 
   async getCalibrationEvaluations(orgId: string, sessionId: string): Promise<CalibrationEvaluation[]> {
-    const rows = await this.db.select().from(tables.calibrationEvaluations)
-      .where(and(eq(tables.calibrationEvaluations.orgId, orgId), eq(tables.calibrationEvaluations.sessionId, sessionId)));
-    return rows.map(r => ({
-      id: r.id, orgId: r.orgId, sessionId: r.sessionId, evaluatorId: r.evaluatorId,
-      performanceScore: r.performanceScore, subScores: r.subScores as CalibrationEvaluation["subScores"],
-      notes: r.notes || undefined, createdAt: toISOString(r.createdAt),
+    const rows = await this.db
+      .select()
+      .from(tables.calibrationEvaluations)
+      .where(
+        and(eq(tables.calibrationEvaluations.orgId, orgId), eq(tables.calibrationEvaluations.sessionId, sessionId)),
+      );
+    return rows.map((r) => ({
+      id: r.id,
+      orgId: r.orgId,
+      sessionId: r.sessionId,
+      evaluatorId: r.evaluatorId,
+      performanceScore: r.performanceScore,
+      subScores: r.subScores as CalibrationEvaluation["subScores"],
+      notes: r.notes || undefined,
+      createdAt: toISOString(r.createdAt),
     }));
   }
 
-  async updateCalibrationEvaluation(orgId: string, id: string, updates: Partial<CalibrationEvaluation>): Promise<CalibrationEvaluation | undefined> {
+  async updateCalibrationEvaluation(
+    orgId: string,
+    id: string,
+    updates: Partial<CalibrationEvaluation>,
+  ): Promise<CalibrationEvaluation | undefined> {
     const dbUpdates: Record<string, unknown> = {};
     if (updates.performanceScore !== undefined) dbUpdates.performanceScore = updates.performanceScore;
     if (updates.subScores !== undefined) dbUpdates.subScores = updates.subScores;
     if (updates.notes !== undefined) dbUpdates.notes = updates.notes;
-    const rows = await this.db.update(tables.calibrationEvaluations).set(dbUpdates)
+    const rows = await this.db
+      .update(tables.calibrationEvaluations)
+      .set(dbUpdates)
       .where(and(eq(tables.calibrationEvaluations.orgId, orgId), eq(tables.calibrationEvaluations.id, id)))
       .returning();
     if (!rows[0]) return undefined;
     const r = rows[0];
     return {
-      id: r.id, orgId: r.orgId, sessionId: r.sessionId, evaluatorId: r.evaluatorId,
-      performanceScore: r.performanceScore, subScores: r.subScores as CalibrationEvaluation["subScores"],
-      notes: r.notes || undefined, createdAt: toISOString(r.createdAt),
+      id: r.id,
+      orgId: r.orgId,
+      sessionId: r.sessionId,
+      evaluatorId: r.evaluatorId,
+      performanceScore: r.performanceScore,
+      subScores: r.subScores as CalibrationEvaluation["subScores"],
+      notes: r.notes || undefined,
+      createdAt: toISOString(r.createdAt),
     };
   }
 
   private mapCalibrationSessionRow(r: typeof tables.calibrationSessions.$inferSelect): CalibrationSession {
     return {
-      id: r.id, orgId: r.orgId, title: r.title, callId: r.callId,
-      facilitatorId: r.facilitatorId, evaluatorIds: r.evaluatorIds,
+      id: r.id,
+      orgId: r.orgId,
+      title: r.title,
+      callId: r.callId,
+      facilitatorId: r.facilitatorId,
+      evaluatorIds: r.evaluatorIds,
       scheduledAt: toISOString(r.scheduledAt),
       status: r.status as CalibrationSession["status"],
       targetScore: r.targetScore ?? undefined,
       consensusNotes: r.consensusNotes || undefined,
-      createdAt: toISOString(r.createdAt), completedAt: toISOString(r.completedAt),
+      createdAt: toISOString(r.createdAt),
+      completedAt: toISOString(r.completedAt),
       blindMode: r.blindMode ?? false,
     };
   }
@@ -2613,37 +3043,61 @@ export class PostgresStorage implements IStorage {
   // --- LMS: Learning Modules ---
   async createLearningModule(orgId: string, module: InsertLearningModule): Promise<LearningModule> {
     const id = randomUUID();
-    const [row] = await this.db.insert(tables.learningModules).values({
-      id, orgId,
-      title: module.title, description: module.description || null,
-      contentType: module.contentType, category: module.category || null,
-      content: module.content || null, quizQuestions: module.quizQuestions || null,
-      estimatedMinutes: module.estimatedMinutes || null, difficulty: module.difficulty || null,
-      tags: module.tags || null, sourceDocumentId: module.sourceDocumentId || null,
-      isPublished: module.isPublished ?? false, isPlatformContent: module.isPlatformContent ?? false,
-      createdBy: module.createdBy, sortOrder: module.sortOrder || null,
-      prerequisiteModuleIds: module.prerequisiteModuleIds || null,
-      passingScore: module.passingScore || null,
-    }).returning();
+    const [row] = await this.db
+      .insert(tables.learningModules)
+      .values({
+        id,
+        orgId,
+        title: module.title,
+        description: module.description || null,
+        contentType: module.contentType,
+        category: module.category || null,
+        content: module.content || null,
+        quizQuestions: module.quizQuestions || null,
+        estimatedMinutes: module.estimatedMinutes || null,
+        difficulty: module.difficulty || null,
+        tags: module.tags || null,
+        sourceDocumentId: module.sourceDocumentId || null,
+        isPublished: module.isPublished ?? false,
+        isPlatformContent: module.isPlatformContent ?? false,
+        createdBy: module.createdBy,
+        sortOrder: module.sortOrder || null,
+        prerequisiteModuleIds: module.prerequisiteModuleIds || null,
+        passingScore: module.passingScore || null,
+      })
+      .returning();
     return this.mapLearningModule(row);
   }
 
   async getLearningModule(orgId: string, id: string): Promise<LearningModule | undefined> {
-    const rows = await this.db.select().from(tables.learningModules)
+    const rows = await this.db
+      .select()
+      .from(tables.learningModules)
       .where(and(eq(tables.learningModules.orgId, orgId), eq(tables.learningModules.id, id)));
     return rows[0] ? this.mapLearningModule(rows[0]) : undefined;
   }
 
-  async listLearningModules(orgId: string, filters?: { category?: string; contentType?: string; isPublished?: boolean }): Promise<LearningModule[]> {
+  async listLearningModules(
+    orgId: string,
+    filters?: { category?: string; contentType?: string; isPublished?: boolean },
+  ): Promise<LearningModule[]> {
     const conditions = [eq(tables.learningModules.orgId, orgId)];
     if (filters?.category) conditions.push(eq(tables.learningModules.category, filters.category));
     if (filters?.contentType) conditions.push(eq(tables.learningModules.contentType, filters.contentType));
-    if (filters?.isPublished !== undefined) conditions.push(eq(tables.learningModules.isPublished, filters.isPublished));
-    const rows = await this.db.select().from(tables.learningModules).where(and(...conditions));
-    return rows.map(r => this.mapLearningModule(r));
+    if (filters?.isPublished !== undefined)
+      conditions.push(eq(tables.learningModules.isPublished, filters.isPublished));
+    const rows = await this.db
+      .select()
+      .from(tables.learningModules)
+      .where(and(...conditions));
+    return rows.map((r) => this.mapLearningModule(r));
   }
 
-  async updateLearningModule(orgId: string, id: string, updates: Partial<LearningModule>): Promise<LearningModule | undefined> {
+  async updateLearningModule(
+    orgId: string,
+    id: string,
+    updates: Partial<LearningModule>,
+  ): Promise<LearningModule | undefined> {
     const setClause: Record<string, unknown> = { updatedAt: new Date() };
     if (updates.title !== undefined) setClause.title = updates.title;
     if (updates.description !== undefined) setClause.description = updates.description;
@@ -2657,44 +3111,61 @@ export class PostgresStorage implements IStorage {
     if (updates.sortOrder !== undefined) setClause.sortOrder = updates.sortOrder;
     if (updates.prerequisiteModuleIds !== undefined) setClause.prerequisiteModuleIds = updates.prerequisiteModuleIds;
     if (updates.passingScore !== undefined) setClause.passingScore = updates.passingScore;
-    const rows = await this.db.update(tables.learningModules).set(setClause)
-      .where(and(eq(tables.learningModules.orgId, orgId), eq(tables.learningModules.id, id))).returning();
+    const rows = await this.db
+      .update(tables.learningModules)
+      .set(setClause)
+      .where(and(eq(tables.learningModules.orgId, orgId), eq(tables.learningModules.id, id)))
+      .returning();
     return rows[0] ? this.mapLearningModule(rows[0]) : undefined;
   }
 
   async deleteLearningModule(orgId: string, id: string): Promise<void> {
-    await this.db.delete(tables.learningModules)
+    await this.db
+      .delete(tables.learningModules)
       .where(and(eq(tables.learningModules.orgId, orgId), eq(tables.learningModules.id, id)));
   }
 
   // --- LMS: Learning Paths ---
   async createLearningPath(orgId: string, path: InsertLearningPath): Promise<LearningPath> {
     const id = randomUUID();
-    const [row] = await this.db.insert(tables.learningPaths).values({
-      id, orgId,
-      title: path.title, description: path.description || null,
-      category: path.category || null, moduleIds: path.moduleIds,
-      isRequired: path.isRequired ?? false, assignedTo: path.assignedTo || null,
-      estimatedMinutes: path.estimatedMinutes || null, createdBy: path.createdBy,
-      dueDate: path.dueDate ? new Date(path.dueDate) : null,
-      enforceOrder: path.enforceOrder ?? false,
-    }).returning();
+    const [row] = await this.db
+      .insert(tables.learningPaths)
+      .values({
+        id,
+        orgId,
+        title: path.title,
+        description: path.description || null,
+        category: path.category || null,
+        moduleIds: path.moduleIds,
+        isRequired: path.isRequired ?? false,
+        assignedTo: path.assignedTo || null,
+        estimatedMinutes: path.estimatedMinutes || null,
+        createdBy: path.createdBy,
+        dueDate: path.dueDate ? new Date(path.dueDate) : null,
+        enforceOrder: path.enforceOrder ?? false,
+      })
+      .returning();
     return this.mapLearningPath(row);
   }
 
   async getLearningPath(orgId: string, id: string): Promise<LearningPath | undefined> {
-    const rows = await this.db.select().from(tables.learningPaths)
+    const rows = await this.db
+      .select()
+      .from(tables.learningPaths)
       .where(and(eq(tables.learningPaths.orgId, orgId), eq(tables.learningPaths.id, id)));
     return rows[0] ? this.mapLearningPath(rows[0]) : undefined;
   }
 
   async listLearningPaths(orgId: string): Promise<LearningPath[]> {
-    const rows = await this.db.select().from(tables.learningPaths)
-      .where(eq(tables.learningPaths.orgId, orgId));
-    return rows.map(r => this.mapLearningPath(r));
+    const rows = await this.db.select().from(tables.learningPaths).where(eq(tables.learningPaths.orgId, orgId));
+    return rows.map((r) => this.mapLearningPath(r));
   }
 
-  async updateLearningPath(orgId: string, id: string, updates: Partial<LearningPath>): Promise<LearningPath | undefined> {
+  async updateLearningPath(
+    orgId: string,
+    id: string,
+    updates: Partial<LearningPath>,
+  ): Promise<LearningPath | undefined> {
     const setClause: Record<string, unknown> = { updatedAt: new Date() };
     if (updates.title !== undefined) setClause.title = updates.title;
     if (updates.description !== undefined) setClause.description = updates.description;
@@ -2702,25 +3173,33 @@ export class PostgresStorage implements IStorage {
     if (updates.isRequired !== undefined) setClause.isRequired = updates.isRequired;
     if (updates.assignedTo !== undefined) setClause.assignedTo = updates.assignedTo;
     if (updates.estimatedMinutes !== undefined) setClause.estimatedMinutes = updates.estimatedMinutes;
-    const rows = await this.db.update(tables.learningPaths).set(setClause)
-      .where(and(eq(tables.learningPaths.orgId, orgId), eq(tables.learningPaths.id, id))).returning();
+    const rows = await this.db
+      .update(tables.learningPaths)
+      .set(setClause)
+      .where(and(eq(tables.learningPaths.orgId, orgId), eq(tables.learningPaths.id, id)))
+      .returning();
     return rows[0] ? this.mapLearningPath(rows[0]) : undefined;
   }
 
   async deleteLearningPath(orgId: string, id: string): Promise<void> {
-    await this.db.delete(tables.learningPaths)
+    await this.db
+      .delete(tables.learningPaths)
       .where(and(eq(tables.learningPaths.orgId, orgId), eq(tables.learningPaths.id, id)));
   }
 
   // --- LMS: Learning Progress ---
   async upsertLearningProgress(orgId: string, progress: InsertLearningProgress): Promise<LearningProgress> {
     // Check if progress exists
-    const existing = await this.db.select().from(tables.learningProgress)
-      .where(and(
-        eq(tables.learningProgress.orgId, orgId),
-        eq(tables.learningProgress.employeeId, progress.employeeId),
-        eq(tables.learningProgress.moduleId, progress.moduleId),
-      ));
+    const existing = await this.db
+      .select()
+      .from(tables.learningProgress)
+      .where(
+        and(
+          eq(tables.learningProgress.orgId, orgId),
+          eq(tables.learningProgress.employeeId, progress.employeeId),
+          eq(tables.learningProgress.moduleId, progress.moduleId),
+        ),
+      );
     if (existing[0]) {
       const setClause: Record<string, unknown> = { updatedAt: new Date() };
       if (progress.status) setClause.status = progress.status;
@@ -2729,115 +3208,188 @@ export class PostgresStorage implements IStorage {
       if (progress.timeSpentMinutes !== undefined) setClause.timeSpentMinutes = progress.timeSpentMinutes;
       if (progress.completedAt) setClause.completedAt = new Date(progress.completedAt);
       if (progress.notes !== undefined) setClause.notes = progress.notes;
-      const [row] = await this.db.update(tables.learningProgress).set(setClause)
-        .where(eq(tables.learningProgress.id, existing[0].id)).returning();
+      const [row] = await this.db
+        .update(tables.learningProgress)
+        .set(setClause)
+        .where(eq(tables.learningProgress.id, existing[0].id))
+        .returning();
       return this.mapLearningProgress(row);
     }
     const id = randomUUID();
-    const [row] = await this.db.insert(tables.learningProgress).values({
-      id, orgId,
-      employeeId: progress.employeeId, moduleId: progress.moduleId,
-      pathId: progress.pathId || null, status: progress.status || "not_started",
-      quizScore: progress.quizScore || null, quizAttempts: progress.quizAttempts || null,
-      timeSpentMinutes: progress.timeSpentMinutes || null, notes: progress.notes || null,
-    }).returning();
+    const [row] = await this.db
+      .insert(tables.learningProgress)
+      .values({
+        id,
+        orgId,
+        employeeId: progress.employeeId,
+        moduleId: progress.moduleId,
+        pathId: progress.pathId || null,
+        status: progress.status || "not_started",
+        quizScore: progress.quizScore || null,
+        quizAttempts: progress.quizAttempts || null,
+        timeSpentMinutes: progress.timeSpentMinutes || null,
+        notes: progress.notes || null,
+      })
+      .returning();
     return this.mapLearningProgress(row);
   }
 
-  async getLearningProgress(orgId: string, employeeId: string, moduleId: string): Promise<LearningProgress | undefined> {
-    const rows = await this.db.select().from(tables.learningProgress)
-      .where(and(
-        eq(tables.learningProgress.orgId, orgId),
-        eq(tables.learningProgress.employeeId, employeeId),
-        eq(tables.learningProgress.moduleId, moduleId),
-      ));
+  async getLearningProgress(
+    orgId: string,
+    employeeId: string,
+    moduleId: string,
+  ): Promise<LearningProgress | undefined> {
+    const rows = await this.db
+      .select()
+      .from(tables.learningProgress)
+      .where(
+        and(
+          eq(tables.learningProgress.orgId, orgId),
+          eq(tables.learningProgress.employeeId, employeeId),
+          eq(tables.learningProgress.moduleId, moduleId),
+        ),
+      );
     return rows[0] ? this.mapLearningProgress(rows[0]) : undefined;
   }
 
   async getEmployeeLearningProgress(orgId: string, employeeId: string): Promise<LearningProgress[]> {
-    const rows = await this.db.select().from(tables.learningProgress)
+    const rows = await this.db
+      .select()
+      .from(tables.learningProgress)
       .where(and(eq(tables.learningProgress.orgId, orgId), eq(tables.learningProgress.employeeId, employeeId)));
-    return rows.map(r => this.mapLearningProgress(r));
+    return rows.map((r) => this.mapLearningProgress(r));
   }
 
-  async getModuleCompletionStats(orgId: string, moduleId: string): Promise<{ total: number; completed: number; inProgress: number; avgScore: number }> {
-    const rows = await this.db.select().from(tables.learningProgress)
+  async getModuleCompletionStats(
+    orgId: string,
+    moduleId: string,
+  ): Promise<{ total: number; completed: number; inProgress: number; avgScore: number }> {
+    const rows = await this.db
+      .select()
+      .from(tables.learningProgress)
       .where(and(eq(tables.learningProgress.orgId, orgId), eq(tables.learningProgress.moduleId, moduleId)));
-    const completed = rows.filter(r => r.status === "completed");
-    const scores = completed.filter(r => r.quizScore != null).map(r => r.quizScore!);
+    const completed = rows.filter((r) => r.status === "completed");
+    const scores = completed.filter((r) => r.quizScore != null).map((r) => r.quizScore!);
     return {
       total: rows.length,
       completed: completed.length,
-      inProgress: rows.filter(r => r.status === "in_progress").length,
+      inProgress: rows.filter((r) => r.status === "in_progress").length,
       avgScore: scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0,
     };
   }
 
   private mapLearningModule(r: any): LearningModule {
     return {
-      id: r.id, orgId: r.orgId, title: r.title, description: r.description || undefined,
-      contentType: r.contentType, category: r.category || undefined,
-      content: r.content || undefined, quizQuestions: r.quizQuestions as LearningModule["quizQuestions"],
-      estimatedMinutes: r.estimatedMinutes || undefined, difficulty: r.difficulty || undefined,
-      tags: r.tags as string[] || undefined, sourceDocumentId: r.sourceDocumentId || undefined,
-      isPublished: r.isPublished, isPlatformContent: r.isPlatformContent,
-      createdBy: r.createdBy, sortOrder: r.sortOrder || undefined,
-      prerequisiteModuleIds: r.prerequisiteModuleIds as string[] || undefined,
+      id: r.id,
+      orgId: r.orgId,
+      title: r.title,
+      description: r.description || undefined,
+      contentType: r.contentType,
+      category: r.category || undefined,
+      content: r.content || undefined,
+      quizQuestions: r.quizQuestions as LearningModule["quizQuestions"],
+      estimatedMinutes: r.estimatedMinutes || undefined,
+      difficulty: r.difficulty || undefined,
+      tags: (r.tags as string[]) || undefined,
+      sourceDocumentId: r.sourceDocumentId || undefined,
+      isPublished: r.isPublished,
+      isPlatformContent: r.isPlatformContent,
+      createdBy: r.createdBy,
+      sortOrder: r.sortOrder || undefined,
+      prerequisiteModuleIds: (r.prerequisiteModuleIds as string[]) || undefined,
       passingScore: r.passingScore || undefined,
-      createdAt: toISOString(r.createdAt), updatedAt: toISOString(r.updatedAt),
+      createdAt: toISOString(r.createdAt),
+      updatedAt: toISOString(r.updatedAt),
     };
   }
 
   private mapLearningPath(r: any): LearningPath {
     return {
-      id: r.id, orgId: r.orgId, title: r.title, description: r.description || undefined,
-      category: r.category || undefined, moduleIds: r.moduleIds as string[],
-      isRequired: r.isRequired, assignedTo: r.assignedTo as string[] || undefined,
-      estimatedMinutes: r.estimatedMinutes || undefined, createdBy: r.createdBy,
-      dueDate: toISOString(r.dueDate), enforceOrder: r.enforceOrder ?? false,
-      createdAt: toISOString(r.createdAt), updatedAt: toISOString(r.updatedAt),
+      id: r.id,
+      orgId: r.orgId,
+      title: r.title,
+      description: r.description || undefined,
+      category: r.category || undefined,
+      moduleIds: r.moduleIds as string[],
+      isRequired: r.isRequired,
+      assignedTo: (r.assignedTo as string[]) || undefined,
+      estimatedMinutes: r.estimatedMinutes || undefined,
+      createdBy: r.createdBy,
+      dueDate: toISOString(r.dueDate),
+      enforceOrder: r.enforceOrder ?? false,
+      createdAt: toISOString(r.createdAt),
+      updatedAt: toISOString(r.updatedAt),
     };
   }
 
   private mapLearningProgress(r: any): LearningProgress {
     return {
-      id: r.id, orgId: r.orgId, employeeId: r.employeeId, moduleId: r.moduleId,
-      pathId: r.pathId || undefined, status: r.status,
-      quizScore: r.quizScore || undefined, quizAttempts: r.quizAttempts || undefined,
+      id: r.id,
+      orgId: r.orgId,
+      employeeId: r.employeeId,
+      moduleId: r.moduleId,
+      pathId: r.pathId || undefined,
+      status: r.status,
+      quizScore: r.quizScore || undefined,
+      quizAttempts: r.quizAttempts || undefined,
       timeSpentMinutes: r.timeSpentMinutes || undefined,
-      completedAt: toISOString(r.completedAt), notes: r.notes || undefined,
-      startedAt: toISOString(r.startedAt), updatedAt: toISOString(r.updatedAt),
+      completedAt: toISOString(r.completedAt),
+      notes: r.notes || undefined,
+      startedAt: toISOString(r.startedAt),
+      updatedAt: toISOString(r.updatedAt),
     };
   }
 
   // --- Marketing Campaigns ---
   async createMarketingCampaign(orgId: string, campaign: InsertMarketingCampaign): Promise<MarketingCampaign> {
     const id = randomUUID();
-    const [row] = await this.db.insert(tables.marketingCampaigns).values({
-      id, orgId, name: campaign.name, source: campaign.source,
-      medium: campaign.medium || null, startDate: campaign.startDate ? new Date(campaign.startDate) : null,
-      endDate: campaign.endDate ? new Date(campaign.endDate) : null, budget: campaign.budget || null,
-      trackingCode: campaign.trackingCode || null, isActive: campaign.isActive ?? true,
-      notes: campaign.notes || null, createdBy: campaign.createdBy,
-    }).returning();
+    const [row] = await this.db
+      .insert(tables.marketingCampaigns)
+      .values({
+        id,
+        orgId,
+        name: campaign.name,
+        source: campaign.source,
+        medium: campaign.medium || null,
+        startDate: campaign.startDate ? new Date(campaign.startDate) : null,
+        endDate: campaign.endDate ? new Date(campaign.endDate) : null,
+        budget: campaign.budget || null,
+        trackingCode: campaign.trackingCode || null,
+        isActive: campaign.isActive ?? true,
+        notes: campaign.notes || null,
+        createdBy: campaign.createdBy,
+      })
+      .returning();
     return this.mapCampaign(row);
   }
 
   async getMarketingCampaign(orgId: string, id: string): Promise<MarketingCampaign | undefined> {
-    const rows = await this.db.select().from(tables.marketingCampaigns)
+    const rows = await this.db
+      .select()
+      .from(tables.marketingCampaigns)
       .where(and(eq(tables.marketingCampaigns.orgId, orgId), eq(tables.marketingCampaigns.id, id)));
     return rows[0] ? this.mapCampaign(rows[0]) : undefined;
   }
 
-  async listMarketingCampaigns(orgId: string, filters?: { source?: string; isActive?: boolean }): Promise<MarketingCampaign[]> {
+  async listMarketingCampaigns(
+    orgId: string,
+    filters?: { source?: string; isActive?: boolean },
+  ): Promise<MarketingCampaign[]> {
     const conditions = [eq(tables.marketingCampaigns.orgId, orgId)];
     if (filters?.source) conditions.push(eq(tables.marketingCampaigns.source, filters.source));
     if (filters?.isActive !== undefined) conditions.push(eq(tables.marketingCampaigns.isActive, filters.isActive));
-    const rows = await this.db.select().from(tables.marketingCampaigns).where(and(...conditions));
-    return rows.map(r => this.mapCampaign(r));
+    const rows = await this.db
+      .select()
+      .from(tables.marketingCampaigns)
+      .where(and(...conditions));
+    return rows.map((r) => this.mapCampaign(r));
   }
 
-  async updateMarketingCampaign(orgId: string, id: string, updates: Partial<MarketingCampaign>): Promise<MarketingCampaign | undefined> {
+  async updateMarketingCampaign(
+    orgId: string,
+    id: string,
+    updates: Partial<MarketingCampaign>,
+  ): Promise<MarketingCampaign | undefined> {
     const setClause: Record<string, unknown> = { updatedAt: new Date() };
     if (updates.name !== undefined) setClause.name = updates.name;
     if (updates.source !== undefined) setClause.source = updates.source;
@@ -2846,78 +3398,123 @@ export class PostgresStorage implements IStorage {
     if (updates.isActive !== undefined) setClause.isActive = updates.isActive;
     if (updates.notes !== undefined) setClause.notes = updates.notes;
     if (updates.trackingCode !== undefined) setClause.trackingCode = updates.trackingCode;
-    const rows = await this.db.update(tables.marketingCampaigns).set(setClause)
-      .where(and(eq(tables.marketingCampaigns.orgId, orgId), eq(tables.marketingCampaigns.id, id))).returning();
+    const rows = await this.db
+      .update(tables.marketingCampaigns)
+      .set(setClause)
+      .where(and(eq(tables.marketingCampaigns.orgId, orgId), eq(tables.marketingCampaigns.id, id)))
+      .returning();
     return rows[0] ? this.mapCampaign(rows[0]) : undefined;
   }
 
   async deleteMarketingCampaign(orgId: string, id: string): Promise<void> {
-    await this.db.delete(tables.marketingCampaigns)
+    await this.db
+      .delete(tables.marketingCampaigns)
       .where(and(eq(tables.marketingCampaigns.orgId, orgId), eq(tables.marketingCampaigns.id, id)));
   }
 
   // --- Call Attribution ---
   async createCallAttribution(orgId: string, attr: InsertCallAttribution): Promise<CallAttribution> {
     const id = randomUUID();
-    const [row] = await this.db.insert(tables.callAttributions).values({
-      id, orgId, callId: attr.callId, source: attr.source,
-      campaignId: attr.campaignId || null, medium: attr.medium || null,
-      isNewPatient: attr.isNewPatient || null, referrerName: attr.referrerName || null,
-      detectionMethod: attr.detectionMethod || null, confidence: attr.confidence || null,
-      notes: attr.notes || null, attributedBy: attr.attributedBy || null,
-    }).returning();
+    const [row] = await this.db
+      .insert(tables.callAttributions)
+      .values({
+        id,
+        orgId,
+        callId: attr.callId,
+        source: attr.source,
+        campaignId: attr.campaignId || null,
+        medium: attr.medium || null,
+        isNewPatient: attr.isNewPatient || null,
+        referrerName: attr.referrerName || null,
+        detectionMethod: attr.detectionMethod || null,
+        confidence: attr.confidence || null,
+        notes: attr.notes || null,
+        attributedBy: attr.attributedBy || null,
+      })
+      .returning();
     return this.mapAttribution(row);
   }
 
   async getCallAttribution(orgId: string, callId: string): Promise<CallAttribution | undefined> {
-    const rows = await this.db.select().from(tables.callAttributions)
+    const rows = await this.db
+      .select()
+      .from(tables.callAttributions)
       .where(and(eq(tables.callAttributions.orgId, orgId), eq(tables.callAttributions.callId, callId)));
     return rows[0] ? this.mapAttribution(rows[0]) : undefined;
   }
 
-  async listCallAttributions(orgId: string, filters?: { source?: string; campaignId?: string }): Promise<CallAttribution[]> {
+  async listCallAttributions(
+    orgId: string,
+    filters?: { source?: string; campaignId?: string },
+  ): Promise<CallAttribution[]> {
     const conditions = [eq(tables.callAttributions.orgId, orgId)];
     if (filters?.source) conditions.push(eq(tables.callAttributions.source, filters.source));
     if (filters?.campaignId) conditions.push(eq(tables.callAttributions.campaignId, filters.campaignId));
-    const rows = await this.db.select().from(tables.callAttributions).where(and(...conditions));
-    return rows.map(r => this.mapAttribution(r));
+    const rows = await this.db
+      .select()
+      .from(tables.callAttributions)
+      .where(and(...conditions));
+    return rows.map((r) => this.mapAttribution(r));
   }
 
-  async updateCallAttribution(orgId: string, callId: string, updates: Partial<CallAttribution>): Promise<CallAttribution | undefined> {
+  async updateCallAttribution(
+    orgId: string,
+    callId: string,
+    updates: Partial<CallAttribution>,
+  ): Promise<CallAttribution | undefined> {
     const setClause: Record<string, unknown> = {};
     if (updates.source !== undefined) setClause.source = updates.source;
     if (updates.campaignId !== undefined) setClause.campaignId = updates.campaignId;
     if (updates.isNewPatient !== undefined) setClause.isNewPatient = updates.isNewPatient;
     if (updates.referrerName !== undefined) setClause.referrerName = updates.referrerName;
     if (updates.notes !== undefined) setClause.notes = updates.notes;
-    const rows = await this.db.update(tables.callAttributions).set(setClause)
-      .where(and(eq(tables.callAttributions.orgId, orgId), eq(tables.callAttributions.callId, callId))).returning();
+    const rows = await this.db
+      .update(tables.callAttributions)
+      .set(setClause)
+      .where(and(eq(tables.callAttributions.orgId, orgId), eq(tables.callAttributions.callId, callId)))
+      .returning();
     return rows[0] ? this.mapAttribution(rows[0]) : undefined;
   }
 
   async deleteCallAttribution(orgId: string, callId: string): Promise<void> {
-    await this.db.delete(tables.callAttributions)
+    await this.db
+      .delete(tables.callAttributions)
       .where(and(eq(tables.callAttributions.orgId, orgId), eq(tables.callAttributions.callId, callId)));
   }
 
   private mapCampaign(r: any): MarketingCampaign {
     return {
-      id: r.id, orgId: r.orgId, name: r.name, source: r.source,
-      medium: r.medium || undefined, startDate: toISOString(r.startDate),
-      endDate: toISOString(r.endDate), budget: r.budget || undefined,
-      trackingCode: r.trackingCode || undefined, isActive: r.isActive,
-      notes: r.notes || undefined, createdBy: r.createdBy,
-      createdAt: toISOString(r.createdAt), updatedAt: toISOString(r.updatedAt),
+      id: r.id,
+      orgId: r.orgId,
+      name: r.name,
+      source: r.source,
+      medium: r.medium || undefined,
+      startDate: toISOString(r.startDate),
+      endDate: toISOString(r.endDate),
+      budget: r.budget || undefined,
+      trackingCode: r.trackingCode || undefined,
+      isActive: r.isActive,
+      notes: r.notes || undefined,
+      createdBy: r.createdBy,
+      createdAt: toISOString(r.createdAt),
+      updatedAt: toISOString(r.updatedAt),
     };
   }
 
   private mapAttribution(r: any): CallAttribution {
     return {
-      id: r.id, orgId: r.orgId, callId: r.callId, source: r.source,
-      campaignId: r.campaignId || undefined, medium: r.medium || undefined,
-      isNewPatient: r.isNewPatient || undefined, referrerName: r.referrerName || undefined,
-      detectionMethod: r.detectionMethod || undefined, confidence: r.confidence || undefined,
-      notes: r.notes || undefined, attributedBy: r.attributedBy || undefined,
+      id: r.id,
+      orgId: r.orgId,
+      callId: r.callId,
+      source: r.source,
+      campaignId: r.campaignId || undefined,
+      medium: r.medium || undefined,
+      isNewPatient: r.isNewPatient || undefined,
+      referrerName: r.referrerName || undefined,
+      detectionMethod: r.detectionMethod || undefined,
+      confidence: r.confidence || undefined,
+      notes: r.notes || undefined,
+      attributedBy: r.attributedBy || undefined,
       createdAt: toISOString(r.createdAt),
     };
   }
@@ -2925,38 +3522,45 @@ export class PostgresStorage implements IStorage {
   // --- Provider templates (custom clinical note templates per provider) ---
 
   async getProviderTemplates(orgId: string, userId: string): Promise<any[]> {
-    const rows = await this.db.select().from(tables.providerTemplates)
+    const rows = await this.db
+      .select()
+      .from(tables.providerTemplates)
       .where(and(eq(tables.providerTemplates.orgId, orgId), eq(tables.providerTemplates.userId, userId)))
       .orderBy(tables.providerTemplates.createdAt);
-    return rows.map(r => this.mapProviderTemplate(r));
+    return rows.map((r) => this.mapProviderTemplate(r));
   }
 
   async getAllProviderTemplates(orgId: string): Promise<any[]> {
-    const rows = await this.db.select().from(tables.providerTemplates)
+    const rows = await this.db
+      .select()
+      .from(tables.providerTemplates)
       .where(eq(tables.providerTemplates.orgId, orgId))
       .orderBy(tables.providerTemplates.createdAt);
-    return rows.map(r => this.mapProviderTemplate(r));
+    return rows.map((r) => this.mapProviderTemplate(r));
   }
 
   async createProviderTemplate(orgId: string, template: any): Promise<any> {
     const id = randomUUID();
     const now = new Date();
-    const row = await this.db.insert(tables.providerTemplates).values({
-      id,
-      orgId,
-      userId: template.userId,
-      name: template.name,
-      specialty: template.specialty || null,
-      format: template.format || null,
-      category: template.category || null,
-      description: template.description || null,
-      sections: template.sections || null,
-      defaultCodes: template.defaultCodes || null,
-      tags: template.tags || null,
-      isDefault: template.isDefault || false,
-      createdAt: now,
-      updatedAt: now,
-    }).returning();
+    const row = await this.db
+      .insert(tables.providerTemplates)
+      .values({
+        id,
+        orgId,
+        userId: template.userId,
+        name: template.name,
+        specialty: template.specialty || null,
+        format: template.format || null,
+        category: template.category || null,
+        description: template.description || null,
+        sections: template.sections || null,
+        defaultCodes: template.defaultCodes || null,
+        tags: template.tags || null,
+        isDefault: template.isDefault || false,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
     return this.mapProviderTemplate(row[0]);
   }
 
@@ -2972,24 +3576,30 @@ export class PostgresStorage implements IStorage {
     if (updates.tags !== undefined) setClause.tags = updates.tags;
     if (updates.isDefault !== undefined) setClause.isDefault = updates.isDefault;
 
-    const rows = await this.db.update(tables.providerTemplates)
+    const rows = await this.db
+      .update(tables.providerTemplates)
       .set(setClause)
-      .where(and(
-        eq(tables.providerTemplates.orgId, orgId),
-        eq(tables.providerTemplates.id, id),
-        eq(tables.providerTemplates.userId, userId),
-      ))
+      .where(
+        and(
+          eq(tables.providerTemplates.orgId, orgId),
+          eq(tables.providerTemplates.id, id),
+          eq(tables.providerTemplates.userId, userId),
+        ),
+      )
       .returning();
     return rows[0] ? this.mapProviderTemplate(rows[0]) : null;
   }
 
   async deleteProviderTemplate(orgId: string, id: string, userId: string): Promise<boolean> {
-    const result = await this.db.delete(tables.providerTemplates)
-      .where(and(
-        eq(tables.providerTemplates.orgId, orgId),
-        eq(tables.providerTemplates.id, id),
-        eq(tables.providerTemplates.userId, userId),
-      ))
+    const result = await this.db
+      .delete(tables.providerTemplates)
+      .where(
+        and(
+          eq(tables.providerTemplates.orgId, orgId),
+          eq(tables.providerTemplates.id, id),
+          eq(tables.providerTemplates.userId, userId),
+        ),
+      )
       .returning();
     return result.length > 0;
   }
@@ -3001,7 +3611,9 @@ export class PostgresStorage implements IStorage {
    * Cascades from calls.ts ON DELETE CASCADE will handle child rows automatically.
    * Returns counts of top-level records deleted.
    */
-  async deleteOrgData(orgId: string): Promise<{ employeesDeleted: number; callsDeleted: number; usersDeleted: number }> {
+  async deleteOrgData(
+    orgId: string,
+  ): Promise<{ employeesDeleted: number; callsDeleted: number; usersDeleted: number }> {
     return this.db.transaction(async (tx) => {
       // 1. Delete coaching sessions (references employees and calls)
       await tx.execute(sql`DELETE FROM coaching_sessions WHERE org_id = ${orgId}`);

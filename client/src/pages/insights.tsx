@@ -5,8 +5,29 @@ import { Badge } from "@/components/ui/badge";
 import { HelpTip } from "@/components/ui/help-tip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, Legend } from "recharts";
-import {  RiBuilding2Line, RiArrowRightDownLine, RiAlertLine, RiBarChartBoxLine, RiChat1Line, RiShieldFlashLine, RiFileDownloadLine, RiUploadLine  } from "@remixicon/react";
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  Cell,
+  Legend,
+} from "recharts";
+import {
+  RiBuilding2Line,
+  RiArrowRightDownLine,
+  RiAlertLine,
+  RiBarChartBoxLine,
+  RiChat1Line,
+  RiShieldFlashLine,
+  RiFileDownloadLine,
+  RiUploadLine,
+} from "@remixicon/react";
 import { EmptyState } from "@/components/ui/empty-state";
 
 interface InsightsData {
@@ -24,7 +45,11 @@ interface InsightsData {
 }
 
 export default function InsightsPage() {
-  const { data: insights, isLoading, error } = useQuery<InsightsData>({
+  const {
+    data: insights,
+    isLoading,
+    error,
+  } = useQuery<InsightsData>({
     queryKey: ["/api/insights"],
     retry: 1,
   });
@@ -38,7 +63,11 @@ export default function InsightsPage() {
         </header>
         <div className="p-6 space-y-6">
           {Array.from({ length: 4 }).map((_, i) => (
-            <Card key={i}><CardContent className="pt-6"><Skeleton className="h-48 w-full" /></CardContent></Card>
+            <Card key={i}>
+              <CardContent className="pt-6">
+                <Skeleton className="h-48 w-full" />
+              </CardContent>
+            </Card>
           ))}
         </div>
       </div>
@@ -74,7 +103,8 @@ export default function InsightsPage() {
               <HelpTip text="AI-aggregated patterns across all your calls: recurring complaints, top topics, sentiment trends, and process improvement opportunities. Insights update automatically as new calls are analyzed." />
             </h2>
             <p className="text-muted-foreground">
-              Customer experience trends, complaint patterns, and process improvement opportunities across {insights.totalAnalyzed} analyzed calls
+              Customer experience trends, complaint patterns, and process improvement opportunities across{" "}
+              {insights.totalAnalyzed} analyzed calls
             </p>
           </div>
           <Button
@@ -105,14 +135,18 @@ export default function InsightsPage() {
           <Card className="border-l-4 border-l-red-500">
             <CardContent className="pt-6">
               <p className="text-sm text-muted-foreground">Negative Call Rate</p>
-              <p className="text-3xl font-bold text-foreground">{(insights.summary.negativeCallRate * 100).toFixed(1)}%</p>
+              <p className="text-3xl font-bold text-foreground">
+                {(insights.summary.negativeCallRate * 100).toFixed(1)}%
+              </p>
               <p className="text-xs text-muted-foreground">of calls have negative sentiment</p>
             </CardContent>
           </Card>
           <Card className="border-l-4 border-l-amber-500">
             <CardContent className="pt-6">
               <p className="text-sm text-muted-foreground">Escalation Rate</p>
-              <p className="text-3xl font-bold text-foreground">{(insights.summary.escalationRate * 100).toFixed(1)}%</p>
+              <p className="text-3xl font-bold text-foreground">
+                {(insights.summary.escalationRate * 100).toFixed(1)}%
+              </p>
               <p className="text-xs text-muted-foreground">of calls scored 4.0 or below</p>
             </CardContent>
           </Card>
@@ -148,11 +182,38 @@ export default function InsightsPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="week" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
                   <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                  <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 12 }} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--card))",
+                      border: "1px solid hsl(var(--border))",
+                      fontSize: 12,
+                    }}
+                  />
                   <Legend />
-                  <Area type="monotone" dataKey="positive" name="Positive" stackId="s" stroke="#22c55e" fill="url(#insGreen)" />
-                  <Area type="monotone" dataKey="neutral" name="Neutral" stackId="s" stroke="#94a3b8" fill="url(#insGray)" />
-                  <Area type="monotone" dataKey="negative" name="Negative" stackId="s" stroke="#ef4444" fill="url(#insRed)" />
+                  <Area
+                    type="monotone"
+                    dataKey="positive"
+                    name="Positive"
+                    stackId="s"
+                    stroke="#22c55e"
+                    fill="url(#insGreen)"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="neutral"
+                    name="Neutral"
+                    stackId="s"
+                    stroke="#94a3b8"
+                    fill="url(#insGray)"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="negative"
+                    name="Negative"
+                    stackId="s"
+                    stroke="#ef4444"
+                    fill="url(#insRed)"
+                  />
                 </AreaChart>
               </ResponsiveContainer>
             </CardContent>
@@ -178,12 +239,16 @@ export default function InsightsPage() {
                       <div className="flex-1">
                         <div className="flex items-center justify-between mb-0.5">
                           <span className="text-sm font-medium">{item.topic}</span>
-                          <span className="text-xs text-muted-foreground">{item.count} call{item.count > 1 ? "s" : ""}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {item.count} call{item.count > 1 ? "s" : ""}
+                          </span>
                         </div>
                         <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                           <div
                             className="h-full rounded-full bg-gradient-to-r from-red-500 to-orange-400"
-                            style={{ width: `${Math.min((item.count / (insights.topComplaints[0]?.count || 1)) * 100, 100)}%` }}
+                            style={{
+                              width: `${Math.min((item.count / (insights.topComplaints[0]?.count || 1)) * 100, 100)}%`,
+                            }}
                           />
                         </div>
                       </div>
@@ -211,8 +276,20 @@ export default function InsightsPage() {
                   <BarChart data={insights.topTopics.slice(0, 8)} layout="vertical" margin={{ left: 80 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                     <XAxis type="number" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                    <YAxis dataKey="topic" type="category" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" width={80} />
-                    <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 12 }} />
+                    <YAxis
+                      dataKey="topic"
+                      type="category"
+                      tick={{ fontSize: 11 }}
+                      stroke="hsl(var(--muted-foreground))"
+                      width={80}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "hsl(var(--card))",
+                        border: "1px solid hsl(var(--border))",
+                        fontSize: 12,
+                      }}
+                    />
                     <Bar dataKey="count" name="Calls" radius={[0, 4, 4, 0]}>
                       {insights.topTopics.slice(0, 8).map((_, idx) => (
                         <Cell key={idx} fill={`hsl(${210 + idx * 15}, 60%, ${50 + idx * 3}%)`} />
@@ -269,9 +346,7 @@ export default function InsightsPage() {
                 <RiChat1Line className="w-5 h-5 text-yellow-500" />
                 Low Confidence Analyses
               </CardTitle>
-              <CardDescription>
-                These calls may need manual review — AI confidence is below 70%
-              </CardDescription>
+              <CardDescription>These calls may need manual review — AI confidence is below 70%</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">

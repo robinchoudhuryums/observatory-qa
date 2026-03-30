@@ -9,9 +9,9 @@ function hexToHsl(hex: string): string | null {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   if (!result) return null;
 
-  let r = parseInt(result[1], 16) / 255;
-  let g = parseInt(result[2], 16) / 255;
-  let b = parseInt(result[3], 16) / 255;
+  const r = parseInt(result[1], 16) / 255;
+  const g = parseInt(result[2], 16) / 255;
+  const b = parseInt(result[3], 16) / 255;
 
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);
@@ -23,9 +23,15 @@ function hexToHsl(hex: string): string | null {
     const d = max - min;
     s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
     switch (max) {
-      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
-      case g: h = ((b - r) / d + 2) / 6; break;
-      case b: h = ((r - g) / d + 4) / 6; break;
+      case r:
+        h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+        break;
+      case g:
+        h = ((b - r) / d + 2) / 6;
+        break;
+      case b:
+        h = ((r - g) / d + 4) / 6;
+        break;
     }
   }
 
@@ -41,9 +47,14 @@ function hexToRgb(hex: string): string | null {
 
 /** All brand-related CSS custom properties we inject. */
 const BRAND_VARS = [
-  "--primary", "--accent", "--ring", "--chart-1",
-  "--brand-from", "--brand-to",
-  "--brand-from-rgb", "--brand-to-rgb",
+  "--primary",
+  "--accent",
+  "--ring",
+  "--chart-1",
+  "--brand-from",
+  "--brand-to",
+  "--brand-from-rgb",
+  "--brand-to-rgb",
 ] as const;
 
 /**
@@ -67,8 +78,8 @@ export function BrandingProvider() {
     const root = document.documentElement;
 
     // Always set brand gradient vars (use defaults if no branding configured)
-    const fromHex = primaryColor || "#7c3aed";   // violet-600 aurora default
-    const toHex = secondaryColor || "#06b6d4";   // cyan-500 aurora default
+    const fromHex = primaryColor || "#7c3aed"; // violet-600 aurora default
+    const toHex = secondaryColor || "#06b6d4"; // cyan-500 aurora default
 
     const fromHsl = hexToHsl(fromHex);
     const toHsl = hexToHsl(toHex);

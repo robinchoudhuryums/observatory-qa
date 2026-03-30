@@ -109,9 +109,10 @@ export function normalizeAnalysis(analysis: CallAnalysis | undefined): CallAnaly
     topics: Array.isArray(analysis.topics) ? analysis.topics : [],
     actionItems: Array.isArray(analysis.actionItems) ? analysis.actionItems : [],
     flags: Array.isArray(analysis.flags) ? analysis.flags : [],
-    feedback: (analysis.feedback && typeof analysis.feedback === "object" && !Array.isArray(analysis.feedback))
-      ? analysis.feedback
-      : { strengths: [], suggestions: [] },
+    feedback:
+      analysis.feedback && typeof analysis.feedback === "object" && !Array.isArray(analysis.feedback)
+        ? analysis.feedback
+        : { strengths: [], suggestions: [] },
     summary: typeof analysis.summary === "string" ? analysis.summary : "",
   };
 
@@ -133,10 +134,9 @@ export function normalizeAnalysis(analysis: CallAnalysis | undefined): CallAnaly
 }
 
 /** Apply standard call filters (status, sentiment, employee) */
-export function applyCallFilters<T extends { status?: string; employeeId?: string; sentiment?: { overallSentiment?: string } }>(
-  calls: T[],
-  filters: { status?: string; sentiment?: string; employee?: string }
-): T[] {
+export function applyCallFilters<
+  T extends { status?: string; employeeId?: string; sentiment?: { overallSentiment?: string } },
+>(calls: T[], filters: { status?: string; sentiment?: string; employee?: string }): T[] {
   let result = calls;
   if (filters.status) result = result.filter((c) => c.status === filters.status);
   if (filters.sentiment) result = result.filter((c) => c.sentiment?.overallSentiment === filters.sentiment);
@@ -183,7 +183,9 @@ export interface IStorage {
   // Count operations (efficient — use SQL COUNT where possible)
   countUsersByOrg(orgId: string): Promise<number>;
   countCallsByOrg(orgId: string): Promise<number>;
-  countCallsByOrgAndStatus(orgId: string): Promise<{ pending: number; processing: number; completed: number; failed: number }>;
+  countCallsByOrgAndStatus(
+    orgId: string,
+  ): Promise<{ pending: number; processing: number; completed: number; failed: number }>;
 
   // Call operations (org-scoped)
   getCall(orgId: string, id: string): Promise<Call | undefined>;
@@ -194,9 +196,15 @@ export interface IStorage {
   /** Look up a call by AssemblyAI transcript ID (cross-org, used by webhook handler) */
   getCallByAssemblyAiId(transcriptId: string): Promise<Call | null>;
   getAllCalls(orgId: string): Promise<Call[]>;
-  getCallsWithDetails(orgId: string, filters?: { status?: string; sentiment?: string; employee?: string; limit?: number; offset?: number }): Promise<CallWithDetails[]>;
+  getCallsWithDetails(
+    orgId: string,
+    filters?: { status?: string; sentiment?: string; employee?: string; limit?: number; offset?: number },
+  ): Promise<CallWithDetails[]>;
   /** Lightweight version of getCallsWithDetails — excludes transcript text/words for reporting */
-  getCallSummaries(orgId: string, filters?: { status?: string; sentiment?: string; employee?: string; limit?: number; offset?: number }): Promise<CallSummary[]>;
+  getCallSummaries(
+    orgId: string,
+    filters?: { status?: string; sentiment?: string; employee?: string; limit?: number; offset?: number },
+  ): Promise<CallSummary[]>;
 
   // Call share operations (resource-level sharing for external reviewers)
   createCallShare(orgId: string, share: InsertCallShare): Promise<CallShare>;
@@ -208,7 +216,11 @@ export interface IStorage {
   // Transcript operations (org-scoped)
   getTranscript(orgId: string, callId: string): Promise<Transcript | undefined>;
   createTranscript(orgId: string, transcript: InsertTranscript): Promise<Transcript>;
-  updateTranscript(orgId: string, callId: string, updates: { text?: string; corrections?: any[]; correctedText?: string }): Promise<Transcript | undefined>;
+  updateTranscript(
+    orgId: string,
+    callId: string,
+    updates: { text?: string; corrections?: any[]; correctedText?: string },
+  ): Promise<Transcript | undefined>;
 
   // Sentiment analysis operations (org-scoped)
   getSentimentAnalysis(orgId: string, callId: string): Promise<SentimentAnalysis | undefined>;
@@ -217,7 +229,11 @@ export interface IStorage {
   // Call analysis operations (org-scoped)
   getCallAnalysis(orgId: string, callId: string): Promise<CallAnalysis | undefined>;
   createCallAnalysis(orgId: string, analysis: InsertCallAnalysis): Promise<CallAnalysis>;
-  updateCallAnalysis(orgId: string, callId: string, updates: Partial<InsertCallAnalysis>): Promise<CallAnalysis | undefined>;
+  updateCallAnalysis(
+    orgId: string,
+    callId: string,
+    updates: Partial<InsertCallAnalysis>,
+  ): Promise<CallAnalysis | undefined>;
 
   // Dashboard metrics (org-scoped)
   getDashboardMetrics(orgId: string): Promise<DashboardMetrics>;
@@ -228,15 +244,23 @@ export interface IStorage {
   searchCalls(orgId: string, query: string): Promise<CallWithDetails[]>;
 
   // Clinical metrics (PostgreSQL-optimized, optional — returns undefined for non-PG backends)
-  getClinicalCallMetrics?(orgId: string, clinicalCategories: string[]): Promise<{
+  getClinicalCallMetrics?(
+    orgId: string,
+    clinicalCategories: string[],
+  ): Promise<{
     totalEncounters: number;
     completed: number;
     notesWithData: Array<{ clinicalNote: ClinicalNote | null; uploadedAt: string | null }>;
   }>;
-  getAttestedClinicalNotes?(orgId: string, clinicalCategories: string[]): Promise<Array<{
-    clinicalNote: ClinicalNote | null;
-    uploadedAt: string | null;
-  }>>;
+  getAttestedClinicalNotes?(
+    orgId: string,
+    clinicalCategories: string[],
+  ): Promise<
+    Array<{
+      clinicalNote: ClinicalNote | null;
+      uploadedAt: string | null;
+    }>
+  >;
 
   // Audio file operations (org-scoped)
   uploadAudio(orgId: string, callId: string, fileName: string, buffer: Buffer, contentType: string): Promise<void>;
@@ -254,7 +278,11 @@ export interface IStorage {
   getPromptTemplateByCategory(orgId: string, callCategory: string): Promise<PromptTemplate | undefined>;
   getAllPromptTemplates(orgId: string): Promise<PromptTemplate[]>;
   createPromptTemplate(orgId: string, template: InsertPromptTemplate): Promise<PromptTemplate>;
-  updatePromptTemplate(orgId: string, id: string, updates: Partial<PromptTemplate>): Promise<PromptTemplate | undefined>;
+  updatePromptTemplate(
+    orgId: string,
+    id: string,
+    updates: Partial<PromptTemplate>,
+  ): Promise<PromptTemplate | undefined>;
   deletePromptTemplate(orgId: string, id: string): Promise<void>;
 
   // Coaching session operations (org-scoped)
@@ -262,14 +290,22 @@ export interface IStorage {
   getCoachingSession(orgId: string, id: string): Promise<CoachingSession | undefined>;
   getAllCoachingSessions(orgId: string): Promise<CoachingSession[]>;
   getCoachingSessionsByEmployee(orgId: string, employeeId: string): Promise<CoachingSession[]>;
-  updateCoachingSession(orgId: string, id: string, updates: Partial<CoachingSession>): Promise<CoachingSession | undefined>;
+  updateCoachingSession(
+    orgId: string,
+    id: string,
+    updates: Partial<CoachingSession>,
+  ): Promise<CoachingSession | undefined>;
   getCoachingAnalytics(orgId: string, from?: Date, to?: Date): Promise<CoachingAnalytics>;
 
   // Coaching template operations (org-scoped)
   createCoachingTemplate(orgId: string, template: InsertCoachingTemplate): Promise<CoachingTemplate>;
   getCoachingTemplate(orgId: string, id: string): Promise<CoachingTemplate | undefined>;
   listCoachingTemplates(orgId: string, category?: string): Promise<CoachingTemplate[]>;
-  updateCoachingTemplate(orgId: string, id: string, updates: Partial<CoachingTemplate>): Promise<CoachingTemplate | undefined>;
+  updateCoachingTemplate(
+    orgId: string,
+    id: string,
+    updates: Partial<CoachingTemplate>,
+  ): Promise<CoachingTemplate | undefined>;
   deleteCoachingTemplate(orgId: string, id: string): Promise<void>;
   incrementTemplateUsage(orgId: string, id: string): Promise<void>;
 
@@ -277,7 +313,11 @@ export interface IStorage {
   createAutomationRule(orgId: string, rule: InsertAutomationRule): Promise<AutomationRule>;
   getAutomationRule(orgId: string, id: string): Promise<AutomationRule | undefined>;
   listAutomationRules(orgId: string): Promise<AutomationRule[]>;
-  updateAutomationRule(orgId: string, id: string, updates: Partial<AutomationRule>): Promise<AutomationRule | undefined>;
+  updateAutomationRule(
+    orgId: string,
+    id: string,
+    updates: Partial<AutomationRule>,
+  ): Promise<AutomationRule | undefined>;
   deleteAutomationRule(orgId: string, id: string): Promise<void>;
 
   // Data retention (org-scoped)
@@ -286,7 +326,12 @@ export interface IStorage {
   purgeExpiredAuditLogs?(orgId: string, retentionDays: number): Promise<number>;
 
   // Usage tracking (org-scoped)
-  recordUsageEvent(event: { orgId: string; eventType: string; quantity: number; metadata?: Record<string, unknown> }): Promise<void>;
+  recordUsageEvent(event: {
+    orgId: string;
+    eventType: string;
+    quantity: number;
+    metadata?: Record<string, unknown>;
+  }): Promise<void>;
   getUsageSummary(orgId: string, startDate?: Date, endDate?: Date): Promise<UsageSummary[]>;
 
   // Invitation operations (org-scoped)
@@ -315,7 +360,11 @@ export interface IStorage {
   getReferenceDocument(orgId: string, id: string): Promise<ReferenceDocument | undefined>;
   listReferenceDocuments(orgId: string): Promise<ReferenceDocument[]>;
   getReferenceDocumentsForCategory(orgId: string, callCategory: string): Promise<ReferenceDocument[]>;
-  updateReferenceDocument(orgId: string, id: string, updates: Partial<ReferenceDocument>): Promise<ReferenceDocument | undefined>;
+  updateReferenceDocument(
+    orgId: string,
+    id: string,
+    updates: Partial<ReferenceDocument>,
+  ): Promise<ReferenceDocument | undefined>;
   deleteReferenceDocument(orgId: string, id: string): Promise<void>;
 
   // A/B test operations (org-scoped)
@@ -345,15 +394,29 @@ export interface IStorage {
   // Gamification operations (org-scoped)
   getEmployeeBadges(orgId: string, employeeId: string): Promise<EmployeeBadge[]>;
   awardBadge(orgId: string, badge: Omit<EmployeeBadge, "id">): Promise<EmployeeBadge>;
-  getGamificationProfile(orgId: string, employeeId: string): Promise<{ totalPoints: number; currentStreak: number; longestStreak: number }>;
-  updateGamificationProfile(orgId: string, employeeId: string, updates: { totalPoints?: number; currentStreak?: number; longestStreak?: number; lastActivityDate?: string }): Promise<void>;
-  getLeaderboard(orgId: string, limit?: number): Promise<Array<{ employeeId: string; totalPoints: number; currentStreak: number; badgeCount: number }>>;
+  getGamificationProfile(
+    orgId: string,
+    employeeId: string,
+  ): Promise<{ totalPoints: number; currentStreak: number; longestStreak: number }>;
+  updateGamificationProfile(
+    orgId: string,
+    employeeId: string,
+    updates: { totalPoints?: number; currentStreak?: number; longestStreak?: number; lastActivityDate?: string },
+  ): Promise<void>;
+  getLeaderboard(
+    orgId: string,
+    limit?: number,
+  ): Promise<Array<{ employeeId: string; totalPoints: number; currentStreak: number; badgeCount: number }>>;
 
   // Insurance narrative operations (org-scoped)
   createInsuranceNarrative(orgId: string, narrative: InsertInsuranceNarrative): Promise<InsuranceNarrative>;
   getInsuranceNarrative(orgId: string, id: string): Promise<InsuranceNarrative | undefined>;
   listInsuranceNarratives(orgId: string, filters?: { callId?: string; status?: string }): Promise<InsuranceNarrative[]>;
-  updateInsuranceNarrative(orgId: string, id: string, updates: Partial<InsuranceNarrative>): Promise<InsuranceNarrative | undefined>;
+  updateInsuranceNarrative(
+    orgId: string,
+    id: string,
+    updates: Partial<InsuranceNarrative>,
+  ): Promise<InsuranceNarrative | undefined>;
   deleteInsuranceNarrative(orgId: string, id: string): Promise<void>;
 
   // Call revenue operations (org-scoped)
@@ -361,37 +424,65 @@ export interface IStorage {
   getCallRevenue(orgId: string, callId: string): Promise<CallRevenue | undefined>;
   listCallRevenues(orgId: string, filters?: { conversionStatus?: string }): Promise<CallRevenue[]>;
   updateCallRevenue(orgId: string, callId: string, updates: Partial<CallRevenue>): Promise<CallRevenue | undefined>;
-  getRevenueMetrics(orgId: string): Promise<{ totalEstimated: number; totalActual: number; conversionRate: number; avgDealValue: number }>;
+  getRevenueMetrics(
+    orgId: string,
+  ): Promise<{ totalEstimated: number; totalActual: number; conversionRate: number; avgDealValue: number }>;
 
   // Calibration session operations (org-scoped)
   createCalibrationSession(orgId: string, session: InsertCalibrationSession): Promise<CalibrationSession>;
   getCalibrationSession(orgId: string, id: string): Promise<CalibrationSession | undefined>;
   listCalibrationSessions(orgId: string, filters?: { status?: string }): Promise<CalibrationSession[]>;
-  updateCalibrationSession(orgId: string, id: string, updates: Partial<CalibrationSession>): Promise<CalibrationSession | undefined>;
+  updateCalibrationSession(
+    orgId: string,
+    id: string,
+    updates: Partial<CalibrationSession>,
+  ): Promise<CalibrationSession | undefined>;
   deleteCalibrationSession(orgId: string, id: string): Promise<void>;
 
   // Calibration evaluation operations (org-scoped)
   createCalibrationEvaluation(orgId: string, evaluation: InsertCalibrationEvaluation): Promise<CalibrationEvaluation>;
   getCalibrationEvaluations(orgId: string, sessionId: string): Promise<CalibrationEvaluation[]>;
-  updateCalibrationEvaluation(orgId: string, id: string, updates: Partial<CalibrationEvaluation>): Promise<CalibrationEvaluation | undefined>;
+  updateCalibrationEvaluation(
+    orgId: string,
+    id: string,
+    updates: Partial<CalibrationEvaluation>,
+  ): Promise<CalibrationEvaluation | undefined>;
   // Marketing attribution operations (org-scoped)
   createMarketingCampaign(orgId: string, campaign: InsertMarketingCampaign): Promise<MarketingCampaign>;
   getMarketingCampaign(orgId: string, id: string): Promise<MarketingCampaign | undefined>;
-  listMarketingCampaigns(orgId: string, filters?: { source?: string; isActive?: boolean }): Promise<MarketingCampaign[]>;
-  updateMarketingCampaign(orgId: string, id: string, updates: Partial<MarketingCampaign>): Promise<MarketingCampaign | undefined>;
+  listMarketingCampaigns(
+    orgId: string,
+    filters?: { source?: string; isActive?: boolean },
+  ): Promise<MarketingCampaign[]>;
+  updateMarketingCampaign(
+    orgId: string,
+    id: string,
+    updates: Partial<MarketingCampaign>,
+  ): Promise<MarketingCampaign | undefined>;
   deleteMarketingCampaign(orgId: string, id: string): Promise<void>;
 
   createCallAttribution(orgId: string, attribution: InsertCallAttribution): Promise<CallAttribution>;
   getCallAttribution(orgId: string, callId: string): Promise<CallAttribution | undefined>;
   listCallAttributions(orgId: string, filters?: { source?: string; campaignId?: string }): Promise<CallAttribution[]>;
-  updateCallAttribution(orgId: string, callId: string, updates: Partial<CallAttribution>): Promise<CallAttribution | undefined>;
+  updateCallAttribution(
+    orgId: string,
+    callId: string,
+    updates: Partial<CallAttribution>,
+  ): Promise<CallAttribution | undefined>;
   deleteCallAttribution(orgId: string, callId: string): Promise<void>;
 
   // LMS: Learning Module operations (org-scoped)
   createLearningModule(orgId: string, module: InsertLearningModule): Promise<LearningModule>;
   getLearningModule(orgId: string, id: string): Promise<LearningModule | undefined>;
-  listLearningModules(orgId: string, filters?: { category?: string; contentType?: string; isPublished?: boolean }): Promise<LearningModule[]>;
-  updateLearningModule(orgId: string, id: string, updates: Partial<LearningModule>): Promise<LearningModule | undefined>;
+  listLearningModules(
+    orgId: string,
+    filters?: { category?: string; contentType?: string; isPublished?: boolean },
+  ): Promise<LearningModule[]>;
+  updateLearningModule(
+    orgId: string,
+    id: string,
+    updates: Partial<LearningModule>,
+  ): Promise<LearningModule | undefined>;
   deleteLearningModule(orgId: string, id: string): Promise<void>;
 
   // LMS: Learning Path operations (org-scoped)
@@ -405,7 +496,10 @@ export interface IStorage {
   upsertLearningProgress(orgId: string, progress: InsertLearningProgress): Promise<LearningProgress>;
   getLearningProgress(orgId: string, employeeId: string, moduleId: string): Promise<LearningProgress | undefined>;
   getEmployeeLearningProgress(orgId: string, employeeId: string): Promise<LearningProgress[]>;
-  getModuleCompletionStats(orgId: string, moduleId: string): Promise<{ total: number; completed: number; inProgress: number; avgScore: number }>;
+  getModuleCompletionStats(
+    orgId: string,
+    moduleId: string,
+  ): Promise<{ total: number; completed: number; inProgress: number; avgScore: number }>;
 
   // Provider templates (custom clinical note templates per provider, org-scoped)
   getProviderTemplates(orgId: string, userId: string): Promise<any[]>;

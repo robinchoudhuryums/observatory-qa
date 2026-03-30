@@ -45,7 +45,11 @@ interface PatientJourney {
 }
 
 function normalizePatientKey(name: string): string {
-  return name.toLowerCase().replace(/[^a-z\s]/g, "").replace(/\s+/g, " ").trim();
+  return name
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function registerPatientJourneyRoutes(app: Express) {
@@ -58,7 +62,12 @@ export function registerPatientJourneyRoutes(app: Express) {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-      logPhiAccess({ ...auditContext(req), event: "view_patient_journeys", resourceType: "patient_journey", resourceId: orgId });
+      logPhiAccess({
+        ...auditContext(req),
+        event: "view_patient_journeys",
+        resourceType: "patient_journey",
+        resourceId: orgId,
+      });
 
       const [calls, employees, revenues] = await Promise.all([
         storage.getCallSummaries(orgId, { status: "completed", limit: 1000 }),
@@ -66,8 +75,8 @@ export function registerPatientJourneyRoutes(app: Express) {
         storage.listCallRevenues(orgId),
       ]);
 
-      const employeeMap = new Map(employees.map(e => [e.id, e]));
-      const revenueMap = new Map(revenues.map(r => [r.callId, r]));
+      const employeeMap = new Map(employees.map((e) => [e.id, e]));
+      const revenueMap = new Map(revenues.map((r) => [r.callId, r]));
 
       // Build patient identity map from multiple sources
       const journeys = new Map<string, PatientJourney>();
@@ -139,8 +148,8 @@ export function registerPatientJourneyRoutes(app: Express) {
         });
 
         if (revenue) {
-          journey.totalEstimatedRevenue += (revenue.estimatedRevenue || 0);
-          journey.totalActualRevenue += (revenue.actualRevenue || 0);
+          journey.totalEstimatedRevenue += revenue.estimatedRevenue || 0;
+          journey.totalActualRevenue += revenue.actualRevenue || 0;
           if (revenue.conversionStatus === "converted") journey.conversionStatus = "converted";
           else if (!journey.conversionStatus && revenue.conversionStatus !== "unknown") {
             journey.conversionStatus = revenue.conversionStatus;
@@ -162,12 +171,9 @@ export function registerPatientJourneyRoutes(app: Express) {
       for (const journey of Array.from(journeys.values())) {
         if (journey.callCount < 2) continue; // Only show multi-visit patients
 
-        const scores = journey.calls
-          .map(c => c.performanceScore)
-          .filter((s): s is number => s !== null);
-        journey.avgPerformanceScore = scores.length > 0
-          ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) / 100
-          : 0;
+        const scores = journey.calls.map((c) => c.performanceScore).filter((s): s is number => s !== null);
+        journey.avgPerformanceScore =
+          scores.length > 0 ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) / 100 : 0;
 
         // Sort calls chronologically
         journey.calls.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
@@ -190,9 +196,10 @@ export function registerPatientJourneyRoutes(app: Express) {
         total: result.length,
         multiVisitPatientCount: result.length,
         totalPatientsIdentified: journeys.size,
-        avgTouchpoints: result.length > 0
-          ? Math.round((result.reduce((s, j) => s + j.touchpointCount, 0) / result.length) * 10) / 10
-          : 0,
+        avgTouchpoints:
+          result.length > 0
+            ? Math.round((result.reduce((s, j) => s + j.touchpointCount, 0) / result.length) * 10) / 10
+            : 0,
       });
     } catch (error) {
       logger.error({ err: error }, "Failed to get patient journeys");
@@ -215,10 +222,13 @@ export function registerPatientJourneyRoutes(app: Express) {
         storage.listCallRevenues(orgId),
       ]);
 
-      const revenueMap = new Map(revenues.map(r => [r.callId, r]));
+      const revenueMap = new Map(revenues.map((r) => [r.callId, r]));
 
       // Build patient groups
-      const patients = new Map<string, { callCount: number; scores: number[]; sentiments: string[]; revenue: number; dates: string[] }>();
+      const patients = new Map<
+        string,
+        { callCount: number; scores: number[]; sentiments: string[]; revenue: number; dates: string[] }
+      >();
 
       for (const call of calls) {
         const revenue = revenueMap.get(call.id);
@@ -239,12 +249,12 @@ export function registerPatientJourneyRoutes(app: Express) {
         const score = call.analysis?.performanceScore ? parseFloat(String(call.analysis.performanceScore)) : null;
         if (score !== null && !isNaN(score)) p.scores.push(score);
         if (call.sentiment?.overallSentiment) p.sentiments.push(call.sentiment.overallSentiment);
-        if (revenue) p.revenue += (revenue.actualRevenue || revenue.estimatedRevenue || 0);
+        if (revenue) p.revenue += revenue.actualRevenue || revenue.estimatedRevenue || 0;
         if (call.uploadedAt) p.dates.push(call.uploadedAt);
       }
 
-      const multiVisit = Array.from(patients.values()).filter(p => p.callCount >= 2);
-      const singleVisit = Array.from(patients.values()).filter(p => p.callCount === 1);
+      const multiVisit = Array.from(patients.values()).filter((p) => p.callCount >= 2);
+      const singleVisit = Array.from(patients.values()).filter((p) => p.callCount === 1);
 
       // Sentiment improvement on return visits
       let sentimentImproved = 0;
@@ -273,18 +283,18 @@ export function registerPatientJourneyRoutes(app: Express) {
           if (gap > 0 && gap < 365) visitGaps.push(gap);
         }
       }
-      const avgDaysBetweenVisits = visitGaps.length > 0
-        ? Math.round(visitGaps.reduce((a, b) => a + b, 0) / visitGaps.length)
-        : null;
+      const avgDaysBetweenVisits =
+        visitGaps.length > 0 ? Math.round(visitGaps.reduce((a, b) => a + b, 0) / visitGaps.length) : null;
 
       res.json({
         totalPatientsIdentified: patients.size,
         multiVisitPatients: multiVisit.length,
         singleVisitPatients: singleVisit.length,
         retentionRate: patients.size > 0 ? Math.round((multiVisit.length / patients.size) * 10000) / 100 : 0,
-        avgVisitsPerReturnPatient: multiVisit.length > 0
-          ? Math.round((multiVisit.reduce((s, p) => s + p.callCount, 0) / multiVisit.length) * 10) / 10
-          : 0,
+        avgVisitsPerReturnPatient:
+          multiVisit.length > 0
+            ? Math.round((multiVisit.reduce((s, p) => s + p.callCount, 0) / multiVisit.length) * 10) / 10
+            : 0,
         avgDaysBetweenVisits,
         sentimentOnReturnVisits: {
           improved: sentimentImproved,
@@ -294,9 +304,8 @@ export function registerPatientJourneyRoutes(app: Express) {
         revenueComparison: {
           avgRevenuePerMultiVisitPatient: Math.round(avgMultiVisitRevenue * 100) / 100,
           avgRevenuePerSingleVisitPatient: Math.round(avgSingleVisitRevenue * 100) / 100,
-          multiVisitRevenueMultiplier: avgSingleVisitRevenue > 0
-            ? Math.round((avgMultiVisitRevenue / avgSingleVisitRevenue) * 10) / 10
-            : null,
+          multiVisitRevenueMultiplier:
+            avgSingleVisitRevenue > 0 ? Math.round((avgMultiVisitRevenue / avgSingleVisitRevenue) * 10) / 10 : null,
         },
       });
     } catch (error) {

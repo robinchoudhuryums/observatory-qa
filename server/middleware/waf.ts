@@ -15,17 +15,17 @@ import type { Request, Response, NextFunction } from "express";
 import { logger } from "../services/logger";
 
 // --- Configuration ---
-const ANOMALY_THRESHOLD = 10;       // Block IP after this many violation points
+const ANOMALY_THRESHOLD = 10; // Block IP after this many violation points
 const ANOMALY_DECAY_MS = 15 * 60 * 1000; // Reset anomaly score after 15 minutes of inactivity
-const MAX_TRACKED_IPS = 10_000;     // Prevent unbounded memory growth
+const MAX_TRACKED_IPS = 10_000; // Prevent unbounded memory growth
 
 // --- Attack pattern regexes ---
 const SQL_INJECTION_PATTERNS = [
   /(\b(union|select|insert|update|delete|drop|alter|create|exec|execute)\b.*\b(from|into|table|database|where|set)\b)/i,
-  /(\b(or|and)\b\s+\d+\s*=\s*\d+)/i,        // OR 1=1 / AND 1=1
-  /(--|#|\/\*)\s/,                            // SQL comments
+  /(\b(or|and)\b\s+\d+\s*=\s*\d+)/i, // OR 1=1 / AND 1=1
+  /(--|#|\/\*)\s/, // SQL comments
   /;\s*(drop|delete|update|insert|alter)\b/i, // Chained destructive statements
-  /\b(char|nchar|varchar|nvarchar)\s*\(/i,    // CHAR() obfuscation
+  /\b(char|nchar|varchar|nvarchar)\s*\(/i, // CHAR() obfuscation
   /\b(waitfor\s+delay|benchmark\s*\(|sleep\s*\()/i, // Time-based injection
 ];
 
@@ -41,9 +41,9 @@ const XSS_PATTERNS = [
 ];
 
 const PATH_TRAVERSAL_PATTERNS = [
-  /\.\.\//,                    // ../
+  /\.\.\//, // ../
   /\.\.\\/, // ..\
-  /%2e%2e[%2f\\]/i,           // URL-encoded
+  /%2e%2e[%2f\\]/i, // URL-encoded
   /\/(etc\/passwd|proc\/self|windows\/system32)/i,
 ];
 
@@ -73,14 +73,17 @@ const anomalyMap = new Map<string, AnomalyRecord>();
 const manualBlocklist = new Set<string>();
 
 // Prune stale entries every 5 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, record] of Array.from(anomalyMap)) {
-    if (now - record.lastSeen > ANOMALY_DECAY_MS) {
-      anomalyMap.delete(ip);
+setInterval(
+  () => {
+    const now = Date.now();
+    for (const [ip, record] of Array.from(anomalyMap)) {
+      if (now - record.lastSeen > ANOMALY_DECAY_MS) {
+        anomalyMap.delete(ip);
+      }
     }
-  }
-}, 5 * 60 * 1000).unref();
+  },
+  5 * 60 * 1000,
+).unref();
 
 function addAnomalyPoints(ip: string, points: number, reason: string): boolean {
   // Enforce max tracked IPs
@@ -121,7 +124,7 @@ function isBlocked(ip: string): boolean {
 }
 
 function checkPatterns(value: string, patterns: RegExp[]): boolean {
-  return patterns.some(p => p.test(value));
+  return patterns.some((p) => p.test(value));
 }
 
 /**
@@ -185,14 +188,17 @@ export function wafMiddleware(req: Request, res: Response, next: NextFunction): 
     // HIPAA: Log only the path without query params, which may contain PHI
     // (e.g., /api/search?q=patient_name). Use req.path (no query string)
     // instead of req.originalUrl.
-    logger.warn({
-      ip,
-      method: req.method,
-      path: req.path,
-      reason: violation.reason,
-      points: violation.points,
-      blocked,
-    }, `WAF: Detected ${violation.reason}`);
+    logger.warn(
+      {
+        ip,
+        method: req.method,
+        path: req.path,
+        reason: violation.reason,
+        points: violation.points,
+        blocked,
+      },
+      `WAF: Detected ${violation.reason}`,
+    );
 
     if (blocked) {
       res.status(403).json({ message: "Access denied" });

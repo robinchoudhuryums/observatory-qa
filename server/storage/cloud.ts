@@ -81,7 +81,7 @@ export class CloudStorage implements IStorage {
   }
   async getOrganizationBySlug(slug: string): Promise<Organization | undefined> {
     const orgs = await this.listOrganizations();
-    return orgs.find(o => o.slug === slug);
+    return orgs.find((o) => o.slug === slug);
   }
   async createOrganization(org: InsertOrganization): Promise<Organization> {
     const id = randomUUID();
@@ -99,7 +99,7 @@ export class CloudStorage implements IStorage {
   async listOrganizations(): Promise<Organization[]> {
     // List all org directories and download their org.json files
     const orgDirs = await this.client.listObjects("orgs/");
-    const orgJsonPaths = orgDirs.filter(p => p.endsWith("/org.json"));
+    const orgJsonPaths = orgDirs.filter((p) => p.endsWith("/org.json"));
     const orgs: Organization[] = [];
     for (const path of orgJsonPaths) {
       const org = await this.client.downloadJson<Organization>(path);
@@ -179,13 +179,15 @@ export class CloudStorage implements IStorage {
     const calls = await this.getAllCalls(orgId);
     return calls.length;
   }
-  async countCallsByOrgAndStatus(orgId: string): Promise<{ pending: number; processing: number; completed: number; failed: number }> {
+  async countCallsByOrgAndStatus(
+    orgId: string,
+  ): Promise<{ pending: number; processing: number; completed: number; failed: number }> {
     const calls = await this.getAllCalls(orgId);
     return {
-      pending: calls.filter(c => c.status === "pending").length,
-      processing: calls.filter(c => c.status === "processing").length,
-      completed: calls.filter(c => c.status === "completed").length,
-      failed: calls.filter(c => c.status === "failed").length,
+      pending: calls.filter((c) => c.status === "pending").length,
+      processing: calls.filter((c) => c.status === "processing").length,
+      completed: calls.filter((c) => c.status === "completed").length,
+      failed: calls.filter((c) => c.status === "failed").length,
     };
   }
 
@@ -227,17 +229,17 @@ export class CloudStorage implements IStorage {
 
   async getCallByFileHash(orgId: string, fileHash: string): Promise<Call | undefined> {
     const calls = await this.client.listAndDownloadJson<Call>(`${this.orgPrefix(orgId)}/calls/`);
-    return calls.find(c => c.fileHash === fileHash && c.status !== "failed");
+    return calls.find((c) => c.fileHash === fileHash && c.status !== "failed");
   }
   async getCallByAssemblyAiId(transcriptId: string): Promise<Call | null> {
     // Must search across all orgs — list top-level prefixes then search each
     // This is a slow fallback for CloudStorage; prefer PostgreSQL backend for webhooks
     try {
       const allPrefixes = await this.client.listObjects("");
-      const orgPrefixes = Array.from(new Set(allPrefixes.map(p => p.split("/")[0]).filter(Boolean)));
+      const orgPrefixes = Array.from(new Set(allPrefixes.map((p) => p.split("/")[0]).filter(Boolean)));
       for (const orgId of orgPrefixes) {
         const calls = await this.client.listAndDownloadJson<Call>(`${orgId}/calls/`);
-        const found = calls.find(c => c.assemblyAiId === transcriptId);
+        const found = calls.find((c) => c.assemblyAiId === transcriptId);
         if (found) return found;
       }
     } catch {
@@ -248,14 +250,12 @@ export class CloudStorage implements IStorage {
 
   async getAllCalls(orgId: string): Promise<Call[]> {
     const calls = await this.client.listAndDownloadJson<Call>(`${this.orgPrefix(orgId)}/calls/`);
-    return calls.sort(
-      (a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime()
-    );
+    return calls.sort((a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime());
   }
 
   async getCallsWithDetails(
     orgId: string,
-    filters: { status?: string; sentiment?: string; employee?: string } = {}
+    filters: { status?: string; sentiment?: string; employee?: string } = {},
   ): Promise<CallWithDetails[]> {
     logger.info({ orgId, filters }, "Fetching calls with details");
 
@@ -279,9 +279,7 @@ export class CloudStorage implements IStorage {
       } as CallWithDetails;
     });
 
-    results.sort(
-      (a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime()
-    );
+    results.sort((a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime());
 
     const filtered = applyCallFilters(results, filters);
 
@@ -291,7 +289,7 @@ export class CloudStorage implements IStorage {
 
   async getCallSummaries(
     orgId: string,
-    filters: { status?: string; sentiment?: string; employee?: string } = {}
+    filters: { status?: string; sentiment?: string; employee?: string } = {},
   ): Promise<CallSummary[]> {
     const calls = await this.getAllCalls(orgId);
 
@@ -311,9 +309,7 @@ export class CloudStorage implements IStorage {
       } as CallSummary;
     });
 
-    results.sort(
-      (a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime()
-    );
+    results.sort((a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime());
 
     return applyCallFilters(results, filters);
   }
@@ -335,7 +331,11 @@ export class CloudStorage implements IStorage {
     return newTranscript;
   }
 
-  async updateTranscript(orgId: string, callId: string, updates: { text?: string; corrections?: any[]; correctedText?: string }): Promise<Transcript | undefined> {
+  async updateTranscript(
+    orgId: string,
+    callId: string,
+    updates: { text?: string; corrections?: any[]; correctedText?: string },
+  ): Promise<Transcript | undefined> {
     const existing = await this.getTranscript(orgId, callId);
     if (!existing) return undefined;
     const updated = {
@@ -381,7 +381,11 @@ export class CloudStorage implements IStorage {
     await this.client.uploadJson(`${this.orgPrefix(orgId)}/analyses/${analysis.callId}.json`, newAnalysis);
     return newAnalysis;
   }
-  async updateCallAnalysis(orgId: string, callId: string, updates: Partial<InsertCallAnalysis>): Promise<CallAnalysis | undefined> {
+  async updateCallAnalysis(
+    orgId: string,
+    callId: string,
+    updates: Partial<InsertCallAnalysis>,
+  ): Promise<CallAnalysis | undefined> {
     const existing = await this.getCallAnalysis(orgId, callId);
     if (!existing) return undefined;
     const updated: CallAnalysis = { ...existing, ...updates, id: existing.id, orgId, callId };
@@ -395,7 +399,7 @@ export class CloudStorage implements IStorage {
     callId: string,
     fileName: string,
     buffer: Buffer,
-    contentType: string
+    contentType: string,
   ): Promise<void> {
     await this.client.uploadFile(`${this.orgPrefix(orgId)}/audio/${callId}/${fileName}`, buffer, contentType);
   }
@@ -477,8 +481,11 @@ export class CloudStorage implements IStorage {
       .map((emp) => {
         const stats = employeeStats.get(emp.id) || { totalScore: 0, callCount: 0 };
         return {
-          id: emp.id, name: emp.name, role: emp.role,
-          avgPerformanceScore: stats.callCount > 0 ? Math.round((stats.totalScore / stats.callCount) * 100) / 100 : null,
+          id: emp.id,
+          name: emp.name,
+          role: emp.role,
+          avgPerformanceScore:
+            stats.callCount > 0 ? Math.round((stats.totalScore / stats.callCount) * 100) / 100 : null,
           totalCalls: stats.callCount,
         };
       })
@@ -503,16 +510,18 @@ export class CloudStorage implements IStorage {
 
   async getAllAccessRequests(orgId: string): Promise<AccessRequest[]> {
     const requests = await this.client.listAndDownloadJson<AccessRequest>(`${this.orgPrefix(orgId)}/access-requests/`);
-    return requests.sort(
-      (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
-    );
+    return requests.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
   }
 
   async getAccessRequest(orgId: string, id: string): Promise<AccessRequest | undefined> {
     return this.client.downloadJson<AccessRequest>(`${this.orgPrefix(orgId)}/access-requests/${id}.json`);
   }
 
-  async updateAccessRequest(orgId: string, id: string, updates: Partial<AccessRequest>): Promise<AccessRequest | undefined> {
+  async updateAccessRequest(
+    orgId: string,
+    id: string,
+    updates: Partial<AccessRequest>,
+  ): Promise<AccessRequest | undefined> {
     const req = await this.getAccessRequest(orgId, id);
     if (!req) return undefined;
     const updated = { ...req, ...updates, orgId };
@@ -526,7 +535,7 @@ export class CloudStorage implements IStorage {
   }
   async getPromptTemplateByCategory(orgId: string, callCategory: string): Promise<PromptTemplate | undefined> {
     const all = await this.getAllPromptTemplates(orgId);
-    return all.find(t => t.callCategory === callCategory && t.isActive);
+    return all.find((t) => t.callCategory === callCategory && t.isActive);
   }
   async getAllPromptTemplates(orgId: string): Promise<PromptTemplate[]> {
     return this.client.listAndDownloadJson<PromptTemplate>(`${this.orgPrefix(orgId)}/prompt-templates/`);
@@ -537,7 +546,11 @@ export class CloudStorage implements IStorage {
     await this.client.uploadJson(`${this.orgPrefix(orgId)}/prompt-templates/${id}.json`, newTemplate);
     return newTemplate;
   }
-  async updatePromptTemplate(orgId: string, id: string, updates: Partial<PromptTemplate>): Promise<PromptTemplate | undefined> {
+  async updatePromptTemplate(
+    orgId: string,
+    id: string,
+    updates: Partial<PromptTemplate>,
+  ): Promise<PromptTemplate | undefined> {
     const tmpl = await this.getPromptTemplate(orgId, id);
     if (!tmpl) return undefined;
     const updated = { ...tmpl, ...updates, orgId, updatedAt: new Date().toISOString() };
@@ -563,9 +576,13 @@ export class CloudStorage implements IStorage {
   }
   async getCoachingSessionsByEmployee(orgId: string, employeeId: string): Promise<CoachingSession[]> {
     const all = await this.getAllCoachingSessions(orgId);
-    return all.filter(s => s.employeeId === employeeId);
+    return all.filter((s) => s.employeeId === employeeId);
   }
-  async updateCoachingSession(orgId: string, id: string, updates: Partial<CoachingSession>): Promise<CoachingSession | undefined> {
+  async updateCoachingSession(
+    orgId: string,
+    id: string,
+    updates: Partial<CoachingSession>,
+  ): Promise<CoachingSession | undefined> {
     const session = await this.getCoachingSession(orgId, id);
     if (!session) return undefined;
     const updated = { ...session, ...updates, orgId };
@@ -573,15 +590,19 @@ export class CloudStorage implements IStorage {
     return updated;
   }
 
-  async getCoachingAnalytics(orgId: string, _from?: Date, _to?: Date): Promise<import("@shared/schema").CoachingAnalytics> {
+  async getCoachingAnalytics(
+    orgId: string,
+    _from?: Date,
+    _to?: Date,
+  ): Promise<import("@shared/schema").CoachingAnalytics> {
     // Cloud storage doesn't support aggregate queries efficiently — return minimal metrics
     const sessions = await this.getAllCoachingSessions(orgId);
-    const completed = sessions.filter(s => s.status === "completed");
+    const completed = sessions.filter((s) => s.status === "completed");
     return {
       totalSessions: sessions.length,
       completedSessions: completed.length,
-      dismissedSessions: sessions.filter(s => s.status === "dismissed").length,
-      pendingSessions: sessions.filter(s => s.status === "pending" || s.status === "in_progress").length,
+      dismissedSessions: sessions.filter((s) => s.status === "dismissed").length,
+      pendingSessions: sessions.filter((s) => s.status === "pending" || s.status === "in_progress").length,
       completionRate: sessions.length > 0 ? completed.length / sessions.length : 0,
       avgTimeToCloseHours: null,
       sessionsByCategory: {},
@@ -596,21 +617,39 @@ export class CloudStorage implements IStorage {
   // --- Coaching Templates ---
   private coachingTemplates = new Map<string, import("@shared/schema").CoachingTemplate>();
 
-  async createCoachingTemplate(orgId: string, template: import("@shared/schema").InsertCoachingTemplate): Promise<import("@shared/schema").CoachingTemplate> {
+  async createCoachingTemplate(
+    orgId: string,
+    template: import("@shared/schema").InsertCoachingTemplate,
+  ): Promise<import("@shared/schema").CoachingTemplate> {
     const { randomUUID } = await import("crypto");
     const id = randomUUID();
-    const t: import("@shared/schema").CoachingTemplate = { ...template, id, orgId, usageCount: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const t: import("@shared/schema").CoachingTemplate = {
+      ...template,
+      id,
+      orgId,
+      usageCount: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
     await this.client.uploadJson(`${this.orgPrefix(orgId)}/coaching-templates/${id}.json`, t);
     return t;
   }
   async getCoachingTemplate(orgId: string, id: string): Promise<import("@shared/schema").CoachingTemplate | undefined> {
-    return this.client.downloadJson<import("@shared/schema").CoachingTemplate>(`${this.orgPrefix(orgId)}/coaching-templates/${id}.json`);
+    return this.client.downloadJson<import("@shared/schema").CoachingTemplate>(
+      `${this.orgPrefix(orgId)}/coaching-templates/${id}.json`,
+    );
   }
   async listCoachingTemplates(orgId: string, category?: string): Promise<import("@shared/schema").CoachingTemplate[]> {
-    const all = await this.client.listAndDownloadJson<import("@shared/schema").CoachingTemplate>(`${this.orgPrefix(orgId)}/coaching-templates/`);
-    return category ? all.filter(t => t.category === category) : all;
+    const all = await this.client.listAndDownloadJson<import("@shared/schema").CoachingTemplate>(
+      `${this.orgPrefix(orgId)}/coaching-templates/`,
+    );
+    return category ? all.filter((t) => t.category === category) : all;
   }
-  async updateCoachingTemplate(orgId: string, id: string, updates: Partial<import("@shared/schema").CoachingTemplate>): Promise<import("@shared/schema").CoachingTemplate | undefined> {
+  async updateCoachingTemplate(
+    orgId: string,
+    id: string,
+    updates: Partial<import("@shared/schema").CoachingTemplate>,
+  ): Promise<import("@shared/schema").CoachingTemplate | undefined> {
     const t = await this.getCoachingTemplate(orgId, id);
     if (!t) return undefined;
     const updated = { ...t, ...updates, orgId, updatedAt: new Date().toISOString() };
@@ -626,20 +665,38 @@ export class CloudStorage implements IStorage {
   }
 
   // --- Automation Rules ---
-  async createAutomationRule(orgId: string, rule: import("@shared/schema").InsertAutomationRule): Promise<import("@shared/schema").AutomationRule> {
+  async createAutomationRule(
+    orgId: string,
+    rule: import("@shared/schema").InsertAutomationRule,
+  ): Promise<import("@shared/schema").AutomationRule> {
     const { randomUUID } = await import("crypto");
     const id = randomUUID();
-    const r: import("@shared/schema").AutomationRule = { ...rule, id, orgId, triggerCount: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const r: import("@shared/schema").AutomationRule = {
+      ...rule,
+      id,
+      orgId,
+      triggerCount: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
     await this.client.uploadJson(`${this.orgPrefix(orgId)}/automation-rules/${id}.json`, r);
     return r;
   }
   async getAutomationRule(orgId: string, id: string): Promise<import("@shared/schema").AutomationRule | undefined> {
-    return this.client.downloadJson<import("@shared/schema").AutomationRule>(`${this.orgPrefix(orgId)}/automation-rules/${id}.json`);
+    return this.client.downloadJson<import("@shared/schema").AutomationRule>(
+      `${this.orgPrefix(orgId)}/automation-rules/${id}.json`,
+    );
   }
   async listAutomationRules(orgId: string): Promise<import("@shared/schema").AutomationRule[]> {
-    return this.client.listAndDownloadJson<import("@shared/schema").AutomationRule>(`${this.orgPrefix(orgId)}/automation-rules/`);
+    return this.client.listAndDownloadJson<import("@shared/schema").AutomationRule>(
+      `${this.orgPrefix(orgId)}/automation-rules/`,
+    );
   }
-  async updateAutomationRule(orgId: string, id: string, updates: Partial<import("@shared/schema").AutomationRule>): Promise<import("@shared/schema").AutomationRule | undefined> {
+  async updateAutomationRule(
+    orgId: string,
+    id: string,
+    updates: Partial<import("@shared/schema").AutomationRule>,
+  ): Promise<import("@shared/schema").AutomationRule | undefined> {
     const r = await this.getAutomationRule(orgId, id);
     if (!r) return undefined;
     const updated = { ...r, ...updates, orgId, updatedAt: new Date().toISOString() };
@@ -653,7 +710,10 @@ export class CloudStorage implements IStorage {
   // --- Call Shares (resource-level sharing) ---
   private callSharesStore = new Map<string, import("@shared/schema").CallShare>();
 
-  async createCallShare(orgId: string, share: import("@shared/schema").InsertCallShare): Promise<import("@shared/schema").CallShare> {
+  async createCallShare(
+    orgId: string,
+    share: import("@shared/schema").InsertCallShare,
+  ): Promise<import("@shared/schema").CallShare> {
     const { randomUUID } = await import("crypto");
     const id = randomUUID();
     const s: import("@shared/schema").CallShare = { ...share, id, createdAt: new Date().toISOString() };
@@ -665,7 +725,9 @@ export class CloudStorage implements IStorage {
     return Array.from(this.callSharesStore.values()).find((s) => s.tokenHash === tokenHash);
   }
   async listCallShares(orgId: string, callId: string): Promise<import("@shared/schema").CallShare[]> {
-    const all = await this.client.listAndDownloadJson<import("@shared/schema").CallShare>(`${this.orgPrefix(orgId)}/call-shares/`);
+    const all = await this.client.listAndDownloadJson<import("@shared/schema").CallShare>(
+      `${this.orgPrefix(orgId)}/call-shares/`,
+    );
     return all.filter((s) => s.callId === callId);
   }
   async deleteCallShare(orgId: string, id: string): Promise<void> {
@@ -673,12 +735,14 @@ export class CloudStorage implements IStorage {
     this.callSharesStore.delete(id);
   }
   async deleteExpiredCallShares(orgId: string): Promise<void> {
-    const all = await this.client.listAndDownloadJson<import("@shared/schema").CallShare>(`${this.orgPrefix(orgId)}/call-shares/`);
+    const all = await this.client.listAndDownloadJson<import("@shared/schema").CallShare>(
+      `${this.orgPrefix(orgId)}/call-shares/`,
+    );
     const now = new Date();
     await Promise.allSettled(
-      all.filter((s) => new Date(s.expiresAt) < now).map((s) =>
-        this.client.deleteObject(`${this.orgPrefix(orgId)}/call-shares/${s.id}.json`)
-      ),
+      all
+        .filter((s) => new Date(s.expiresAt) < now)
+        .map((s) => this.client.deleteObject(`${this.orgPrefix(orgId)}/call-shares/${s.id}.json`)),
     );
   }
 
@@ -693,7 +757,10 @@ export class CloudStorage implements IStorage {
     for (const call of calls) {
       const uploadDate = new Date(call.uploadedAt || 0);
       if (uploadDate < cutoff) {
-        logger.info({ callId: call.id, orgId, uploadedAt: uploadDate.toISOString(), retentionDays }, "Purging expired call");
+        logger.info(
+          { callId: call.id, orgId, uploadedAt: uploadDate.toISOString(), retentionDays },
+          "Purging expired call",
+        );
         await this.deleteCall(orgId, call.id);
         purged++;
       }
@@ -703,7 +770,12 @@ export class CloudStorage implements IStorage {
   }
 
   // --- Usage Tracking (not supported in cloud storage) ---
-  async recordUsageEvent(_event: { orgId: string; eventType: string; quantity: number; metadata?: Record<string, unknown> }): Promise<void> {
+  async recordUsageEvent(_event: {
+    orgId: string;
+    eventType: string;
+    quantity: number;
+    metadata?: Record<string, unknown>;
+  }): Promise<void> {
     // No-op for cloud storage — usage tracking requires PostgreSQL
   }
   async getUsageSummary(_orgId: string, _startDate?: Date, _endDate?: Date): Promise<import("./types").UsageSummary[]> {
@@ -711,27 +783,57 @@ export class CloudStorage implements IStorage {
   }
 
   // --- Subscription operations (not supported in cloud storage) ---
-  async getSubscription(_orgId: string): Promise<Subscription | undefined> { return undefined; }
-  async getSubscriptionByStripeCustomerId(_id: string): Promise<Subscription | undefined> { return undefined; }
-  async getSubscriptionByStripeSubId(_id: string): Promise<Subscription | undefined> { return undefined; }
-  async upsertSubscription(_orgId: string, sub: InsertSubscription): Promise<Subscription> { return { id: "mock", ...sub } as Subscription; }
-  async updateSubscription(_orgId: string, _updates: Partial<Subscription>): Promise<Subscription | undefined> { return undefined; }
+  async getSubscription(_orgId: string): Promise<Subscription | undefined> {
+    return undefined;
+  }
+  async getSubscriptionByStripeCustomerId(_id: string): Promise<Subscription | undefined> {
+    return undefined;
+  }
+  async getSubscriptionByStripeSubId(_id: string): Promise<Subscription | undefined> {
+    return undefined;
+  }
+  async upsertSubscription(_orgId: string, sub: InsertSubscription): Promise<Subscription> {
+    return { id: "mock", ...sub } as Subscription;
+  }
+  async updateSubscription(_orgId: string, _updates: Partial<Subscription>): Promise<Subscription | undefined> {
+    return undefined;
+  }
 
   // --- Reference document operations (not supported in cloud storage) ---
-  async createReferenceDocument(_orgId: string, doc: InsertReferenceDocument): Promise<ReferenceDocument> { return { id: "mock", ...doc } as ReferenceDocument; }
-  async getReferenceDocument(_orgId: string, _id: string): Promise<ReferenceDocument | undefined> { return undefined; }
-  async listReferenceDocuments(_orgId: string): Promise<ReferenceDocument[]> { return []; }
-  async getReferenceDocumentsForCategory(_orgId: string, _cat: string): Promise<ReferenceDocument[]> { return []; }
-  async updateReferenceDocument(_orgId: string, _id: string, _updates: Partial<ReferenceDocument>): Promise<ReferenceDocument | undefined> { return undefined; }
+  async createReferenceDocument(_orgId: string, doc: InsertReferenceDocument): Promise<ReferenceDocument> {
+    return { id: "mock", ...doc } as ReferenceDocument;
+  }
+  async getReferenceDocument(_orgId: string, _id: string): Promise<ReferenceDocument | undefined> {
+    return undefined;
+  }
+  async listReferenceDocuments(_orgId: string): Promise<ReferenceDocument[]> {
+    return [];
+  }
+  async getReferenceDocumentsForCategory(_orgId: string, _cat: string): Promise<ReferenceDocument[]> {
+    return [];
+  }
+  async updateReferenceDocument(
+    _orgId: string,
+    _id: string,
+    _updates: Partial<ReferenceDocument>,
+  ): Promise<ReferenceDocument | undefined> {
+    return undefined;
+  }
   async deleteReferenceDocument(_orgId: string, _id: string): Promise<void> {}
 
   // --- API Key operations (not supported in cloud storage) ---
   async createApiKey(_orgId: string, _apiKey: InsertApiKey): Promise<ApiKey> {
     throw new Error("API keys require PostgreSQL or in-memory storage");
   }
-  async getApiKeyByHash(_keyHash: string): Promise<ApiKey | undefined> { return undefined; }
-  async listApiKeys(_orgId: string): Promise<ApiKey[]> { return []; }
-  async updateApiKey(_orgId: string, _id: string, _updates: Partial<ApiKey>): Promise<ApiKey | undefined> { return undefined; }
+  async getApiKeyByHash(_keyHash: string): Promise<ApiKey | undefined> {
+    return undefined;
+  }
+  async listApiKeys(_orgId: string): Promise<ApiKey[]> {
+    return [];
+  }
+  async updateApiKey(_orgId: string, _id: string, _updates: Partial<ApiKey>): Promise<ApiKey | undefined> {
+    return undefined;
+  }
   async deleteApiKey(_orgId: string, _id: string): Promise<void> {}
 
   // --- Invitation operations (not supported in cloud storage) ---
@@ -753,100 +855,257 @@ export class CloudStorage implements IStorage {
   async createABTest(_orgId: string, _test: InsertABTest): Promise<ABTest> {
     throw new Error("A/B testing requires PostgreSQL or in-memory storage");
   }
-  async getABTest(_orgId: string, _id: string): Promise<ABTest | undefined> { return undefined; }
-  async getAllABTests(_orgId: string): Promise<ABTest[]> { return []; }
-  async updateABTest(_orgId: string, _id: string, _updates: Partial<ABTest>): Promise<ABTest | undefined> { return undefined; }
+  async getABTest(_orgId: string, _id: string): Promise<ABTest | undefined> {
+    return undefined;
+  }
+  async getAllABTests(_orgId: string): Promise<ABTest[]> {
+    return [];
+  }
+  async updateABTest(_orgId: string, _id: string, _updates: Partial<ABTest>): Promise<ABTest | undefined> {
+    return undefined;
+  }
   async deleteABTest(_orgId: string, _id: string): Promise<void> {}
 
   // --- Spend tracking (not supported in cloud storage) ---
   async createUsageRecord(_orgId: string, _record: UsageRecord): Promise<void> {}
-  async getUsageRecords(_orgId: string): Promise<UsageRecord[]> { return []; }
+  async getUsageRecords(_orgId: string): Promise<UsageRecord[]> {
+    return [];
+  }
 
   // --- Live sessions (not supported in cloud storage) ---
   async createLiveSession(_orgId: string, _session: InsertLiveSession): Promise<LiveSession> {
     throw new Error("Live sessions require PostgreSQL storage");
   }
-  async getLiveSession(_orgId: string, _id: string): Promise<LiveSession | undefined> { return undefined; }
-  async updateLiveSession(_orgId: string, _id: string, _updates: Partial<LiveSession>): Promise<LiveSession | undefined> { return undefined; }
-  async getActiveLiveSessions(_orgId: string): Promise<LiveSession[]> { return []; }
-  async getLiveSessionsByUser(_orgId: string, _userId: string): Promise<LiveSession[]> { return []; }
+  async getLiveSession(_orgId: string, _id: string): Promise<LiveSession | undefined> {
+    return undefined;
+  }
+  async updateLiveSession(
+    _orgId: string,
+    _id: string,
+    _updates: Partial<LiveSession>,
+  ): Promise<LiveSession | undefined> {
+    return undefined;
+  }
+  async getActiveLiveSessions(_orgId: string): Promise<LiveSession[]> {
+    return [];
+  }
+  async getLiveSessionsByUser(_orgId: string, _userId: string): Promise<LiveSession[]> {
+    return [];
+  }
 
   // --- Feedback (not supported in cloud storage) ---
-  async createFeedback(_orgId: string, feedback: InsertFeedback): Promise<Feedback> { return { id: "mock", ...feedback, status: "new" } as Feedback; }
-  async getFeedback(_orgId: string, _id: string): Promise<Feedback | undefined> { return undefined; }
-  async listFeedback(_orgId: string): Promise<Feedback[]> { return []; }
-  async updateFeedback(_orgId: string, _id: string, _updates: Partial<Feedback>): Promise<Feedback | undefined> { return undefined; }
+  async createFeedback(_orgId: string, feedback: InsertFeedback): Promise<Feedback> {
+    return { id: "mock", ...feedback, status: "new" } as Feedback;
+  }
+  async getFeedback(_orgId: string, _id: string): Promise<Feedback | undefined> {
+    return undefined;
+  }
+  async listFeedback(_orgId: string): Promise<Feedback[]> {
+    return [];
+  }
+  async updateFeedback(_orgId: string, _id: string, _updates: Partial<Feedback>): Promise<Feedback | undefined> {
+    return undefined;
+  }
 
   // --- Gamification (not supported in cloud storage) ---
-  async getEmployeeBadges(_orgId: string, _employeeId: string): Promise<EmployeeBadge[]> { return []; }
-  async awardBadge(_orgId: string, badge: Omit<EmployeeBadge, "id">): Promise<EmployeeBadge> { return { id: "mock", ...badge } as EmployeeBadge; }
-  async getGamificationProfile(_orgId: string, _employeeId: string) { return { totalPoints: 0, currentStreak: 0, longestStreak: 0 }; }
+  async getEmployeeBadges(_orgId: string, _employeeId: string): Promise<EmployeeBadge[]> {
+    return [];
+  }
+  async awardBadge(_orgId: string, badge: Omit<EmployeeBadge, "id">): Promise<EmployeeBadge> {
+    return { id: "mock", ...badge } as EmployeeBadge;
+  }
+  async getGamificationProfile(_orgId: string, _employeeId: string) {
+    return { totalPoints: 0, currentStreak: 0, longestStreak: 0 };
+  }
   async updateGamificationProfile(_orgId: string, _employeeId: string, _updates: Record<string, unknown>) {}
-  async getLeaderboard(_orgId: string, _limit?: number) { return []; }
+  async getLeaderboard(_orgId: string, _limit?: number) {
+    return [];
+  }
 
   // --- Insurance narratives (not supported in cloud storage) ---
-  async createInsuranceNarrative(_orgId: string, narrative: InsertInsuranceNarrative): Promise<InsuranceNarrative> { return { id: "mock", ...narrative } as InsuranceNarrative; }
-  async getInsuranceNarrative(_orgId: string, _id: string): Promise<InsuranceNarrative | undefined> { return undefined; }
-  async listInsuranceNarratives(_orgId: string): Promise<InsuranceNarrative[]> { return []; }
-  async updateInsuranceNarrative(_orgId: string, _id: string, _updates: Partial<InsuranceNarrative>): Promise<InsuranceNarrative | undefined> { return undefined; }
+  async createInsuranceNarrative(_orgId: string, narrative: InsertInsuranceNarrative): Promise<InsuranceNarrative> {
+    return { id: "mock", ...narrative } as InsuranceNarrative;
+  }
+  async getInsuranceNarrative(_orgId: string, _id: string): Promise<InsuranceNarrative | undefined> {
+    return undefined;
+  }
+  async listInsuranceNarratives(_orgId: string): Promise<InsuranceNarrative[]> {
+    return [];
+  }
+  async updateInsuranceNarrative(
+    _orgId: string,
+    _id: string,
+    _updates: Partial<InsuranceNarrative>,
+  ): Promise<InsuranceNarrative | undefined> {
+    return undefined;
+  }
   async deleteInsuranceNarrative(_orgId: string, _id: string): Promise<void> {}
 
   // --- Call revenue (not supported in cloud storage) ---
-  async createCallRevenue(_orgId: string, revenue: InsertCallRevenue): Promise<CallRevenue> { return { id: "mock", ...revenue } as CallRevenue; }
-  async getCallRevenue(_orgId: string, _callId: string): Promise<CallRevenue | undefined> { return undefined; }
-  async listCallRevenues(_orgId: string): Promise<CallRevenue[]> { return []; }
-  async updateCallRevenue(_orgId: string, _callId: string, _updates: Partial<CallRevenue>): Promise<CallRevenue | undefined> { return undefined; }
-  async getRevenueMetrics(_orgId: string) { return { totalEstimated: 0, totalActual: 0, conversionRate: 0, avgDealValue: 0 }; }
+  async createCallRevenue(_orgId: string, revenue: InsertCallRevenue): Promise<CallRevenue> {
+    return { id: "mock", ...revenue } as CallRevenue;
+  }
+  async getCallRevenue(_orgId: string, _callId: string): Promise<CallRevenue | undefined> {
+    return undefined;
+  }
+  async listCallRevenues(_orgId: string): Promise<CallRevenue[]> {
+    return [];
+  }
+  async updateCallRevenue(
+    _orgId: string,
+    _callId: string,
+    _updates: Partial<CallRevenue>,
+  ): Promise<CallRevenue | undefined> {
+    return undefined;
+  }
+  async getRevenueMetrics(_orgId: string) {
+    return { totalEstimated: 0, totalActual: 0, conversionRate: 0, avgDealValue: 0 };
+  }
 
   // --- Calibration sessions (not supported in cloud storage) ---
-  async createCalibrationSession(_orgId: string, session: InsertCalibrationSession): Promise<CalibrationSession> { return { id: "mock", ...session } as CalibrationSession; }
-  async getCalibrationSession(_orgId: string, _id: string): Promise<CalibrationSession | undefined> { return undefined; }
-  async listCalibrationSessions(_orgId: string): Promise<CalibrationSession[]> { return []; }
-  async updateCalibrationSession(_orgId: string, _id: string, _updates: Partial<CalibrationSession>): Promise<CalibrationSession | undefined> { return undefined; }
+  async createCalibrationSession(_orgId: string, session: InsertCalibrationSession): Promise<CalibrationSession> {
+    return { id: "mock", ...session } as CalibrationSession;
+  }
+  async getCalibrationSession(_orgId: string, _id: string): Promise<CalibrationSession | undefined> {
+    return undefined;
+  }
+  async listCalibrationSessions(_orgId: string): Promise<CalibrationSession[]> {
+    return [];
+  }
+  async updateCalibrationSession(
+    _orgId: string,
+    _id: string,
+    _updates: Partial<CalibrationSession>,
+  ): Promise<CalibrationSession | undefined> {
+    return undefined;
+  }
   async deleteCalibrationSession(_orgId: string, _id: string): Promise<void> {}
-  async createCalibrationEvaluation(_orgId: string, evaluation: InsertCalibrationEvaluation): Promise<CalibrationEvaluation> { return { id: "mock", ...evaluation } as CalibrationEvaluation; }
-  async getCalibrationEvaluations(_orgId: string, _sessionId: string): Promise<CalibrationEvaluation[]> { return []; }
-  async updateCalibrationEvaluation(_orgId: string, _id: string, _updates: Partial<CalibrationEvaluation>): Promise<CalibrationEvaluation | undefined> { return undefined; }
+  async createCalibrationEvaluation(
+    _orgId: string,
+    evaluation: InsertCalibrationEvaluation,
+  ): Promise<CalibrationEvaluation> {
+    return { id: "mock", ...evaluation } as CalibrationEvaluation;
+  }
+  async getCalibrationEvaluations(_orgId: string, _sessionId: string): Promise<CalibrationEvaluation[]> {
+    return [];
+  }
+  async updateCalibrationEvaluation(
+    _orgId: string,
+    _id: string,
+    _updates: Partial<CalibrationEvaluation>,
+  ): Promise<CalibrationEvaluation | undefined> {
+    return undefined;
+  }
 
   // --- Marketing attribution (not supported in cloud storage) ---
-  async createMarketingCampaign(_orgId: string, campaign: InsertMarketingCampaign): Promise<MarketingCampaign> { return { id: "mock", ...campaign } as MarketingCampaign; }
-  async getMarketingCampaign(_orgId: string, _id: string): Promise<MarketingCampaign | undefined> { return undefined; }
-  async listMarketingCampaigns(_orgId: string): Promise<MarketingCampaign[]> { return []; }
-  async updateMarketingCampaign(_orgId: string, _id: string, _u: Partial<MarketingCampaign>): Promise<MarketingCampaign | undefined> { return undefined; }
+  async createMarketingCampaign(_orgId: string, campaign: InsertMarketingCampaign): Promise<MarketingCampaign> {
+    return { id: "mock", ...campaign } as MarketingCampaign;
+  }
+  async getMarketingCampaign(_orgId: string, _id: string): Promise<MarketingCampaign | undefined> {
+    return undefined;
+  }
+  async listMarketingCampaigns(_orgId: string): Promise<MarketingCampaign[]> {
+    return [];
+  }
+  async updateMarketingCampaign(
+    _orgId: string,
+    _id: string,
+    _u: Partial<MarketingCampaign>,
+  ): Promise<MarketingCampaign | undefined> {
+    return undefined;
+  }
   async deleteMarketingCampaign(_orgId: string, _id: string): Promise<void> {}
-  async createCallAttribution(_orgId: string, attr: InsertCallAttribution): Promise<CallAttribution> { return { id: "mock", ...attr } as CallAttribution; }
-  async getCallAttribution(_orgId: string, _callId: string): Promise<CallAttribution | undefined> { return undefined; }
-  async listCallAttributions(_orgId: string): Promise<CallAttribution[]> { return []; }
-  async updateCallAttribution(_orgId: string, _callId: string, _u: Partial<CallAttribution>): Promise<CallAttribution | undefined> { return undefined; }
+  async createCallAttribution(_orgId: string, attr: InsertCallAttribution): Promise<CallAttribution> {
+    return { id: "mock", ...attr } as CallAttribution;
+  }
+  async getCallAttribution(_orgId: string, _callId: string): Promise<CallAttribution | undefined> {
+    return undefined;
+  }
+  async listCallAttributions(_orgId: string): Promise<CallAttribution[]> {
+    return [];
+  }
+  async updateCallAttribution(
+    _orgId: string,
+    _callId: string,
+    _u: Partial<CallAttribution>,
+  ): Promise<CallAttribution | undefined> {
+    return undefined;
+  }
   async deleteCallAttribution(_orgId: string, _callId: string): Promise<void> {}
 
   // --- LMS (not supported in cloud storage) ---
-  async createLearningModule(_orgId: string, module: InsertLearningModule): Promise<LearningModule> { return { id: "mock", ...module } as LearningModule; }
-  async getLearningModule(_orgId: string, _id: string): Promise<LearningModule | undefined> { return undefined; }
-  async listLearningModules(_orgId: string): Promise<LearningModule[]> { return []; }
-  async updateLearningModule(_orgId: string, _id: string, _updates: Partial<LearningModule>): Promise<LearningModule | undefined> { return undefined; }
+  async createLearningModule(_orgId: string, module: InsertLearningModule): Promise<LearningModule> {
+    return { id: "mock", ...module } as LearningModule;
+  }
+  async getLearningModule(_orgId: string, _id: string): Promise<LearningModule | undefined> {
+    return undefined;
+  }
+  async listLearningModules(_orgId: string): Promise<LearningModule[]> {
+    return [];
+  }
+  async updateLearningModule(
+    _orgId: string,
+    _id: string,
+    _updates: Partial<LearningModule>,
+  ): Promise<LearningModule | undefined> {
+    return undefined;
+  }
   async deleteLearningModule(_orgId: string, _id: string): Promise<void> {}
-  async createLearningPath(_orgId: string, path: InsertLearningPath): Promise<LearningPath> { return { id: "mock", ...path } as LearningPath; }
-  async getLearningPath(_orgId: string, _id: string): Promise<LearningPath | undefined> { return undefined; }
-  async listLearningPaths(_orgId: string): Promise<LearningPath[]> { return []; }
-  async updateLearningPath(_orgId: string, _id: string, _updates: Partial<LearningPath>): Promise<LearningPath | undefined> { return undefined; }
+  async createLearningPath(_orgId: string, path: InsertLearningPath): Promise<LearningPath> {
+    return { id: "mock", ...path } as LearningPath;
+  }
+  async getLearningPath(_orgId: string, _id: string): Promise<LearningPath | undefined> {
+    return undefined;
+  }
+  async listLearningPaths(_orgId: string): Promise<LearningPath[]> {
+    return [];
+  }
+  async updateLearningPath(
+    _orgId: string,
+    _id: string,
+    _updates: Partial<LearningPath>,
+  ): Promise<LearningPath | undefined> {
+    return undefined;
+  }
   async deleteLearningPath(_orgId: string, _id: string): Promise<void> {}
-  async upsertLearningProgress(_orgId: string, progress: InsertLearningProgress): Promise<LearningProgress> { return { id: "mock", ...progress } as LearningProgress; }
-  async getLearningProgress(_orgId: string, _employeeId: string, _moduleId: string): Promise<LearningProgress | undefined> { return undefined; }
-  async getEmployeeLearningProgress(_orgId: string, _employeeId: string): Promise<LearningProgress[]> { return []; }
-  async getModuleCompletionStats(_orgId: string, _moduleId: string) { return { total: 0, completed: 0, inProgress: 0, avgScore: 0 }; }
+  async upsertLearningProgress(_orgId: string, progress: InsertLearningProgress): Promise<LearningProgress> {
+    return { id: "mock", ...progress } as LearningProgress;
+  }
+  async getLearningProgress(
+    _orgId: string,
+    _employeeId: string,
+    _moduleId: string,
+  ): Promise<LearningProgress | undefined> {
+    return undefined;
+  }
+  async getEmployeeLearningProgress(_orgId: string, _employeeId: string): Promise<LearningProgress[]> {
+    return [];
+  }
+  async getModuleCompletionStats(_orgId: string, _moduleId: string) {
+    return { total: 0, completed: 0, inProgress: 0, avgScore: 0 };
+  }
 
   // --- Provider templates (not supported in cloud storage — use postgres backend) ---
-  async getProviderTemplates(_orgId: string, _userId: string): Promise<any[]> { return []; }
-  async getAllProviderTemplates(_orgId: string): Promise<any[]> { return []; }
+  async getProviderTemplates(_orgId: string, _userId: string): Promise<any[]> {
+    return [];
+  }
+  async getAllProviderTemplates(_orgId: string): Promise<any[]> {
+    return [];
+  }
   async createProviderTemplate(_orgId: string, _template: any): Promise<any> {
     throw new Error("Provider templates require PostgreSQL storage backend");
   }
-  async updateProviderTemplate(_orgId: string, _id: string, _userId: string, _updates: any): Promise<any | null> { return null; }
-  async deleteProviderTemplate(_orgId: string, _id: string, _userId: string): Promise<boolean> { return false; }
+  async updateProviderTemplate(_orgId: string, _id: string, _userId: string, _updates: any): Promise<any | null> {
+    return null;
+  }
+  async deleteProviderTemplate(_orgId: string, _id: string, _userId: string): Promise<boolean> {
+    return false;
+  }
 
   // --- GDPR/CCPA: bulk org data deletion (cloud backend) ---
-  async deleteOrgData(orgId: string): Promise<{ employeesDeleted: number; callsDeleted: number; usersDeleted: number }> {
+  async deleteOrgData(
+    orgId: string,
+  ): Promise<{ employeesDeleted: number; callsDeleted: number; usersDeleted: number }> {
     // For cloud (S3 JSON file) storage, delete the data blobs for the org
     const employees = await this.getAllEmployees(orgId);
     const calls = await this.getAllCalls(orgId);
@@ -879,10 +1138,7 @@ export class CloudStorage implements IStorage {
     totalEstimatedCostUsd: number;
     employeeCount: number;
   }> {
-    const [calls, employees] = await Promise.all([
-      this.getAllCalls(orgId),
-      this.getAllEmployees(orgId),
-    ]);
+    const [calls, employees] = await Promise.all([this.getAllCalls(orgId), this.getAllEmployees(orgId)]);
     const completedCalls = calls.filter((c: Call) => c.status === "completed");
     const totalDurationSeconds = completedCalls.reduce((sum: number, c: Call) => sum + (c.duration || 0), 0);
     return {

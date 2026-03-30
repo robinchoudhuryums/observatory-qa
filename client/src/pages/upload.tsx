@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { CALL_CATEGORIES } from "@shared/schema";
 import type { Employee } from "@shared/schema";
-import {  RiUploadLine as UploadIcon, RiMicLine  } from "@remixicon/react";
+import { RiUploadLine as UploadIcon, RiMicLine } from "@remixicon/react";
 
 type UploadTab = "file" | "record";
 
@@ -65,7 +65,9 @@ export default function Upload() {
             Upload Call Recordings
             <HelpTip text="Upload audio files (MP3, WAV, M4A, MP4, FLAC, OGG) to automatically transcribe and analyze. Processing takes 2-3 minutes. You'll get real-time status updates via the dashboard." />
           </h2>
-          <p className="text-muted-foreground">Upload audio files to analyze with AssemblyAI for transcription and sentiment analysis</p>
+          <p className="text-muted-foreground">
+            Upload audio files to analyze with AssemblyAI for transcription and sentiment analysis
+          </p>
         </div>
       </header>
 
@@ -89,7 +91,9 @@ export default function Upload() {
             aria-selected={tab === "record"}
             aria-controls="panel-record"
             className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
-              tab === "record" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+              tab === "record"
+                ? "bg-background shadow-sm text-foreground"
+                : "text-muted-foreground hover:text-foreground"
             }`}
             onClick={() => setTab("record")}
           >
@@ -99,7 +103,11 @@ export default function Upload() {
         </div>
 
         {/* File upload tab */}
-        {tab === "file" && <div id="panel-file" role="tabpanel"><FileUpload /></div>}
+        {tab === "file" && (
+          <div id="panel-file" role="tabpanel">
+            <FileUpload />
+          </div>
+        )}
 
         {/* Record live tab */}
         {tab === "record" && (
@@ -125,7 +133,10 @@ export default function Upload() {
                   </SelectContent>
                 </Select>
 
-                <Select value={employeeId || "__unassigned__"} onValueChange={(v) => setEmployeeId(v === "__unassigned__" ? "" : v)}>
+                <Select
+                  value={employeeId || "__unassigned__"}
+                  onValueChange={(v) => setEmployeeId(v === "__unassigned__" ? "" : v)}
+                >
                   <SelectTrigger className="w-52" aria-label="Assign to agent">
                     <SelectValue placeholder="Assign to agent" />
                   </SelectTrigger>
@@ -146,9 +157,7 @@ export default function Upload() {
 
               {isUploading && (
                 <div className="mt-4 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900">
-                  <p className="text-sm text-blue-800 dark:text-blue-300">
-                    Uploading recording... Please wait.
-                  </p>
+                  <p className="text-sm text-blue-800 dark:text-blue-300">Uploading recording... Please wait.</p>
                 </div>
               )}
             </div>
@@ -199,8 +208,8 @@ export default function Upload() {
 
             <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-lg">
               <p className="text-sm text-blue-800 dark:text-blue-300">
-                <strong>Note:</strong> Processing typically takes 2-3 minutes per audio file.
-                You'll receive real-time updates on the transcription status.
+                <strong>Note:</strong> Processing typically takes 2-3 minutes per audio file. You'll receive real-time
+                updates on the transcription status.
               </p>
             </div>
           </div>

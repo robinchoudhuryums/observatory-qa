@@ -70,7 +70,7 @@ export function reportError(error: unknown, context?: ErrorContext): void {
     });
   } else {
     // Sentry not configured — fall back to console for dev visibility only.
-    // eslint-disable-next-line no-console
+
     console.error("[APP_ERROR]", {
       timestamp: new Date().toISOString(),
       message: errorObj.message,
@@ -98,7 +98,7 @@ export function setErrorReportingUser(user: { id: string; orgId?: string; role?:
  */
 export function withErrorReporting<T extends (...args: unknown[]) => Promise<unknown>>(
   fn: T,
-  context?: ErrorContext
+  context?: ErrorContext,
 ): T {
   return (async (...args: unknown[]) => {
     try {

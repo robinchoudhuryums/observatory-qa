@@ -5,8 +5,12 @@ import { Progress } from "@/components/ui/progress";
 import { cn, safeStorage } from "@/lib/utils";
 import { useSubscription } from "@/hooks/use-subscription";
 import {
-  RiCheckboxCircleFill, RiCheckboxBlankCircleLine, RiArrowRightLine,
-  RiArrowDownSLine, RiCloseLine, RiRocketLine,
+  RiCheckboxCircleFill,
+  RiCheckboxBlankCircleLine,
+  RiArrowRightLine,
+  RiArrowDownSLine,
+  RiCloseLine,
+  RiRocketLine,
 } from "@remixicon/react";
 
 const STORAGE_KEY = "observatory-onboarding-v2";
@@ -117,12 +121,21 @@ export default function OnboardingChecklist({
 
   // Auto-mark steps from server-side data
   useEffect(() => {
-    setCompleted(prev => {
+    setCompleted((prev) => {
       const next = { ...prev };
       let changed = false;
-      if (hasCallsData && !prev.upload_first_call) { next.upload_first_call = true; changed = true; }
-      if (hasCallsData && !prev.review_analysis) { next.review_analysis = true; changed = true; }
-      if (hasEmployeesData && !prev.add_employee) { next.add_employee = true; changed = true; }
+      if (hasCallsData && !prev.upload_first_call) {
+        next.upload_first_call = true;
+        changed = true;
+      }
+      if (hasCallsData && !prev.review_analysis) {
+        next.review_analysis = true;
+        changed = true;
+      }
+      if (hasEmployeesData && !prev.add_employee) {
+        next.add_employee = true;
+        changed = true;
+      }
       if (changed) saveCompleted(next);
       return changed ? next : prev;
     });
@@ -130,18 +143,16 @@ export default function OnboardingChecklist({
 
   const steps = useMemo(() => {
     if (isLoading) return [];
-    return ALL_STEPS.filter(s =>
-      s.plans.includes("all") || s.plans.includes(planTier as any)
-    );
+    return ALL_STEPS.filter((s) => s.plans.includes("all") || s.plans.includes(planTier as any));
   }, [planTier, isLoading]);
 
-  const completedCount = steps.filter(s => completed[s.id]).length;
+  const completedCount = steps.filter((s) => completed[s.id]).length;
   const totalCount = steps.length;
   const progressPct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
   const allDone = completedCount === totalCount && totalCount > 0;
 
   const markComplete = (id: string) => {
-    setCompleted(prev => {
+    setCompleted((prev) => {
       const next = { ...prev, [id]: true };
       saveCompleted(next);
       return next;
@@ -160,7 +171,7 @@ export default function OnboardingChecklist({
       {/* Header */}
       <div
         className="flex items-center justify-between px-5 py-4 cursor-pointer hover:bg-muted/30 transition-colors"
-        onClick={() => setCollapsed(v => !v)}
+        onClick={() => setCollapsed((v) => !v)}
       >
         <div className="flex items-center gap-3">
           <div
@@ -170,9 +181,7 @@ export default function OnboardingChecklist({
             <RiRocketLine className="w-4 h-4" style={{ color: "hsl(var(--brand-from))" }} />
           </div>
           <div>
-            <h3 className="font-semibold text-sm text-foreground">
-              {allDone ? "Setup complete!" : "Get started"}
-            </h3>
+            <h3 className="font-semibold text-sm text-foreground">{allDone ? "Setup complete!" : "Get started"}</h3>
             <p className="text-xs text-muted-foreground">
               {allDone ? "You've completed all setup steps." : `${completedCount} of ${totalCount} steps done`}
             </p>
@@ -188,7 +197,10 @@ export default function OnboardingChecklist({
           />
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); handleDismiss(); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDismiss();
+            }}
             className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors ml-1"
             aria-label="Dismiss checklist"
           >
@@ -207,7 +219,7 @@ export default function OnboardingChecklist({
                 key={step.id}
                 className={cn(
                   "flex items-center gap-3 px-5 py-3 transition-colors",
-                  done ? "bg-muted/20" : "hover:bg-muted/30"
+                  done ? "bg-muted/20" : "hover:bg-muted/30",
                 )}
               >
                 <button
@@ -226,9 +238,7 @@ export default function OnboardingChecklist({
                   <p className={cn("text-sm font-medium", done && "line-through text-muted-foreground")}>
                     {step.label}
                   </p>
-                  {!done && (
-                    <p className="text-xs text-muted-foreground truncate">{step.description}</p>
-                  )}
+                  {!done && <p className="text-xs text-muted-foreground truncate">{step.description}</p>}
                 </div>
                 {!done && (
                   <Link href={step.href}>

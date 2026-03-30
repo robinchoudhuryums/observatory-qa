@@ -108,11 +108,14 @@ export function calibrateAnalysis(
     calibration_applied: true,
   };
 
-  logger.debug({
-    originalScore: analysis.performance_score,
-    calibratedScore: result.performance_score,
-    config: { center: config.targetCenter, spread: config.targetSpread },
-  }, "Score calibration applied");
+  logger.debug(
+    {
+      originalScore: analysis.performance_score,
+      calibratedScore: result.performance_score,
+      config: { center: config.targetCenter, spread: config.targetSpread },
+    },
+    "Score calibration applied",
+  );
 
   return result;
 }
@@ -120,10 +123,7 @@ export function calibrateAnalysis(
 /**
  * Check if a score triggers low/high alerts (uses calibrated thresholds).
  */
-export function getScoreAlertLevel(
-  score: number,
-  orgSettings?: any,
-): "low" | "high" | null {
+export function getScoreAlertLevel(score: number, orgSettings?: any): "low" | "high" | null {
   const config = mergeConfig(orgSettings);
   if (score <= config.lowThreshold) return "low";
   if (score >= config.highThreshold) return "high";

@@ -1,5 +1,5 @@
-import React from 'react';
-import { reportError } from '@/lib/error-reporting';
+import React from "react";
+import { reportError } from "@/lib/error-reporting";
 
 interface Props {
   children: React.ReactNode;
@@ -53,7 +53,9 @@ export class ErrorBoundary extends React.Component<Props, State> {
                 Try Again
               </button>
               <button
-                onClick={() => { window.location.href = "/dashboard"; }}
+                onClick={() => {
+                  window.location.href = "/dashboard";
+                }}
                 className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground bg-muted hover:bg-muted/80 rounded-md transition-colors"
               >
                 Go to Dashboard

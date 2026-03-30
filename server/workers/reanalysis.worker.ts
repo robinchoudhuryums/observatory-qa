@@ -35,7 +35,7 @@ export function createReanalysisWorker(
       if (callIds?.length) {
         // Specific call IDs requested — fetch only those (small set, no full table scan)
         const targetCalls = await storage.getCallsWithDetails(orgId, { status: "completed", limit: callIds.length });
-        callsWithTranscripts = targetCalls.filter(c => callIds.includes(c.id) && c.transcript?.text);
+        callsWithTranscripts = targetCalls.filter((c) => callIds.includes(c.id) && c.transcript?.text);
       } else {
         // All completed calls — paginate in chunks to avoid memory exhaustion
         const CHUNK_SIZE = 200;
@@ -44,7 +44,7 @@ export function createReanalysisWorker(
         let hasMore = true;
         while (hasMore) {
           const chunk = await storage.getCallsWithDetails(orgId, { status: "completed", limit: CHUNK_SIZE, offset });
-          const withTranscripts = chunk.filter(c => c.transcript?.text);
+          const withTranscripts = chunk.filter((c) => c.transcript?.text);
           callsWithTranscripts.push(...withTranscripts);
           offset += CHUNK_SIZE;
           hasMore = chunk.length === CHUNK_SIZE;
@@ -81,7 +81,10 @@ export function createReanalysisWorker(
           }
 
           const aiAnalysis = await aiProvider.analyzeCallTranscript(
-            transcriptText, call.id, call.callCategory, promptTemplate,
+            transcriptText,
+            call.id,
+            call.callCategory,
+            promptTemplate,
           );
 
           const { analysis } = assemblyAIService.processTranscriptData(
@@ -130,13 +133,9 @@ export function createReanalysisWorker(
     logger.error({ jobId: job?.id, err }, "Reanalysis worker: job failed");
     // Move permanently failed jobs to dead letter queue for admin review
     if (job && job.attemptsMade >= (job.opts?.attempts || 1)) {
-      moveToDeadLetter(
-        "bulk-reanalysis",
-        job.id || "unknown",
-        job.data.orgId,
-        err.message,
-        job.data as any,
-      ).catch(() => {});
+      moveToDeadLetter("bulk-reanalysis", job.id || "unknown", job.data.orgId, err.message, job.data as any).catch(
+        () => {},
+      );
     }
   });
 

@@ -26,7 +26,10 @@ async function rollbackOrg(orgId: string): Promise<void> {
       logger.info({ orgId }, "Rolled back orphaned organization after user creation failure");
     } else {
       // Non-PostgreSQL backend (memory/S3) — log for manual cleanup
-      logger.error({ orgId }, "CRITICAL: orphaned org created but cannot auto-rollback (non-postgres backend) — manual cleanup required");
+      logger.error(
+        { orgId },
+        "CRITICAL: orphaned org created but cannot auto-rollback (non-postgres backend) — manual cleanup required",
+      );
     }
   } catch (rollbackErr) {
     logger.error({ err: rollbackErr, orgId }, "CRITICAL: org rollback failed — orphaned org requires manual cleanup");
@@ -94,13 +97,17 @@ export function registerRegistrationRoutes(app: Express): void {
 
       // Determine default call categories based on industry
       const dentalCategories = [
-        "dental_scheduling", "dental_insurance", "dental_treatment",
-        "dental_recall", "dental_emergency", "dental_encounter", "dental_consultation",
+        "dental_scheduling",
+        "dental_insurance",
+        "dental_treatment",
+        "dental_recall",
+        "dental_emergency",
+        "dental_encounter",
+        "dental_consultation",
       ];
       const medicalCategories = ["inbound", "outbound", "clinical_encounter", "telemedicine"];
-      const defaultCategories = industryType === "dental" ? dentalCategories
-        : industryType === "medical" ? medicalCategories
-        : undefined;
+      const defaultCategories =
+        industryType === "dental" ? dentalCategories : industryType === "medical" ? medicalCategories : undefined;
 
       // Create the organization
       const org = await storage.createOrganization({
@@ -143,8 +150,12 @@ export function registerRegistrationRoutes(app: Express): void {
           const templatesPath = join(process.cwd(), "data", "dental", "default-prompt-templates.json");
           const rawTemplates = await readFile(templatesPath, "utf-8");
           const templates = JSON.parse(rawTemplates) as Array<{
-            callCategory: string; name: string; evaluationCriteria: string;
-            requiredPhrases?: unknown; scoringWeights?: unknown; additionalInstructions?: string;
+            callCategory: string;
+            name: string;
+            evaluationCriteria: string;
+            requiredPhrases?: unknown;
+            scoringWeights?: unknown;
+            additionalInstructions?: string;
           }>;
           for (const tmpl of templates) {
             await storage.createPromptTemplate(org.id, {
@@ -203,50 +214,57 @@ export function registerRegistrationRoutes(app: Express): void {
   });
 
   // Create invitation (admin/manager only)
-  app.post("/api/invitations", requireAuth, requireRole("manager"), injectOrgContext, enforceUserQuota(), async (req, res) => {
-    try {
-      const { email, role } = req.body;
-      if (!email) {
-        return res.status(400).json({ message: "Email is required" });
-      }
-      if (role && !["viewer", "manager", "admin"].includes(role)) {
-        return res.status(400).json({ message: "Invalid role" });
-      }
+  app.post(
+    "/api/invitations",
+    requireAuth,
+    requireRole("manager"),
+    injectOrgContext,
+    enforceUserQuota(),
+    async (req, res) => {
+      try {
+        const { email, role } = req.body;
+        if (!email) {
+          return res.status(400).json({ message: "Email is required" });
+        }
+        if (role && !["viewer", "manager", "admin"].includes(role)) {
+          return res.status(400).json({ message: "Invalid role" });
+        }
 
-      // Check if user with this email already exists in the org
-      const orgUsers = await storage.listUsersByOrg(req.orgId!);
-      if (orgUsers.some(u => u.username === email)) {
-        return res.status(409).json({ message: "A user with this email already exists" });
+        // Check if user with this email already exists in the org
+        const orgUsers = await storage.listUsersByOrg(req.orgId!);
+        if (orgUsers.some((u) => u.username === email)) {
+          return res.status(409).json({ message: "A user with this email already exists" });
+        }
+
+        // Check for existing pending invitation
+        const existingInvites = await storage.listInvitations(req.orgId!);
+        const pending = existingInvites.find((i) => i.email === email && i.status === "pending");
+        if (pending) {
+          return res.status(409).json({ message: "An invitation for this email is already pending" });
+        }
+
+        const invitation = await storage.createInvitation(req.orgId!, {
+          orgId: req.orgId!,
+          email,
+          role: role || "viewer",
+          invitedBy: req.user!.username,
+        });
+
+        logPhiAccess({
+          ...auditContext(req),
+          event: "invitation_sent",
+          resourceType: "invitation",
+          resourceId: invitation.id,
+          detail: `Email: ${email}, Role: ${role || "viewer"}, Invited by: ${req.user!.username}`,
+        });
+        logger.info({ orgId: req.orgId, email, role: role || "viewer" }, "Invitation created");
+        res.status(201).json(invitation);
+      } catch (error) {
+        logger.error({ err: error }, "Failed to create invitation");
+        res.status(500).json({ message: "Failed to create invitation" });
       }
-
-      // Check for existing pending invitation
-      const existingInvites = await storage.listInvitations(req.orgId!);
-      const pending = existingInvites.find(i => i.email === email && i.status === "pending");
-      if (pending) {
-        return res.status(409).json({ message: "An invitation for this email is already pending" });
-      }
-
-      const invitation = await storage.createInvitation(req.orgId!, {
-        orgId: req.orgId!,
-        email,
-        role: role || "viewer",
-        invitedBy: req.user!.username,
-      });
-
-      logPhiAccess({
-        ...auditContext(req),
-        event: "invitation_sent",
-        resourceType: "invitation",
-        resourceId: invitation.id,
-        detail: `Email: ${email}, Role: ${role || "viewer"}, Invited by: ${req.user!.username}`,
-      });
-      logger.info({ orgId: req.orgId, email, role: role || "viewer" }, "Invitation created");
-      res.status(201).json(invitation);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to create invitation");
-      res.status(500).json({ message: "Failed to create invitation" });
-    }
-  });
+    },
+  );
 
   // Accept invitation (public — requires valid token)
   app.post("/api/invitations/accept", async (req, res, next) => {
@@ -318,7 +336,10 @@ export function registerRegistrationRoutes(app: Express): void {
       // Resolve org for session
       const org = await storage.getOrganization(invitation.orgId);
 
-      logger.info({ orgId: invitation.orgId, userId: user.id, username, email: invitation.email }, "Invitation accepted");
+      logger.info(
+        { orgId: invitation.orgId, userId: user.id, username, email: invitation.email },
+        "Invitation accepted",
+      );
 
       // Auto-login
       const sessionUser = {

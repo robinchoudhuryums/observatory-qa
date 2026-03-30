@@ -108,6 +108,42 @@ On limit exceeded, returns `429 Too Many Requests`.
 
 ---
 
+## Stripe Price Setup
+
+Create these prices in the Stripe Dashboard (Products → Add product) and set the corresponding env vars:
+
+### Flat-Rate Subscription Prices
+| Env Var | Product | Amount | Billing |
+|---------|---------|--------|---------|
+| `STRIPE_PRICE_STARTER_MONTHLY` | Observatory QA Starter | $79.00 | Monthly recurring |
+| `STRIPE_PRICE_STARTER_YEARLY` | Observatory QA Starter (Annual) | $756.00 | Yearly recurring ($63/mo) |
+| `STRIPE_PRICE_PROFESSIONAL_MONTHLY` | Observatory QA Professional | $199.00 | Monthly recurring |
+| `STRIPE_PRICE_PROFESSIONAL_YEARLY` | Observatory QA Professional (Annual) | $1,908.00 | Yearly recurring ($159/mo) |
+| `STRIPE_PRICE_ENTERPRISE_MONTHLY` | Observatory QA Enterprise | $999.00 | Monthly recurring |
+| `STRIPE_PRICE_ENTERPRISE_YEARLY` | Observatory QA Enterprise (Annual) | $9,588.00 | Yearly recurring ($799/mo) |
+
+### Add-On Prices
+| Env Var | Product | Amount | Billing |
+|---------|---------|--------|---------|
+| `STRIPE_PRICE_CLINICAL_ADDON_MONTHLY` | Clinical Documentation Add-On | $49.00 | Monthly recurring |
+
+### Metered Prices (Per-Seat)
+| Env Var | Product | Amount | Type |
+|---------|---------|--------|------|
+| `STRIPE_PRICE_STARTER_SEATS` | Starter Additional Seats | $15.00/unit | Metered (usage_type=metered) |
+| `STRIPE_PRICE_PROFESSIONAL_SEATS` | Professional Additional Seats | $20.00/unit | Metered |
+
+### Metered Prices (Per-Call Overage)
+| Env Var | Product | Amount | Type |
+|---------|---------|--------|------|
+| `STRIPE_PRICE_STARTER_OVERAGE` | Starter Call Overage | $0.35/unit | Metered |
+| `STRIPE_PRICE_PROFESSIONAL_OVERAGE` | Professional Call Overage | $0.25/unit | Metered |
+| `STRIPE_PRICE_ENTERPRISE_OVERAGE` | Enterprise Call Overage | $0.15/unit | Metered |
+
+**Important:** Use Stripe's test mode first. All price IDs start with `price_` (e.g., `price_1abc...`). Copy the price ID from the Stripe Dashboard into your `.env`.
+
+---
+
 ## Stripe Webhook Test Plan
 
 ### Setup

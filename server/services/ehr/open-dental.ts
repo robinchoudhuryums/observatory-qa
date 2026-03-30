@@ -35,14 +35,16 @@ export class OpenDentalAdapter implements IEhrAdapter {
   private buildHeaders(config: EhrConnectionConfig): Record<string, string> {
     return {
       "Content-Type": "application/json",
-      "Authorization": `ODFHIR ${config.apiKey}/${config.options?.customerKey || ""}`,
+      Authorization: `ODFHIR ${config.apiKey}/${config.options?.customerKey || ""}`,
     };
   }
 
   private async request<T>(config: EhrConnectionConfig, method: string, path: string, body?: unknown): Promise<T> {
     const url = `${config.baseUrl.replace(/\/$/, "")}${path}`;
     return ehrRequest<T>({
-      method, url, body,
+      method,
+      url,
+      body,
       headers: this.buildHeaders(config),
       systemLabel: "Open Dental",
     });
@@ -63,7 +65,7 @@ export class OpenDentalAdapter implements IEhrAdapter {
 
   async searchPatients(
     config: EhrConnectionConfig,
-    query: { name?: string; dob?: string; phone?: string }
+    query: { name?: string; dob?: string; phone?: string },
   ): Promise<EhrPatient[]> {
     const params = new URLSearchParams();
     if (query.name) params.set("LName", query.name.split(" ").pop() || query.name);
@@ -71,18 +73,14 @@ export class OpenDentalAdapter implements IEhrAdapter {
     if (query.phone) params.set("HmPhone", query.phone);
     params.set("Limit", "20");
 
-    const patients = await this.request<OpenDentalPatient[]>(
-      config, "GET", `/patients?${params.toString()}`
-    );
+    const patients = await this.request<OpenDentalPatient[]>(config, "GET", `/patients?${params.toString()}`);
 
-    return patients.map(p => this.mapPatient(p));
+    return patients.map((p) => this.mapPatient(p));
   }
 
   async getPatient(config: EhrConnectionConfig, ehrPatientId: string): Promise<EhrPatient | null> {
     try {
-      const patient = await this.request<OpenDentalPatient>(
-        config, "GET", `/patients/${ehrPatientId}`
-      );
+      const patient = await this.request<OpenDentalPatient>(config, "GET", `/patients/${ehrPatientId}`);
       return this.mapPatient(patient);
     } catch {
       return null;
@@ -91,7 +89,7 @@ export class OpenDentalAdapter implements IEhrAdapter {
 
   async getAppointments(
     config: EhrConnectionConfig,
-    params: { startDate: string; endDate: string; providerId?: string }
+    params: { startDate: string; endDate: string; providerId?: string },
   ): Promise<EhrAppointment[]> {
     const queryParams = new URLSearchParams({
       date: params.startDate,
@@ -100,10 +98,12 @@ export class OpenDentalAdapter implements IEhrAdapter {
     if (params.providerId) queryParams.set("provNum", params.providerId);
 
     const appointments = await this.request<OpenDentalAppointment[]>(
-      config, "GET", `/appointments?${queryParams.toString()}`
+      config,
+      "GET",
+      `/appointments?${queryParams.toString()}`,
     );
 
-    return appointments.map(a => this.mapAppointment(a));
+    return appointments.map((a) => this.mapAppointment(a));
   }
 
   async getTodayAppointments(config: EhrConnectionConfig, providerId?: string): Promise<EhrAppointment[]> {
@@ -114,16 +114,14 @@ export class OpenDentalAdapter implements IEhrAdapter {
   async pushClinicalNote(config: EhrConnectionConfig, note: EhrClinicalNote): Promise<EhrSyncResult> {
     try {
       // Open Dental uses "commlog" (communication log) or "procnote" for clinical notes
-      const result = await this.request<{ CommlogNum?: number; ProcNoteNum?: number }>(
-        config, "POST", "/commlog", {
-          PatNum: note.patientId,
-          CommDateTime: note.date,
-          CommType: 0, // General note
-          Note: note.content,
-          Mode_: 0, // None (documentation)
-          UserNum: note.providerId,
-        }
-      );
+      const result = await this.request<{ CommlogNum?: number; ProcNoteNum?: number }>(config, "POST", "/commlog", {
+        PatNum: note.patientId,
+        CommDateTime: note.date,
+        CommType: 0, // General note
+        Note: note.content,
+        Mode_: 0, // None (documentation)
+        UserNum: note.providerId,
+      });
 
       return {
         success: true,
@@ -141,11 +139,9 @@ export class OpenDentalAdapter implements IEhrAdapter {
 
   async getPatientTreatmentPlans(config: EhrConnectionConfig, patientId: string): Promise<EhrTreatmentPlan[]> {
     try {
-      const plans = await this.request<OpenDentalTreatPlan[]>(
-        config, "GET", `/treatplans?PatNum=${patientId}`
-      );
+      const plans = await this.request<OpenDentalTreatPlan[]>(config, "GET", `/treatplans?PatNum=${patientId}`);
 
-      return plans.map(plan => ({
+      return plans.map((plan) => ({
         ehrPlanId: String(plan.TreatPlanNum),
         patientId,
         providerId: "",
@@ -171,10 +167,12 @@ export class OpenDentalAdapter implements IEhrAdapter {
       dateOfBirth: p.Birthdate || "",
       phone: p.HmPhone || p.WirelessPhone || undefined,
       email: p.Email || undefined,
-      insurance: p.carrierName ? {
-        carrier: p.carrierName,
-        subscriberId: p.SubscriberID || undefined,
-      } : undefined,
+      insurance: p.carrierName
+        ? {
+            carrier: p.carrierName,
+            subscriberId: p.SubscriberID || undefined,
+          }
+        : undefined,
       allergies: p.MedicalComp ? [p.MedicalComp] : undefined,
       medicalAlerts: p.MedUrgNote ? [p.MedUrgNote] : undefined,
       lastVisitDate: p.DateLastVisit || undefined,
@@ -198,19 +196,27 @@ export class OpenDentalAdapter implements IEhrAdapter {
 
   private mapAptStatus(status: number | undefined): EhrAppointment["status"] {
     switch (status) {
-      case 1: return "scheduled";
-      case 2: return "completed";
-      case 3: return "cancelled"; // Unscheduled list
-      case 5: return "cancelled"; // Broken
-      default: return "scheduled";
+      case 1:
+        return "scheduled";
+      case 2:
+        return "completed";
+      case 3:
+        return "cancelled"; // Unscheduled list
+      case 5:
+        return "cancelled"; // Broken
+      default:
+        return "scheduled";
     }
   }
 
   private mapTreatPlanStatus(status: number | undefined): EhrTreatmentPlan["status"] {
     switch (status) {
-      case 0: return "proposed"; // Active
-      case 1: return "completed"; // Inactive
-      default: return "proposed";
+      case 0:
+        return "proposed"; // Active
+      case 1:
+        return "completed"; // Inactive
+      default:
+        return "proposed";
     }
   }
 }

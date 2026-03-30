@@ -365,12 +365,12 @@ Every data entity has an `orgId` field. All storage methods take `orgId` as the 
 **Industry types** (set at registration): `general`, `dental`, `medical`, `behavioral_health`, `veterinary`
 
 **Plan tiers** (defined statically in `shared/schema.ts`):
-| Plan | Price | Calls/mo | Storage | Base Seats | RAG | Custom Templates | Clinical Docs | SSO |
-|------|-------|----------|---------|------------|-----|-----------------|---------------|-----|
-| Free | $0 | 50 | 500 MB | 3 | No | No | No | No |
-| Starter | $79/mo | 300 | 5 GB | 5 (+$12/seat) | Yes | Yes | No | No |
-| Professional | $149/mo | 1,000 | 20 GB | 10 (+$18/seat) | Yes | Yes | Yes | No |
-| Enterprise | $999/mo | Unlimited | 500 GB | 25 (+$25/seat) | Yes | Yes | Yes | Yes |
+| Plan | Price | Calls/mo | Overage | Storage | Base Seats | RAG | Clinical Docs | SSO |
+|------|-------|----------|---------|---------|------------|-----|---------------|-----|
+| Free | $0 | 50 | Hard block | 500 MB | 2 | No | No | No |
+| Starter | $79/mo | 300 | $0.35/call | 5 GB | 5 (+$15/seat) | Yes | +$49/mo add-on | No |
+| Professional | $199/mo | 1,000 | $0.25/call | 20 GB | 10 (+$20/seat) | Yes | Included | No |
+| Enterprise | $999/mo | 5,000 | $0.15/call | 500 GB | 25 (+$25/seat) | Yes | Included | Yes |
 
 ### Audio Processing Pipeline (server/routes/calls.ts)
 1. Upload audio file (multer) — requires active subscription
@@ -832,12 +832,13 @@ BEDROCK_MODEL                   # Default: us.anthropic.claude-sonnet-4-6
 # ─── Billing ─────────────────────────────────────────────────────────
 STRIPE_SECRET_KEY               # Stripe API secret
 STRIPE_WEBHOOK_SECRET           # Stripe webhook signing secret
-STRIPE_PRICE_STARTER_MONTHLY    # Price ID for Starter monthly
-STRIPE_PRICE_STARTER_YEARLY     # Price ID for Starter yearly
-STRIPE_PRICE_PROFESSIONAL_MONTHLY # Price ID for Professional monthly
-STRIPE_PRICE_PROFESSIONAL_YEARLY  # Price ID for Professional yearly
-STRIPE_PRICE_ENTERPRISE_MONTHLY # Price ID for Enterprise monthly
-STRIPE_PRICE_ENTERPRISE_YEARLY  # Price ID for Enterprise yearly
+STRIPE_PRICE_STARTER_MONTHLY    # Price ID for Starter monthly ($79)
+STRIPE_PRICE_STARTER_YEARLY     # Price ID for Starter yearly ($756)
+STRIPE_PRICE_PROFESSIONAL_MONTHLY # Price ID for Professional monthly ($199)
+STRIPE_PRICE_PROFESSIONAL_YEARLY  # Price ID for Professional yearly ($1908)
+STRIPE_PRICE_ENTERPRISE_MONTHLY # Price ID for Enterprise monthly ($999)
+STRIPE_PRICE_ENTERPRISE_YEARLY  # Price ID for Enterprise yearly ($9588)
+STRIPE_PRICE_CLINICAL_ADDON_MONTHLY # Price ID for Clinical Documentation add-on ($49/mo, Starter only)
 
 # ─── Google OAuth ────────────────────────────────────────────────────
 GOOGLE_CLIENT_ID                # OAuth client ID

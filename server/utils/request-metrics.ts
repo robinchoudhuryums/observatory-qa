@@ -42,7 +42,10 @@ export function getMetricsSummary(): Record<string, RouteSummary> {
   for (const key of keys) {
     const data = routeMetrics.get(key)!;
     data.entries = data.entries.filter((e: RequestEntry) => e.timestamp > cutoff);
-    if (data.entries.length === 0) { routeMetrics.delete(key); continue; }
+    if (data.entries.length === 0) {
+      routeMetrics.delete(key);
+      continue;
+    }
     const latencies = data.entries.map((e: RequestEntry) => e.durationMs).sort((a: number, b: number) => a - b);
     const errorCount = data.entries.filter((e: RequestEntry) => e.statusCode >= 400).length;
     result[key] = {
@@ -58,6 +61,6 @@ export function getMetricsSummary(): Record<string, RouteSummary> {
 
 function percentile(sorted: number[], p: number): number {
   if (sorted.length === 0) return 0;
-  const idx = Math.ceil(sorted.length * p / 100) - 1;
+  const idx = Math.ceil((sorted.length * p) / 100) - 1;
   return sorted[Math.max(0, idx)];
 }

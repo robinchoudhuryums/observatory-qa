@@ -5,32 +5,52 @@
 import type { PromptTemplateConfig } from "./ai-types";
 
 const CATEGORY_CONTEXT: Record<string, string> = {
-  inbound: "This is an INBOUND call — a customer or patient called into the company. One speaker is the customer/patient and the other is the company employee/agent.",
-  outbound: "This is an OUTBOUND call — the company employee called a customer or patient. One speaker is the employee/agent and the other is the customer/patient.",
-  internal: "This is an INTERNAL call — both speakers are coworkers or employees within the same company. Evaluate collaboration, communication clarity, and productivity rather than customer service metrics.",
-  vendor: "This is a VENDOR/PARTNER call — the employee is speaking with an external vendor or business partner. Evaluate negotiation, clarity, and professionalism.",
-  clinical_encounter: "This is a CLINICAL ENCOUNTER recording — a healthcare provider seeing a patient in person. One speaker is the provider (doctor/NP/PA) and the other is the patient. Focus on clinical documentation accuracy rather than customer service metrics.",
-  telemedicine: "This is a TELEMEDICINE VISIT — a remote healthcare consultation via phone or video. One speaker is the healthcare provider and the other is the patient. Focus on clinical documentation accuracy rather than customer service metrics.",
+  inbound:
+    "This is an INBOUND call — a customer or patient called into the company. One speaker is the customer/patient and the other is the company employee/agent.",
+  outbound:
+    "This is an OUTBOUND call — the company employee called a customer or patient. One speaker is the employee/agent and the other is the customer/patient.",
+  internal:
+    "This is an INTERNAL call — both speakers are coworkers or employees within the same company. Evaluate collaboration, communication clarity, and productivity rather than customer service metrics.",
+  vendor:
+    "This is a VENDOR/PARTNER call — the employee is speaking with an external vendor or business partner. Evaluate negotiation, clarity, and professionalism.",
+  clinical_encounter:
+    "This is a CLINICAL ENCOUNTER recording — a healthcare provider seeing a patient in person. One speaker is the provider (doctor/NP/PA) and the other is the patient. Focus on clinical documentation accuracy rather than customer service metrics.",
+  telemedicine:
+    "This is a TELEMEDICINE VISIT — a remote healthcare consultation via phone or video. One speaker is the healthcare provider and the other is the patient. Focus on clinical documentation accuracy rather than customer service metrics.",
   // Dental front desk call categories
-  dental_scheduling: "This is a DENTAL SCHEDULING call — a patient or prospective patient is calling to schedule, reschedule, or cancel a dental appointment. One speaker is the front desk staff and the other is the patient. Evaluate scheduling efficiency, patient experience, and whether the staff properly verified insurance and patient identity.",
-  dental_insurance: "This is a DENTAL INSURANCE call — the front desk or billing staff is handling insurance verification, benefits explanation, or pre-authorization. Evaluate accuracy of insurance information communicated, clarity of patient financial responsibility explanation, and compliance with billing protocols.",
-  dental_treatment: "This is a DENTAL TREATMENT DISCUSSION call — staff is discussing a treatment plan with a patient, including procedures, costs, payment options, and scheduling. Evaluate treatment acceptance techniques, clarity of financial presentation, and whether all patient questions were addressed. Track whether the patient accepted, deferred, or declined the proposed treatment.",
-  dental_recall: "This is a DENTAL RECALL/RECARE call — staff is contacting a patient for a recall or recare appointment (routine cleaning, periodic exam). Evaluate persuasiveness, professionalism, and whether the staff communicated the importance of preventive care.",
-  dental_emergency: "This is a DENTAL EMERGENCY TRIAGE call — a patient is calling about an urgent dental issue (toothache, trauma, swelling, broken tooth). One speaker is the front desk or clinical staff and the other is the patient. Evaluate whether proper triage questions were asked (onset, severity, symptoms, allergies, medications), appropriate urgency assessment was made, and clear next-step instructions were given.",
+  dental_scheduling:
+    "This is a DENTAL SCHEDULING call — a patient or prospective patient is calling to schedule, reschedule, or cancel a dental appointment. One speaker is the front desk staff and the other is the patient. Evaluate scheduling efficiency, patient experience, and whether the staff properly verified insurance and patient identity.",
+  dental_insurance:
+    "This is a DENTAL INSURANCE call — the front desk or billing staff is handling insurance verification, benefits explanation, or pre-authorization. Evaluate accuracy of insurance information communicated, clarity of patient financial responsibility explanation, and compliance with billing protocols.",
+  dental_treatment:
+    "This is a DENTAL TREATMENT DISCUSSION call — staff is discussing a treatment plan with a patient, including procedures, costs, payment options, and scheduling. Evaluate treatment acceptance techniques, clarity of financial presentation, and whether all patient questions were addressed. Track whether the patient accepted, deferred, or declined the proposed treatment.",
+  dental_recall:
+    "This is a DENTAL RECALL/RECARE call — staff is contacting a patient for a recall or recare appointment (routine cleaning, periodic exam). Evaluate persuasiveness, professionalism, and whether the staff communicated the importance of preventive care.",
+  dental_emergency:
+    "This is a DENTAL EMERGENCY TRIAGE call — a patient is calling about an urgent dental issue (toothache, trauma, swelling, broken tooth). One speaker is the front desk or clinical staff and the other is the patient. Evaluate whether proper triage questions were asked (onset, severity, symptoms, allergies, medications), appropriate urgency assessment was made, and clear next-step instructions were given.",
   // Dental clinical documentation categories
-  dental_encounter: "This is a DENTAL CLINICAL ENCOUNTER — a dentist, hygienist, or dental specialist treating a patient in the office. Focus on clinical documentation accuracy, procedure details, and dental-specific terminology. Use CDT (Current Dental Terminology) codes instead of CPT codes.",
-  dental_consultation: "This is a DENTAL CONSULTATION — a new patient evaluation or second-opinion visit. Focus on comprehensive examination findings, treatment planning, and patient education. Use CDT codes for any procedures discussed or performed.",
+  dental_encounter:
+    "This is a DENTAL CLINICAL ENCOUNTER — a dentist, hygienist, or dental specialist treating a patient in the office. Focus on clinical documentation accuracy, procedure details, and dental-specific terminology. Use CDT (Current Dental Terminology) codes instead of CPT codes.",
+  dental_consultation:
+    "This is a DENTAL CONSULTATION — a new patient evaluation or second-opinion visit. Focus on comprehensive examination findings, treatment planning, and patient education. Use CDT codes for any procedures discussed or performed.",
   // Email channel categories
-  email_support: "This is a SUPPORT EMAIL — a customer or patient wrote in requesting help. Evaluate response quality: thoroughness, empathy, accuracy, resolution, and follow-up. The 'transcript' is the email text.",
-  email_billing: "This is a BILLING EMAIL — regarding payments, invoices, or financial matters. Evaluate accuracy of financial information, clarity of explanation, and resolution.",
-  email_complaint: "This is a COMPLAINT EMAIL — a customer is expressing dissatisfaction. Evaluate empathy, acknowledgment, resolution offered, and de-escalation approach.",
-  email_appointment: "This is an APPOINTMENT EMAIL — regarding scheduling, confirmation, or rescheduling. Evaluate responsiveness, clarity of instructions, and ease of scheduling.",
-  email_insurance: "This is an INSURANCE EMAIL — regarding coverage, authorization, or claims. Evaluate accuracy of insurance information, completeness, and patient guidance.",
-  email_referral: "This is a REFERRAL EMAIL — a patient or customer referral communication. Evaluate professionalism, completeness of information, and follow-up actions.",
-  email_followup: "This is a FOLLOW-UP EMAIL — a post-service or post-appointment communication. Evaluate timeliness, personalization, and quality of care continuity.",
-  email_general: "This is a GENERAL EMAIL — a miscellaneous inquiry or communication. Evaluate professionalism, response completeness, and clarity.",
+  email_support:
+    "This is a SUPPORT EMAIL — a customer or patient wrote in requesting help. Evaluate response quality: thoroughness, empathy, accuracy, resolution, and follow-up. The 'transcript' is the email text.",
+  email_billing:
+    "This is a BILLING EMAIL — regarding payments, invoices, or financial matters. Evaluate accuracy of financial information, clarity of explanation, and resolution.",
+  email_complaint:
+    "This is a COMPLAINT EMAIL — a customer is expressing dissatisfaction. Evaluate empathy, acknowledgment, resolution offered, and de-escalation approach.",
+  email_appointment:
+    "This is an APPOINTMENT EMAIL — regarding scheduling, confirmation, or rescheduling. Evaluate responsiveness, clarity of instructions, and ease of scheduling.",
+  email_insurance:
+    "This is an INSURANCE EMAIL — regarding coverage, authorization, or claims. Evaluate accuracy of insurance information, completeness, and patient guidance.",
+  email_referral:
+    "This is a REFERRAL EMAIL — a patient or customer referral communication. Evaluate professionalism, completeness of information, and follow-up actions.",
+  email_followup:
+    "This is a FOLLOW-UP EMAIL — a post-service or post-appointment communication. Evaluate timeliness, personalization, and quality of care continuity.",
+  email_general:
+    "This is a GENERAL EMAIL — a miscellaneous inquiry or communication. Evaluate professionalism, response completeness, and clarity.",
 };
-
 
 /**
  * For very long transcripts, keep the beginning and end (most info-dense)
@@ -73,18 +93,19 @@ export function buildSystemPrompt(callCategory?: string, template?: PromptTempla
     return buildClinicalSystemPrompt(callCategory, template);
   }
 
-  const categoryContext = callCategory && CATEGORY_CONTEXT[callCategory]
-    ? `\nCALL CONTEXT:\n${CATEGORY_CONTEXT[callCategory]}\n`
-    : "";
+  const categoryContext =
+    callCategory && CATEGORY_CONTEXT[callCategory] ? `\nCALL CONTEXT:\n${CATEGORY_CONTEXT[callCategory]}\n` : "";
 
   // Use custom evaluation criteria from template, or defaults
   let evaluationCriteria: string;
   if (template?.evaluationCriteria) {
     evaluationCriteria = `- EVALUATION CRITERIA (use these to guide your scoring):\n${template.evaluationCriteria}`;
   } else if (callCategory === "internal") {
-    evaluationCriteria = "- Evaluate on: communication clarity, collaboration effectiveness, action item follow-through, and productivity";
+    evaluationCriteria =
+      "- Evaluate on: communication clarity, collaboration effectiveness, action item follow-through, and productivity";
   } else {
-    evaluationCriteria = "- Evaluate the agent on: professionalism, product knowledge, empathy, problem resolution, and compliance with medical supply protocols";
+    evaluationCriteria =
+      "- Evaluate the agent on: professionalism, product knowledge, empathy, problem resolution, and compliance with medical supply protocols";
   }
 
   // Build scoring weights section
@@ -97,25 +118,25 @@ export function buildSystemPrompt(callCategory?: string, template?: PromptTempla
   // Build required phrases check
   let phrasesSection = "";
   if (template?.requiredPhrases && template.requiredPhrases.length > 0) {
-    const required = template.requiredPhrases.filter(p => p.severity === "required");
-    const recommended = template.requiredPhrases.filter(p => p.severity === "recommended");
+    const required = template.requiredPhrases.filter((p) => p.severity === "required");
+    const recommended = template.requiredPhrases.filter((p) => p.severity === "recommended");
     if (required.length > 0) {
       phrasesSection += `\n- REQUIRED PHRASES: The agent MUST say something equivalent to the following. Flag "missing_required_phrase:<label>" for each missing phrase:\n`;
-      phrasesSection += required.map(p => `  * "${p.phrase}" (${p.label})`).join("\n");
+      phrasesSection += required.map((p) => `  * "${p.phrase}" (${p.label})`).join("\n");
     }
     if (recommended.length > 0) {
       phrasesSection += `\n- RECOMMENDED PHRASES: The agent SHOULD say something similar to these. Note in suggestions if missing:\n`;
-      phrasesSection += recommended.map(p => `  * "${p.phrase}" (${p.label})`).join("\n");
+      phrasesSection += recommended.map((p) => `  * "${p.phrase}" (${p.label})`).join("\n");
     }
   }
 
   // Build reference documents section
   let referenceSection = "";
   if (template?.referenceDocuments && template.referenceDocuments.length > 0) {
-    const isRagRetrieved = template.referenceDocuments.some(d => d.category === "rag_retrieval");
+    const isRagRetrieved = template.referenceDocuments.some((d) => d.category === "rag_retrieval");
 
     if (isRagRetrieved) {
-      const ragText = template.referenceDocuments.map(d => d.text).join("\n\n");
+      const ragText = template.referenceDocuments.map((d) => d.text).join("\n\n");
       referenceSection = `\n- COMPANY KNOWLEDGE BASE (semantically retrieved): The following excerpts from company documentation were selected as most relevant to this specific call. Use them to evaluate compliance, product knowledge, and adherence to company procedures. Cite specific sections when relevant:\n${ragText}`;
     } else {
       const maxRefChars = 15000;
@@ -164,23 +185,40 @@ ${evaluationCriteria}${scoringSection}${phrasesSection}${referenceSection}${addi
  * Guides the AI on what to focus on for each medical specialty.
  */
 const SPECIALTY_CONTEXT: Record<string, string> = {
-  primary_care: "Focus on comprehensive assessment, preventive care recommendations, chronic disease management, medication reconciliation, and appropriate screening tests based on age/sex/risk factors.",
-  internal_medicine: "Focus on complex medical decision-making, multi-system assessment, medication interactions, specialist referral appropriateness, and diagnostic reasoning for internal medicine conditions.",
-  cardiology: "Focus on cardiovascular history (chest pain characterization, dyspnea classification, edema assessment), cardiac exam findings (murmurs, rhythm, JVD), cardiac medications, and risk stratification. Use ACC/AHA guidelines where applicable.",
-  dermatology: "Focus on lesion description using dermatologic terminology (morphology, distribution, color, size, borders), differential diagnosis, biopsy decisions, and treatment plans. Document lesion location precisely.",
-  orthopedics: "Focus on musculoskeletal exam (ROM, strength, stability testing, special tests), imaging interpretation, surgical vs. conservative management decisions, and functional limitations. Note laterality clearly.",
-  psychiatry: "Focus on mental status examination (MSE), psychiatric history, safety assessment (SI/HI), medication management (psychotropics, side effects), therapeutic modality, and functional assessment. Include PHQ-9/GAD-7 scores if discussed.",
-  pediatrics: "Focus on developmental milestones, growth parameters (percentiles), immunization status, age-appropriate screening, parent/caregiver concerns, and pediatric-specific dosing. Note age in years/months.",
-  ob_gyn: "Focus on obstetric history (G/P), menstrual history, prenatal care elements (gestational age, fetal assessment), gynecologic exam findings, contraception counseling, and appropriate screening (Pap, mammogram).",
-  emergency: "Focus on chief complaint, triage acuity, time-sensitive interventions, differential diagnosis with critical diagnoses ruled out, disposition decision-making, and discharge instructions. Document medical decision-making complexity.",
-  urgent_care: "Focus on acute complaint assessment, point-of-care testing, return precautions, follow-up recommendations, and appropriate primary care referral. Document why ED referral was or was not indicated.",
-  general_dentistry: "Focus on comprehensive oral examination, periodontal assessment, caries risk assessment, treatment planning, and patient education. Use CDT codes and Universal Numbering System.",
-  periodontics: "Focus on periodontal charting (probing depths, CAL, BOP, mobility, furcation), classification of periodontal disease, scaling/root planing documentation, and maintenance intervals.",
-  endodontics: "Focus on pulp vitality testing, periapical pathology assessment, working length determination, obturation technique, and post-treatment instructions. Note tooth number and canal anatomy.",
-  oral_surgery: "Focus on surgical indications, anesthesia type, surgical technique, specimen handling (if applicable), hemostasis, and post-operative instructions. Document informed consent discussion.",
-  orthodontics: "Focus on malocclusion classification, treatment objectives, appliance adjustments, compliance assessment, and treatment progress relative to planned duration.",
-  prosthodontics: "Focus on prosthesis design, material selection, preparation details, impression technique, shade selection, and occlusal scheme. Document try-in results.",
-  pediatric_dentistry: "Focus on behavior management technique, developmental dental assessment, caries risk assessment, fluoride recommendations, and parent education. Use primary tooth notation (A-T).",
+  primary_care:
+    "Focus on comprehensive assessment, preventive care recommendations, chronic disease management, medication reconciliation, and appropriate screening tests based on age/sex/risk factors.",
+  internal_medicine:
+    "Focus on complex medical decision-making, multi-system assessment, medication interactions, specialist referral appropriateness, and diagnostic reasoning for internal medicine conditions.",
+  cardiology:
+    "Focus on cardiovascular history (chest pain characterization, dyspnea classification, edema assessment), cardiac exam findings (murmurs, rhythm, JVD), cardiac medications, and risk stratification. Use ACC/AHA guidelines where applicable.",
+  dermatology:
+    "Focus on lesion description using dermatologic terminology (morphology, distribution, color, size, borders), differential diagnosis, biopsy decisions, and treatment plans. Document lesion location precisely.",
+  orthopedics:
+    "Focus on musculoskeletal exam (ROM, strength, stability testing, special tests), imaging interpretation, surgical vs. conservative management decisions, and functional limitations. Note laterality clearly.",
+  psychiatry:
+    "Focus on mental status examination (MSE), psychiatric history, safety assessment (SI/HI), medication management (psychotropics, side effects), therapeutic modality, and functional assessment. Include PHQ-9/GAD-7 scores if discussed.",
+  pediatrics:
+    "Focus on developmental milestones, growth parameters (percentiles), immunization status, age-appropriate screening, parent/caregiver concerns, and pediatric-specific dosing. Note age in years/months.",
+  ob_gyn:
+    "Focus on obstetric history (G/P), menstrual history, prenatal care elements (gestational age, fetal assessment), gynecologic exam findings, contraception counseling, and appropriate screening (Pap, mammogram).",
+  emergency:
+    "Focus on chief complaint, triage acuity, time-sensitive interventions, differential diagnosis with critical diagnoses ruled out, disposition decision-making, and discharge instructions. Document medical decision-making complexity.",
+  urgent_care:
+    "Focus on acute complaint assessment, point-of-care testing, return precautions, follow-up recommendations, and appropriate primary care referral. Document why ED referral was or was not indicated.",
+  general_dentistry:
+    "Focus on comprehensive oral examination, periodontal assessment, caries risk assessment, treatment planning, and patient education. Use CDT codes and Universal Numbering System.",
+  periodontics:
+    "Focus on periodontal charting (probing depths, CAL, BOP, mobility, furcation), classification of periodontal disease, scaling/root planing documentation, and maintenance intervals.",
+  endodontics:
+    "Focus on pulp vitality testing, periapical pathology assessment, working length determination, obturation technique, and post-treatment instructions. Note tooth number and canal anatomy.",
+  oral_surgery:
+    "Focus on surgical indications, anesthesia type, surgical technique, specimen handling (if applicable), hemostasis, and post-operative instructions. Document informed consent discussion.",
+  orthodontics:
+    "Focus on malocclusion classification, treatment objectives, appliance adjustments, compliance assessment, and treatment progress relative to planned duration.",
+  prosthodontics:
+    "Focus on prosthesis design, material selection, preparation details, impression technique, shade selection, and occlusal scheme. Document try-in results.",
+  pediatric_dentistry:
+    "Focus on behavior management technique, developmental dental assessment, caries risk assessment, fluoride recommendations, and parent education. Use primary tooth notation (A-T).",
 };
 
 /**
@@ -205,9 +243,13 @@ function buildProviderStyleSection(prefs?: PromptTemplateConfig["providerStylePr
   }
 
   if (prefs.includeNegativePertinents === true) {
-    instructions.push("- PERTINENT NEGATIVES: Include relevant negative findings in the ROS and physical exam (e.g., 'Denies chest pain, dyspnea, palpitations')");
+    instructions.push(
+      "- PERTINENT NEGATIVES: Include relevant negative findings in the ROS and physical exam (e.g., 'Denies chest pain, dyspnea, palpitations')",
+    );
   } else if (prefs.includeNegativePertinents === false) {
-    instructions.push("- PERTINENT NEGATIVES: Only document positive findings unless negative findings are clinically significant");
+    instructions.push(
+      "- PERTINENT NEGATIVES: Only document positive findings unless negative findings are clinically significant",
+    );
   }
 
   if (prefs.sectionOrder && prefs.sectionOrder.length > 0) {
@@ -215,7 +257,9 @@ function buildProviderStyleSection(prefs?: PromptTemplateConfig["providerStylePr
   }
 
   if (prefs.customSections && prefs.customSections.length > 0) {
-    instructions.push(`- ADDITIONAL SECTIONS: Include these custom sections in the note: ${prefs.customSections.join(", ")}`);
+    instructions.push(
+      `- ADDITIONAL SECTIONS: Include these custom sections in the note: ${prefs.customSections.join(", ")}`,
+    );
   }
 
   if (prefs.templateOverrides) {
@@ -240,12 +284,14 @@ function buildClinicalSystemPrompt(callCategory: string, template?: PromptTempla
   // Build reference documents section
   let referenceSection = "";
   if (template?.referenceDocuments && template.referenceDocuments.length > 0) {
-    const isRagRetrieved = template.referenceDocuments.some(d => d.category === "rag_retrieval");
+    const isRagRetrieved = template.referenceDocuments.some((d) => d.category === "rag_retrieval");
     if (isRagRetrieved) {
-      const ragText = template.referenceDocuments.map(d => d.text).join("\n\n");
+      const ragText = template.referenceDocuments.map((d) => d.text).join("\n\n");
       referenceSection = `\n- CLINICAL KNOWLEDGE BASE: ${ragText}`;
     } else {
-      const docSnippets = template.referenceDocuments.slice(0, 5).map(d => `--- ${d.name} ---\n${d.text.slice(0, 3000)}`);
+      const docSnippets = template.referenceDocuments
+        .slice(0, 5)
+        .map((d) => `--- ${d.name} ---\n${d.text.slice(0, 3000)}`);
       referenceSection = `\n- REFERENCE MATERIALS:\n${docSnippets.join("\n\n")}`;
     }
   }
@@ -257,9 +303,10 @@ function buildClinicalSystemPrompt(callCategory: string, template?: PromptTempla
 
   // Specialty-specific context
   const specialty = template?.clinicalSpecialty || template?.providerStylePreferences?.defaultSpecialty;
-  const specialtySection = specialty && SPECIALTY_CONTEXT[specialty]
-    ? `\nSPECIALTY CONTEXT (${specialty}):\n${SPECIALTY_CONTEXT[specialty]}\n`
-    : "";
+  const specialtySection =
+    specialty && SPECIALTY_CONTEXT[specialty]
+      ? `\nSPECIALTY CONTEXT (${specialty}):\n${SPECIALTY_CONTEXT[specialty]}\n`
+      : "";
 
   // Provider style preferences
   const styleSection = buildProviderStyleSection(template?.providerStylePreferences);
@@ -407,12 +454,14 @@ function buildDentalClinicalSystemPrompt(callCategory: string, template?: Prompt
 
   let referenceSection = "";
   if (template?.referenceDocuments && template.referenceDocuments.length > 0) {
-    const isRagRetrieved = template.referenceDocuments.some(d => d.category === "rag_retrieval");
+    const isRagRetrieved = template.referenceDocuments.some((d) => d.category === "rag_retrieval");
     if (isRagRetrieved) {
-      const ragText = template.referenceDocuments.map(d => d.text).join("\n\n");
+      const ragText = template.referenceDocuments.map((d) => d.text).join("\n\n");
       referenceSection = `\n- DENTAL KNOWLEDGE BASE: ${ragText}`;
     } else {
-      const docSnippets = template.referenceDocuments.slice(0, 5).map(d => `--- ${d.name} ---\n${d.text.slice(0, 3000)}`);
+      const docSnippets = template.referenceDocuments
+        .slice(0, 5)
+        .map((d) => `--- ${d.name} ---\n${d.text.slice(0, 3000)}`);
       referenceSection = `\n- REFERENCE MATERIALS:\n${docSnippets.join("\n\n")}`;
     }
   }
@@ -531,7 +580,11 @@ export function buildUserMessage(transcriptText: string, callCategory?: string):
 /**
  * Build a combined single prompt (backward compatibility for non-Bedrock providers).
  */
-export function buildAnalysisPrompt(transcriptText: string, callCategory?: string, template?: PromptTemplateConfig): string {
+export function buildAnalysisPrompt(
+  transcriptText: string,
+  callCategory?: string,
+  template?: PromptTemplateConfig,
+): string {
   const system = buildSystemPrompt(callCategory, template);
   const user = buildUserMessage(transcriptText, callCategory);
   return `${system}\n\n${user}`;
@@ -542,15 +595,15 @@ export function buildAnalysisPrompt(transcriptText: string, callCategory?: strin
  * Emails don't have timestamps, speakers, or talk speed — focus on written communication quality.
  */
 export function buildEmailSystemPrompt(emailCategory?: string, template?: PromptTemplateConfig): string {
-  const categoryContext = emailCategory && CATEGORY_CONTEXT[emailCategory]
-    ? `\nEMAIL CONTEXT:\n${CATEGORY_CONTEXT[emailCategory]}\n`
-    : "";
+  const categoryContext =
+    emailCategory && CATEGORY_CONTEXT[emailCategory] ? `\nEMAIL CONTEXT:\n${CATEGORY_CONTEXT[emailCategory]}\n` : "";
 
   let evaluationCriteria: string;
   if (template?.evaluationCriteria) {
     evaluationCriteria = `- EVALUATION CRITERIA:\n${template.evaluationCriteria}`;
   } else {
-    evaluationCriteria = "- Evaluate on: professionalism, accuracy, completeness, empathy, clarity, resolution, and response timeliness";
+    evaluationCriteria =
+      "- Evaluate on: professionalism, accuracy, completeness, empathy, clarity, resolution, and response timeliness";
   }
 
   let scoringSection = "";
@@ -561,21 +614,21 @@ export function buildEmailSystemPrompt(emailCategory?: string, template?: Prompt
 
   let phrasesSection = "";
   if (template?.requiredPhrases && template.requiredPhrases.length > 0) {
-    const required = template.requiredPhrases.filter(p => p.severity === "required");
-    const recommended = template.requiredPhrases.filter(p => p.severity === "recommended");
+    const required = template.requiredPhrases.filter((p) => p.severity === "required");
+    const recommended = template.requiredPhrases.filter((p) => p.severity === "recommended");
     if (required.length > 0) {
       phrasesSection += `\n- REQUIRED ELEMENTS: The email MUST include something equivalent to the following. Flag "missing_required_phrase:<label>" for each missing element:\n`;
-      phrasesSection += required.map(p => `  * "${p.phrase}" (${p.label})`).join("\n");
+      phrasesSection += required.map((p) => `  * "${p.phrase}" (${p.label})`).join("\n");
     }
     if (recommended.length > 0) {
       phrasesSection += `\n- RECOMMENDED ELEMENTS: The email SHOULD include these. Note in suggestions if missing:\n`;
-      phrasesSection += recommended.map(p => `  * "${p.phrase}" (${p.label})`).join("\n");
+      phrasesSection += recommended.map((p) => `  * "${p.phrase}" (${p.label})`).join("\n");
     }
   }
 
   let referenceSection = "";
   if (template?.referenceDocuments && template.referenceDocuments.length > 0) {
-    const ragText = template.referenceDocuments.map(d => d.text).join("\n\n");
+    const ragText = template.referenceDocuments.map((d) => d.text).join("\n\n");
     referenceSection = `\n- COMPANY KNOWLEDGE BASE: Use the following excerpts to evaluate accuracy and compliance:\n${ragText}`;
   }
 

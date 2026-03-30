@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import type { Organization } from "@shared/schema";
-import {  RiPaletteLine, RiSaveLine, RiCheckboxBlankLine  } from "@remixicon/react";
+import { RiPaletteLine, RiSaveLine, RiCheckboxBlankLine } from "@remixicon/react";
 
 export default function BrandingTab() {
   const { toast } = useToast();
@@ -78,11 +78,7 @@ export default function BrandingTab() {
           <form onSubmit={handleSave} className="space-y-5">
             <div>
               <label className="text-sm font-medium text-foreground">Application Name</label>
-              <Input
-                value={appName}
-                onChange={(e) => setAppName(e.target.value)}
-                placeholder="Observatory"
-              />
+              <Input value={appName} onChange={(e) => setAppName(e.target.value)} placeholder="Observatory" />
               <p className="text-xs text-muted-foreground mt-1">
                 Displayed in the sidebar, login page, and report headers.
               </p>
@@ -138,9 +134,7 @@ export default function BrandingTab() {
                     className="w-8 h-8 rounded-lg flex items-center justify-center"
                     style={{ backgroundColor: primaryColor || "hsl(217, 91%, 60%)" }}
                   >
-                    <span className="text-white text-xs font-bold">
-                      {(appName || "O").charAt(0).toUpperCase()}
-                    </span>
+                    <span className="text-white text-xs font-bold">{(appName || "O").charAt(0).toUpperCase()}</span>
                   </div>
                 )}
                 <div>

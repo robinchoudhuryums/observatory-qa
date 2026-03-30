@@ -61,8 +61,7 @@ export async function initTelemetry(): Promise<void> {
   const { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } = await import("@opentelemetry/semantic-conventions");
   const otelApi = await import("@opentelemetry/api");
 
-  const endpoint =
-    process.env.OTEL_EXPORTER_OTLP_ENDPOINT || "http://localhost:4318";
+  const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT || "http://localhost:4318";
 
   const resource = resourceFromAttributes({
     [ATTR_SERVICE_NAME]: "observatory-qa",
@@ -153,16 +152,17 @@ export function getTracer(name?: string): Tracer {
         spanContext: () => ({ traceId: "", spanId: "", traceFlags: 0 }),
         updateName: () => ({}),
       }),
-      startActiveSpan: (_name: string, fn: any) => fn({
-        end: () => {},
-        setAttribute: () => ({}),
-        setStatus: () => ({}),
-        recordException: () => {},
-        addEvent: () => ({}),
-        isRecording: () => false,
-        spanContext: () => ({ traceId: "", spanId: "", traceFlags: 0 }),
-        updateName: () => ({}),
-      }),
+      startActiveSpan: (_name: string, fn: any) =>
+        fn({
+          end: () => {},
+          setAttribute: () => ({}),
+          setStatus: () => ({}),
+          recordException: () => {},
+          addEvent: () => ({}),
+          isRecording: () => false,
+          spanContext: () => ({ traceId: "", spanId: "", traceFlags: 0 }),
+          updateName: () => ({}),
+        }),
     } as unknown as Tracer;
   }
   if (_tracer && !name) return _tracer;

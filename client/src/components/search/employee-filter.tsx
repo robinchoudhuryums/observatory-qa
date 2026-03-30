@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { Employee } from "@shared/schema";
-import {  RiUserLine  } from "@remixicon/react";
+import { RiUserLine } from "@remixicon/react";
 
 interface EmployeeFilterProps {
   value: string;
@@ -23,12 +23,12 @@ export function EmployeeFilter({ value, onChange }: EmployeeFilterProps) {
         <SelectItem value="all">All Employees</SelectItem>
         {/* This safety filter is critical */}
         {employees
-          ?.filter(e => e && e.id && e.name)
+          ?.filter((e) => e && e.id && e.name)
           .map((employee) => (
             <SelectItem key={employee.id} value={employee.id}>
               {employee.name}
             </SelectItem>
-        ))}
+          ))}
       </SelectContent>
     </Select>
   );

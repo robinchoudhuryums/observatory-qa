@@ -2,11 +2,15 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { motion } from "framer-motion";
 import type { SentimentDistribution } from "@shared/schema";
-import {  RiAlertLine, RiRefreshLine  } from "@remixicon/react";
+import { RiAlertLine, RiRefreshLine } from "@remixicon/react";
 
 export default function SentimentAnalysis() {
   const queryClient = useQueryClient();
-  const { data: sentimentData, isLoading, error } = useQuery<SentimentDistribution>({
+  const {
+    data: sentimentData,
+    isLoading,
+    error,
+  } = useQuery<SentimentDistribution>({
     queryKey: ["/api/dashboard/sentiment"],
   });
 
@@ -14,7 +18,9 @@ export default function SentimentAnalysis() {
     return (
       <div className="modern-card rounded-xl p-6 text-center" data-testid="sentiment-analysis">
         <p className="text-sm text-muted-foreground">No sentiment data yet</p>
-        <p className="text-xs text-muted-foreground/70 mt-1">Sentiment analysis will appear after calls are processed.</p>
+        <p className="text-xs text-muted-foreground/70 mt-1">
+          Sentiment analysis will appear after calls are processed.
+        </p>
       </div>
     );
   }
@@ -46,7 +52,7 @@ export default function SentimentAnalysis() {
     { name: "Negative", value: negative, color: "hsl(0, 84%, 60%)" },
   ];
 
-  const pct = (val: number) => total > 0 ? Math.round((val / total) * 100) : 0;
+  const pct = (val: number) => (total > 0 ? Math.round((val / total) * 100) : 0);
 
   return (
     <motion.div
@@ -60,7 +66,11 @@ export default function SentimentAnalysis() {
         <h3 className="text-lg font-semibold text-foreground">Sentiment Analysis</h3>
       </div>
 
-      <div className="chart-container mb-4" role="img" aria-label={`Sentiment distribution: ${pct(positive)}% positive, ${pct(neutral)}% neutral, ${pct(negative)}% negative out of ${total} calls`}>
+      <div
+        className="chart-container mb-4"
+        role="img"
+        aria-label={`Sentiment distribution: ${pct(positive)}% positive, ${pct(neutral)}% neutral, ${pct(negative)}% negative out of ${total} calls`}
+      >
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
@@ -73,15 +83,23 @@ export default function SentimentAnalysis() {
               dataKey="value"
               animationDuration={1000}
               animationEasing="ease-out"
-              label={({ name, value }) => total > 0 ? `${name}: ${Math.round((value / total) * 100)}%` : ""}
+              label={({ name, value }) => (total > 0 ? `${name}: ${Math.round((value / total) * 100)}%` : "")}
             >
               {chartData.map((entry, index) => (
                 <Cell key={`cell-${index}`} fill={entry.color} />
               ))}
             </Pie>
             <Tooltip
-              formatter={(value: number, name: string) => [`${value} calls (${total > 0 ? Math.round((value / total) * 100) : 0}%)`, name]}
-              contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 12, borderRadius: 8 }}
+              formatter={(value: number, name: string) => [
+                `${value} calls (${total > 0 ? Math.round((value / total) * 100) : 0}%)`,
+                name,
+              ]}
+              contentStyle={{
+                backgroundColor: "hsl(var(--card))",
+                border: "1px solid hsl(var(--border))",
+                fontSize: 12,
+                borderRadius: 8,
+              }}
             />
           </PieChart>
         </ResponsiveContainer>

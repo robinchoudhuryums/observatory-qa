@@ -85,11 +85,13 @@ async function _getOrCreateOrgDataKey(orgId: string, kmsKeyId: string): Promise<
   if (!encryptedDek) {
     // Generate new DEK for this org
     logger.info({ orgId }, "Generating new per-org DEK via KMS");
-    const result = await kms.send(new GenerateDataKeyCommand({
-      KeyId: kmsKeyId,
-      KeySpec: "AES_256",
-      EncryptionContext: { orgId }, // Binds encrypted DEK to this org
-    }));
+    const result = await kms.send(
+      new GenerateDataKeyCommand({
+        KeyId: kmsKeyId,
+        KeySpec: "AES_256",
+        EncryptionContext: { orgId }, // Binds encrypted DEK to this org
+      }),
+    );
 
     const dek = Buffer.from(result.Plaintext!);
     const cipherDek = Buffer.from(result.CiphertextBlob!).toString("base64");
@@ -108,11 +110,13 @@ async function _getOrCreateOrgDataKey(orgId: string, kmsKeyId: string): Promise<
   }
 
   // Decrypt existing DEK
-  const result = await kms.send(new DecryptCommand({
-    KeyId: kmsKeyId,
-    CiphertextBlob: Buffer.from(encryptedDek, "base64"),
-    EncryptionContext: { orgId },
-  }));
+  const result = await kms.send(
+    new DecryptCommand({
+      KeyId: kmsKeyId,
+      CiphertextBlob: Buffer.from(encryptedDek, "base64"),
+      EncryptionContext: { orgId },
+    }),
+  );
 
   const dek = Buffer.from(result.Plaintext!);
   cacheDek(orgId, dek);

@@ -56,7 +56,17 @@ function withChainLock(orgId: string, fn: () => Promise<void>): Promise<void> {
  */
 function computeIntegrityHash(
   prevHash: string,
-  entry: { orgId: string; event: string; userId?: string; username?: string; resourceType: string; resourceId?: string; detail?: string; timestamp: string; sequenceNum: number }
+  entry: {
+    orgId: string;
+    event: string;
+    userId?: string;
+    username?: string;
+    resourceType: string;
+    resourceId?: string;
+    detail?: string;
+    timestamp: string;
+    sequenceNum: number;
+  },
 ): string {
   const payload = JSON.stringify({
     prevHash,
@@ -87,10 +97,12 @@ async function getChainState(orgId: string): Promise<{ prevHash: string; sequenc
     if (db) {
       const { auditLogs } = await import("../db/schema");
       const { eq, desc, isNotNull, and } = await import("drizzle-orm");
-      const [latest] = await db.select({
-        integrityHash: auditLogs.integrityHash,
-        sequenceNum: auditLogs.sequenceNum,
-      }).from(auditLogs)
+      const [latest] = await db
+        .select({
+          integrityHash: auditLogs.integrityHash,
+          sequenceNum: auditLogs.sequenceNum,
+        })
+        .from(auditLogs)
         .where(and(eq(auditLogs.orgId, orgId), isNotNull(auditLogs.sequenceNum)))
         .orderBy(desc(auditLogs.sequenceNum))
         .limit(1);
@@ -160,13 +172,22 @@ function detectAnomalies(entry: AuditEntry & { timestamp: string }): void {
   }
 
   // 3. PHI access outside business hours (06:00–22:00 UTC)
-  const isPhiEvent = entry.event.includes("phi") || entry.event.includes("clinical")
-    || entry.resourceType === "transcript" || entry.resourceType === "analysis";
+  const isPhiEvent =
+    entry.event.includes("phi") ||
+    entry.event.includes("clinical") ||
+    entry.resourceType === "transcript" ||
+    entry.resourceType === "analysis";
   if (isPhiEvent) {
     const utcHour = new Date(entry.timestamp).getUTCHours();
     if (utcHour < 6 || utcHour >= 22) {
       logger.warn(
-        { username: entry.username, utcHour, orgId: entry.orgId, resourceType: entry.resourceType, _securityAlert: "off_hours_phi" },
+        {
+          username: entry.username,
+          utcHour,
+          orgId: entry.orgId,
+          resourceType: entry.resourceType,
+          _securityAlert: "off_hours_phi",
+        },
         "[SECURITY_ALERT] PHI access outside business hours (UTC)",
       );
     }
@@ -190,8 +211,11 @@ async function getSiemUrl(orgId: string): Promise<string | null> {
     if (!db) return null;
     const { organizations } = await import("../db/schema");
     const { eq } = await import("drizzle-orm");
-    const [org] = await db.select({ settings: organizations.settings })
-      .from(organizations).where(eq(organizations.id, orgId)).limit(1);
+    const [org] = await db
+      .select({ settings: organizations.settings })
+      .from(organizations)
+      .where(eq(organizations.id, orgId))
+      .limit(1);
     const url = (org?.settings as any)?.siemWebhookUrl || null;
     siemUrlCache.set(orgId, { url, cachedAt: Date.now() });
     return url;
@@ -251,11 +275,14 @@ export function logPhiAccess(entry: AuditEntry): void {
   };
 
   // Always write to Pino (structured log)
-  logger.info({
-    ...entry,
-    timestamp,
-    _audit: "HIPAA_PHI",
-  }, `[HIPAA_AUDIT] ${entry.event}`);
+  logger.info(
+    {
+      ...entry,
+      timestamp,
+      _audit: "HIPAA_PHI",
+    },
+    `[HIPAA_AUDIT] ${entry.event}`,
+  );
 
   // Anomaly detection (synchronous, no I/O)
   detectAnomalies(fullEntry);
@@ -267,9 +294,11 @@ export function logPhiAccess(entry: AuditEntry): void {
 
   // Non-blocking SIEM forwarding (if configured for org)
   if (entry.orgId) {
-    getSiemUrl(entry.orgId).then(siemUrl => {
-      if (siemUrl) forwardToSiem(fullEntry, siemUrl);
-    }).catch(() => {});
+    getSiemUrl(entry.orgId)
+      .then((siemUrl) => {
+        if (siemUrl) forwardToSiem(fullEntry, siemUrl);
+      })
+      .catch(() => {});
   }
 }
 
@@ -338,7 +367,9 @@ async function persistAuditEntry(entry: AuditEntry & { timestamp: string }): Pro
  * Verify the integrity of the audit log chain for an organization.
  * Returns { valid: boolean, checkedCount: number, brokenAt?: number }.
  */
-export async function verifyAuditChain(orgId: string): Promise<{ valid: boolean; checkedCount: number; brokenAt?: number }> {
+export async function verifyAuditChain(
+  orgId: string,
+): Promise<{ valid: boolean; checkedCount: number; brokenAt?: number }> {
   const { getDatabase } = await import("../db/index");
   const db = getDatabase();
   if (!db) return { valid: true, checkedCount: 0 };
@@ -346,7 +377,9 @@ export async function verifyAuditChain(orgId: string): Promise<{ valid: boolean;
   const { auditLogs } = await import("../db/schema");
   const { eq, asc, isNotNull, and } = await import("drizzle-orm");
 
-  const rows = await db.select().from(auditLogs)
+  const rows = await db
+    .select()
+    .from(auditLogs)
     .where(and(eq(auditLogs.orgId, orgId), isNotNull(auditLogs.sequenceNum)))
     .orderBy(asc(auditLogs.sequenceNum));
 
@@ -412,15 +445,11 @@ export async function queryAuditLogs(options: {
   const pageOffset = options.offset || 0;
 
   const [rows, countResult] = await Promise.all([
-    db.select().from(auditLogs)
-      .where(where)
-      .orderBy(desc(auditLogs.createdAt))
-      .limit(pageLimit)
-      .offset(pageOffset),
+    db.select().from(auditLogs).where(where).orderBy(desc(auditLogs.createdAt)).limit(pageLimit).offset(pageOffset),
     db.select({ count: count() }).from(auditLogs).where(where),
   ]);
 
-  const entries: AuditEntry[] = rows.map(r => ({
+  const entries: AuditEntry[] = rows.map((r) => ({
     event: r.event,
     orgId: r.orgId,
     userId: r.userId || undefined,
@@ -469,12 +498,14 @@ export async function exportAuditLogs(options: {
 
   const cap = Math.min(options.maxRows ?? 50_000, 50_000);
 
-  const rows = await db.select().from(auditLogs)
+  const rows = await db
+    .select()
+    .from(auditLogs)
     .where(and(...conditions))
     .orderBy(asc(auditLogs.createdAt))
     .limit(cap);
 
-  return rows.map(r => ({
+  return rows.map((r) => ({
     event: r.event,
     orgId: r.orgId,
     userId: r.userId || undefined,
@@ -492,7 +523,9 @@ export async function exportAuditLogs(options: {
 /**
  * Helper to extract audit-relevant fields from an Express request.
  */
-export function auditContext(req: any): Pick<AuditEntry, "orgId" | "userId" | "username" | "role" | "ip" | "userAgent"> {
+export function auditContext(
+  req: any,
+): Pick<AuditEntry, "orgId" | "userId" | "username" | "role" | "ip" | "userAgent"> {
   const user = req.user as { id?: string; username?: string; role?: string; orgId?: string } | undefined;
   return {
     orgId: user?.orgId || req.orgId,

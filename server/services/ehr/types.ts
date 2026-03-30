@@ -139,9 +139,9 @@ export interface AppointmentMatchResult {
 export interface EhrAppointmentCreate {
   patientId: string;
   providerId: string;
-  date: string;        // ISO date: YYYY-MM-DD
-  startTime: string;   // HH:mm
-  duration: number;    // minutes
+  date: string; // ISO date: YYYY-MM-DD
+  startTime: string; // HH:mm
+  duration: number; // minutes
   procedures?: Array<{ code: string; description: string }>;
   notes?: string;
 }
@@ -171,7 +171,10 @@ export interface IEhrAdapter {
   // --- Patient Operations ---
 
   /** Search for a patient by name, DOB, phone, or other criteria */
-  searchPatients(config: EhrConnectionConfig, query: { name?: string; dob?: string; phone?: string }): Promise<EhrPatient[]>;
+  searchPatients(
+    config: EhrConnectionConfig,
+    query: { name?: string; dob?: string; phone?: string },
+  ): Promise<EhrPatient[]>;
 
   /** Get a specific patient by EHR patient ID */
   getPatient(config: EhrConnectionConfig, ehrPatientId: string): Promise<EhrPatient | null>;
@@ -179,7 +182,10 @@ export interface IEhrAdapter {
   // --- Appointment Operations ---
 
   /** Get appointments for a date range */
-  getAppointments(config: EhrConnectionConfig, params: { startDate: string; endDate: string; providerId?: string }): Promise<EhrAppointment[]>;
+  getAppointments(
+    config: EhrConnectionConfig,
+    params: { startDate: string; endDate: string; providerId?: string },
+  ): Promise<EhrAppointment[]>;
 
   /** Get today's appointments (convenience) */
   getTodayAppointments(config: EhrConnectionConfig, providerId?: string): Promise<EhrAppointment[]>;
@@ -204,5 +210,9 @@ export interface IEhrAdapter {
    * Update a treatment plan in the EHR system.
    * Optional — not all adapters support write operations.
    */
-  updateTreatmentPlan?(config: EhrConnectionConfig, planId: string, update: EhrTreatmentPlanUpdate): Promise<EhrSyncResult>;
+  updateTreatmentPlan?(
+    config: EhrConnectionConfig,
+    planId: string,
+    update: EhrTreatmentPlanUpdate,
+  ): Promise<EhrSyncResult>;
 }

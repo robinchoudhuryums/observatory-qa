@@ -12,7 +12,24 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { CLINICAL_SPECIALTIES, CLINICAL_NOTE_FORMATS } from "@shared/schema";
 import type { ClinicalNote, LiveSession } from "@shared/schema";
-import {  RiMicLine, RiCheckboxBlankLine, RiPauseLine, RiPlayLine, RiFileTextLine, RiStethoscopeLine, RiTimeLine, RiErrorWarningLine, RiCheckboxCircleLine, RiBroadcastLine, RiArrowLeftLine, RiWifiOffLine, RiHistoryLine, RiTimerLine, RiInputMethodLine, RiSendPlaneLine  } from "@remixicon/react";
+import {
+  RiMicLine,
+  RiCheckboxBlankLine,
+  RiPauseLine,
+  RiPlayLine,
+  RiFileTextLine,
+  RiStethoscopeLine,
+  RiTimeLine,
+  RiErrorWarningLine,
+  RiCheckboxCircleLine,
+  RiBroadcastLine,
+  RiArrowLeftLine,
+  RiWifiOffLine,
+  RiHistoryLine,
+  RiTimerLine,
+  RiInputMethodLine,
+  RiSendPlaneLine,
+} from "@remixicon/react";
 
 type SessionPhase = "setup" | "recording" | "completed";
 
@@ -115,63 +132,67 @@ export default function ClinicalLivePage() {
   }, []);
 
   // Start microphone capture and stream audio to server
-  const startAudioCapture = useCallback(async (liveSessionId: string) => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true },
-      });
-      streamRef.current = stream;
-
-      const audioContext = new AudioContext({ sampleRate: 16000 });
-      audioContextRef.current = audioContext;
-      const source = audioContext.createMediaStreamSource(stream);
-      // ScriptProcessorNode is deprecated but AudioWorklet requires a separate file.
-      // This works reliably in all current browsers for the audio chunk sizes we need.
-      const processor = audioContext.createScriptProcessor(8192, 1, 1);
-      processorRef.current = processor;
-
-      processor.onaudioprocess = (e) => {
-        // Use ref to get current pause state (not stale closure value)
-        if (isPausedRef.current || !sessionIdRef.current) return;
-        const inputData = e.inputBuffer.getChannelData(0);
-        // Convert Float32 to Int16 PCM
-        const pcm16 = new Int16Array(inputData.length);
-        for (let i = 0; i < inputData.length; i++) {
-          const s = Math.max(-1, Math.min(1, inputData[i]));
-          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-        }
-        // Convert to base64
-        const bytes = new Uint8Array(pcm16.buffer);
-        let binary = "";
-        for (let i = 0; i < bytes.length; i++) {
-          binary += String.fromCharCode(bytes[i]);
-        }
-        const base64 = btoa(binary);
-
-        // RiSendPlaneLine to server (fire-and-forget)
-        fetch(`/api/live-sessions/${sessionIdRef.current}/audio`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ audio: base64 }),
-        }).catch(() => {
-          // Silently handle audio send failures
+  const startAudioCapture = useCallback(
+    async (liveSessionId: string) => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true },
         });
-      };
+        streamRef.current = stream;
 
-      source.connect(processor);
-      processor.connect(audioContext.destination);
-      setMicError(null);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      setMicError(`Microphone access failed: ${message}`);
-      toast({
-        title: "Microphone access failed",
-        description: "Please allow microphone access to use live recording. The session has been created but no audio is being captured.",
-        variant: "destructive",
-      });
-    }
-  }, [toast]);
+        const audioContext = new AudioContext({ sampleRate: 16000 });
+        audioContextRef.current = audioContext;
+        const source = audioContext.createMediaStreamSource(stream);
+        // ScriptProcessorNode is deprecated but AudioWorklet requires a separate file.
+        // This works reliably in all current browsers for the audio chunk sizes we need.
+        const processor = audioContext.createScriptProcessor(8192, 1, 1);
+        processorRef.current = processor;
+
+        processor.onaudioprocess = (e) => {
+          // Use ref to get current pause state (not stale closure value)
+          if (isPausedRef.current || !sessionIdRef.current) return;
+          const inputData = e.inputBuffer.getChannelData(0);
+          // Convert Float32 to Int16 PCM
+          const pcm16 = new Int16Array(inputData.length);
+          for (let i = 0; i < inputData.length; i++) {
+            const s = Math.max(-1, Math.min(1, inputData[i]));
+            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+          }
+          // Convert to base64
+          const bytes = new Uint8Array(pcm16.buffer);
+          let binary = "";
+          for (let i = 0; i < bytes.length; i++) {
+            binary += String.fromCharCode(bytes[i]);
+          }
+          const base64 = btoa(binary);
+
+          // RiSendPlaneLine to server (fire-and-forget)
+          fetch(`/api/live-sessions/${sessionIdRef.current}/audio`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ audio: base64 }),
+          }).catch(() => {
+            // Silently handle audio send failures
+          });
+        };
+
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+        setMicError(null);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        setMicError(`Microphone access failed: ${message}`);
+        toast({
+          title: "Microphone access failed",
+          description:
+            "Please allow microphone access to use live recording. The session has been created but no audio is being captured.",
+          variant: "destructive",
+        });
+      }
+    },
+    [toast],
+  );
 
   // Start session mutation
   const startMutation = useMutation({
@@ -193,7 +214,8 @@ export default function ClinicalLivePage() {
       if (!data.transcriptionConnected) {
         toast({
           title: "Transcription service unavailable",
-          description: "Live transcription is not connected. You can still record, but real-time transcript will not appear.",
+          description:
+            "Live transcription is not connected. You can still record, but real-time transcript will not appear.",
           variant: "destructive",
         });
       } else {
@@ -216,7 +238,7 @@ export default function ClinicalLivePage() {
     },
     onSuccess: (data) => {
       setPhase("completed");
-      setSession((s) => s ? { ...s, status: "completed", callId: data.callId } : null);
+      setSession((s) => (s ? { ...s, status: "completed", callId: data.callId } : null));
       toast({ title: "Session completed", description: "Clinical note has been generated." });
       queryClient.invalidateQueries({ queryKey: ["/api/calls"] });
     },
@@ -284,7 +306,8 @@ export default function ClinicalLivePage() {
               Live Clinical Recording
             </CardTitle>
             <CardDescription>
-              Record a clinical encounter in real-time. The AI will transcribe and generate clinical notes as the conversation happens.
+              Record a clinical encounter in real-time. The AI will transcribe and generate clinical notes as the
+              conversation happens.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -292,10 +315,14 @@ export default function ClinicalLivePage() {
               <div className="space-y-2">
                 <Label>Clinical Specialty</Label>
                 <Select value={specialty} onValueChange={setSpecialty}>
-                  <SelectTrigger><SelectValue placeholder="Select specialty" /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select specialty" />
+                  </SelectTrigger>
                   <SelectContent>
                     {CLINICAL_SPECIALTIES.map((s) => (
-                      <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                      <SelectItem key={s.value} value={s.value}>
+                        {s.label}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -303,10 +330,14 @@ export default function ClinicalLivePage() {
               <div className="space-y-2">
                 <Label>Note Format</Label>
                 <Select value={noteFormat} onValueChange={setNoteFormat}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     {CLINICAL_NOTE_FORMATS.map((f) => (
-                      <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                      <SelectItem key={f.value} value={f.value}>
+                        {f.label}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -316,7 +347,9 @@ export default function ClinicalLivePage() {
             <div className="space-y-2">
               <Label>Encounter Type</Label>
               <Select value={encounterType} onValueChange={setEncounterType}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="clinical_encounter">In-Person Clinical Encounter</SelectItem>
                   <SelectItem value="telemedicine">Telemedicine Visit</SelectItem>
@@ -336,11 +369,7 @@ export default function ClinicalLivePage() {
                   You must obtain verbal or written consent from the patient before recording this encounter.
                 </p>
                 <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="consent"
-                    checked={consentConfirmed}
-                    onCheckedChange={(v) => setConsentConfirmed(!!v)}
-                  />
+                  <Checkbox id="consent" checked={consentConfirmed} onCheckedChange={(v) => setConsentConfirmed(!!v)} />
                   <Label htmlFor="consent" className="text-sm">
                     I confirm that patient consent has been obtained for this recording
                   </Label>
@@ -377,7 +406,8 @@ export default function ClinicalLivePage() {
         {!transcriptionConnected && (
           <div className="flex items-center gap-2 p-3 mb-4 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 text-sm text-amber-700 dark:text-amber-400">
             <RiWifiOffLine className="w-4 h-4 shrink-0" />
-            Transcription service disconnected. Audio is still being captured but real-time transcription is unavailable.
+            Transcription service disconnected. Audio is still being captured but real-time transcription is
+            unavailable.
           </div>
         )}
 
@@ -386,9 +416,7 @@ export default function ClinicalLivePage() {
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <div className={`w-3 h-3 rounded-full ${isPaused ? "bg-amber-500" : "bg-red-500 animate-pulse"}`} />
-              <span className="text-lg font-semibold">
-                {isPaused ? "Paused" : "Recording"}
-              </span>
+              <span className="text-lg font-semibold">{isPaused ? "Paused" : "Recording"}</span>
             </div>
             <Badge variant="outline" className="text-lg px-3 py-1">
               <RiTimeLine className="w-4 h-4 mr-1" />
@@ -444,11 +472,11 @@ export default function ClinicalLivePage() {
                   <p className="text-muted-foreground italic">Waiting for speech...</p>
                 )}
                 {finalSegments.map((segment, i) => (
-                  <span key={i} className="text-foreground">{segment} </span>
+                  <span key={i} className="text-foreground">
+                    {segment}{" "}
+                  </span>
                 ))}
-                {partialText && (
-                  <span className="text-muted-foreground italic">{partialText}</span>
-                )}
+                {partialText && <span className="text-muted-foreground italic">{partialText}</span>}
                 <div ref={transcriptEndRef} />
               </div>
             </CardContent>
@@ -467,7 +495,9 @@ export default function ClinicalLivePage() {
                 )}
               </CardTitle>
               <CardDescription>
-                {draftNote ? "AI-generated draft — updates with each generation request" : "Click \"Generate Draft Note\" to create a note from the current transcript"}
+                {draftNote
+                  ? "AI-generated draft — updates with each generation request"
+                  : 'Click "Generate Draft Note" to create a note from the current transcript'}
               </CardDescription>
             </CardHeader>
             <CardContent className="flex-1 overflow-y-auto">
@@ -505,9 +535,7 @@ export default function ClinicalLivePage() {
             <RiCheckboxCircleLine className="w-5 h-5" />
             Session Completed
           </CardTitle>
-          <CardDescription>
-            The recording has been processed and a clinical note has been generated.
-          </CardDescription>
+          <CardDescription>The recording has been processed and a clinical note has been generated.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-2 text-sm">
@@ -591,7 +619,9 @@ function DraftNoteView({ note }: { note: ClinicalNote }) {
   return (
     <div className="space-y-4">
       {note.specialty && (
-        <Badge variant="outline" className="mb-2">{note.specialty}</Badge>
+        <Badge variant="outline" className="mb-2">
+          {note.specialty}
+        </Badge>
       )}
       {sections.map((s, i) => (
         <div key={i}>
@@ -605,7 +635,9 @@ function DraftNoteView({ note }: { note: ClinicalNote }) {
           <h4 className="text-sm font-semibold text-primary mb-1">ICD-10 Codes</h4>
           <div className="flex flex-wrap gap-1">
             {note.icd10Codes.map((c, i) => (
-              <Badge key={i} variant="secondary" className="text-xs">{c.code}: {c.description}</Badge>
+              <Badge key={i} variant="secondary" className="text-xs">
+                {c.code}: {c.description}
+              </Badge>
             ))}
           </div>
         </div>
@@ -616,7 +648,9 @@ function DraftNoteView({ note }: { note: ClinicalNote }) {
           <h4 className="text-sm font-semibold text-primary mb-1">CPT Codes</h4>
           <div className="flex flex-wrap gap-1">
             {note.cptCodes.map((c, i) => (
-              <Badge key={i} variant="secondary" className="text-xs">{c.code}: {c.description}</Badge>
+              <Badge key={i} variant="secondary" className="text-xs">
+                {c.code}: {c.description}
+              </Badge>
             ))}
           </div>
         </div>

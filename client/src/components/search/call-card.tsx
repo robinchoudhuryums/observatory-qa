@@ -11,7 +11,7 @@ interface CallCardProps {
 
 export function CallCard({ call, index }: CallCardProps) {
   const formatDuration = (seconds?: number | null) => {
-    if (seconds === null || seconds === undefined) return 'N/A';
+    if (seconds === null || seconds === undefined) return "N/A";
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}m ${secs}s`;
@@ -25,17 +25,21 @@ export function CallCard({ call, index }: CallCardProps) {
             {call.employee ? (
               <>
                 <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
-                  <span className="text-primary font-semibold text-sm">{call.employee.initials ?? 'N/A'}</span>
+                  <span className="text-primary font-semibold text-sm">{call.employee.initials ?? "N/A"}</span>
                 </div>
                 <div>
-                  <h3 className="font-semibold text-foreground">{call.employee.name ?? 'Unknown'}</h3>
-                  <p className="text-sm text-muted-foreground">{new Date(call.uploadedAt || "").toLocaleDateString()} • {formatDuration(call.duration)}</p>
+                  <h3 className="font-semibold text-foreground">{call.employee.name ?? "Unknown"}</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {new Date(call.uploadedAt || "").toLocaleDateString()} • {formatDuration(call.duration)}
+                  </p>
                 </div>
               </>
             ) : (
               <div>
                 <h3 className="font-semibold text-foreground">Unassigned</h3>
-                <p className="text-sm text-muted-foreground">{new Date(call.uploadedAt || "").toLocaleDateString()} • {formatDuration(call.duration)}</p>
+                <p className="text-sm text-muted-foreground">
+                  {new Date(call.uploadedAt || "").toLocaleDateString()} • {formatDuration(call.duration)}
+                </p>
               </div>
             )}
           </div>
@@ -50,7 +54,11 @@ export function CallCard({ call, index }: CallCardProps) {
           </div>
         )}
         <div className="flex items-center justify-end">
-          <Link href={`/transcripts/${call.id}`}><Button variant="outline" size="sm" disabled={call.status !== 'completed'}>View Details</Button></Link>
+          <Link href={`/transcripts/${call.id}`}>
+            <Button variant="outline" size="sm" disabled={call.status !== "completed"}>
+              View Details
+            </Button>
+          </Link>
         </div>
       </CardContent>
     </Card>

@@ -1,5 +1,5 @@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import {  RiQuestionLine  } from "@remixicon/react";
+import { RiQuestionLine } from "@remixicon/react";
 
 interface HelpTipProps {
   text: string;

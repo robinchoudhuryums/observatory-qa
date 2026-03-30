@@ -17,9 +17,7 @@ export function registerEmployeeRoutes(app: Express): void {
       let employees = await storage.getAllEmployees(req.orgId!);
 
       // Team-scoped filtering: managers with a subTeam see only their team
-      const teamEmployeeIds = req.user
-        ? await getTeamScopedEmployeeIds(req.orgId!, req.user)
-        : null;
+      const teamEmployeeIds = req.user ? await getTeamScopedEmployeeIds(req.orgId!, req.user) : null;
       if (teamEmployeeIds !== null) {
         employees = employees.filter((e) => teamEmployeeIds.has(e.id));
       }
@@ -48,14 +46,16 @@ export function registerEmployeeRoutes(app: Express): void {
   });
 
   // HIPAA: Only managers and admins can update employees
-  const updateEmployeeSchema = z.object({
-    name: z.string().min(1).optional(),
-    email: z.string().email().optional(),
-    role: z.string().optional(),
-    status: z.enum(["Active", "Inactive"]).optional(),
-    initials: z.string().max(2).optional(),
-    subTeam: z.string().optional(),
-  }).strict();
+  const updateEmployeeSchema = z
+    .object({
+      name: z.string().min(1).optional(),
+      email: z.string().email().optional(),
+      role: z.string().optional(),
+      status: z.enum(["Active", "Inactive"]).optional(),
+      initials: z.string().max(2).optional(),
+      subTeam: z.string().optional(),
+    })
+    .strict();
 
   app.patch("/api/employees/:id", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
     try {
@@ -92,7 +92,8 @@ export function registerEmployeeRoutes(app: Express): void {
 
       // Stream CSV — process rows inline instead of buffering all in memory
       await new Promise<void>((resolve, reject) => {
-        const stream = fs.createReadStream(csvFilePath)
+        const stream = fs
+          .createReadStream(csvFilePath)
           .on("error", (err: NodeJS.ErrnoException) => {
             if (err.code === "ENOENT") {
               reject(new Error("FILE_NOT_FOUND"));
@@ -110,7 +111,9 @@ export function registerEmployeeRoutes(app: Express): void {
             }
             // Pause the stream to apply backpressure while processing each row
             stream.pause();
-            processRow(row).then(() => stream.resume()).catch(() => stream.resume());
+            processRow(row)
+              .then(() => stream.resume())
+              .catch(() => stream.resume());
           })
           .on("end", resolve)
           .on("error", reject);
@@ -123,23 +126,35 @@ export function registerEmployeeRoutes(app: Express): void {
 
           if (!name) return;
 
-          const isValidExtension = extension && extension !== "NA" && extension !== "N/A" && extension !== "a"
-            && /^[a-zA-Z0-9._-]+$/.test(extension);
+          const isValidExtension =
+            extension &&
+            extension !== "NA" &&
+            extension !== "N/A" &&
+            extension !== "a" &&
+            /^[a-zA-Z0-9._-]+$/.test(extension);
           const email = isValidExtension
             ? `${extension}@${emailDomain}`
             : `${name.toLowerCase().replace(/\s+/g, ".")}@${emailDomain}`;
 
           const nameParts = name.split(/\s+/);
-          const initials = nameParts.length >= 2
-            ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase()
-            : name.slice(0, 2).toUpperCase();
+          const initials =
+            nameParts.length >= 2
+              ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase()
+              : name.slice(0, 2).toUpperCase();
 
           try {
             const existing = await storage.getEmployeeByEmail(req.orgId!, email);
             if (existing) {
               results.push({ name, action: "skipped (exists)" });
             } else {
-              await storage.createEmployee(req.orgId!, { orgId: req.orgId!, name, email, role: department, initials, status });
+              await storage.createEmployee(req.orgId!, {
+                orgId: req.orgId!,
+                name,
+                email,
+                role: department,
+                initials,
+                status,
+              });
               results.push({ name, action: "created" });
             }
           } catch (err) {
@@ -155,8 +170,8 @@ export function registerEmployeeRoutes(app: Express): void {
       });
       if (res.headersSent) return;
 
-      const created = results.filter(r => r.action === "created").length;
-      const skipped = results.filter(r => r.action.startsWith("skipped")).length;
+      const created = results.filter((r) => r.action === "created").length;
+      const skipped = results.filter((r) => r.action.startsWith("skipped")).length;
       res.json({ message: `Import complete: ${created} created, ${skipped} skipped`, details: results });
     } catch (error) {
       logger.error({ err: error }, "CSV import failed");

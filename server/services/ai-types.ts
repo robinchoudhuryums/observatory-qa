@@ -58,7 +58,12 @@ export interface CallAnalysis {
 export interface AIAnalysisProvider {
   readonly name: string;
   readonly isAvailable: boolean;
-  analyzeCallTranscript(transcriptText: string, callId: string, callCategory?: string, promptTemplate?: PromptTemplateConfig): Promise<CallAnalysis>;
+  analyzeCallTranscript(
+    transcriptText: string,
+    callId: string,
+    callCategory?: string,
+    promptTemplate?: PromptTemplateConfig,
+  ): Promise<CallAnalysis>;
   generateText?(prompt: string): Promise<string>;
 }
 
@@ -99,9 +104,9 @@ export function buildAgentSummaryPrompt(data: {
   commonTopics: Array<{ text: string; count: number }>;
   dateRange: string;
 }): string {
-  const strengthsList = data.topStrengths.map(s => `- "${s.text}" (observed ${s.count} times)`).join("\n");
-  const suggestionsList = data.topSuggestions.map(s => `- "${s.text}" (observed ${s.count} times)`).join("\n");
-  const topicsList = data.commonTopics.map(t => `- ${t.text} (${t.count} calls)`).join("\n");
+  const strengthsList = data.topStrengths.map((s) => `- "${s.text}" (observed ${s.count} times)`).join("\n");
+  const suggestionsList = data.topSuggestions.map((s) => `- "${s.text}" (observed ${s.count} times)`).join("\n");
+  const topicsList = data.commonTopics.map((t) => `- ${t.text} (${t.count} calls)`).join("\n");
 
   return `You are an HR/quality assurance analyst for a medical supply company. Write a professional performance summary for the following call center agent based on aggregated data from their analyzed calls.
 
@@ -151,9 +156,7 @@ function parseScoreRationale(raw: unknown): Record<string, string[]> | undefined
   let hasAny = false;
   for (const dim of validDimensions) {
     if (!Array.isArray(obj[dim])) continue;
-    const items = (obj[dim] as unknown[])
-      .filter(x => typeof x === "string" && x.length > 0)
-      .slice(0, 5) as string[];
+    const items = (obj[dim] as unknown[]).filter((x) => typeof x === "string" && x.length > 0).slice(0, 5) as string[];
     if (items.length > 0) {
       result[dim] = items;
       hasAny = true;
@@ -188,29 +191,37 @@ export function parseJsonResponse(text: string, callId: string): CallAnalysis {
   };
 
   const toStringArray = (v: unknown): string[] => {
-    if (Array.isArray(v)) return v.map(x => {
-      if (typeof x === "string") return x;
-      // AI may return objects like {text: "...", timestamp: "MM:SS"} — extract text
-      if (x && typeof x === "object") {
-        const obj = x as Record<string, unknown>;
-        return typeof obj.text === "string" ? obj.text
-          : typeof obj.message === "string" ? obj.message
-          : typeof obj.value === "string" ? obj.value
-          : JSON.stringify(x);
-      }
-      return String(x);
-    }).filter(s => s.length > 0);
+    if (Array.isArray(v))
+      return v
+        .map((x) => {
+          if (typeof x === "string") return x;
+          // AI may return objects like {text: "...", timestamp: "MM:SS"} — extract text
+          if (x && typeof x === "object") {
+            const obj = x as Record<string, unknown>;
+            return typeof obj.text === "string"
+              ? obj.text
+              : typeof obj.message === "string"
+                ? obj.message
+                : typeof obj.value === "string"
+                  ? obj.value
+                  : JSON.stringify(x);
+          }
+          return String(x);
+        })
+        .filter((s) => s.length > 0);
     if (typeof v === "string") return [v];
     return [];
   };
 
-  const rawSubScores = (raw.sub_scores && typeof raw.sub_scores === "object" && !Array.isArray(raw.sub_scores))
-    ? raw.sub_scores as Record<string, unknown>
-    : {};
+  const rawSubScores =
+    raw.sub_scores && typeof raw.sub_scores === "object" && !Array.isArray(raw.sub_scores)
+      ? (raw.sub_scores as Record<string, unknown>)
+      : {};
 
-  const rawFeedback = (raw.feedback && typeof raw.feedback === "object" && !Array.isArray(raw.feedback))
-    ? raw.feedback as Record<string, unknown>
-    : {};
+  const rawFeedback =
+    raw.feedback && typeof raw.feedback === "object" && !Array.isArray(raw.feedback)
+      ? (raw.feedback as Record<string, unknown>)
+      : {};
 
   const analysis: CallAnalysis = {
     summary: typeof raw.summary === "string" ? raw.summary : "",
@@ -230,10 +241,18 @@ export function parseJsonResponse(text: string, callId: string): CallAnalysis {
       suggestions: toStringArray(rawFeedback.suggestions),
     },
     call_party_type: typeof raw.call_party_type === "string" ? raw.call_party_type : "other",
-    flags: toStringArray(raw.flags).filter(f => {
+    flags: toStringArray(raw.flags).filter((f) => {
       // Validate flag format: known flags or missing_required_phrase:<label>
-      const validFlags = ["low_score", "exceptional_call", "agent_misconduct", "compliance_risk",
-        "empty_transcript", "audio_missing", "low_confidence", "transcript_edited"];
+      const validFlags = [
+        "low_score",
+        "exceptional_call",
+        "agent_misconduct",
+        "compliance_risk",
+        "empty_transcript",
+        "audio_missing",
+        "low_confidence",
+        "transcript_edited",
+      ];
       if (validFlags.includes(f)) return true;
       if (f.startsWith("missing_required_phrase:")) return true;
       // Allow custom flags but log unknown ones

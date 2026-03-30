@@ -6,7 +6,7 @@ import TranscriptViewer from "@/components/transcripts/transcript-viewer";
 import CallsTable from "@/components/tables/calls-table";
 import type { CallWithDetails, AuthUser } from "@shared/schema";
 import { getQueryFn } from "@/lib/queryClient";
-import {  RiArrowRightSLine, RiHomeLine, RiDownloadLine, RiSearchLine  } from "@remixicon/react";
+import { RiArrowRightSLine, RiHomeLine, RiDownloadLine, RiSearchLine } from "@remixicon/react";
 
 export default function Transcripts() {
   const params = useParams();
@@ -38,7 +38,9 @@ export default function Transcripts() {
           </nav>
           <div>
             <h2 className="text-2xl font-bold text-foreground">Call Transcript</h2>
-            <p className="text-muted-foreground">Interactive transcript with sentiment analysis and performance insights</p>
+            <p className="text-muted-foreground">
+              Interactive transcript with sentiment analysis and performance insights
+            </p>
           </div>
         </header>
 
@@ -79,7 +81,7 @@ export default function Transcripts() {
 
       <div className="p-6">
         <CallsTable />
-        
+
         {/* Additional Features */}
         <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-card rounded-lg border border-border p-6">
@@ -107,7 +109,7 @@ export default function Transcripts() {
               </li>
             </ul>
           </div>
-          
+
           <div className="bg-card rounded-lg border border-border p-6">
             <h3 className="text-lg font-semibold text-foreground mb-4">Analysis Capabilities</h3>
             <ul className="space-y-2 text-sm text-muted-foreground">

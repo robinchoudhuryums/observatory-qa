@@ -11,7 +11,10 @@ import { createRedisSessionStore } from "./services/redis";
 import { logger } from "./services/logger";
 
 const scryptAsync = promisify(scrypt) as (
-  password: string | Buffer, salt: string | Buffer, keylen: number, options?: { N?: number; r?: number; p?: number; maxmem?: number }
+  password: string | Buffer,
+  salt: string | Buffer,
+  keylen: number,
+  options?: { N?: number; r?: number; p?: number; maxmem?: number },
 ) => Promise<Buffer>;
 
 // HIPAA: Login attempt tracking for account lockout
@@ -23,14 +26,17 @@ const MAX_LOGIN_ATTEMPTS_ENTRIES = 10_000;
 const loginAttempts = new Map<string, { count: number; lastAttempt: number; lockedUntil?: number }>();
 
 // Prune expired lockout entries every 5 minutes to prevent unbounded memory growth
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, record] of Array.from(loginAttempts)) {
-    // Remove entries whose lockout has expired, or that are stale (no activity for 2x lockout window)
-    const expiry = record.lockedUntil || (record.lastAttempt + LOCKOUT_DURATION_MS * 2);
-    if (now > expiry) loginAttempts.delete(key);
-  }
-}, 5 * 60 * 1000).unref();
+setInterval(
+  () => {
+    const now = Date.now();
+    for (const [key, record] of Array.from(loginAttempts)) {
+      // Remove entries whose lockout has expired, or that are stale (no activity for 2x lockout window)
+      const expiry = record.lockedUntil || record.lastAttempt + LOCKOUT_DURATION_MS * 2;
+      if (now > expiry) loginAttempts.delete(key);
+    }
+  },
+  5 * 60 * 1000,
+).unref();
 
 function isAccountLocked(username: string): boolean {
   const record = loginAttempts.get(username);
@@ -139,7 +145,10 @@ async function loadUsersFromEnv(): Promise<void> {
   }
 
   const defaultOrgSlug = process.env.DEFAULT_ORG_SLUG || "default";
-  const userEntries = authUsersRaw.split(",").map((s) => s.trim()).filter(Boolean);
+  const userEntries = authUsersRaw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   for (const entry of userEntries) {
     const parts = entry.split(":");
@@ -177,7 +186,10 @@ async function loadSuperAdminsFromEnv(): Promise<void> {
   if (!superAdminUsersRaw) return;
 
   const defaultOrgSlug = process.env.DEFAULT_ORG_SLUG || "default";
-  const entries = superAdminUsersRaw.split(",").map((s) => s.trim()).filter(Boolean);
+  const entries = superAdminUsersRaw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   for (const entry of entries) {
     const parts = entry.split(":");
@@ -320,111 +332,114 @@ export async function setupAuth(app: Express) {
   // passReqToCallback=true gives the strategy access to req so IP and User-Agent
   // can be included in HIPAA login audit events.
   passport.use(
-    new LocalStrategy({ passReqToCallback: true }, async (req: Request, username: string, password: string, done: any) => {
-      const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress;
-      const userAgent = req.headers["user-agent"];
-      try {
-        // HIPAA: Check account lockout before attempting authentication
-        if (isAccountLocked(username)) {
-          logPhiAccess({
-            event: "login_locked",
-            username,
-            resourceType: "auth",
-            ip,
-            userAgent,
-            detail: "Account locked due to excessive failed attempts",
-          });
-          return done(null, false, { message: "Account temporarily locked. Try again later." });
-        }
+    new LocalStrategy(
+      { passReqToCallback: true },
+      async (req: Request, username: string, password: string, done: any) => {
+        const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress;
+        const userAgent = req.headers["user-agent"];
+        try {
+          // HIPAA: Check account lockout before attempting authentication
+          if (isAccountLocked(username)) {
+            logPhiAccess({
+              event: "login_locked",
+              username,
+              resourceType: "auth",
+              ip,
+              userAgent,
+              detail: "Account locked due to excessive failed attempts",
+            });
+            return done(null, false, { message: "Account temporarily locked. Try again later." });
+          }
 
-        // 1. Check env-var users first (backward compatibility)
-        const envUser = envUsers.find((u) => u.username === username);
-        if (envUser) {
-          const isValid = await comparePasswords(password, envUser.passwordHash);
-          if (!isValid) {
+          // 1. Check env-var users first (backward compatibility)
+          const envUser = envUsers.find((u) => u.username === username);
+          if (envUser) {
+            const isValid = await comparePasswords(password, envUser.passwordHash);
+            if (!isValid) {
+              recordFailedAttempt(username);
+              logPhiAccess({ event: "login_failed", username, resourceType: "auth", ip, userAgent });
+              return done(null, false, { message: "Invalid username or password" });
+            }
+            // Check if org enforces SSO login
+            if (envUser.orgId) {
+              const envUserOrg = await storage.getOrganization(envUser.orgId);
+              if (envUserOrg?.settings?.ssoEnforced) {
+                return done(null, false, { message: "This organization requires SSO login." });
+              }
+            }
+
+            clearFailedAttempts(username);
+            logPhiAccess({
+              event: "login_success",
+              orgId: envUser.orgId,
+              userId: envUser.id,
+              username: envUser.username,
+              role: envUser.role,
+              resourceType: "auth",
+              ip,
+              userAgent,
+              detail: `org: ${envUser.orgSlug}`,
+            });
+            return done(null, {
+              id: envUser.id,
+              username: envUser.username,
+              name: envUser.name,
+              role: envUser.role,
+              orgId: envUser.orgId!,
+              orgSlug: envUser.orgSlug,
+            });
+          }
+
+          // 2. Check database users (created via admin UI or self-registration)
+          const dbUser = await storage.getUserByUsername(username);
+          if (!dbUser) {
             recordFailedAttempt(username);
-            logPhiAccess({ event: "login_failed", username, resourceType: "auth", ip, userAgent });
+            logPhiAccess({ event: "login_failed", username, resourceType: "auth" });
             return done(null, false, { message: "Invalid username or password" });
           }
+
+          const isValid = await comparePasswords(password, dbUser.passwordHash);
+          if (!isValid) {
+            recordFailedAttempt(username);
+            logPhiAccess({ event: "login_failed", username, resourceType: "auth" });
+            return done(null, false, { message: "Invalid username or password" });
+          }
+
+          // Resolve org slug for DB user
+          const org = await storage.getOrganization(dbUser.orgId);
+          const orgSlug = org?.slug || "default";
+
           // Check if org enforces SSO login
-          if (envUser.orgId) {
-            const envUserOrg = await storage.getOrganization(envUser.orgId);
-            if (envUserOrg?.settings?.ssoEnforced) {
-              return done(null, false, { message: "This organization requires SSO login." });
-            }
+          if (org?.settings?.ssoEnforced) {
+            return done(null, false, { message: "This organization requires SSO login." });
           }
 
           clearFailedAttempts(username);
           logPhiAccess({
             event: "login_success",
-            orgId: envUser.orgId,
-            userId: envUser.id,
-            username: envUser.username,
-            role: envUser.role,
+            orgId: dbUser.orgId,
+            userId: dbUser.id,
+            username: dbUser.username,
+            role: dbUser.role,
             resourceType: "auth",
             ip,
             userAgent,
-            detail: `org: ${envUser.orgSlug}`,
+            detail: `org: ${orgSlug} (db user)`,
           });
           return done(null, {
-            id: envUser.id,
-            username: envUser.username,
-            name: envUser.name,
-            role: envUser.role,
-            orgId: envUser.orgId!,
-            orgSlug: envUser.orgSlug,
+            id: dbUser.id,
+            username: dbUser.username,
+            name: dbUser.name,
+            role: dbUser.role,
+            orgId: dbUser.orgId,
+            orgSlug,
+            subTeam: (dbUser as any).subTeam || undefined,
           });
+        } catch (err) {
+          return done(err);
         }
-
-        // 2. Check database users (created via admin UI or self-registration)
-        const dbUser = await storage.getUserByUsername(username);
-        if (!dbUser) {
-          recordFailedAttempt(username);
-          logPhiAccess({ event: "login_failed", username, resourceType: "auth" });
-          return done(null, false, { message: "Invalid username or password" });
-        }
-
-        const isValid = await comparePasswords(password, dbUser.passwordHash);
-        if (!isValid) {
-          recordFailedAttempt(username);
-          logPhiAccess({ event: "login_failed", username, resourceType: "auth" });
-          return done(null, false, { message: "Invalid username or password" });
-        }
-
-        // Resolve org slug for DB user
-        const org = await storage.getOrganization(dbUser.orgId);
-        const orgSlug = org?.slug || "default";
-
-        // Check if org enforces SSO login
-        if (org?.settings?.ssoEnforced) {
-          return done(null, false, { message: "This organization requires SSO login." });
-        }
-
-        clearFailedAttempts(username);
-        logPhiAccess({
-          event: "login_success",
-          orgId: dbUser.orgId,
-          userId: dbUser.id,
-          username: dbUser.username,
-          role: dbUser.role,
-          resourceType: "auth",
-          ip,
-          userAgent,
-          detail: `org: ${orgSlug} (db user)`,
-        });
-        return done(null, {
-          id: dbUser.id,
-          username: dbUser.username,
-          name: dbUser.name,
-          role: dbUser.role,
-          orgId: dbUser.orgId,
-          orgSlug,
-          subTeam: (dbUser as any).subTeam || undefined,
-        });
-      } catch (err) {
-        return done(err);
-      }
-    })
+      },
+    ),
   );
 
   // Serialize user ID into session
@@ -489,7 +504,9 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
   // Enforce absolute session timeout (8 hours from login — platform-wide HIPAA requirement)
   const sessionAge = Date.now() - session.createdAt;
   if (sessionAge > SESSION_ABSOLUTE_MAX_MS) {
-    req.logout(() => { req.session?.destroy(() => {}); });
+    req.logout(() => {
+      req.session?.destroy(() => {});
+    });
     return res.status(401).json({
       message: "Session expired (maximum duration exceeded). Please log in again.",
       errorCode: "OBS-AUTH-005",
@@ -506,7 +523,9 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
       if (typeof maxHours === "number" && maxHours > 0) {
         const ssoSessionAge = Date.now() - session.ssoLoginAt;
         if (ssoSessionAge > maxHours * 60 * 60 * 1000) {
-          req.logout(() => { req.session?.destroy(() => {}); });
+          req.logout(() => {
+            req.session?.destroy(() => {});
+          });
           return res.status(401).json({
             message: `SSO session expired (your organization requires re-authentication every ${maxHours} hour(s)). Please sign in again.`,
             errorCode: "OBS-AUTH-006",
@@ -544,7 +563,7 @@ export function requireRole(...allowedRoles: string[]): RequestHandler {
     }
     const userRole = req.user.role || "viewer";
     const userLevel = ROLE_HIERARCHY[userRole] ?? 0;
-    const requiredLevel = Math.min(...allowedRoles.map(r => ROLE_HIERARCHY[r] ?? 0));
+    const requiredLevel = Math.min(...allowedRoles.map((r) => ROLE_HIERARCHY[r] ?? 0));
     if (userLevel >= requiredLevel) {
       return next();
     }
@@ -558,10 +577,7 @@ export function requireRole(...allowedRoles: string[]): RequestHandler {
  * return null (no restriction). Managers with a subTeam only see employees in
  * that subTeam — useful for filtering call lists, employee lists, and coaching.
  */
-export async function getTeamScopedEmployeeIds(
-  orgId: string,
-  user: Express.User,
-): Promise<Set<string> | null> {
+export async function getTeamScopedEmployeeIds(orgId: string, user: Express.User): Promise<Set<string> | null> {
   // Admins and super_admins are never restricted
   const level = ROLE_HIERARCHY[user.role ?? "viewer"] ?? 0;
   if (level >= ROLE_HIERARCHY["admin"]) return null;

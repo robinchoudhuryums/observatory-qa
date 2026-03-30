@@ -11,7 +11,22 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { MARKETING_SOURCES, type MarketingCampaign, type MarketingSourceMetrics } from "@shared/schema";
-import {  RiMegaphoneLine, RiMoneyDollarCircleLine, RiArrowRightUpLine, RiTeamLine, RiAddLine, RiBarChartBoxLine, RiLoader4Line, RiDeleteBinLine, RiPhoneLine, RiUserAddLine, RiArrowRightDownLine, RiTargetLine, RiInputMethodLine, RiCodeLine  } from "@remixicon/react";
+import {
+  RiMegaphoneLine,
+  RiMoneyDollarCircleLine,
+  RiArrowRightUpLine,
+  RiTeamLine,
+  RiAddLine,
+  RiBarChartBoxLine,
+  RiLoader4Line,
+  RiDeleteBinLine,
+  RiPhoneLine,
+  RiUserAddLine,
+  RiArrowRightDownLine,
+  RiTargetLine,
+  RiInputMethodLine,
+  RiCodeLine,
+} from "@remixicon/react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 function formatCurrency(val: number | null | undefined) {
@@ -27,8 +42,8 @@ function roiColor(roi: number | null) {
 }
 
 function SourceMetricCard({ metric }: { metric: MarketingSourceMetrics }) {
-  const sourceDef = MARKETING_SOURCES.find(s => s.value === metric.source);
-  const conversionRate = metric.totalCalls > 0 ? (metric.convertedCalls / metric.totalCalls * 100) : 0;
+  const sourceDef = MARKETING_SOURCES.find((s) => s.value === metric.source);
+  const conversionRate = metric.totalCalls > 0 ? (metric.convertedCalls / metric.totalCalls) * 100 : 0;
 
   return (
     <Card>
@@ -54,21 +69,25 @@ function SourceMetricCard({ metric }: { metric: MarketingSourceMetrics }) {
             <div className="text-muted-foreground">Converted</div>
           </div>
           <div>
-            <div className="font-bold">{metric.avgPerformanceScore > 0 ? metric.avgPerformanceScore.toFixed(1) : "—"}</div>
+            <div className="font-bold">
+              {metric.avgPerformanceScore > 0 ? metric.avgPerformanceScore.toFixed(1) : "—"}
+            </div>
             <div className="text-muted-foreground">Avg Score</div>
           </div>
         </div>
 
         <div className="flex items-center justify-between text-xs">
           {metric.costPerLead !== null && (
-            <span className="text-muted-foreground">
-              CPL: {formatCurrency(metric.costPerLead)}
-            </span>
+            <span className="text-muted-foreground">CPL: {formatCurrency(metric.costPerLead)}</span>
           )}
           {metric.roi !== null && (
             <span className={`font-medium ${roiColor(metric.roi)}`}>
               ROI: {(metric.roi * 100).toFixed(0)}%
-              {metric.roi > 0 ? <RiArrowRightUpLine className="w-3 h-3 inline ml-0.5" /> : <RiArrowRightDownLine className="w-3 h-3 inline ml-0.5" />}
+              {metric.roi > 0 ? (
+                <RiArrowRightUpLine className="w-3 h-3 inline ml-0.5" />
+              ) : (
+                <RiArrowRightDownLine className="w-3 h-3 inline ml-0.5" />
+              )}
             </span>
           )}
         </div>
@@ -90,7 +109,9 @@ function CreateCampaignForm({ onSuccess }: { onSuccess: () => void }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name, source, budget: budget ? parseFloat(budget) : undefined,
+          name,
+          source,
+          budget: budget ? parseFloat(budget) : undefined,
           trackingCode: trackingCode || undefined,
           startDate: new Date().toISOString(),
         }),
@@ -100,7 +121,9 @@ function CreateCampaignForm({ onSuccess }: { onSuccess: () => void }) {
     },
     onSuccess: () => {
       toast({ title: "Campaign created" });
-      setName(""); setBudget(""); setTrackingCode("");
+      setName("");
+      setBudget("");
+      setTrackingCode("");
       queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns"] });
       onSuccess();
     },
@@ -119,14 +142,20 @@ function CreateCampaignForm({ onSuccess }: { onSuccess: () => void }) {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <Label>Campaign Name *</Label>
-            <Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g., Spring Google Ads 2026" />
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., Spring Google Ads 2026" />
           </div>
           <div>
             <Label>Source *</Label>
             <Select value={source} onValueChange={setSource}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
-                {MARKETING_SOURCES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                {MARKETING_SOURCES.map((s) => (
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -134,15 +163,28 @@ function CreateCampaignForm({ onSuccess }: { onSuccess: () => void }) {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <Label>Budget ($)</Label>
-            <Input type="number" value={budget} onChange={e => setBudget(e.target.value)} placeholder="Monthly budget" />
+            <Input
+              type="number"
+              value={budget}
+              onChange={(e) => setBudget(e.target.value)}
+              placeholder="Monthly budget"
+            />
           </div>
           <div>
             <Label>Tracking Code / Number</Label>
-            <Input value={trackingCode} onChange={e => setTrackingCode(e.target.value)} placeholder="UTM or tracking phone" />
+            <Input
+              value={trackingCode}
+              onChange={(e) => setTrackingCode(e.target.value)}
+              placeholder="UTM or tracking phone"
+            />
           </div>
         </div>
         <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending || !name.trim()}>
-          {createMutation.isPending ? <RiLoader4Line className="w-4 h-4 mr-2 animate-spin" /> : <RiAddLine className="w-4 h-4 mr-2" />}
+          {createMutation.isPending ? (
+            <RiLoader4Line className="w-4 h-4 mr-2 animate-spin" />
+          ) : (
+            <RiAddLine className="w-4 h-4 mr-2" />
+          )}
           Create Campaign
         </Button>
       </CardContent>
@@ -182,9 +224,8 @@ function MetricsOverview() {
 
   if (!metrics) return null;
 
-  const overallROI = metrics.totalBudget > 0
-    ? ((metrics.totalRevenue - metrics.totalBudget) / metrics.totalBudget * 100)
-    : null;
+  const overallROI =
+    metrics.totalBudget > 0 ? ((metrics.totalRevenue - metrics.totalBudget) / metrics.totalBudget) * 100 : null;
 
   return (
     <div className="space-y-4">
@@ -192,7 +233,8 @@ function MetricsOverview() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground mb-1">
-              <RiPhoneLine className="w-4 h-4" /><span className="text-xs font-medium">Attributed</span>
+              <RiPhoneLine className="w-4 h-4" />
+              <span className="text-xs font-medium">Attributed</span>
             </div>
             <div className="text-2xl font-bold">{metrics.totalAttributed}</div>
             <div className="text-xs text-muted-foreground">calls tracked</div>
@@ -201,7 +243,8 @@ function MetricsOverview() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground mb-1">
-              <RiUserAddLine className="w-4 h-4" /><span className="text-xs font-medium">New Patients</span>
+              <RiUserAddLine className="w-4 h-4" />
+              <span className="text-xs font-medium">New Patients</span>
             </div>
             <div className="text-2xl font-bold text-blue-600">{metrics.totalNewPatients}</div>
             <div className="text-xs text-muted-foreground">from all sources</div>
@@ -210,7 +253,8 @@ function MetricsOverview() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground mb-1">
-              <RiMoneyDollarCircleLine className="w-4 h-4" /><span className="text-xs font-medium">Revenue</span>
+              <RiMoneyDollarCircleLine className="w-4 h-4" />
+              <span className="text-xs font-medium">Revenue</span>
             </div>
             <div className="text-2xl font-bold text-green-600">{formatCurrency(metrics.totalRevenue)}</div>
             <div className="text-xs text-muted-foreground">attributed revenue</div>
@@ -219,7 +263,8 @@ function MetricsOverview() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground mb-1">
-              <RiTargetLine className="w-4 h-4" /><span className="text-xs font-medium">Spend</span>
+              <RiTargetLine className="w-4 h-4" />
+              <span className="text-xs font-medium">Spend</span>
             </div>
             <div className="text-2xl font-bold">{formatCurrency(metrics.totalBudget)}</div>
             <div className="text-xs text-muted-foreground">{metrics.activeCampaigns} active campaigns</div>
@@ -228,7 +273,8 @@ function MetricsOverview() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground mb-1">
-              <RiArrowRightUpLine className="w-4 h-4" /><span className="text-xs font-medium">ROI</span>
+              <RiArrowRightUpLine className="w-4 h-4" />
+              <span className="text-xs font-medium">ROI</span>
             </div>
             <div className={`text-2xl font-bold ${roiColor(overallROI ? overallROI / 100 : null)}`}>
               {overallROI !== null ? `${overallROI.toFixed(0)}%` : "—"}
@@ -242,7 +288,9 @@ function MetricsOverview() {
         <div>
           <h3 className="text-sm font-medium mb-3">Performance by Source</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {metrics.sources.map(m => <SourceMetricCard key={m.source} metric={m} />)}
+            {metrics.sources.map((m) => (
+              <SourceMetricCard key={m.source} metric={m} />
+            ))}
           </div>
         </div>
       )}
@@ -292,9 +340,7 @@ export default function MarketingPage() {
           <RiMegaphoneLine className="w-6 h-6" />
           Lead Tracking
         </h1>
-        <p className="text-muted-foreground text-sm">
-          Track where calls come from and measure lead source ROI.
-        </p>
+        <p className="text-muted-foreground text-sm">Track where calls come from and measure lead source ROI.</p>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -329,7 +375,7 @@ export default function MarketingPage() {
               </CardContent>
             </Card>
           ) : (
-            campaigns.map(c => (
+            campaigns.map((c) => (
               <Card key={c.id}>
                 <CardContent className="p-4 flex items-center justify-between">
                   <div className="flex-1">
@@ -340,7 +386,7 @@ export default function MarketingPage() {
                       </Badge>
                     </div>
                     <div className="text-xs text-muted-foreground mt-1">
-                      {MARKETING_SOURCES.find(s => s.value === c.source)?.label || c.source}
+                      {MARKETING_SOURCES.find((s) => s.value === c.source)?.label || c.source}
                       {c.budget && ` · Budget: ${formatCurrency(c.budget)}`}
                       {c.trackingCode && ` · Code: ${c.trackingCode}`}
                       {c.startDate && ` · Started: ${new Date(c.startDate).toLocaleDateString()}`}

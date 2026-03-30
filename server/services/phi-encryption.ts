@@ -178,9 +178,16 @@ export function decryptMfaSecret(encrypted: string): string {
  * HIPAA: Logs decryption events for audit trail when context is provided.
  */
 const PHI_FIELDS = [
-  "subjective", "objective", "assessment", "hpiNarrative", "chiefComplaint",
-  "reviewOfSystems", "differentialDiagnoses", "periodontalFindings",
-  "attestedNpi", "cosignedNpi",
+  "subjective",
+  "objective",
+  "assessment",
+  "hpiNarrative",
+  "chiefComplaint",
+  "reviewOfSystems",
+  "differentialDiagnoses",
+  "periodontalFindings",
+  "attestedNpi",
+  "cosignedNpi",
 ] as const;
 
 export interface PhiDecryptionContext {
@@ -219,13 +226,16 @@ export function decryptClinicalNotePhi(
 
   // HIPAA: Log PHI decryption event for audit trail
   if (decryptedCount > 0 && auditContext) {
-    logger.info({
-      _audit: "PHI_DECRYPT",
-      userId: auditContext.userId,
-      orgId: auditContext.orgId,
-      resourceType: auditContext.resourceType || "clinical_note",
-      resourceId: auditContext.resourceId,
-      fieldsDecrypted: decryptedCount,
-    }, "[HIPAA_AUDIT] PHI fields decrypted");
+    logger.info(
+      {
+        _audit: "PHI_DECRYPT",
+        userId: auditContext.userId,
+        orgId: auditContext.orgId,
+        resourceType: auditContext.resourceType || "clinical_note",
+        resourceId: auditContext.resourceId,
+        fieldsDecrypted: decryptedCount,
+      },
+      "[HIPAA_AUDIT] PHI fields decrypted",
+    );
   }
 }

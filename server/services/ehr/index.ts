@@ -42,7 +42,12 @@ export function getEhrAdapter(system: EhrConnectionConfig["system"]): IEhrAdapte
 /**
  * List all supported EHR systems.
  */
-export function getSupportedEhrSystems(): Array<{ system: string; label: string; status: string; supportsWrite: boolean }> {
+export function getSupportedEhrSystems(): Array<{
+  system: string;
+  label: string;
+  status: string;
+  supportsWrite: boolean;
+}> {
   return [
     { system: "open_dental", label: "Open Dental", status: "available", supportsWrite: true },
     { system: "eaglesoft", label: "Eaglesoft (Patterson)", status: "available", supportsWrite: true },

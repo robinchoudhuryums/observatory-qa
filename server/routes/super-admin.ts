@@ -40,9 +40,9 @@ export function registerSuperAdminRoutes(app: Express): void {
       }
 
       const orgsByStatus = {
-        active: orgs.filter(o => o.status === "active").length,
-        suspended: orgs.filter(o => o.status === "suspended").length,
-        trial: orgs.filter(o => o.status === "trial").length,
+        active: orgs.filter((o) => o.status === "active").length,
+        suspended: orgs.filter((o) => o.status === "suspended").length,
+        trial: orgs.filter((o) => o.status === "trial").length,
       };
 
       res.json({
@@ -93,7 +93,7 @@ export function registerSuperAdminRoutes(app: Express): void {
               planTier: subscription?.planTier || "free",
             },
           };
-        })
+        }),
       );
 
       res.json(orgsWithStats);
@@ -133,7 +133,7 @@ export function registerSuperAdminRoutes(app: Express): void {
           billingInterval: subscription?.billingInterval,
           currentPeriodEnd: subscription?.currentPeriodEnd,
         },
-        users: users.map(u => ({
+        users: users.map((u) => ({
           id: u.id,
           username: u.username,
           name: u.name,
@@ -187,7 +187,10 @@ export function registerSuperAdminRoutes(app: Express): void {
         detail: JSON.stringify({ changedFields: Object.keys(updates) }),
       });
 
-      logger.info({ orgId: req.params.id, changedFields: Object.keys(updates), superAdmin: req.user?.username }, "Super admin updated organization");
+      logger.info(
+        { orgId: req.params.id, changedFields: Object.keys(updates), superAdmin: req.user?.username },
+        "Super admin updated organization",
+      );
       res.json(updated);
     } catch (error) {
       logger.error({ err: error }, "Failed to update organization");
@@ -222,7 +225,10 @@ export function registerSuperAdminRoutes(app: Express): void {
         detail: `Super admin ${req.user!.username} started impersonating org "${org.name}" (${org.slug})`,
       });
 
-      logger.warn({ superAdmin: req.user?.username, targetOrg: org.slug, orgId: org.id }, "Super admin started org impersonation");
+      logger.warn(
+        { superAdmin: req.user?.username, targetOrg: org.slug, orgId: org.id },
+        "Super admin started org impersonation",
+      );
       res.json({
         message: `Now impersonating organization "${org.name}" (${org.slug})`,
         orgId: org.id,
@@ -261,7 +267,10 @@ export function registerSuperAdminRoutes(app: Express): void {
       delete session.originalOrgId;
       delete session.impersonationStartedAt;
 
-      logger.info({ superAdmin: req.user?.username, previousOrgId: wasImpersonating }, "Super admin stopped org impersonation");
+      logger.info(
+        { superAdmin: req.user?.username, previousOrgId: wasImpersonating },
+        "Super admin stopped org impersonation",
+      );
       res.json({ message: "Stopped impersonating organization" });
     } catch (error) {
       logger.error({ err: error }, "Failed to stop impersonation");
@@ -291,7 +300,10 @@ export function registerSuperAdminRoutes(app: Express): void {
         detail: `Super admin unlocked account: ${username}`,
       });
 
-      logger.warn({ superAdmin: req.user?.username, unlockedUsername: username }, "Super admin performed emergency account unlock");
+      logger.warn(
+        { superAdmin: req.user?.username, unlockedUsername: username },
+        "Super admin performed emergency account unlock",
+      );
       res.json({ message: `Account '${username}' unlocked successfully` });
     } catch (error) {
       logger.error({ err: error }, "Failed to unlock account");
@@ -339,20 +351,25 @@ export function registerSuperAdminRoutes(app: Express): void {
               limit: callLimit,
               overageCount,
             },
-            subscription: subscription ? {
-              status: subscription.status,
-              planTier: subscription.planTier,
-              billingInterval: subscription.billingInterval,
-            } : null,
+            subscription: subscription
+              ? {
+                  status: subscription.status,
+                  planTier: subscription.planTier,
+                  billingInterval: subscription.billingInterval,
+                }
+              : null,
           };
-        })
+        }),
       );
 
       const platformTotals = {
         totalOrgs: orgs.length,
         totalCalls: orgsWithUsage.reduce((sum, o) => sum + o.callCount, 0),
-        totalTranscriptionHours: Math.round(orgsWithUsage.reduce((sum, o) => sum + o.totalTranscriptionSeconds, 0) / 3600),
-        totalEstimatedCostUsd: Math.round(orgsWithUsage.reduce((sum, o) => sum + o.totalEstimatedCostUsd, 0) * 100) / 100,
+        totalTranscriptionHours: Math.round(
+          orgsWithUsage.reduce((sum, o) => sum + o.totalTranscriptionSeconds, 0) / 3600,
+        ),
+        totalEstimatedCostUsd:
+          Math.round(orgsWithUsage.reduce((sum, o) => sum + o.totalEstimatedCostUsd, 0) * 100) / 100,
         totalUsers: orgsWithUsage.reduce((sum, o) => sum + o.userCount, 0),
       };
 

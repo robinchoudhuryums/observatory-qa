@@ -1,10 +1,28 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
+import {
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+} from "recharts";
 import { HelpTip } from "@/components/ui/help-tip";
 import type { CallWithDetails } from "@shared/schema";
-import {  RiEmotionLine, RiEmotionUnhappyLine, RiSubtractLine, RiArrowRightUpLine, RiFileDownloadLine  } from "@remixicon/react";
+import {
+  RiEmotionLine,
+  RiEmotionUnhappyLine,
+  RiSubtractLine,
+  RiArrowRightUpLine,
+  RiFileDownloadLine,
+} from "@remixicon/react";
 
 interface SentimentData {
   positive: number;
@@ -56,7 +74,10 @@ export default function SentimentPage() {
   // Per-employee sentiment breakdown
   const employeeSentiment = useMemo(() => {
     if (!calls || calls.length === 0) return [];
-    const empMap = new Map<string, { name: string; positive: number; neutral: number; negative: number; total: number }>();
+    const empMap = new Map<
+      string,
+      { name: string; positive: number; neutral: number; negative: number; total: number }
+    >();
 
     for (const call of calls) {
       if (!call.employee?.name || !call.sentiment?.overallSentiment) continue;
@@ -71,20 +92,24 @@ export default function SentimentPage() {
     }
 
     return Array.from(empMap.values())
-      .filter(e => e.total >= 1)
-      .sort((a, b) => (b.positive / b.total) - (a.positive / a.total))
+      .filter((e) => e.total >= 1)
+      .sort((a, b) => b.positive / b.total - a.positive / a.total)
       .slice(0, 10);
   }, [calls]);
 
   if (isLoading) {
-    return <div className="flex items-center justify-center h-64"><p className="text-muted-foreground">Loading sentiment data...</p></div>;
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-muted-foreground">Loading sentiment data...</p>
+      </div>
+    );
   }
 
   const positive = sentiment?.positive ?? 0;
   const neutral = sentiment?.neutral ?? 0;
   const negative = sentiment?.negative ?? 0;
   const total = positive + neutral + negative;
-  const pct = (val: number) => total > 0 ? Math.round((val / total) * 100) : 0;
+  const pct = (val: number) => (total > 0 ? Math.round((val / total) * 100) : 0);
 
   const pieData = [
     { name: "Positive", value: positive, color: "#22c55e" },
@@ -101,7 +126,9 @@ export default function SentimentPage() {
               Sentiment Analysis
               <HelpTip text="AI-detected customer sentiment from call transcripts. Positive means the customer was satisfied, negative indicates frustration or complaints. Trends show how sentiment shifts over time." />
             </h2>
-            <p className="text-muted-foreground">Overall sentiment distribution and trends across all analyzed calls.</p>
+            <p className="text-muted-foreground">
+              Overall sentiment distribution and trends across all analyzed calls.
+            </p>
           </div>
           <Button
             variant="outline"
@@ -163,12 +190,26 @@ export default function SentimentPage() {
             {total > 0 ? (
               <ResponsiveContainer width="100%" height={250}>
                 <PieChart>
-                  <Pie data={pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={5} dataKey="value">
+                  <Pie
+                    data={pieData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
                     {pieData.map((entry, i) => (
                       <Cell key={i} fill={entry.color} />
                     ))}
                   </Pie>
-                  <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 12 }} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--card))",
+                      border: "1px solid hsl(var(--border))",
+                      fontSize: 12,
+                    }}
+                  />
                   <Legend />
                 </PieChart>
               </ResponsiveContainer>
@@ -204,10 +245,37 @@ export default function SentimentPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="week" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
                   <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                  <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 12 }} />
-                  <Area type="monotone" dataKey="positive" name="Positive" stackId="1" stroke="#22c55e" fill="url(#sentGreen)" />
-                  <Area type="monotone" dataKey="neutral" name="Neutral" stackId="1" stroke="#94a3b8" fill="url(#sentGray)" />
-                  <Area type="monotone" dataKey="negative" name="Negative" stackId="1" stroke="#ef4444" fill="url(#sentRed)" />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--card))",
+                      border: "1px solid hsl(var(--border))",
+                      fontSize: 12,
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="positive"
+                    name="Positive"
+                    stackId="1"
+                    stroke="#22c55e"
+                    fill="url(#sentGreen)"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="neutral"
+                    name="Neutral"
+                    stackId="1"
+                    stroke="#94a3b8"
+                    fill="url(#sentGray)"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="negative"
+                    name="Negative"
+                    stackId="1"
+                    stroke="#ef4444"
+                    fill="url(#sentRed)"
+                  />
                 </AreaChart>
               </ResponsiveContainer>
             ) : (
@@ -257,9 +325,15 @@ export default function SentimentPage() {
               ))}
             </div>
             <div className="flex gap-4 mt-3 pt-3 border-t border-border">
-              <span className="flex items-center gap-1 text-xs"><span className="w-2 h-2 rounded-full bg-green-500" /> Positive</span>
-              <span className="flex items-center gap-1 text-xs"><span className="w-2 h-2 rounded-full bg-slate-400" /> Neutral</span>
-              <span className="flex items-center gap-1 text-xs"><span className="w-2 h-2 rounded-full bg-red-500" /> Negative</span>
+              <span className="flex items-center gap-1 text-xs">
+                <span className="w-2 h-2 rounded-full bg-green-500" /> Positive
+              </span>
+              <span className="flex items-center gap-1 text-xs">
+                <span className="w-2 h-2 rounded-full bg-slate-400" /> Neutral
+              </span>
+              <span className="flex items-center gap-1 text-xs">
+                <span className="w-2 h-2 rounded-full bg-red-500" /> Negative
+              </span>
             </div>
           </div>
         )}

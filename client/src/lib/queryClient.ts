@@ -12,11 +12,7 @@ function getCsrfToken(): string {
   return match ? match[1] : "";
 }
 
-export async function apiRequest(
-  method: string,
-  url: string,
-  data?: unknown | undefined,
-): Promise<Response> {
+export async function apiRequest(method: string, url: string, data?: unknown | undefined): Promise<Response> {
   const headers: Record<string, string> = {};
   if (data) headers["Content-Type"] = "application/json";
   if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
@@ -36,9 +32,7 @@ export async function apiRequest(
 
 type UnauthorizedBehavior = "returnNull" | "throw";
 // Replace your old getQueryFn with this new one
-export const getQueryFn: <T>(options?: {
-  on401?: "returnNull" | "throw";
-}) => QueryFunction<T> =
+export const getQueryFn: <T>(options?: { on401?: "returnNull" | "throw" }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior = "throw" } = {}) =>
   async ({ queryKey }) => {
     // The first part of the key is always the base URL
@@ -47,12 +41,10 @@ export const getQueryFn: <T>(options?: {
 
     // Check if the second part is for a specific ID or for query parameters
     if (params) {
-      if (typeof params === 'object' && params !== null) {
+      if (typeof params === "object" && params !== null) {
         // It's an object for query parameters (like in your table)
         // Filters out empty string values
-        const filteredParams = Object.fromEntries(
-          Object.entries(params).filter(([, value]) => value !== '')
-        );
+        const filteredParams = Object.fromEntries(Object.entries(params).filter(([, value]) => value !== ""));
         const searchParams = new URLSearchParams(filteredParams as Record<string, string>);
         const queryString = searchParams.toString();
         if (queryString) {

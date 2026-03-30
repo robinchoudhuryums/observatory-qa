@@ -5,8 +5,18 @@ export const FEEDBACK_TYPES = ["feature_rating", "bug_report", "suggestion", "np
 export type FeedbackType = (typeof FEEDBACK_TYPES)[number];
 
 export const FEEDBACK_CONTEXTS = [
-  "dashboard", "transcripts", "upload", "coaching", "clinical", "search",
-  "reports", "insights", "ab_testing", "spend_tracking", "ehr", "general",
+  "dashboard",
+  "transcripts",
+  "upload",
+  "coaching",
+  "clinical",
+  "search",
+  "reports",
+  "insights",
+  "ab_testing",
+  "spend_tracking",
+  "ehr",
+  "general",
 ] as const;
 export type FeedbackContext = (typeof FEEDBACK_CONTEXTS)[number];
 
@@ -33,24 +43,78 @@ export type Feedback = z.infer<typeof feedbackSchema>;
 // --- GAMIFICATION SCHEMAS ---
 export const BADGE_DEFINITIONS = [
   // Performance badges
-  { id: "first_call", name: "First Call", description: "Processed your first call", icon: "phone", category: "milestone" },
-  { id: "ten_calls", name: "10 Calls", description: "Processed 10 calls", icon: "phone-forwarded", category: "milestone" },
+  {
+    id: "first_call",
+    name: "First Call",
+    description: "Processed your first call",
+    icon: "phone",
+    category: "milestone",
+  },
+  {
+    id: "ten_calls",
+    name: "10 Calls",
+    description: "Processed 10 calls",
+    icon: "phone-forwarded",
+    category: "milestone",
+  },
   { id: "hundred_calls", name: "Century", description: "Processed 100 calls", icon: "trophy", category: "milestone" },
-  { id: "perfect_score", name: "Perfect 10", description: "Achieved a perfect 10.0 score", icon: "star", category: "performance" },
-  { id: "high_performer", name: "High Performer", description: "5+ calls with score above 9.0", icon: "award", category: "performance" },
-  { id: "consistency_king", name: "Consistency King", description: "10 consecutive calls above 8.0", icon: "target", category: "performance" },
+  {
+    id: "perfect_score",
+    name: "Perfect 10",
+    description: "Achieved a perfect 10.0 score",
+    icon: "star",
+    category: "performance",
+  },
+  {
+    id: "high_performer",
+    name: "High Performer",
+    description: "5+ calls with score above 9.0",
+    icon: "award",
+    category: "performance",
+  },
+  {
+    id: "consistency_king",
+    name: "Consistency King",
+    description: "10 consecutive calls above 8.0",
+    icon: "target",
+    category: "performance",
+  },
   // Improvement badges
-  { id: "most_improved", name: "Most Improved", description: "Improved avg score by 2+ points in a month", icon: "trending-up", category: "improvement" },
-  { id: "comeback_kid", name: "Comeback Kid", description: "Recovered from below 5.0 to above 8.0", icon: "refresh-cw", category: "improvement" },
+  {
+    id: "most_improved",
+    name: "Most Improved",
+    description: "Improved avg score by 2+ points in a month",
+    icon: "trending-up",
+    category: "improvement",
+  },
+  {
+    id: "comeback_kid",
+    name: "Comeback Kid",
+    description: "Recovered from below 5.0 to above 8.0",
+    icon: "refresh-cw",
+    category: "improvement",
+  },
   // Engagement badges
-  { id: "self_reviewer", name: "Self Reviewer", description: "Completed 5 self-reviews", icon: "clipboard-check", category: "engagement" },
-  { id: "coaching_champion", name: "Coaching Champion", description: "Completed 10 coaching sessions", icon: "book-open", category: "engagement" },
+  {
+    id: "self_reviewer",
+    name: "Self Reviewer",
+    description: "Completed 5 self-reviews",
+    icon: "clipboard-check",
+    category: "engagement",
+  },
+  {
+    id: "coaching_champion",
+    name: "Coaching Champion",
+    description: "Completed 10 coaching sessions",
+    icon: "book-open",
+    category: "engagement",
+  },
   { id: "streak_7", name: "Weekly Warrior", description: "7-day activity streak", icon: "flame", category: "streak" },
   { id: "streak_30", name: "Monthly Maven", description: "30-day activity streak", icon: "zap", category: "streak" },
 ] as const;
 
-export type BadgeDefinition = typeof BADGE_DEFINITIONS[number];
-export type BadgeId = typeof BADGE_DEFINITIONS[number]["id"];
+export type BadgeDefinition = (typeof BADGE_DEFINITIONS)[number];
+export type BadgeId = (typeof BADGE_DEFINITIONS)[number]["id"];
 
 export const employeeBadgeSchema = z.object({
   id: z.string(),
@@ -94,14 +158,30 @@ export type LeaderboardEntry = z.infer<typeof leaderboardEntrySchema>;
 
 // --- INSURANCE NARRATIVE SCHEMAS ---
 export const INSURANCE_LETTER_TYPES = [
-  { value: "prior_auth", label: "Prior Authorization Request", description: "Request pre-approval for planned treatment" },
+  {
+    value: "prior_auth",
+    label: "Prior Authorization Request",
+    description: "Request pre-approval for planned treatment",
+  },
   { value: "appeal", label: "Insurance Appeal", description: "Appeal a denied claim with clinical justification" },
-  { value: "predetermination", label: "Predetermination of Benefits", description: "Estimate insurance coverage before treatment" },
-  { value: "medical_necessity", label: "Medical Necessity Letter", description: "Justify clinical need for specific treatment" },
-  { value: "peer_to_peer", label: "Peer-to-Peer Review Summary", description: "Summary for peer-to-peer review with insurer" },
+  {
+    value: "predetermination",
+    label: "Predetermination of Benefits",
+    description: "Estimate insurance coverage before treatment",
+  },
+  {
+    value: "medical_necessity",
+    label: "Medical Necessity Letter",
+    description: "Justify clinical need for specific treatment",
+  },
+  {
+    value: "peer_to_peer",
+    label: "Peer-to-Peer Review Summary",
+    description: "Summary for peer-to-peer review with insurer",
+  },
 ] as const;
 
-export type InsuranceLetterType = typeof INSURANCE_LETTER_TYPES[number]["value"];
+export type InsuranceLetterType = (typeof INSURANCE_LETTER_TYPES)[number]["value"];
 
 export const NARRATIVE_OUTCOMES = ["approved", "denied", "partial_approval", "pending", "withdrawn"] as const;
 export type NarrativeOutcome = (typeof NARRATIVE_OUTCOMES)[number];
@@ -115,8 +195,19 @@ export const insertInsuranceNarrativeSchema = z.object({
   insurerName: z.string(),
   insurerAddress: z.string().optional(),
   letterType: z.string(),
-  diagnosisCodes: z.array(z.object({ code: z.string().regex(/^[A-TV-Z]\d{2}(\.\d{1,4})?$/, "Invalid ICD-10 format"), description: z.string() })).optional(),
-  procedureCodes: z.array(z.object({ code: z.string().regex(/^\d{5}[A-Z]?$|^D\d{4}$/, "Invalid CPT/CDT format"), description: z.string() })).optional(),
+  diagnosisCodes: z
+    .array(
+      z.object({
+        code: z.string().regex(/^[A-TV-Z]\d{2}(\.\d{1,4})?$/, "Invalid ICD-10 format"),
+        description: z.string(),
+      }),
+    )
+    .optional(),
+  procedureCodes: z
+    .array(
+      z.object({ code: z.string().regex(/^\d{5}[A-Z]?$|^D\d{4}$/, "Invalid CPT/CDT format"), description: z.string() }),
+    )
+    .optional(),
   clinicalJustification: z.string().optional(), // pulled from clinical note or manual
   priorDenialReference: z.string().optional(), // for appeals
   generatedNarrative: z.string().optional(), // AI-generated letter
@@ -144,12 +235,16 @@ export const insertInsuranceNarrativeSchema = z.object({
   payerTemplate: z.string().optional(),
   // --- Supporting document checklist ---
   /** Array of required attachments with completion status */
-  supportingDocuments: z.array(z.object({
-    name: z.string(),
-    required: z.boolean(),
-    attached: z.boolean().default(false),
-    notes: z.string().optional(),
-  })).optional(),
+  supportingDocuments: z
+    .array(
+      z.object({
+        name: z.string(),
+        required: z.boolean(),
+        attached: z.boolean().default(false),
+        notes: z.string().optional(),
+      }),
+    )
+    .optional(),
 });
 
 export const insuranceNarrativeSchema = insertInsuranceNarrativeSchema.extend({
@@ -165,7 +260,13 @@ export type InsuranceNarrative = z.infer<typeof insuranceNarrativeSchema>;
 export const REVENUE_TYPES = ["production", "collection", "scheduled", "lost"] as const;
 export const CONVERSION_STATUSES = ["converted", "pending", "lost", "unknown"] as const;
 export const PAYER_TYPES = ["insurance", "cash", "mixed", "unknown"] as const;
-export const ATTRIBUTION_STAGES = ["call_identified", "appointment_scheduled", "appointment_completed", "treatment_accepted", "payment_collected"] as const;
+export const ATTRIBUTION_STAGES = [
+  "call_identified",
+  "appointment_scheduled",
+  "appointment_completed",
+  "treatment_accepted",
+  "payment_collected",
+] as const;
 
 export const insertCallRevenueSchema = z.object({
   orgId: z.string(),
@@ -174,11 +275,15 @@ export const insertCallRevenueSchema = z.object({
   actualRevenue: z.number().optional(), // confirmed revenue (entered manually or from EHR)
   revenueType: z.enum(REVENUE_TYPES).optional(),
   treatmentValue: z.number().optional(), // total treatment plan value discussed
-  scheduledProcedures: z.array(z.object({
-    code: z.string(),
-    description: z.string(),
-    estimatedValue: z.number(),
-  })).optional(),
+  scheduledProcedures: z
+    .array(
+      z.object({
+        code: z.string(),
+        description: z.string(),
+        estimatedValue: z.number(),
+      }),
+    )
+    .optional(),
   conversionStatus: z.enum(CONVERSION_STATUSES).default("unknown"),
   notes: z.string().optional(),
   updatedBy: z.string().optional(),
@@ -247,12 +352,14 @@ export const insertCalibrationEvaluationSchema = z.object({
   sessionId: z.string(),
   evaluatorId: z.string(),
   performanceScore: z.number().min(0).max(10),
-  subScores: z.object({
-    compliance: z.number().min(0).max(10).optional(),
-    customerExperience: z.number().min(0).max(10).optional(),
-    communication: z.number().min(0).max(10).optional(),
-    resolution: z.number().min(0).max(10).optional(),
-  }).optional(),
+  subScores: z
+    .object({
+      compliance: z.number().min(0).max(10).optional(),
+      customerExperience: z.number().min(0).max(10).optional(),
+      communication: z.number().min(0).max(10).optional(),
+      resolution: z.number().min(0).max(10).optional(),
+    })
+    .optional(),
   notes: z.string().optional(),
 });
 
@@ -281,7 +388,7 @@ export const LMS_CONTENT_TYPES = [
   { value: "ai_generated", label: "AI-Generated Module", description: "Auto-generated from reference docs" },
 ] as const;
 
-export type LmsContentType = typeof LMS_CONTENT_TYPES[number]["value"];
+export type LmsContentType = (typeof LMS_CONTENT_TYPES)[number]["value"];
 
 export const LMS_CATEGORIES = [
   { value: "onboarding", label: "New Hire Onboarding" },
@@ -297,7 +404,7 @@ export const LMS_CATEGORIES = [
   { value: "general", label: "General Knowledge" },
 ] as const;
 
-export type LmsCategory = typeof LMS_CATEGORIES[number]["value"];
+export type LmsCategory = (typeof LMS_CATEGORIES)[number]["value"];
 
 // --- Learning Module (the content unit) ---
 export const insertLearningModuleSchema = z.object({
@@ -307,12 +414,16 @@ export const insertLearningModuleSchema = z.object({
   contentType: z.string(), // article, quiz, video, document, ai_generated
   category: z.string().optional(),
   content: z.string().optional(), // markdown/HTML body for articles
-  quizQuestions: z.array(z.object({
-    question: z.string(),
-    options: z.array(z.string()),
-    correctIndex: z.number(),
-    explanation: z.string().optional(),
-  })).optional(),
+  quizQuestions: z
+    .array(
+      z.object({
+        question: z.string(),
+        options: z.array(z.string()),
+        correctIndex: z.number(),
+        explanation: z.string().optional(),
+      }),
+    )
+    .optional(),
   estimatedMinutes: z.number().optional(),
   difficulty: z.enum(["beginner", "intermediate", "advanced"]).optional(),
   tags: z.array(z.string()).optional(),
@@ -421,7 +532,7 @@ export const MARKETING_SOURCES = [
   { value: "other", label: "Other", icon: "more-horizontal" },
 ] as const;
 
-export type MarketingSourceType = typeof MARKETING_SOURCES[number]["value"];
+export type MarketingSourceType = (typeof MARKETING_SOURCES)[number]["value"];
 
 // Marketing campaign for grouping attribution data
 export const insertMarketingCampaignSchema = z.object({

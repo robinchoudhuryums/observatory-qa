@@ -9,7 +9,29 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import type { ClinicalNote } from "@shared/schema";
-import {  RiStethoscopeLine, RiShieldCheckLine, RiAlertLine, RiFileTextLine, RiCalendarLine, RiPencilLine, RiSaveLine, RiCloseLine, RiPulseLine, RiMessage2Line, RiInformationLine, RiFileCopyLine, RiArrowDownSLine, RiArrowUpSLine, RiRefreshLine, RiCheckDoubleLine, RiCapsuleLine, RiListCheck2, RiPrinterLine, RiInputMethodLine, RiHistoryLine  } from "@remixicon/react";
+import {
+  RiStethoscopeLine,
+  RiShieldCheckLine,
+  RiAlertLine,
+  RiFileTextLine,
+  RiCalendarLine,
+  RiPencilLine,
+  RiSaveLine,
+  RiCloseLine,
+  RiPulseLine,
+  RiMessage2Line,
+  RiInformationLine,
+  RiFileCopyLine,
+  RiArrowDownSLine,
+  RiArrowUpSLine,
+  RiRefreshLine,
+  RiCheckDoubleLine,
+  RiCapsuleLine,
+  RiListCheck2,
+  RiPrinterLine,
+  RiInputMethodLine,
+  RiHistoryLine,
+} from "@remixicon/react";
 
 interface QualityFeedbackEntry {
   rating: number;
@@ -45,10 +67,23 @@ interface CallWithClinical {
 
 // --- Editable Section Card ---
 function SectionCard({
-  title, icon, children, empty, editing, editValue, onEditChange, fieldName,
+  title,
+  icon,
+  children,
+  empty,
+  editing,
+  editValue,
+  onEditChange,
+  fieldName,
 }: {
-  title: string; icon: React.ReactNode; children: React.ReactNode; empty?: string;
-  editing?: boolean; editValue?: string; onEditChange?: (field: string, value: string) => void; fieldName?: string;
+  title: string;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+  empty?: string;
+  editing?: boolean;
+  editValue?: string;
+  onEditChange?: (field: string, value: string) => void;
+  fieldName?: string;
 }) {
   return (
     <Card>
@@ -76,11 +111,18 @@ function SectionCard({
 // --- Format label helper ---
 function formatLabel(format: string): string {
   const labels: Record<string, string> = {
-    soap: "SOAP", dap: "DAP", birp: "BIRP", hpi_focused: "HPI-Focused",
-    procedure_note: "Procedure Note", progress_note: "Progress Note",
-    dental_exam: "Dental Exam", dental_operative: "Dental Operative",
-    dental_perio: "Periodontal", dental_endo: "Endodontic",
-    dental_ortho_progress: "Ortho Progress", dental_surgery: "Oral Surgery",
+    soap: "SOAP",
+    dap: "DAP",
+    birp: "BIRP",
+    hpi_focused: "HPI-Focused",
+    procedure_note: "Procedure Note",
+    progress_note: "Progress Note",
+    dental_exam: "Dental Exam",
+    dental_operative: "Dental Operative",
+    dental_perio: "Periodontal",
+    dental_endo: "Endodontic",
+    dental_ortho_progress: "Ortho Progress",
+    dental_surgery: "Oral Surgery",
     dental_treatment_plan: "Treatment Plan",
   };
   return labels[format] || format.toUpperCase();
@@ -103,7 +145,8 @@ export default function ClinicalNotesPage() {
   const attestMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch(`/api/clinical/notes/${callId}/attest`, {
-        method: "POST", credentials: "include",
+        method: "POST",
+        credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to attest");
       return res.json();
@@ -120,8 +163,10 @@ export default function ClinicalNotesPage() {
   const consentMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch(`/api/clinical/notes/${callId}/consent`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        credentials: "include", body: JSON.stringify({ consentObtained: true }),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ consentObtained: true }),
       });
       if (!res.ok) throw new Error("Failed to record consent");
       return res.json();
@@ -155,7 +200,8 @@ export default function ClinicalNotesPage() {
   const feedbackMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch(`/api/clinical/notes/${callId}/feedback`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({ rating: feedbackRating, comment: feedbackComment || undefined }),
       });
@@ -210,7 +256,10 @@ export default function ClinicalNotesPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/calls", callId] });
       queryClient.invalidateQueries({ queryKey: ["/api/calls", callId, "transcript"] });
       if (data.reanalysis?.success) {
-        toast({ title: "Transcript saved & note regenerated", description: "The clinical note has been updated from the edited transcript. Re-attestation required." });
+        toast({
+          title: "Transcript saved & note regenerated",
+          description: "The clinical note has been updated from the edited transcript. Re-attestation required.",
+        });
       } else if (data.reanalysis && !data.reanalysis.success) {
         toast({ title: "Transcript saved", description: data.reanalysis.message, variant: "destructive" });
       } else {
@@ -245,16 +294,22 @@ export default function ClinicalNotesPage() {
   };
 
   const handleToothNumbersChange = (value: string) => {
-    setEditFields(prev => ({
+    setEditFields((prev) => ({
       ...prev,
-      toothNumbers: value.split(",").map(s => s.trim()).filter(Boolean),
+      toothNumbers: value
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
     }));
   };
 
   const handleQuadrantsChange = (value: string) => {
-    setEditFields(prev => ({
+    setEditFields((prev) => ({
       ...prev,
-      quadrants: value.split(",").map(s => s.trim()).filter(Boolean),
+      quadrants: value
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
     }));
   };
 
@@ -265,11 +320,11 @@ export default function ClinicalNotesPage() {
   };
 
   const handleFieldChange = (field: string, value: string) => {
-    setEditFields(prev => ({ ...prev, [field]: value }));
+    setEditFields((prev) => ({ ...prev, [field]: value }));
   };
 
   const handlePlanChange = (value: string) => {
-    setEditFields(prev => ({ ...prev, plan: value.split("\n").filter(Boolean) }));
+    setEditFields((prev) => ({ ...prev, plan: value.split("\n").filter(Boolean) }));
   };
 
   const handlePrint = () => {
@@ -311,7 +366,11 @@ export default function ClinicalNotesPage() {
   }
 
   if (!call) {
-    return <div className="p-6"><p className="text-muted-foreground">Encounter not found.</p></div>;
+    return (
+      <div className="p-6">
+        <p className="text-muted-foreground">Encounter not found.</p>
+      </div>
+    );
   }
 
   if (!cn) {
@@ -322,7 +381,9 @@ export default function ClinicalNotesPage() {
             <RiStethoscopeLine className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
             <h2 className="text-lg font-semibold">Clinical note not yet generated</h2>
             <p className="text-muted-foreground mt-2">
-              {call.status === "processing" ? "The encounter is still being processed..." : "No clinical note was generated for this encounter."}
+              {call.status === "processing"
+                ? "The encounter is still being processed..."
+                : "No clinical note was generated for this encounter."}
             </p>
           </CardContent>
         </Card>
@@ -351,35 +412,49 @@ export default function ClinicalNotesPage() {
         <div className="flex items-center gap-2 flex-wrap">
           {cn.providerAttested ? (
             <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
-              <RiCheckDoubleLine className="w-3.5 h-3.5 mr-1" />Attested
+              <RiCheckDoubleLine className="w-3.5 h-3.5 mr-1" />
+              Attested
             </Badge>
           ) : (
             <Badge variant="outline" className="text-amber-600 border-amber-300">
-              <RiAlertLine className="w-3.5 h-3.5 mr-1" />Draft
+              <RiAlertLine className="w-3.5 h-3.5 mr-1" />
+              Draft
             </Badge>
           )}
           {cn.patientConsentObtained && (
             <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
-              <RiShieldCheckLine className="w-3.5 h-3.5 mr-1" />Consent
+              <RiShieldCheckLine className="w-3.5 h-3.5 mr-1" />
+              Consent
             </Badge>
           )}
           {/* Action buttons */}
           {editing ? (
             <>
               <Button size="sm" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
-                <RiSaveLine className="w-4 h-4 mr-1" />{saveMutation.isPending ? "Saving..." : "Save"}
+                <RiSaveLine className="w-4 h-4 mr-1" />
+                {saveMutation.isPending ? "Saving..." : "Save"}
               </Button>
-              <Button size="sm" variant="outline" onClick={() => { setEditing(false); setEditFields({}); }}>
-                <RiCloseLine className="w-4 h-4 mr-1" />Cancel
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setEditing(false);
+                  setEditFields({});
+                }}
+              >
+                <RiCloseLine className="w-4 h-4 mr-1" />
+                Cancel
               </Button>
             </>
           ) : (
             <>
               <Button size="sm" variant="outline" onClick={startEditing}>
-                <RiPencilLine className="w-4 h-4 mr-1" />Edit
+                <RiPencilLine className="w-4 h-4 mr-1" />
+                Edit
               </Button>
               <Button size="sm" variant="outline" onClick={handlePrint}>
-                <RiPrinterLine className="w-4 h-4 mr-1" />Print / Export
+                <RiPrinterLine className="w-4 h-4 mr-1" />
+                Print / Export
               </Button>
             </>
           )}
@@ -395,16 +470,23 @@ export default function ClinicalNotesPage() {
               <div className="text-sm flex-1">
                 <p className="font-medium text-amber-800 dark:text-amber-200">AI-Generated Draft</p>
                 <p className="text-amber-700 dark:text-amber-300 mt-1">
-                  This clinical note was automatically generated from the encounter recording.
-                  Review for accuracy, edit if needed, then attest before use.
+                  This clinical note was automatically generated from the encounter recording. Review for accuracy, edit
+                  if needed, then attest before use.
                 </p>
                 <div className="flex gap-2 mt-3">
                   <Button size="sm" onClick={() => attestMutation.mutate()} disabled={attestMutation.isPending}>
-                    <RiCheckDoubleLine className="w-4 h-4 mr-1" />Attest Note
+                    <RiCheckDoubleLine className="w-4 h-4 mr-1" />
+                    Attest Note
                   </Button>
                   {!cn.patientConsentObtained && (
-                    <Button size="sm" variant="outline" onClick={() => consentMutation.mutate()} disabled={consentMutation.isPending}>
-                      <RiShieldCheckLine className="w-4 h-4 mr-1" />Record Consent
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => consentMutation.mutate()}
+                      disabled={consentMutation.isPending}
+                    >
+                      <RiShieldCheckLine className="w-4 h-4 mr-1" />
+                      Record Consent
                     </Button>
                   )}
                 </div>
@@ -448,17 +530,33 @@ export default function ClinicalNotesPage() {
                         <div className="flex-1 text-sm">
                           <p className="font-medium text-blue-800 dark:text-blue-200">Re-run AI analysis?</p>
                           <p className="text-blue-700 dark:text-blue-300 mt-1">
-                            This will regenerate the clinical note from the edited transcript using AI. The existing note will be replaced and will need re-attestation. A small amount of AI usage will be consumed (~$0.02).
+                            This will regenerate the clinical note from the edited transcript using AI. The existing
+                            note will be replaced and will need re-attestation. A small amount of AI usage will be
+                            consumed (~$0.02).
                           </p>
                           <div className="flex gap-2 mt-2">
-                            <Button size="sm" onClick={() => saveTranscriptMutation.mutate({ reanalyze: true })} disabled={saveTranscriptMutation.isPending}>
+                            <Button
+                              size="sm"
+                              onClick={() => saveTranscriptMutation.mutate({ reanalyze: true })}
+                              disabled={saveTranscriptMutation.isPending}
+                            >
                               <RiRefreshLine className="w-3.5 h-3.5 mr-1" />
                               {saveTranscriptMutation.isPending ? "Saving & analyzing..." : "Save & Re-analyze"}
                             </Button>
-                            <Button size="sm" variant="outline" onClick={() => saveTranscriptMutation.mutate({ reanalyze: false })} disabled={saveTranscriptMutation.isPending}>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => saveTranscriptMutation.mutate({ reanalyze: false })}
+                              disabled={saveTranscriptMutation.isPending}
+                            >
                               Save without re-analysis
                             </Button>
-                            <Button size="sm" variant="ghost" onClick={() => setShowReanalyzeConfirm(false)} disabled={saveTranscriptMutation.isPending}>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setShowReanalyzeConfirm(false)}
+                              disabled={saveTranscriptMutation.isPending}
+                            >
                               Cancel
                             </Button>
                           </div>
@@ -466,11 +564,24 @@ export default function ClinicalNotesPage() {
                       </div>
                     ) : (
                       <>
-                        <Button size="sm" onClick={() => setShowReanalyzeConfirm(true)} disabled={transcriptText.trim().length < 10}>
-                          <RiSaveLine className="w-4 h-4 mr-1" />Save Transcript
+                        <Button
+                          size="sm"
+                          onClick={() => setShowReanalyzeConfirm(true)}
+                          disabled={transcriptText.trim().length < 10}
+                        >
+                          <RiSaveLine className="w-4 h-4 mr-1" />
+                          Save Transcript
                         </Button>
-                        <Button size="sm" variant="outline" onClick={() => { setEditingTranscript(false); setShowReanalyzeConfirm(false); }}>
-                          <RiCloseLine className="w-4 h-4 mr-1" />Cancel
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setEditingTranscript(false);
+                            setShowReanalyzeConfirm(false);
+                          }}
+                        >
+                          <RiCloseLine className="w-4 h-4 mr-1" />
+                          Cancel
                         </Button>
                       </>
                     )}
@@ -482,7 +593,8 @@ export default function ClinicalNotesPage() {
                     {transcript.text}
                   </p>
                   <Button size="sm" variant="outline" onClick={startEditingTranscript}>
-                    <RiPencilLine className="w-4 h-4 mr-1" />Edit Transcript
+                    <RiPencilLine className="w-4 h-4 mr-1" />
+                    Edit Transcript
                   </Button>
                 </>
               )}
@@ -499,7 +611,11 @@ export default function ClinicalNotesPage() {
           <div className="meta">
             {call.employee?.name && <span>Provider: {call.employee.name} | </span>}
             {call.uploadedAt && <span>Date: {new Date(call.uploadedAt).toLocaleDateString()} | </span>}
-            {cn.providerAttested ? <span>Status: Attested</span> : <span className="draft">DRAFT — Requires Provider Attestation</span>}
+            {cn.providerAttested ? (
+              <span>Status: Attested</span>
+            ) : (
+              <span className="draft">DRAFT — Requires Provider Attestation</span>
+            )}
           </div>
         </div>
 
@@ -532,7 +648,9 @@ export default function ClinicalNotesPage() {
             <Card>
               <CardContent className="pt-4 text-center">
                 <p className="text-xs text-muted-foreground">Weighted</p>
-                <p className={`text-2xl font-bold ${cn.weightedCompleteness >= 8 ? "text-green-600" : cn.weightedCompleteness >= 5 ? "text-amber-600" : "text-red-600"}`}>
+                <p
+                  className={`text-2xl font-bold ${cn.weightedCompleteness >= 8 ? "text-green-600" : cn.weightedCompleteness >= 5 ? "text-amber-600" : "text-red-600"}`}
+                >
                   {cn.weightedCompleteness.toFixed(1)}
                 </p>
                 <p className="text-xs text-muted-foreground">/10</p>
@@ -597,19 +715,53 @@ export default function ClinicalNotesPage() {
           {isBirp ? (
             /* --- BIRP Format --- */
             <>
-              <SectionCard title="Behavior" icon={<RiPulseLine className="w-4 h-4 text-blue-500" />} empty="No behavior observations documented" editing={editing} editValue={editFields.behavior as string} onEditChange={handleFieldChange} fieldName="behavior">
+              <SectionCard
+                title="Behavior"
+                icon={<RiPulseLine className="w-4 h-4 text-blue-500" />}
+                empty="No behavior observations documented"
+                editing={editing}
+                editValue={editFields.behavior as string}
+                onEditChange={handleFieldChange}
+                fieldName="behavior"
+              >
                 {cn.behavior && <p className="text-sm whitespace-pre-wrap">{cn.behavior}</p>}
               </SectionCard>
-              <SectionCard title="Intervention" icon={<RiMessage2Line className="w-4 h-4 text-green-500" />} empty="No interventions documented" editing={editing} editValue={editFields.intervention as string} onEditChange={handleFieldChange} fieldName="intervention">
+              <SectionCard
+                title="Intervention"
+                icon={<RiMessage2Line className="w-4 h-4 text-green-500" />}
+                empty="No interventions documented"
+                editing={editing}
+                editValue={editFields.intervention as string}
+                onEditChange={handleFieldChange}
+                fieldName="intervention"
+              >
                 {cn.intervention && <p className="text-sm whitespace-pre-wrap">{cn.intervention}</p>}
               </SectionCard>
-              <SectionCard title="Response" icon={<RiListCheck2 className="w-4 h-4 text-purple-500" />} empty="No response documented" editing={editing} editValue={editFields.response as string} onEditChange={handleFieldChange} fieldName="response">
+              <SectionCard
+                title="Response"
+                icon={<RiListCheck2 className="w-4 h-4 text-purple-500" />}
+                empty="No response documented"
+                editing={editing}
+                editValue={editFields.response as string}
+                onEditChange={handleFieldChange}
+                fieldName="response"
+              >
                 {cn.response && <p className="text-sm whitespace-pre-wrap">{cn.response}</p>}
               </SectionCard>
-              <SectionCard title="Plan" icon={<RiCalendarLine className="w-4 h-4 text-orange-500" />} empty="No plan documented" editing={editing} editValue={(editFields.plan as string[] || []).join("\n")} onEditChange={(_, v) => handlePlanChange(v)} fieldName="plan">
+              <SectionCard
+                title="Plan"
+                icon={<RiCalendarLine className="w-4 h-4 text-orange-500" />}
+                empty="No plan documented"
+                editing={editing}
+                editValue={((editFields.plan as string[]) || []).join("\n")}
+                onEditChange={(_, v) => handlePlanChange(v)}
+                fieldName="plan"
+              >
                 {cn.plan && cn.plan.length > 0 && (
                   <ul className="text-sm space-y-1 list-disc list-inside">
-                    {cn.plan.map((item, i) => <li key={i}>{item}</li>)}
+                    {cn.plan.map((item, i) => (
+                      <li key={i}>{item}</li>
+                    ))}
                   </ul>
                 )}
               </SectionCard>
@@ -617,16 +769,42 @@ export default function ClinicalNotesPage() {
           ) : isDap ? (
             /* --- DAP Format --- */
             <>
-              <SectionCard title="Data" icon={<RiFileTextLine className="w-4 h-4 text-blue-500" />} empty="No data documented" editing={editing} editValue={editFields.data as string} onEditChange={handleFieldChange} fieldName="data">
+              <SectionCard
+                title="Data"
+                icon={<RiFileTextLine className="w-4 h-4 text-blue-500" />}
+                empty="No data documented"
+                editing={editing}
+                editValue={editFields.data as string}
+                onEditChange={handleFieldChange}
+                fieldName="data"
+              >
                 {cn.data && <p className="text-sm whitespace-pre-wrap">{cn.data}</p>}
               </SectionCard>
-              <SectionCard title="Assessment" icon={<RiStethoscopeLine className="w-4 h-4 text-purple-500" />} empty="No assessment documented" editing={editing} editValue={editFields.assessment as string} onEditChange={handleFieldChange} fieldName="assessment">
+              <SectionCard
+                title="Assessment"
+                icon={<RiStethoscopeLine className="w-4 h-4 text-purple-500" />}
+                empty="No assessment documented"
+                editing={editing}
+                editValue={editFields.assessment as string}
+                onEditChange={handleFieldChange}
+                fieldName="assessment"
+              >
                 {cn.assessment && <p className="text-sm whitespace-pre-wrap">{cn.assessment}</p>}
               </SectionCard>
-              <SectionCard title="Plan" icon={<RiCalendarLine className="w-4 h-4 text-orange-500" />} empty="No plan documented" editing={editing} editValue={(editFields.plan as string[] || []).join("\n")} onEditChange={(_, v) => handlePlanChange(v)} fieldName="plan">
+              <SectionCard
+                title="Plan"
+                icon={<RiCalendarLine className="w-4 h-4 text-orange-500" />}
+                empty="No plan documented"
+                editing={editing}
+                editValue={((editFields.plan as string[]) || []).join("\n")}
+                onEditChange={(_, v) => handlePlanChange(v)}
+                fieldName="plan"
+              >
                 {cn.plan && cn.plan.length > 0 && (
                   <ul className="text-sm space-y-1 list-disc list-inside">
-                    {cn.plan.map((item, i) => <li key={i}>{item}</li>)}
+                    {cn.plan.map((item, i) => (
+                      <li key={i}>{item}</li>
+                    ))}
                   </ul>
                 )}
               </SectionCard>
@@ -634,19 +812,53 @@ export default function ClinicalNotesPage() {
           ) : (
             /* --- SOAP Format (default, including dental) --- */
             <>
-              <SectionCard title="Subjective" icon={<RiFileTextLine className="w-4 h-4 text-blue-500" />} empty="No subjective findings documented" editing={editing} editValue={editFields.subjective as string} onEditChange={handleFieldChange} fieldName="subjective">
+              <SectionCard
+                title="Subjective"
+                icon={<RiFileTextLine className="w-4 h-4 text-blue-500" />}
+                empty="No subjective findings documented"
+                editing={editing}
+                editValue={editFields.subjective as string}
+                onEditChange={handleFieldChange}
+                fieldName="subjective"
+              >
                 {cn.subjective && <p className="text-sm whitespace-pre-wrap">{cn.subjective}</p>}
               </SectionCard>
-              <SectionCard title="Objective" icon={<RiListCheck2 className="w-4 h-4 text-green-500" />} empty="No objective findings documented" editing={editing} editValue={editFields.objective as string} onEditChange={handleFieldChange} fieldName="objective">
+              <SectionCard
+                title="Objective"
+                icon={<RiListCheck2 className="w-4 h-4 text-green-500" />}
+                empty="No objective findings documented"
+                editing={editing}
+                editValue={editFields.objective as string}
+                onEditChange={handleFieldChange}
+                fieldName="objective"
+              >
                 {cn.objective && <p className="text-sm whitespace-pre-wrap">{cn.objective}</p>}
               </SectionCard>
-              <SectionCard title="Assessment" icon={<RiStethoscopeLine className="w-4 h-4 text-purple-500" />} empty="No assessment documented" editing={editing} editValue={editFields.assessment as string} onEditChange={handleFieldChange} fieldName="assessment">
+              <SectionCard
+                title="Assessment"
+                icon={<RiStethoscopeLine className="w-4 h-4 text-purple-500" />}
+                empty="No assessment documented"
+                editing={editing}
+                editValue={editFields.assessment as string}
+                onEditChange={handleFieldChange}
+                fieldName="assessment"
+              >
                 {cn.assessment && <p className="text-sm whitespace-pre-wrap">{cn.assessment}</p>}
               </SectionCard>
-              <SectionCard title="Plan" icon={<RiCalendarLine className="w-4 h-4 text-orange-500" />} empty="No plan documented" editing={editing} editValue={(editFields.plan as string[] || []).join("\n")} onEditChange={(_, v) => handlePlanChange(v)} fieldName="plan">
+              <SectionCard
+                title="Plan"
+                icon={<RiCalendarLine className="w-4 h-4 text-orange-500" />}
+                empty="No plan documented"
+                editing={editing}
+                editValue={((editFields.plan as string[]) || []).join("\n")}
+                onEditChange={(_, v) => handlePlanChange(v)}
+                fieldName="plan"
+              >
                 {cn.plan && cn.plan.length > 0 && (
                   <ul className="text-sm space-y-1 list-disc list-inside">
-                    {cn.plan.map((item, i) => <li key={i}>{item}</li>)}
+                    {cn.plan.map((item, i) => (
+                      <li key={i}>{item}</li>
+                    ))}
                   </ul>
                 )}
               </SectionCard>
@@ -656,7 +868,14 @@ export default function ClinicalNotesPage() {
 
         {/* HPI Narrative (SOAP/HPI-focused) */}
         {(cn.hpiNarrative || editing) && !isDap && !isBirp && (
-          <SectionCard title="History of Present Illness" icon={<RiFileTextLine className="w-4 h-4 text-indigo-500" />} editing={editing} editValue={editFields.hpiNarrative as string} onEditChange={handleFieldChange} fieldName="hpiNarrative">
+          <SectionCard
+            title="History of Present Illness"
+            icon={<RiFileTextLine className="w-4 h-4 text-indigo-500" />}
+            editing={editing}
+            editValue={editFields.hpiNarrative as string}
+            onEditChange={handleFieldChange}
+            fieldName="hpiNarrative"
+          >
             {cn.hpiNarrative && <p className="text-sm whitespace-pre-wrap">{cn.hpiNarrative}</p>}
           </SectionCard>
         )}
@@ -681,13 +900,15 @@ export default function ClinicalNotesPage() {
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Teeth Involved</CardTitle>
               {editing && (
-                <CardDescription className="text-xs">Comma-separated tooth numbers (1-32 permanent, A-T primary)</CardDescription>
+                <CardDescription className="text-xs">
+                  Comma-separated tooth numbers (1-32 permanent, A-T primary)
+                </CardDescription>
               )}
             </CardHeader>
             <CardContent>
               {editing ? (
                 <Input
-                  value={(editFields.toothNumbers as string[] || []).join(", ")}
+                  value={((editFields.toothNumbers as string[]) || []).join(", ")}
                   onChange={(e) => handleToothNumbersChange(e.target.value)}
                   placeholder="e.g. 3, 14, 19, 30"
                   className="font-mono text-sm"
@@ -695,7 +916,9 @@ export default function ClinicalNotesPage() {
               ) : (
                 <div className="flex flex-wrap gap-2">
                   {cn.toothNumbers?.map((tooth, i) => (
-                    <Badge key={i} variant="outline" className="font-mono">#{tooth}</Badge>
+                    <Badge key={i} variant="outline" className="font-mono">
+                      #{tooth}
+                    </Badge>
                   ))}
                 </div>
               )}
@@ -714,7 +937,7 @@ export default function ClinicalNotesPage() {
             <CardContent>
               {editing ? (
                 <Input
-                  value={(editFields.quadrants as string[] || []).join(", ")}
+                  value={((editFields.quadrants as string[]) || []).join(", ")}
                   onChange={(e) => handleQuadrantsChange(e.target.value)}
                   placeholder="e.g. UR, LL"
                   className="font-mono text-sm"
@@ -722,7 +945,9 @@ export default function ClinicalNotesPage() {
               ) : (
                 <div className="flex flex-wrap gap-2">
                   {cn.quadrants?.map((q, i) => (
-                    <Badge key={i} variant="outline">{q}</Badge>
+                    <Badge key={i} variant="outline">
+                      {q}
+                    </Badge>
                   ))}
                 </div>
               )}
@@ -755,7 +980,12 @@ export default function ClinicalNotesPage() {
                 <div className="space-y-1">
                   {cn.icd10Codes.map((code, i) => (
                     <div key={i} className="flex items-center gap-2 group">
-                      <Badge variant="outline" className="font-mono text-xs cursor-pointer hover:bg-muted" onClick={() => copyToClipboard(code.code)} title="Click to copy">
+                      <Badge
+                        variant="outline"
+                        className="font-mono text-xs cursor-pointer hover:bg-muted"
+                        onClick={() => copyToClipboard(code.code)}
+                        title="Click to copy"
+                      >
                         {code.code}
                         <RiFileCopyLine className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-50" />
                       </Badge>
@@ -776,7 +1006,12 @@ export default function ClinicalNotesPage() {
                 <div className="space-y-1">
                   {cn.cptCodes.map((code, i) => (
                     <div key={i} className="flex items-center gap-2 group">
-                      <Badge variant="outline" className="font-mono text-xs cursor-pointer hover:bg-muted" onClick={() => copyToClipboard(code.code)} title="Click to copy">
+                      <Badge
+                        variant="outline"
+                        className="font-mono text-xs cursor-pointer hover:bg-muted"
+                        onClick={() => copyToClipboard(code.code)}
+                        title="Click to copy"
+                      >
                         {code.code}
                         <RiFileCopyLine className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-50" />
                       </Badge>
@@ -797,7 +1032,12 @@ export default function ClinicalNotesPage() {
                 <div className="space-y-1">
                   {cn.cdtCodes.map((code, i) => (
                     <div key={i} className="flex items-center gap-2 group">
-                      <Badge variant="outline" className="font-mono text-xs cursor-pointer hover:bg-muted" onClick={() => copyToClipboard(code.code)} title="Click to copy">
+                      <Badge
+                        variant="outline"
+                        className="font-mono text-xs cursor-pointer hover:bg-muted"
+                        onClick={() => copyToClipboard(code.code)}
+                        title="Click to copy"
+                      >
                         {code.code}
                         <RiFileCopyLine className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-50" />
                       </Badge>
@@ -827,7 +1067,14 @@ export default function ClinicalNotesPage() {
 
         {/* Follow-up */}
         {(cn.followUp || editing) && (
-          <SectionCard title="Follow-up" icon={<RiCalendarLine className="w-4 h-4 text-cyan-500" />} editing={editing} editValue={editFields.followUp as string} onEditChange={handleFieldChange} fieldName="followUp">
+          <SectionCard
+            title="Follow-up"
+            icon={<RiCalendarLine className="w-4 h-4 text-cyan-500" />}
+            editing={editing}
+            editValue={editFields.followUp as string}
+            onEditChange={handleFieldChange}
+            fieldName="followUp"
+          >
             {cn.followUp && <p className="font-medium">{cn.followUp}</p>}
           </SectionCard>
         )}
@@ -842,7 +1089,9 @@ export default function ClinicalNotesPage() {
           <CardContent>
             <div className="flex flex-wrap gap-2">
               {cn.missingSections.map((section, i) => (
-                <Badge key={i} variant="outline" className="text-amber-600 border-amber-300">{section}</Badge>
+                <Badge key={i} variant="outline" className="text-amber-600 border-amber-300">
+                  {section}
+                </Badge>
               ))}
             </div>
           </CardContent>
@@ -875,7 +1124,9 @@ export default function ClinicalNotesPage() {
       {cn.differentialDiagnoses && cn.differentialDiagnoses.length > 0 && (
         <SectionCard title="Differential Diagnoses" icon={<RiStethoscopeLine className="w-4 h-4 text-rose-500" />}>
           <ul className="text-sm space-y-1 list-disc list-inside">
-            {cn.differentialDiagnoses.map((dx, i) => <li key={i}>{dx}</li>)}
+            {cn.differentialDiagnoses.map((dx, i) => (
+              <li key={i}>{dx}</li>
+            ))}
           </ul>
         </SectionCard>
       )}
@@ -895,7 +1146,9 @@ export default function ClinicalNotesPage() {
                 <div key={i} className="text-xs text-muted-foreground flex gap-2">
                   <span>{new Date(edit.editedAt).toLocaleString()}</span>
                   <span>—</span>
-                  <span>{edit.editedBy} edited {edit.fieldsChanged.join(", ")}</span>
+                  <span>
+                    {edit.editedBy} edited {edit.fieldsChanged.join(", ")}
+                  </span>
                 </div>
               ))}
             </div>
@@ -911,14 +1164,19 @@ export default function ClinicalNotesPage() {
               <RiStethoscopeLine className="w-4 h-4 text-primary" />
               AI Note Quality Feedback
             </CardTitle>
-            <CardDescription className="text-xs">Rate how well the AI-generated note matched the encounter</CardDescription>
+            <CardDescription className="text-xs">
+              Rate how well the AI-generated note matched the encounter
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {cn.qualityFeedback && cn.qualityFeedback.length > 0 && (
               <div className="mb-3 space-y-1">
                 {cn.qualityFeedback.map((fb, i) => (
                   <div key={i} className="text-xs text-muted-foreground flex items-center gap-2">
-                    <span className="font-mono">{"★".repeat(fb.rating)}{"☆".repeat(5 - fb.rating)}</span>
+                    <span className="font-mono">
+                      {"★".repeat(fb.rating)}
+                      {"☆".repeat(5 - fb.rating)}
+                    </span>
                     <span>— {fb.ratedBy}</span>
                     {fb.comment && <span className="italic">"{fb.comment}"</span>}
                   </div>
@@ -930,9 +1188,12 @@ export default function ClinicalNotesPage() {
                 <div>
                   <p className="text-xs font-medium mb-1">Rating</p>
                   <div className="flex gap-1">
-                    {[1, 2, 3, 4, 5].map(star => (
-                      <button key={star} onClick={() => setFeedbackRating(star)}
-                        className={`text-xl ${star <= feedbackRating ? "text-amber-500" : "text-gray-300"} hover:text-amber-400`}>
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        onClick={() => setFeedbackRating(star)}
+                        className={`text-xl ${star <= feedbackRating ? "text-amber-500" : "text-gray-300"} hover:text-amber-400`}
+                      >
                         ★
                       </button>
                     ))}
@@ -940,15 +1201,24 @@ export default function ClinicalNotesPage() {
                 </div>
                 <div>
                   <p className="text-xs font-medium mb-1">Comment (optional)</p>
-                  <Input value={feedbackComment} onChange={e => setFeedbackComment(e.target.value)}
-                    placeholder="What could be improved?" className="text-sm h-8" />
+                  <Input
+                    value={feedbackComment}
+                    onChange={(e) => setFeedbackComment(e.target.value)}
+                    placeholder="What could be improved?"
+                    className="text-sm h-8"
+                  />
                 </div>
                 <div className="flex gap-2">
-                  <Button size="sm" onClick={() => feedbackMutation.mutate()}
-                    disabled={feedbackRating === 0 || feedbackMutation.isPending}>
+                  <Button
+                    size="sm"
+                    onClick={() => feedbackMutation.mutate()}
+                    disabled={feedbackRating === 0 || feedbackMutation.isPending}
+                  >
                     {feedbackMutation.isPending ? "Submitting..." : "Submit"}
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setShowFeedback(false)}>Cancel</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setShowFeedback(false)}>
+                    Cancel
+                  </Button>
                 </div>
               </div>
             ) : (

@@ -43,11 +43,13 @@ const isMultiTarget = transport && "targets" in transport;
 export const logger = pino({
   level: process.env.LOG_LEVEL || (isProduction ? "info" : "debug"),
   // Pino disallows custom level formatters with multi-target transports
-  ...(!isMultiTarget ? {
-    formatters: {
-      level: (label: string) => ({ level: label }),
-    },
-  } : {}),
+  ...(!isMultiTarget
+    ? {
+        formatters: {
+          level: (label: string) => ({ level: label }),
+        },
+      }
+    : {}),
   timestamp: pino.stdTimeFunctions.isoTime,
   // Inject correlation ID from AsyncLocalStorage into every log line
   mixin() {

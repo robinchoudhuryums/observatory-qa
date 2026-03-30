@@ -56,7 +56,11 @@ const audioLastSent = new Map<string, number>();
 async function cleanupSession(sessionId: string) {
   const rtSession = activeSessions.get(sessionId);
   if (rtSession) {
-    try { await rtSession.close(); } catch { /* best effort */ }
+    try {
+      await rtSession.close();
+    } catch {
+      /* best effort */
+    }
     activeSessions.delete(sessionId);
   }
   const orgId = sessionOrgIds.get(sessionId);
@@ -66,7 +70,9 @@ async function cleanupSession(sessionId: string) {
         status: "failed",
         endedAt: new Date().toISOString(),
       });
-    } catch { /* best effort */ }
+    } catch {
+      /* best effort */
+    }
   }
   sessionTranscripts.delete(sessionId);
   lastDraftTime.delete(sessionId);
@@ -81,32 +87,46 @@ async function cleanupSession(sessionId: string) {
  * Periodic cleanup of orphaned live sessions.
  * Runs every 5 minutes, closes sessions that exceed max idle or max duration.
  */
-const cleanupInterval = setInterval(async () => {
-  const now = Date.now();
-  for (const [sessionId, lastActivity] of Array.from(sessionLastActivity)) {
-    const startTime = sessionStartTimes.get(sessionId) || lastActivity;
-    const idle = now - lastActivity;
-    const totalDuration = now - startTime;
+const cleanupInterval = setInterval(
+  async () => {
+    const now = Date.now();
+    for (const [sessionId, lastActivity] of Array.from(sessionLastActivity)) {
+      const startTime = sessionStartTimes.get(sessionId) || lastActivity;
+      const idle = now - lastActivity;
+      const totalDuration = now - startTime;
 
-    if (idle > SESSION_MAX_IDLE_MS || totalDuration > SESSION_MAX_DURATION_MS) {
-      logger.warn({ sessionId, idleMs: idle, totalMs: totalDuration }, "Cleaning up expired live session");
-      await cleanupSession(sessionId);
+      if (idle > SESSION_MAX_IDLE_MS || totalDuration > SESSION_MAX_DURATION_MS) {
+        logger.warn({ sessionId, idleMs: idle, totalMs: totalDuration }, "Cleaning up expired live session");
+        await cleanupSession(sessionId);
+      }
     }
-  }
-}, 5 * 60 * 1000);
+  },
+  5 * 60 * 1000,
+);
 cleanupInterval.unref(); // Don't prevent process exit
 
 /**
  * Encrypt PHI fields in a clinical note object.
  */
 function encryptNotePhi(note: Record<string, unknown>): Record<string, unknown> {
-  const phiFields = ["subjective", "objective", "assessment", "hpiNarrative", "chiefComplaint",
-    "chief_complaint", "hpi_narrative"] as const;
+  const phiFields = [
+    "subjective",
+    "objective",
+    "assessment",
+    "hpiNarrative",
+    "chiefComplaint",
+    "chief_complaint",
+    "hpi_narrative",
+  ] as const;
   const encrypted = { ...note };
   for (const field of phiFields) {
     const val = encrypted[field];
     if (val && typeof val === "string") {
-      try { encrypted[field] = encryptField(val); } catch { /* encryption not configured */ }
+      try {
+        encrypted[field] = encryptField(val);
+      } catch {
+        /* encryption not configured */
+      }
     }
   }
   return encrypted;
@@ -157,12 +177,14 @@ async function buildClinicalTemplateConfig(
 ): Promise<PromptTemplateConfig | undefined> {
   const template = await storage.getPromptTemplateByCategory(orgId, encounterType).catch(() => undefined);
 
-  let templateConfig: PromptTemplateConfig | undefined = template ? {
-    evaluationCriteria: template.evaluationCriteria,
-    requiredPhrases: template.requiredPhrases as PromptTemplateConfig["requiredPhrases"],
-    scoringWeights: template.scoringWeights as PromptTemplateConfig["scoringWeights"],
-    additionalInstructions: template.additionalInstructions || undefined,
-  } : undefined;
+  let templateConfig: PromptTemplateConfig | undefined = template
+    ? {
+        evaluationCriteria: template.evaluationCriteria,
+        requiredPhrases: template.requiredPhrases as PromptTemplateConfig["requiredPhrases"],
+        scoringWeights: template.scoringWeights as PromptTemplateConfig["scoringWeights"],
+        additionalInstructions: template.additionalInstructions || undefined,
+      }
+    : undefined;
 
   // Inject note format
   if (noteFormat) {
@@ -220,8 +242,12 @@ export function registerLiveSessionRoutes(app: Express): void {
    * POST /api/live-sessions — Start a new live recording session.
    * Creates session record and returns session ID for WebSocket audio streaming.
    */
-  app.post("/api/live-sessions",
-    requireAuth, requireRole("manager", "admin"), injectOrgContext, requireClinicalPlan(),
+  app.post(
+    "/api/live-sessions",
+    requireAuth,
+    requireRole("manager", "admin"),
+    injectOrgContext,
+    requireClinicalPlan(),
     async (req, res) => {
       const orgId = req.orgId!;
       const user = req.user!;
@@ -261,19 +287,34 @@ export function registerLiveSessionRoutes(app: Express): void {
               if (segments) {
                 segments.push(event.text);
               }
-              broadcastLiveTranscript(session.id, "final", {
-                text: event.text,
-                confidence: event.confidence,
-                words: event.words,
-              }, orgId);
+              broadcastLiveTranscript(
+                session.id,
+                "final",
+                {
+                  text: event.text,
+                  confidence: event.confidence,
+                  words: event.words,
+                },
+                orgId,
+              );
             } else if (event.type === "partial") {
-              broadcastLiveTranscript(session.id, "partial", {
-                text: event.text,
-              }, orgId);
+              broadcastLiveTranscript(
+                session.id,
+                "partial",
+                {
+                  text: event.text,
+                },
+                orgId,
+              );
             } else if (event.type === "error") {
-              broadcastLiveTranscript(session.id, "error", {
-                text: event.text,
-              }, orgId);
+              broadcastLiveTranscript(
+                session.id,
+                "error",
+                {
+                  text: event.text,
+                },
+                orgId,
+              );
             }
           });
 
@@ -308,65 +349,65 @@ export function registerLiveSessionRoutes(app: Express): void {
    * Expects JSON body with { audio: "<base64 PCM16 data>" }.
    * Rate-limited per session and size-limited per chunk.
    */
-  app.post("/api/live-sessions/:id/audio",
-    requireAuth, injectOrgContext, requireClinicalPlan(),
-    async (req, res) => {
-      const orgId = req.orgId!;
-      const { id } = req.params;
-      const { audio } = req.body;
+  app.post("/api/live-sessions/:id/audio", requireAuth, injectOrgContext, requireClinicalPlan(), async (req, res) => {
+    const orgId = req.orgId!;
+    const { id } = req.params;
+    const { audio } = req.body;
 
-      if (!audio || typeof audio !== "string") {
-        res.status(400).json({ message: "audio field required (base64 PCM16 string)" });
-        return;
-      }
+    if (!audio || typeof audio !== "string") {
+      res.status(400).json({ message: "audio field required (base64 PCM16 string)" });
+      return;
+    }
 
-      // Validate chunk size
-      if (audio.length > MAX_AUDIO_CHUNK_SIZE) {
-        res.status(413).json({ message: `Audio chunk too large (max ${MAX_AUDIO_CHUNK_SIZE} chars)` });
-        return;
-      }
+    // Validate chunk size
+    if (audio.length > MAX_AUDIO_CHUNK_SIZE) {
+      res.status(413).json({ message: `Audio chunk too large (max ${MAX_AUDIO_CHUNK_SIZE} chars)` });
+      return;
+    }
 
-      // Validate base64 format
-      if (!/^[A-Za-z0-9+/]+=*$/.test(audio)) {
-        res.status(400).json({ message: "Invalid base64 audio data" });
-        return;
-      }
+    // Validate base64 format
+    if (!/^[A-Za-z0-9+/]+=*$/.test(audio)) {
+      res.status(400).json({ message: "Invalid base64 audio data" });
+      return;
+    }
 
-      // Per-session rate limit on audio chunks
-      const lastSent = audioLastSent.get(id) || 0;
-      const now = Date.now();
-      if (now - lastSent < AUDIO_RATE_LIMIT_MS) {
-        // Silently accept but skip — don't error on slight timing overlap
-        res.json({ ok: true, skipped: true });
-        return;
-      }
-      audioLastSent.set(id, now);
+    // Per-session rate limit on audio chunks
+    const lastSent = audioLastSent.get(id) || 0;
+    const now = Date.now();
+    if (now - lastSent < AUDIO_RATE_LIMIT_MS) {
+      // Silently accept but skip — don't error on slight timing overlap
+      res.json({ ok: true, skipped: true });
+      return;
+    }
+    audioLastSent.set(id, now);
 
-      const rtSession = activeSessions.get(id);
-      if (!rtSession || !rtSession.isConnected) {
-        res.status(404).json({ message: "No active transcription session" });
-        return;
-      }
+    const rtSession = activeSessions.get(id);
+    if (!rtSession || !rtSession.isConnected) {
+      res.status(404).json({ message: "No active transcription session" });
+      return;
+    }
 
-      // Verify session belongs to this org
-      const sessionOrg = sessionOrgIds.get(id);
-      if (sessionOrg !== orgId) {
-        res.status(404).json({ message: "Session not found" });
-        return;
-      }
+    // Verify session belongs to this org
+    const sessionOrg = sessionOrgIds.get(id);
+    if (sessionOrg !== orgId) {
+      res.status(404).json({ message: "Session not found" });
+      return;
+    }
 
-      sessionLastActivity.set(id, now);
-      rtSession.sendAudio(audio);
-      res.json({ ok: true });
-    },
-  );
+    sessionLastActivity.set(id, now);
+    rtSession.sendAudio(audio);
+    res.json({ ok: true });
+  });
 
   /**
    * POST /api/live-sessions/:id/draft-note — Generate a draft clinical note from current transcript.
    * Rate-limited to one request per 15 seconds per session.
    */
-  app.post("/api/live-sessions/:id/draft-note",
-    requireAuth, injectOrgContext, requireClinicalPlan(),
+  app.post(
+    "/api/live-sessions/:id/draft-note",
+    requireAuth,
+    injectOrgContext,
+    requireClinicalPlan(),
     async (req, res) => {
       const orgId = req.orgId!;
       const user = req.user!;
@@ -375,7 +416,10 @@ export function registerLiveSessionRoutes(app: Express): void {
       // Rate limit
       const lastTime = lastDraftTime.get(id) || 0;
       if (Date.now() - lastTime < DRAFT_COOLDOWN_MS) {
-        res.status(429).json({ message: "Draft note generation is rate limited", retryAfterMs: DRAFT_COOLDOWN_MS - (Date.now() - lastTime) });
+        res.status(429).json({
+          message: "Draft note generation is rate limited",
+          retryAfterMs: DRAFT_COOLDOWN_MS - (Date.now() - lastTime),
+        });
         return;
       }
 
@@ -403,18 +447,16 @@ export function registerLiveSessionRoutes(app: Express): void {
 
         // Build template with style learning preferences
         const templateConfig = await buildClinicalTemplateConfig(
-          orgId, user.id, session.encounterType || "clinical_encounter", session.noteFormat,
+          orgId,
+          user.id,
+          session.encounterType || "clinical_encounter",
+          session.noteFormat,
         );
 
         // Call AI with transcript text — let the provider build its own system/user prompts
         const draftTranscript = `[LIVE RECORDING - IN PROGRESS]\n\n${fullTranscript}\n\n[Note: This is a partial recording. Generate a draft note based on available information. Mark any sections with insufficient data as "Pending - encounter in progress".]`;
         const provider = getOrgAIProvider(orgId, orgSettings);
-        const result = await provider.analyzeCallTranscript(
-          draftTranscript,
-          id,
-          session.encounterType,
-          templateConfig,
-        );
+        const result = await provider.analyzeCallTranscript(draftTranscript, id, session.encounterType, templateConfig);
 
         const parsed = parseJsonResponse(JSON.stringify(result), id);
         const draftNoteRaw = parsed.clinical_note || null;
@@ -431,7 +473,10 @@ export function registerLiveSessionRoutes(app: Express): void {
           });
 
           // Broadcast draft note update (send unencrypted to client for display)
-          const displayNote = toClinicalNoteForStorage(draftNoteRaw as Record<string, unknown>, session.noteFormat || "soap");
+          const displayNote = toClinicalNoteForStorage(
+            draftNoteRaw as Record<string, unknown>,
+            session.noteFormat || "soap",
+          );
           broadcastLiveTranscript(id, "draft_note", { draftNote: displayNote }, orgId);
 
           logPhiAccess({
@@ -455,333 +500,338 @@ export function registerLiveSessionRoutes(app: Express): void {
   /**
    * POST /api/live-sessions/:id/pause — Pause or resume the session.
    */
-  app.post("/api/live-sessions/:id/pause",
-    requireAuth, injectOrgContext,
-    async (req, res) => {
-      const orgId = req.orgId!;
-      const { id } = req.params;
+  app.post("/api/live-sessions/:id/pause", requireAuth, injectOrgContext, async (req, res) => {
+    const orgId = req.orgId!;
+    const { id } = req.params;
 
-      try {
-        const session = await storage.getLiveSession(orgId, id);
-        if (!session) {
-          res.status(404).json({ message: "Session not found" });
-          return;
-        }
-
-        const newStatus = session.status === "active" ? "paused" : "active";
-        const updated = await storage.updateLiveSession(orgId, id, { status: newStatus as any });
-        sessionLastActivity.set(id, Date.now());
-        res.json(updated);
-      } catch (err) {
-        logger.error({ err }, "Failed to pause/resume session");
-        res.status(500).json({ message: "Failed to update session" });
+    try {
+      const session = await storage.getLiveSession(orgId, id);
+      if (!session) {
+        res.status(404).json({ message: "Session not found" });
+        return;
       }
-    },
-  );
+
+      const newStatus = session.status === "active" ? "paused" : "active";
+      const updated = await storage.updateLiveSession(orgId, id, { status: newStatus as any });
+      sessionLastActivity.set(id, Date.now());
+      res.json(updated);
+    } catch (err) {
+      logger.error({ err }, "Failed to pause/resume session");
+      res.status(500).json({ message: "Failed to update session" });
+    }
+  });
 
   /**
    * POST /api/live-sessions/:id/stop — End the session and finalize.
    * Creates a Call record from the accumulated transcript and generates the final clinical note.
    * Also creates sentiment analysis and tracks usage for billing.
    */
-  app.post("/api/live-sessions/:id/stop",
-    requireAuth, injectOrgContext, requireClinicalPlan(),
-    async (req, res) => {
-      const orgId = req.orgId!;
-      const user = req.user!;
-      const { id } = req.params;
+  app.post("/api/live-sessions/:id/stop", requireAuth, injectOrgContext, requireClinicalPlan(), async (req, res) => {
+    const orgId = req.orgId!;
+    const user = req.user!;
+    const { id } = req.params;
 
-      try {
-        const session = await storage.getLiveSession(orgId, id);
-        if (!session) {
-          res.status(404).json({ message: "Session not found" });
-          return;
-        }
+    try {
+      const session = await storage.getLiveSession(orgId, id);
+      if (!session) {
+        res.status(404).json({ message: "Session not found" });
+        return;
+      }
 
-        if (session.status === "completed") {
-          res.status(400).json({ message: "Session already completed" });
-          return;
-        }
+      if (session.status === "completed") {
+        res.status(400).json({ message: "Session already completed" });
+        return;
+      }
 
-        // Close AssemblyAI real-time connection
-        const rtSession = activeSessions.get(id);
-        if (rtSession) {
-          await rtSession.close();
-          activeSessions.delete(id);
-        }
+      // Close AssemblyAI real-time connection
+      const rtSession = activeSessions.get(id);
+      if (rtSession) {
+        await rtSession.close();
+        activeSessions.delete(id);
+      }
 
-        // Get final transcript
-        const segments = sessionTranscripts.get(id) || [];
-        const finalTranscript = segments.join(" ").trim();
+      // Get final transcript
+      const segments = sessionTranscripts.get(id) || [];
+      const finalTranscript = segments.join(" ").trim();
 
-        // Clean up all in-memory buffers
-        sessionTranscripts.delete(id);
-        lastDraftTime.delete(id);
-        sessionLastActivity.delete(id);
-        sessionStartTimes.delete(id);
-        sessionOrgIds.delete(id);
-        audioLastSent.delete(id);
+      // Clean up all in-memory buffers
+      sessionTranscripts.delete(id);
+      lastDraftTime.delete(id);
+      sessionLastActivity.delete(id);
+      sessionStartTimes.delete(id);
+      sessionOrgIds.delete(id);
+      audioLastSent.delete(id);
 
-        const now = new Date();
-        const durationSeconds = Math.round((now.getTime() - new Date(session.startedAt || now).getTime()) / 1000);
+      const now = new Date();
+      const durationSeconds = Math.round((now.getTime() - new Date(session.startedAt || now).getTime()) / 1000);
 
-        // Create a Call record for permanent storage
-        const call = await storage.createCall(orgId, {
+      // Create a Call record for permanent storage
+      const call = await storage.createCall(orgId, {
+        orgId,
+        fileName: `live-session-${now.toISOString().replace(/[:.]/g, "-")}.webm`,
+        status: "completed",
+        duration: durationSeconds,
+        callCategory: session.encounterType,
+        tags: ["live_recording"],
+      });
+
+      // Create transcript record
+      if (finalTranscript.length > 0) {
+        await storage.createTranscript(orgId, {
           orgId,
-          fileName: `live-session-${now.toISOString().replace(/[:.]/g, "-")}.webm`,
-          status: "completed",
-          duration: durationSeconds,
-          callCategory: session.encounterType,
-          tags: ["live_recording"],
+          callId: call.id,
+          text: finalTranscript,
+          confidence: "0.90",
         });
+      }
 
-        // Create transcript record
-        if (finalTranscript.length > 0) {
-          await storage.createTranscript(orgId, {
+      // Create default sentiment analysis (live sessions don't have AssemblyAI sentiment data)
+      await storage.createSentimentAnalysis(orgId, {
+        orgId,
+        callId: call.id,
+        overallSentiment: "neutral",
+        overallScore: "0.5",
+        segments: [],
+      });
+
+      // Generate final clinical note with full context
+      let finalNote = session.draftClinicalNote;
+      if (finalTranscript.length >= 10) {
+        try {
+          const org = await storage.getOrganization(orgId);
+          const orgSettings = (org?.settings || null) as OrgSettings | null;
+
+          // Build template config with style learning
+          const templateConfig = await buildClinicalTemplateConfig(
+            orgId,
+            user.id,
+            session.encounterType || "clinical_encounter",
+            session.noteFormat,
+          );
+
+          const provider = getOrgAIProvider(orgId, orgSettings);
+          const result = await provider.analyzeCallTranscript(
+            finalTranscript,
+            call.id,
+            session.encounterType,
+            templateConfig,
+          );
+          const parsed = parseJsonResponse(JSON.stringify(result), call.id);
+
+          // Build clinical note: prefer AI-generated, fallback to draft
+          const clinicalNoteRaw = parsed.clinical_note || null;
+          let cnForStorage: ClinicalNote | undefined;
+
+          if (clinicalNoteRaw) {
+            const encrypted = encryptNotePhi(clinicalNoteRaw as Record<string, unknown>);
+            cnForStorage = toClinicalNoteForStorage(encrypted, session.noteFormat || "soap");
+          } else if (finalNote) {
+            cnForStorage = finalNote;
+          }
+
+          // Server-side flag enforcement (matches calls.ts pattern)
+          const existingFlags: string[] = Array.isArray(parsed.flags) ? [...parsed.flags] : [];
+          const perfScore = parsed.performance_score ?? 5.0;
+          if (perfScore <= 2.0 && !existingFlags.includes("low_score")) {
+            existingFlags.push("low_score");
+          }
+          if (perfScore >= 9.0 && !existingFlags.includes("exceptional_call")) {
+            existingFlags.push("exceptional_call");
+          }
+
+          const analysis = await storage.createCallAnalysis(orgId, {
             orgId,
             callId: call.id,
-            text: finalTranscript,
-            confidence: "0.90",
+            performanceScore: perfScore.toString(),
+            summary: parsed.summary,
+            topics: parsed.topics,
+            feedback: parsed.feedback as any,
+            flags: existingFlags,
+            detectedAgentName: parsed.detected_agent_name || undefined,
+            subScores: {
+              compliance: parsed.sub_scores?.compliance,
+              customerExperience: parsed.sub_scores?.customer_experience,
+              communication: parsed.sub_scores?.communication,
+              resolution: parsed.sub_scores?.resolution,
+            },
+            clinicalNote: cnForStorage,
+            confidenceScore: "0.85",
+            confidenceFactors: {
+              transcriptConfidence: 0.9,
+              wordCount: finalTranscript.split(/\s+/).length,
+              callDurationSeconds: durationSeconds,
+              transcriptLength: finalTranscript.length,
+              aiAnalysisCompleted: true,
+              overallScore: 0.85,
+            },
           });
-        }
 
-        // Create default sentiment analysis (live sessions don't have AssemblyAI sentiment data)
-        await storage.createSentimentAnalysis(orgId, {
-          orgId,
-          callId: call.id,
-          overallSentiment: "neutral",
-          overallScore: "0.5",
-          segments: [],
-        });
-
-        // Generate final clinical note with full context
-        let finalNote = session.draftClinicalNote;
-        if (finalTranscript.length >= 10) {
-          try {
-            const org = await storage.getOrganization(orgId);
-            const orgSettings = (org?.settings || null) as OrgSettings | null;
-
-            // Build template config with style learning
-            const templateConfig = await buildClinicalTemplateConfig(
-              orgId, user.id, session.encounterType || "clinical_encounter", session.noteFormat,
-            );
-
-            const provider = getOrgAIProvider(orgId, orgSettings);
-            const result = await provider.analyzeCallTranscript(
-              finalTranscript,
-              call.id,
-              session.encounterType,
-              templateConfig,
-            );
-            const parsed = parseJsonResponse(JSON.stringify(result), call.id);
-
-            // Build clinical note: prefer AI-generated, fallback to draft
-            const clinicalNoteRaw = parsed.clinical_note || null;
-            let cnForStorage: ClinicalNote | undefined;
-
-            if (clinicalNoteRaw) {
-              const encrypted = encryptNotePhi(clinicalNoteRaw as Record<string, unknown>);
-              cnForStorage = toClinicalNoteForStorage(encrypted, session.noteFormat || "soap");
-            } else if (finalNote) {
-              cnForStorage = finalNote;
-            }
-
-            // Server-side flag enforcement (matches calls.ts pattern)
-            const existingFlags: string[] = Array.isArray(parsed.flags) ? [...parsed.flags] : [];
-            const perfScore = parsed.performance_score ?? 5.0;
-            if (perfScore <= 2.0 && !existingFlags.includes("low_score")) {
-              existingFlags.push("low_score");
-            }
-            if (perfScore >= 9.0 && !existingFlags.includes("exceptional_call")) {
-              existingFlags.push("exceptional_call");
-            }
-
-            const analysis = await storage.createCallAnalysis(orgId, {
-              orgId,
-              callId: call.id,
-              performanceScore: perfScore.toString(),
-              summary: parsed.summary,
-              topics: parsed.topics,
-              feedback: parsed.feedback as any,
-              flags: existingFlags,
-              detectedAgentName: parsed.detected_agent_name || undefined,
-              subScores: {
-                compliance: parsed.sub_scores?.compliance,
-                customerExperience: parsed.sub_scores?.customer_experience,
-                communication: parsed.sub_scores?.communication,
-                resolution: parsed.sub_scores?.resolution,
-              },
-              clinicalNote: cnForStorage,
-              confidenceScore: "0.85",
-              confidenceFactors: {
-                transcriptConfidence: 0.90,
-                wordCount: finalTranscript.split(/\s+/).length,
-                callDurationSeconds: durationSeconds,
-                transcriptLength: finalTranscript.length,
-                aiAnalysisCompleted: true,
-                overallScore: 0.85,
-              },
-            });
-
-            // Auto-assign to employee based on detected agent name
-            let assignedEmployeeId: string | undefined;
-            if (parsed.detected_agent_name) {
-              const detectedName = parsed.detected_agent_name.toLowerCase().trim();
-              if (detectedName) {
-                try {
-                  const allEmployees = await storage.getAllEmployees(orgId);
-                  const activeEmployees = allEmployees.filter(emp => !emp.status || emp.status === "Active");
-                  const matchingEmployees = activeEmployees.filter(emp => {
-                    const empName = emp.name.toLowerCase().trim();
-                    const nameParts = empName.split(/\s+/);
-                    return empName === detectedName ||
-                      nameParts[0] === detectedName ||
-                      nameParts[nameParts.length - 1] === detectedName;
-                  });
-                  if (matchingEmployees.length === 1) {
-                    assignedEmployeeId = matchingEmployees[0].id;
-                    logger.info({ callId: call.id, employeeId: assignedEmployeeId, detectedName }, "Auto-assigned live session call to employee");
-                  } else if (matchingEmployees.length > 1) {
-                    const exactMatch = matchingEmployees.find(emp => emp.name.toLowerCase().trim() === detectedName);
-                    if (exactMatch) {
-                      assignedEmployeeId = exactMatch.id;
-                    } else {
-                      logger.info({ callId: call.id, detectedName, candidates: matchingEmployees.length }, "Ambiguous agent name in live session — skipping auto-assignment");
-                    }
+          // Auto-assign to employee based on detected agent name
+          let assignedEmployeeId: string | undefined;
+          if (parsed.detected_agent_name) {
+            const detectedName = parsed.detected_agent_name.toLowerCase().trim();
+            if (detectedName) {
+              try {
+                const allEmployees = await storage.getAllEmployees(orgId);
+                const activeEmployees = allEmployees.filter((emp) => !emp.status || emp.status === "Active");
+                const matchingEmployees = activeEmployees.filter((emp) => {
+                  const empName = emp.name.toLowerCase().trim();
+                  const nameParts = empName.split(/\s+/);
+                  return (
+                    empName === detectedName ||
+                    nameParts[0] === detectedName ||
+                    nameParts[nameParts.length - 1] === detectedName
+                  );
+                });
+                if (matchingEmployees.length === 1) {
+                  assignedEmployeeId = matchingEmployees[0].id;
+                  logger.info(
+                    { callId: call.id, employeeId: assignedEmployeeId, detectedName },
+                    "Auto-assigned live session call to employee",
+                  );
+                } else if (matchingEmployees.length > 1) {
+                  const exactMatch = matchingEmployees.find((emp) => emp.name.toLowerCase().trim() === detectedName);
+                  if (exactMatch) {
+                    assignedEmployeeId = exactMatch.id;
+                  } else {
+                    logger.info(
+                      { callId: call.id, detectedName, candidates: matchingEmployees.length },
+                      "Ambiguous agent name in live session — skipping auto-assignment",
+                    );
                   }
-                  if (assignedEmployeeId) {
-                    await storage.updateCall(orgId, call.id, { employeeId: assignedEmployeeId });
-                  }
-                } catch (empErr) {
-                  logger.warn({ callId: call.id, err: empErr }, "Failed to auto-assign employee (non-blocking)");
                 }
+                if (assignedEmployeeId) {
+                  await storage.updateCall(orgId, call.id, { employeeId: assignedEmployeeId });
+                }
+              } catch (empErr) {
+                logger.warn({ callId: call.id, err: empErr }, "Failed to auto-assign employee (non-blocking)");
               }
             }
-
-            // Send webhook notification for flagged calls (non-blocking)
-            if (existingFlags.length > 0) {
-              notifyFlaggedCall({
-                event: "call_flagged",
-                callId: call.id,
-                orgId,
-                flags: existingFlags,
-                performanceScore: perfScore,
-                agentName: parsed.detected_agent_name || undefined,
-                fileName: call.fileName || undefined,
-                summary: typeof parsed.summary === "string" ? parsed.summary : undefined,
-                timestamp: new Date().toISOString(),
-              }).catch((notifErr) => {
-                logger.warn({ callId: call.id, err: notifErr }, "Failed to send flagged call notification (non-blocking)");
-              });
-            }
-
-            // Auto-generate coaching recommendations (non-blocking)
-            onCallAnalysisComplete(orgId, call.id, assignedEmployeeId).catch((coachErr) => {
-              logger.warn({ callId: call.id, err: coachErr }, "Failed to generate coaching recommendations (non-blocking)");
-            });
-
-            finalNote = cnForStorage || finalNote;
-          } catch (err) {
-            logger.error({ err }, "Failed to generate final clinical note for live session");
           }
-        }
 
-        // Track usage for billing
-        try {
-          await storage.recordUsageEvent({
-            orgId,
-            eventType: "transcription",
-            quantity: 1,
-            metadata: { callId: call.id, source: "live_session", durationSeconds },
+          // Send webhook notification for flagged calls (non-blocking)
+          if (existingFlags.length > 0) {
+            notifyFlaggedCall({
+              event: "call_flagged",
+              callId: call.id,
+              orgId,
+              flags: existingFlags,
+              performanceScore: perfScore,
+              agentName: parsed.detected_agent_name || undefined,
+              fileName: call.fileName || undefined,
+              summary: typeof parsed.summary === "string" ? parsed.summary : undefined,
+              timestamp: new Date().toISOString(),
+            }).catch((notifErr) => {
+              logger.warn(
+                { callId: call.id, err: notifErr },
+                "Failed to send flagged call notification (non-blocking)",
+              );
+            });
+          }
+
+          // Auto-generate coaching recommendations (non-blocking)
+          onCallAnalysisComplete(orgId, call.id, assignedEmployeeId).catch((coachErr) => {
+            logger.warn(
+              { callId: call.id, err: coachErr },
+              "Failed to generate coaching recommendations (non-blocking)",
+            );
           });
-          await storage.recordUsageEvent({
-            orgId,
-            eventType: "ai_analysis",
-            quantity: 1,
-            metadata: { callId: call.id, source: "live_session" },
-          });
+
+          finalNote = cnForStorage || finalNote;
         } catch (err) {
-          logger.warn({ err }, "Failed to record usage events for live session");
+          logger.error({ err }, "Failed to generate final clinical note for live session");
         }
+      }
 
-        // Update session as completed
-        await storage.updateLiveSession(orgId, id, {
-          status: "completed",
-          transcriptText: finalTranscript,
-          durationSeconds,
-          callId: call.id,
-          endedAt: now.toISOString(),
-          draftClinicalNote: finalNote,
+      // Track usage for billing
+      try {
+        await storage.recordUsageEvent({
+          orgId,
+          eventType: "transcription",
+          quantity: 1,
+          metadata: { callId: call.id, source: "live_session", durationSeconds },
         });
-
-        // Broadcast session end
-        broadcastLiveTranscript(id, "session_end", { callId: call.id }, orgId);
-
-        logPhiAccess({
-          ...auditContext(req),
-          event: "live_session_completed",
-          resourceType: "live_session",
-          resourceId: id,
-          detail: `Call ${call.id} created from live session`,
-        });
-
-        res.json({
-          session: { ...session, status: "completed", callId: call.id, endedAt: now.toISOString() },
-          callId: call.id,
-          transcriptLength: finalTranscript.length,
-          durationSeconds,
+        await storage.recordUsageEvent({
+          orgId,
+          eventType: "ai_analysis",
+          quantity: 1,
+          metadata: { callId: call.id, source: "live_session" },
         });
       } catch (err) {
-        logger.error({ err }, "Failed to stop live session");
-        res.status(500).json({ message: "Failed to stop session" });
+        logger.warn({ err }, "Failed to record usage events for live session");
       }
-    },
-  );
+
+      // Update session as completed
+      await storage.updateLiveSession(orgId, id, {
+        status: "completed",
+        transcriptText: finalTranscript,
+        durationSeconds,
+        callId: call.id,
+        endedAt: now.toISOString(),
+        draftClinicalNote: finalNote,
+      });
+
+      // Broadcast session end
+      broadcastLiveTranscript(id, "session_end", { callId: call.id }, orgId);
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "live_session_completed",
+        resourceType: "live_session",
+        resourceId: id,
+        detail: `Call ${call.id} created from live session`,
+      });
+
+      res.json({
+        session: { ...session, status: "completed", callId: call.id, endedAt: now.toISOString() },
+        callId: call.id,
+        transcriptLength: finalTranscript.length,
+        durationSeconds,
+      });
+    } catch (err) {
+      logger.error({ err }, "Failed to stop live session");
+      res.status(500).json({ message: "Failed to stop session" });
+    }
+  });
 
   /**
    * GET /api/live-sessions — List sessions for the current user.
    */
-  app.get("/api/live-sessions",
-    requireAuth, injectOrgContext,
-    async (req, res) => {
-      const orgId = req.orgId!;
-      const user = req.user!;
+  app.get("/api/live-sessions", requireAuth, injectOrgContext, async (req, res) => {
+    const orgId = req.orgId!;
+    const user = req.user!;
 
-      try {
-        const sessions = await storage.getLiveSessionsByUser(orgId, user.id);
-        res.json(sessions);
-      } catch (err) {
-        logger.error({ err }, "Failed to list live sessions");
-        res.status(500).json({ message: "Failed to list sessions" });
-      }
-    },
-  );
+    try {
+      const sessions = await storage.getLiveSessionsByUser(orgId, user.id);
+      res.json(sessions);
+    } catch (err) {
+      logger.error({ err }, "Failed to list live sessions");
+      res.status(500).json({ message: "Failed to list sessions" });
+    }
+  });
 
   /**
    * GET /api/live-sessions/:id — Get a specific session.
    */
-  app.get("/api/live-sessions/:id",
-    requireAuth, injectOrgContext,
-    async (req, res) => {
-      const orgId = req.orgId!;
-      const { id } = req.params;
+  app.get("/api/live-sessions/:id", requireAuth, injectOrgContext, async (req, res) => {
+    const orgId = req.orgId!;
+    const { id } = req.params;
 
-      try {
-        const session = await storage.getLiveSession(orgId, id);
-        if (!session) {
-          res.status(404).json({ message: "Session not found" });
-          return;
-        }
-
-        // Include current transcript buffer for active sessions
-        const segments = sessionTranscripts.get(id);
-        const currentTranscript = segments ? segments.join(" ") : session.transcriptText;
-
-        res.json({ ...session, transcriptText: currentTranscript });
-      } catch (err) {
-        logger.error({ err }, "Failed to get live session");
-        res.status(500).json({ message: "Failed to get session" });
+    try {
+      const session = await storage.getLiveSession(orgId, id);
+      if (!session) {
+        res.status(404).json({ message: "Session not found" });
+        return;
       }
-    },
-  );
+
+      // Include current transcript buffer for active sessions
+      const segments = sessionTranscripts.get(id);
+      const currentTranscript = segments ? segments.join(" ") : session.transcriptText;
+
+      res.json({ ...session, transcriptText: currentTranscript });
+    } catch (err) {
+      logger.error({ err }, "Failed to get live session");
+      res.status(500).json({ message: "Failed to get session" });
+    }
+  });
 }

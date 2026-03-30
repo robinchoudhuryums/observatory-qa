@@ -10,7 +10,14 @@ import { useToast } from "@/hooks/use-toast";
 import { HelpTip } from "@/components/ui/help-tip";
 import { ErrorBoundary } from "@/components/lib/error-boundary";
 import { CallCard } from "@/components/search/call-card";
-import {  RiSearchLine, RiFilterLine, RiHeartLine, RiVoiceprintLine, RiUploadLine, RiInputMethodLine  } from "@remixicon/react";
+import {
+  RiSearchLine,
+  RiFilterLine,
+  RiHeartLine,
+  RiVoiceprintLine,
+  RiUploadLine,
+  RiInputMethodLine,
+} from "@remixicon/react";
 
 export default function SearchPage() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -26,7 +33,11 @@ export default function SearchPage() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  const { data: searchResults, isLoading: isLoadingSearch, error: searchError } = useQuery<CallWithDetails[]>({
+  const {
+    data: searchResults,
+    isLoading: isLoadingSearch,
+    error: searchError,
+  } = useQuery<CallWithDetails[]>({
     queryKey: ["/api/search", { q: debouncedQuery }],
     enabled: debouncedQuery.length > 2,
   });
@@ -38,10 +49,13 @@ export default function SearchPage() {
   }, [searchError, toast]);
 
   const { data: allCalls, isLoading: isLoadingCalls } = useQuery<CallWithDetails[]>({
-    queryKey: ["/api/calls", {
-      sentiment: sentimentFilter === "all" ? "" : sentimentFilter,
-      status: statusFilter === "all" ? "" : statusFilter
-    }],
+    queryKey: [
+      "/api/calls",
+      {
+        sentiment: sentimentFilter === "all" ? "" : sentimentFilter,
+        status: statusFilter === "all" ? "" : statusFilter,
+      },
+    ],
     enabled: debouncedQuery.length === 0,
   });
 
@@ -70,12 +84,20 @@ export default function SearchPage() {
       <div className="p-6 space-y-6">
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><RiSearchLine className="w-5 h-5" /> Search & Filter</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <RiSearchLine className="w-5 h-5" /> Search & Filter
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="relative">
               <RiSearchLine className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
-              <Input type="text" placeholder="Search by keywords, transcript content..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-10"/>
+              <Input
+                type="text"
+                placeholder="Search by keywords, transcript content..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+              />
               {searchQuery.length > 0 && searchQuery.length <= 2 && (
                 <p className="text-xs text-amber-500 mt-1">Type at least 3 characters to search</p>
               )}
@@ -83,24 +105,32 @@ export default function SearchPage() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               {/* Employee Filter Removed */}
               <Select value={sentimentFilter} onValueChange={setSentimentFilter}>
-                  <SelectTrigger><RiHeartLine className="w-4 h-4 mr-2" /><SelectValue placeholder="All Sentiment" /></SelectTrigger>
-                  <SelectContent>
-                      <SelectItem value="all">All Sentiment</SelectItem>
-                      <SelectItem value="positive">Positive</SelectItem>
-                      <SelectItem value="neutral">Neutral</SelectItem>
-                      <SelectItem value="negative">Negative</SelectItem>
-                  </SelectContent>
+                <SelectTrigger>
+                  <RiHeartLine className="w-4 h-4 mr-2" />
+                  <SelectValue placeholder="All Sentiment" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Sentiment</SelectItem>
+                  <SelectItem value="positive">Positive</SelectItem>
+                  <SelectItem value="neutral">Neutral</SelectItem>
+                  <SelectItem value="negative">Negative</SelectItem>
+                </SelectContent>
               </Select>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger><RiFilterLine className="w-4 h-4 mr-2" /><SelectValue placeholder="All Status" /></SelectTrigger>
-                  <SelectContent>
-                      <SelectItem value="all">All Status</SelectItem>
-                      <SelectItem value="completed">Completed</SelectItem>
-                      <SelectItem value="processing">Processing</SelectItem>
-                      <SelectItem value="failed">Failed</SelectItem>
-                  </SelectContent>
+                <SelectTrigger>
+                  <RiFilterLine className="w-4 h-4 mr-2" />
+                  <SelectValue placeholder="All Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="processing">Processing</SelectItem>
+                  <SelectItem value="failed">Failed</SelectItem>
+                </SelectContent>
               </Select>
-              <Button variant="outline" onClick={clearFilters}>Clear Filters</Button>
+              <Button variant="outline" onClick={clearFilters}>
+                Clear Filters
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -111,22 +141,26 @@ export default function SearchPage() {
           </CardHeader>
           <CardContent>
             {isLoading ? (
-              <div className="flex items-center justify-center h-64"><RiVoiceprintLine className="w-8 h-8 animate-spin text-primary" /></div>
+              <div className="flex items-center justify-center h-64">
+                <RiVoiceprintLine className="w-8 h-8 animate-spin text-primary" />
+              </div>
             ) : !displayCalls?.length ? (
               <div className="text-center py-16">
                 <div className="mx-auto w-16 h-16 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full flex items-center justify-center mb-4">
                   <RiSearchLine className="w-8 h-8 text-primary/60" />
                 </div>
                 <h3 className="text-lg font-medium text-foreground mb-1">
-                  {debouncedQuery.length > 0 ? 'No matching calls found' : 'Search your calls'}
+                  {debouncedQuery.length > 0 ? "No matching calls found" : "Search your calls"}
                 </h3>
                 <p className="text-sm text-muted-foreground mb-4 max-w-sm mx-auto">
                   {debouncedQuery.length > 0
-                    ? 'Try a different search term or adjust your filters.'
-                    : 'Search across transcripts, topics, and call summaries.'}
+                    ? "Try a different search term or adjust your filters."
+                    : "Search across transcripts, topics, and call summaries."}
                 </p>
                 {!debouncedQuery.length && (
-                  <Link href="/upload"><Button variant="outline">Upload Call Recording</Button></Link>
+                  <Link href="/upload">
+                    <Button variant="outline">Upload Call Recording</Button>
+                  </Link>
                 )}
               </div>
             ) : (
@@ -144,4 +178,3 @@ export default function SearchPage() {
     </div>
   );
 }
-

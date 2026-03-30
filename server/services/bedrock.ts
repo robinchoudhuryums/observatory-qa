@@ -13,11 +13,7 @@
  * Bedrock caches system prompts across requests with the same prefix,
  * reducing input token costs by 25-40% for repeated analysis calls.
  */
-import {
-  BedrockRuntimeClient,
-  ConverseCommand,
-  type ConverseCommandOutput,
-} from "@aws-sdk/client-bedrock-runtime";
+import { BedrockRuntimeClient, ConverseCommand, type ConverseCommandOutput } from "@aws-sdk/client-bedrock-runtime";
 import { fromEnv, fromInstanceMetadata } from "@aws-sdk/credential-providers";
 import type { AwsCredentialIdentityProvider } from "@aws-sdk/types";
 import type { AIAnalysisProvider, CallAnalysis } from "./ai-provider";
@@ -52,7 +48,10 @@ export class BedrockProvider implements AIAnalysisProvider {
       };
       this.credentialsInitialized = true;
       this.client = this.createClient(this.credentials.region);
-      logger.info({ region: this.credentials.region, model: this.model }, "Bedrock provider initialized (env credentials)");
+      logger.info(
+        { region: this.credentials.region, model: this.model },
+        "Bedrock provider initialized (env credentials)",
+      );
     } else {
       logger.info({ model: this.model }, "Bedrock provider: will attempt IMDSv2 on first use");
     }
@@ -99,7 +98,10 @@ export class BedrockProvider implements AIAnalysisProvider {
     this.credentialsInitialized = true;
     if (this.credentials) {
       this.client = this.createClient(this.credentials.region);
-      logger.info({ source: this.credentials.source, region: this.credentials.region, model: this.model }, "Bedrock provider credentials resolved");
+      logger.info(
+        { source: this.credentials.source, region: this.credentials.region, model: this.model },
+        "Bedrock provider credentials resolved",
+      );
     } else {
       logger.warn("Bedrock provider: No AWS credentials available (checked env + IMDSv2)");
     }
@@ -149,7 +151,12 @@ export class BedrockProvider implements AIAnalysisProvider {
     }
   }
 
-  async analyzeCallTranscript(transcriptText: string, callId: string, callCategory?: string, promptTemplate?: any): Promise<CallAnalysis> {
+  async analyzeCallTranscript(
+    transcriptText: string,
+    callId: string,
+    callCategory?: string,
+    promptTemplate?: any,
+  ): Promise<CallAnalysis> {
     await this.ensureCredentials();
     if (!this.credentials || !this.client) {
       throw new Error("Bedrock provider not configured — no AWS credentials available");
@@ -159,7 +166,10 @@ export class BedrockProvider implements AIAnalysisProvider {
     const systemPrompt = buildSystemPrompt(callCategory, promptTemplate);
     const userMessage = buildUserMessage(transcriptText, callCategory);
 
-    logger.info({ callId, model: this.model, systemPromptLen: systemPrompt.length, userMsgLen: userMessage.length }, "Calling Bedrock for analysis");
+    logger.info(
+      { callId, model: this.model, systemPromptLen: systemPrompt.length, userMsgLen: userMessage.length },
+      "Calling Bedrock for analysis",
+    );
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), BEDROCK_TIMEOUT_MS);
@@ -170,9 +180,7 @@ export class BedrockProvider implements AIAnalysisProvider {
       const command = new ConverseCommand({
         modelId: this.model,
         system: [{ text: systemPrompt } as any],
-        messages: [
-          { role: "user", content: [{ text: userMessage }] },
-        ],
+        messages: [{ role: "user", content: [{ text: userMessage }] }],
         inferenceConfig: {
           temperature: 0.3,
           maxTokens: 2048,
@@ -196,7 +204,10 @@ export class BedrockProvider implements AIAnalysisProvider {
     const responseText = result.output?.message?.content?.[0]?.text || "";
 
     const analysis = parseJsonResponse(responseText, callId);
-    logger.info({ callId, performanceScore: analysis.performance_score, sentiment: analysis.sentiment }, "Bedrock analysis complete");
+    logger.info(
+      { callId, performanceScore: analysis.performance_score, sentiment: analysis.sentiment },
+      "Bedrock analysis complete",
+    );
     return analysis;
   }
 
@@ -209,17 +220,18 @@ export class BedrockProvider implements AIAnalysisProvider {
       const cacheRead = usage.cacheReadInputTokenCount || 0;
       const cacheWrite = usage.cacheWriteInputTokenCount || 0;
       const cacheHit = cacheRead > 0;
-      logger.info({
-        context,
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-        totalTokens: (usage.inputTokens || 0) + (usage.outputTokens || 0),
-        cacheReadTokens: cacheRead,
-        cacheWriteTokens: cacheWrite,
-        promptCacheStatus: cacheHit ? "hit" : (cacheWrite > 0 ? "miss_written" : "no_cache"),
-      }, cacheHit
-        ? `Bedrock token usage — prompt cache HIT (${cacheRead} cached tokens)`
-        : "Bedrock token usage");
+      logger.info(
+        {
+          context,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          totalTokens: (usage.inputTokens || 0) + (usage.outputTokens || 0),
+          cacheReadTokens: cacheRead,
+          cacheWriteTokens: cacheWrite,
+          promptCacheStatus: cacheHit ? "hit" : cacheWrite > 0 ? "miss_written" : "no_cache",
+        },
+        cacheHit ? `Bedrock token usage — prompt cache HIT (${cacheRead} cached tokens)` : "Bedrock token usage",
+      );
     }
   }
 }

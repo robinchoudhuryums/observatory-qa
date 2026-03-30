@@ -84,14 +84,27 @@ export const planLimitsSchema = z.object({
   prioritySupport: z.boolean(),
   clinicalDocumentationEnabled: z.boolean().default(false),
   abTestingEnabled: z.boolean().default(false),
-  baseSeats: z.number(),                    // seats included in base price
-  pricePerAdditionalSeatUsd: z.number(),    // $/seat/mo for additional seats; 0 = not applicable
-  overagePricePerCallUsd: z.number(),       // $/call over quota; 0 = hard block at limit
+  baseSeats: z.number(), // seats included in base price
+  pricePerAdditionalSeatUsd: z.number(), // $/seat/mo for additional seats; 0 = not applicable
+  overagePricePerCallUsd: z.number(), // $/call over quota; 0 = hard block at limit
+  /** Monthly add-on price for clinical documentation (0 = included or not available) */
+  clinicalDocumentationAddOnUsd: z.number().default(0),
 });
 export type PlanLimits = z.infer<typeof planLimitsSchema>;
 
 /** Static plan definitions — no DB needed for these */
-export const PLAN_DEFINITIONS: Record<PlanTier, { name: string; description: string; monthlyPriceUsd: number; yearlyPriceUsd: number; trialDays?: number; limits: PlanLimits; contactSales?: boolean }> = {
+export const PLAN_DEFINITIONS: Record<
+  PlanTier,
+  {
+    name: string;
+    description: string;
+    monthlyPriceUsd: number;
+    yearlyPriceUsd: number;
+    trialDays?: number;
+    limits: PlanLimits;
+    contactSales?: boolean;
+  }
+> = {
   free: {
     name: "Free",
     description: "Get started with 50 calls/month — no credit card required",
@@ -102,16 +115,17 @@ export const PLAN_DEFINITIONS: Record<PlanTier, { name: string; description: str
       storageMb: 500,
       aiAnalysesPerMonth: 50,
       apiCallsPerMonth: 1000,
-      maxUsers: 3,
+      maxUsers: 2,
       customPromptTemplates: false,
       ragEnabled: false,
       ssoEnabled: false,
       prioritySupport: false,
       clinicalDocumentationEnabled: false,
       abTestingEnabled: false,
-      baseSeats: 3,
+      baseSeats: 2,
       pricePerAdditionalSeatUsd: 0,
-      overagePricePerCallUsd: 0,
+      overagePricePerCallUsd: 0, // Hard block at limit (no overage on free)
+      clinicalDocumentationAddOnUsd: 0, // Not available
     },
   },
   starter: {
@@ -130,18 +144,19 @@ export const PLAN_DEFINITIONS: Record<PlanTier, { name: string; description: str
       ragEnabled: true,
       ssoEnabled: false,
       prioritySupport: false,
-      clinicalDocumentationEnabled: false,
+      clinicalDocumentationEnabled: false, // Available as $49/mo add-on
       abTestingEnabled: false,
       baseSeats: 5,
-      pricePerAdditionalSeatUsd: 12,
+      pricePerAdditionalSeatUsd: 15,
       overagePricePerCallUsd: 0.35,
+      clinicalDocumentationAddOnUsd: 49, // $49/mo add-on (Starter + Clinical = $128/mo)
     },
   },
   professional: {
     name: "Professional",
-    description: "Full QA platform with clinical documentation for healthcare teams",
-    monthlyPriceUsd: 149,
-    yearlyPriceUsd: 1428, // $119/mo billed yearly
+    description: "Full QA + clinical documentation platform for healthcare teams",
+    monthlyPriceUsd: 199,
+    yearlyPriceUsd: 1908, // $159/mo billed yearly
     trialDays: 14,
     limits: {
       callsPerMonth: 1000,
@@ -153,34 +168,36 @@ export const PLAN_DEFINITIONS: Record<PlanTier, { name: string; description: str
       ragEnabled: true,
       ssoEnabled: false,
       prioritySupport: true,
-      clinicalDocumentationEnabled: true,
+      clinicalDocumentationEnabled: true, // Included
       abTestingEnabled: true,
       baseSeats: 10,
-      pricePerAdditionalSeatUsd: 18,
+      pricePerAdditionalSeatUsd: 20,
       overagePricePerCallUsd: 0.25,
+      clinicalDocumentationAddOnUsd: 0, // Included in base price
     },
   },
   enterprise: {
     name: "Enterprise",
-    description: "Unlimited scale, SSO, and dedicated support for large organizations",
+    description: "High-volume QA with SSO, SCIM, and dedicated support",
     monthlyPriceUsd: 999,
     yearlyPriceUsd: 9588, // $799/mo billed yearly
     contactSales: true,
     limits: {
-      callsPerMonth: -1,
+      callsPerMonth: 5000, // Capped (was unlimited) — overage at $0.15/call
       storageMb: 512000,
-      aiAnalysesPerMonth: -1,
+      aiAnalysesPerMonth: 5000,
       apiCallsPerMonth: -1,
       maxUsers: -1,
       customPromptTemplates: true,
       ragEnabled: true,
       ssoEnabled: true,
       prioritySupport: true,
-      clinicalDocumentationEnabled: true,
+      clinicalDocumentationEnabled: true, // Included
       abTestingEnabled: true,
       baseSeats: 25,
       pricePerAdditionalSeatUsd: 25,
-      overagePricePerCallUsd: 0.10,
+      overagePricePerCallUsd: 0.15,
+      clinicalDocumentationAddOnUsd: 0, // Included in base price
     },
   },
 };
@@ -208,7 +225,9 @@ export const subscriptionSchema = z.object({
 });
 export type Subscription = z.infer<typeof subscriptionSchema>;
 
-export const insertSubscriptionSchema = subscriptionSchema.omit({ id: true, createdAt: true, updatedAt: true }).partial({ cancelAtPeriodEnd: true });
+export const insertSubscriptionSchema = subscriptionSchema
+  .omit({ id: true, createdAt: true, updatedAt: true })
+  .partial({ cancelAtPeriodEnd: true });
 export type InsertSubscription = z.infer<typeof insertSubscriptionSchema>;
 
 // --- REFERENCE DOCUMENT SCHEMAS ---
@@ -263,19 +282,17 @@ export const referenceDocumentSchema = z.object({
 });
 export type ReferenceDocument = z.infer<typeof referenceDocumentSchema>;
 
-export const insertReferenceDocumentSchema = referenceDocumentSchema
-  .omit({ id: true, createdAt: true })
-  .extend({
-    // Make new fields optional for insert (they have DB/app-level defaults)
-    version: z.number().int().optional(),
-    previousVersionId: z.string().optional(),
-    indexingStatus: z.enum(INDEXING_STATUSES).optional(),
-    indexingError: z.string().optional(),
-    sourceType: z.enum(["upload", "url"]).optional(),
-    sourceUrl: z.string().optional(),
-    retrievalCount: z.number().int().optional(),
-    contentHash: z.string().max(64).optional(),
-  });
+export const insertReferenceDocumentSchema = referenceDocumentSchema.omit({ id: true, createdAt: true }).extend({
+  // Make new fields optional for insert (they have DB/app-level defaults)
+  version: z.number().int().optional(),
+  previousVersionId: z.string().optional(),
+  indexingStatus: z.enum(INDEXING_STATUSES).optional(),
+  indexingError: z.string().optional(),
+  sourceType: z.enum(["upload", "url"]).optional(),
+  sourceUrl: z.string().optional(),
+  retrievalCount: z.number().int().optional(),
+  contentHash: z.string().max(64).optional(),
+});
 export type InsertReferenceDocument = z.infer<typeof insertReferenceDocumentSchema>;
 
 // --- PROMPT TEMPLATE SCHEMAS ---
@@ -285,17 +302,23 @@ export const promptTemplateSchema = z.object({
   callCategory: z.string(),
   name: z.string(),
   evaluationCriteria: z.string(),
-  requiredPhrases: z.array(z.object({
-    phrase: z.string(),
-    label: z.string(),
-    severity: z.enum(["required", "recommended"]).default("required"),
-  })).optional(),
-  scoringWeights: z.object({
-    compliance: z.number().min(0).max(100).default(25),
-    customerExperience: z.number().min(0).max(100).default(25),
-    communication: z.number().min(0).max(100).default(25),
-    resolution: z.number().min(0).max(100).default(25),
-  }).optional(),
+  requiredPhrases: z
+    .array(
+      z.object({
+        phrase: z.string(),
+        label: z.string(),
+        severity: z.enum(["required", "recommended"]).default("required"),
+      }),
+    )
+    .optional(),
+  scoringWeights: z
+    .object({
+      compliance: z.number().min(0).max(100).default(25),
+      customerExperience: z.number().min(0).max(100).default(25),
+      communication: z.number().min(0).max(100).default(25),
+      resolution: z.number().min(0).max(100).default(25),
+    })
+    .optional(),
   additionalInstructions: z.string().optional(),
   isActive: z.boolean().default(true),
   updatedAt: z.string().optional(),
@@ -354,24 +377,30 @@ export const usageRecordSchema = z.object({
   timestamp: z.string(),
   user: z.string(),
   services: z.object({
-    assemblyai: z.object({
-      durationSeconds: z.number().default(0),
-      estimatedCost: z.number().default(0),
-    }).optional(),
-    bedrock: z.object({
-      model: z.string(),
-      estimatedInputTokens: z.number().default(0),
-      estimatedOutputTokens: z.number().default(0),
-      estimatedCost: z.number().default(0),
-      latencyMs: z.number().optional(),
-    }).optional(),
-    bedrockSecondary: z.object({
-      model: z.string(),
-      estimatedInputTokens: z.number().default(0),
-      estimatedOutputTokens: z.number().default(0),
-      estimatedCost: z.number().default(0),
-      latencyMs: z.number().optional(),
-    }).optional(),
+    assemblyai: z
+      .object({
+        durationSeconds: z.number().default(0),
+        estimatedCost: z.number().default(0),
+      })
+      .optional(),
+    bedrock: z
+      .object({
+        model: z.string(),
+        estimatedInputTokens: z.number().default(0),
+        estimatedOutputTokens: z.number().default(0),
+        estimatedCost: z.number().default(0),
+        latencyMs: z.number().optional(),
+      })
+      .optional(),
+    bedrockSecondary: z
+      .object({
+        model: z.string(),
+        estimatedInputTokens: z.number().default(0),
+        estimatedOutputTokens: z.number().default(0),
+        estimatedCost: z.number().default(0),
+        latencyMs: z.number().optional(),
+      })
+      .optional(),
   }),
   totalEstimatedCost: z.number(),
 });
@@ -380,7 +409,7 @@ export type UsageRecord = z.infer<typeof usageRecordSchema>;
 
 // --- LIVE SESSION SCHEMAS (real-time clinical recording) ---
 export const LIVE_SESSION_STATUSES = ["active", "paused", "completed", "failed"] as const;
-export type LiveSessionStatus = typeof LIVE_SESSION_STATUSES[number];
+export type LiveSessionStatus = (typeof LIVE_SESSION_STATUSES)[number];
 
 export const insertLiveSessionSchema = z.object({
   orgId: z.string(),
@@ -429,16 +458,18 @@ export const USER_ROLES = [
   {
     value: "admin" as const,
     label: "Administrator",
-    description: "Full access. Manage users, approve access requests, bulk import, delete calls, and configure system settings.",
+    description:
+      "Full access. Manage users, approve access requests, bulk import, delete calls, and configure system settings.",
   },
   {
     value: "super_admin" as const,
     label: "Super Administrator",
-    description: "Platform-level admin. Can manage ALL organizations, view platform-wide stats, and impersonate org admins for debugging.",
+    description:
+      "Platform-level admin. Can manage ALL organizations, view platform-wide stats, and impersonate org admins for debugging.",
   },
 ] as const;
 
-export type UserRole = typeof USER_ROLES[number]["value"];
+export type UserRole = (typeof USER_ROLES)[number]["value"];
 
 // --- COACHING SESSION SCHEMAS ---
 export const COACHING_CATEGORIES = [
@@ -457,10 +488,14 @@ export const insertCoachingSessionSchema = z.object({
   category: z.string().default("general"),
   title: z.string(),
   notes: z.string().optional(),
-  actionPlan: z.array(z.object({
-    task: z.string(),
-    completed: z.boolean().default(false),
-  })).optional(),
+  actionPlan: z
+    .array(
+      z.object({
+        task: z.string(),
+        completed: z.boolean().default(false),
+      }),
+    )
+    .optional(),
   status: z.enum(["pending", "in_progress", "completed", "dismissed"]).default("pending"),
   dueDate: z.string().optional(),
 });
@@ -510,12 +545,12 @@ export type CoachingTemplate = z.infer<typeof coachingTemplateSchema>;
 
 // --- AUTOMATION RULES ---
 export const automationRuleConditionsSchema = z.object({
-  threshold: z.number().optional(),          // e.g. 6.0 — score below this triggers
-  consecutiveCount: z.number().optional(),   // e.g. 3 — consecutive calls required
-  flagType: z.string().optional(),           // for flag_recurring trigger
-  category: z.string().optional(),           // scope to a specific call category
+  threshold: z.number().optional(), // e.g. 6.0 — score below this triggers
+  consecutiveCount: z.number().optional(), // e.g. 3 — consecutive calls required
+  flagType: z.string().optional(), // for flag_recurring trigger
+  category: z.string().optional(), // scope to a specific call category
   sentimentThreshold: z.number().optional(), // 0-1 sentiment score threshold
-  lookbackDays: z.number().optional(),       // rolling window (default 30)
+  lookbackDays: z.number().optional(), // rolling window (default 30)
 });
 
 export const automationRuleActionsSchema = z.object({

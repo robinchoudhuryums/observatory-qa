@@ -13,9 +13,10 @@ export function getCorrelationId(): string | undefined {
 }
 
 export function correlationIdMiddleware(req: Request, res: Response, next: NextFunction): void {
-  const correlationId = (req.headers['x-correlation-id'] as string)
-    || (req.headers['x-request-id'] as string)
-    || randomUUID();
-  res.setHeader('X-Correlation-Id', correlationId);
-  correlationStore.run({ correlationId }, () => { next(); });
+  const correlationId =
+    (req.headers["x-correlation-id"] as string) || (req.headers["x-request-id"] as string) || randomUUID();
+  res.setHeader("X-Correlation-Id", correlationId);
+  correlationStore.run({ correlationId }, () => {
+    next();
+  });
 }

@@ -7,7 +7,15 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AuditEntry } from "@shared/schema";
-import {  RiFileList3Line, RiFilterLine, RiArrowLeftSLine, RiArrowRightSLine, RiDownloadLine, RiUserLine, RiInputMethodLine  } from "@remixicon/react";
+import {
+  RiFileList3Line,
+  RiFilterLine,
+  RiArrowLeftSLine,
+  RiArrowRightSLine,
+  RiDownloadLine,
+  RiUserLine,
+  RiInputMethodLine,
+} from "@remixicon/react";
 
 interface AuditLogResponse {
   entries: AuditEntry[];
@@ -94,9 +102,12 @@ export default function AuditLogsPage() {
   };
 
   const eventBadgeColor = (event: string) => {
-    if (event.includes("delete") || event.includes("revoke")) return "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400";
-    if (event.includes("create") || event.includes("upload")) return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400";
-    if (event.includes("login") || event.includes("logout")) return "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400";
+    if (event.includes("delete") || event.includes("revoke"))
+      return "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400";
+    if (event.includes("create") || event.includes("upload"))
+      return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400";
+    if (event.includes("login") || event.includes("logout"))
+      return "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400";
     if (event.includes("phi")) return "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400";
     return "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400";
   };
@@ -109,9 +120,7 @@ export default function AuditLogsPage() {
             <RiFileList3Line className="w-6 h-6" />
             Audit Logs
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            HIPAA compliance audit trail — all system events
-          </p>
+          <p className="text-sm text-muted-foreground mt-1">HIPAA compliance audit trail — all system events</p>
         </div>
         <Button variant="outline" size="sm" onClick={exportCsv}>
           <RiDownloadLine className="w-4 h-4 mr-1" />
@@ -129,26 +138,42 @@ export default function AuditLogsPage() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
-            <Select value={eventFilter} onValueChange={(v) => { setEventFilter(v === "all" ? "" : v); setPage(1); }}>
+            <Select
+              value={eventFilter}
+              onValueChange={(v) => {
+                setEventFilter(v === "all" ? "" : v);
+                setPage(1);
+              }}
+            >
               <SelectTrigger className="h-9 text-sm">
                 <SelectValue placeholder="Event type" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All events</SelectItem>
-                {EVENT_TYPES.map(e => (
-                  <SelectItem key={e} value={e}>{e.replace(/_/g, " ")}</SelectItem>
+                {EVENT_TYPES.map((e) => (
+                  <SelectItem key={e} value={e}>
+                    {e.replace(/_/g, " ")}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
 
-            <Select value={resourceTypeFilter} onValueChange={(v) => { setResourceTypeFilter(v === "all" ? "" : v); setPage(1); }}>
+            <Select
+              value={resourceTypeFilter}
+              onValueChange={(v) => {
+                setResourceTypeFilter(v === "all" ? "" : v);
+                setPage(1);
+              }}
+            >
               <SelectTrigger className="h-9 text-sm">
                 <SelectValue placeholder="Resource type" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All resources</SelectItem>
-                {RESOURCE_TYPES.map(r => (
-                  <SelectItem key={r} value={r}>{r.replace(/_/g, " ")}</SelectItem>
+                {RESOURCE_TYPES.map((r) => (
+                  <SelectItem key={r} value={r}>
+                    {r.replace(/_/g, " ")}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -156,7 +181,10 @@ export default function AuditLogsPage() {
             <Input
               type="date"
               value={fromDate}
-              onChange={(e) => { setFromDate(e.target.value); setPage(1); }}
+              onChange={(e) => {
+                setFromDate(e.target.value);
+                setPage(1);
+              }}
               placeholder="From date"
               className="h-9 text-sm"
             />
@@ -164,14 +192,20 @@ export default function AuditLogsPage() {
             <Input
               type="date"
               value={toDate}
-              onChange={(e) => { setToDate(e.target.value); setPage(1); }}
+              onChange={(e) => {
+                setToDate(e.target.value);
+                setPage(1);
+              }}
               placeholder="To date"
               className="h-9 text-sm"
             />
 
             <Input
               value={usernameFilter}
-              onChange={(e) => { setUsernameFilter(e.target.value); setPage(1); }}
+              onChange={(e) => {
+                setUsernameFilter(e.target.value);
+                setPage(1);
+              }}
               placeholder="Filter by user..."
               className="h-9 text-sm"
             />
@@ -227,22 +261,21 @@ export default function AuditLogsPage() {
                       <td className="p-3">
                         <div>
                           <span className="font-medium">{entry.username || "—"}</span>
-                          {entry.role && (
-                            <span className="text-xs text-muted-foreground ml-1">({entry.role})</span>
-                          )}
+                          {entry.role && <span className="text-xs text-muted-foreground ml-1">({entry.role})</span>}
                         </div>
                       </td>
                       <td className="p-3">
                         <span className="text-muted-foreground">{entry.resourceType}</span>
                         {entry.resourceId && (
-                          <span className="text-xs text-muted-foreground block font-mono truncate max-w-[120px]" title={entry.resourceId}>
+                          <span
+                            className="text-xs text-muted-foreground block font-mono truncate max-w-[120px]"
+                            title={entry.resourceId}
+                          >
                             {entry.resourceId}
                           </span>
                         )}
                       </td>
-                      <td className="p-3 text-xs text-muted-foreground font-mono">
-                        {entry.ip || "—"}
-                      </td>
+                      <td className="p-3 text-xs text-muted-foreground font-mono">{entry.ip || "—"}</td>
                       <td className="p-3 text-xs text-muted-foreground max-w-[200px] truncate" title={entry.detail}>
                         {entry.detail || "—"}
                       </td>
@@ -260,19 +293,14 @@ export default function AuditLogsPage() {
                 {data.total} entries — page {data.page} of {data.totalPages}
               </span>
               <div className="flex gap-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={page <= 1}
-                  onClick={() => setPage(p => p - 1)}
-                >
+                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
                   <RiArrowLeftSLine className="w-4 h-4" />
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
                   disabled={page >= data.totalPages}
-                  onClick={() => setPage(p => p + 1)}
+                  onClick={() => setPage((p) => p + 1)}
                 >
                   <RiArrowRightSLine className="w-4 h-4" />
                 </Button>

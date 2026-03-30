@@ -50,9 +50,7 @@ interface MatchOptions {
  * Attempt to match an inbound call to an EHR appointment.
  * Returns null if the org has no EHR configured or the check fails.
  */
-export async function matchCallToAppointment(
-  opts: MatchOptions,
-): Promise<AppointmentMatchResult | null> {
+export async function matchCallToAppointment(opts: MatchOptions): Promise<AppointmentMatchResult | null> {
   const { orgId, callTimestamp, detectedProviderName } = opts;
 
   // Load org EHR config
@@ -103,28 +101,25 @@ export async function matchCallToAppointment(
   }
 
   // Filter to active (non-cancelled) appointments
-  const activeApts = appointments.filter(
-    a => a.status !== "cancelled" && a.status !== "no_show"
-  );
+  const activeApts = appointments.filter((a) => a.status !== "cancelled" && a.status !== "no_show");
 
   // Score each appointment
-  const scored = activeApts.map(apt => ({
+  const scored = activeApts.map((apt) => ({
     apt,
     timeDeltaMs: Math.abs(appointmentStartMs(apt, dateStr) - callDate.getTime()),
-    providerMatch: detectedProviderName
-      ? providerNameSimilarity(apt.providerName, detectedProviderName)
-      : null,
+    providerMatch: detectedProviderName ? providerNameSimilarity(apt.providerName, detectedProviderName) : null,
   }));
 
   // Primary filter: within ±30 min window
-  const inWindow = scored.filter(s => s.timeDeltaMs <= MATCH_WINDOW_MS);
+  const inWindow = scored.filter((s) => s.timeDeltaMs <= MATCH_WINDOW_MS);
 
   // If nothing in tight window, try wide window with provider match
-  const candidates = inWindow.length > 0
-    ? inWindow
-    : (detectedProviderName
-      ? scored.filter(s => s.timeDeltaMs <= WIDE_MATCH_WINDOW_MS && (s.providerMatch || 0) > 0.5)
-      : []);
+  const candidates =
+    inWindow.length > 0
+      ? inWindow
+      : detectedProviderName
+        ? scored.filter((s) => s.timeDeltaMs <= WIDE_MATCH_WINDOW_MS && (s.providerMatch || 0) > 0.5)
+        : [];
 
   if (!candidates.length) {
     return {
@@ -159,19 +154,22 @@ export async function matchCallToAppointment(
   let patient: EhrPatient | undefined;
   if (best.apt.patientId && confidence !== "low") {
     try {
-      patient = await adapter.getPatient(resolvedConfig, best.apt.patientId) || undefined;
+      patient = (await adapter.getPatient(resolvedConfig, best.apt.patientId)) || undefined;
     } catch {
       // Patient lookup is best-effort
     }
   }
 
-  logger.info({
-    orgId,
-    appointmentId: best.apt.ehrAppointmentId,
-    patientId: best.apt.patientId,
-    confidence,
-    timeDeltaMinutes: Math.round(best.timeDeltaMs / 60000),
-  }, "Call matched to EHR appointment");
+  logger.info(
+    {
+      orgId,
+      appointmentId: best.apt.ehrAppointmentId,
+      patientId: best.apt.patientId,
+      confidence,
+      timeDeltaMinutes: Math.round(best.timeDeltaMs / 60000),
+    },
+    "Call matched to EHR appointment",
+  );
 
   return {
     matched: true,
@@ -206,7 +204,8 @@ function providerNameSimilarity(ehrName: string, detectedName: string): number {
   if (!ehrName || !detectedName) return 0;
 
   const normalize = (s: string) =>
-    s.toLowerCase()
+    s
+      .toLowerCase()
       .replace(/\b(dr|dds|md|dmd|np|pa|rn|lcsw|lpc|phd|do|ot|pt)\b\.?/gi, "")
       .replace(/[^a-z\s]/g, "")
       .split(/\s+/)
@@ -219,7 +218,7 @@ function providerNameSimilarity(ehrName: string, detectedName: string): number {
 
   const a = new Set(aArr);
   const b = new Set(bArr);
-  const intersectionSize = aArr.filter(x => b.has(x)).length;
+  const intersectionSize = aArr.filter((x) => b.has(x)).length;
   const unionSize = new Set(aArr.concat(bArr)).size;
 
   return intersectionSize / unionSize;

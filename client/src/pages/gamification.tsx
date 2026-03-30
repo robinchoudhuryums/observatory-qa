@@ -6,7 +6,20 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState } from "react";
 import { BADGE_DEFINITIONS, type BadgeDefinition, type Employee } from "@shared/schema";
-import {  RiTrophyLine, RiStarLine, RiArrowRightUpLine, RiAwardLine, RiFlashlightLine, RiPhoneLine, RiRefreshLine, RiClipboardLine, RiMedalLine, RiFireLine, RiTargetLine, RiBookOpenLine  } from "@remixicon/react";
+import {
+  RiTrophyLine,
+  RiStarLine,
+  RiArrowRightUpLine,
+  RiAwardLine,
+  RiFlashlightLine,
+  RiPhoneLine,
+  RiRefreshLine,
+  RiClipboardLine,
+  RiMedalLine,
+  RiFireLine,
+  RiTargetLine,
+  RiBookOpenLine,
+} from "@remixicon/react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 type LeaderboardEntry = {
@@ -31,15 +44,26 @@ type GamificationProfile = {
 };
 
 const iconMap: Record<string, typeof RiTrophyLine> = {
-  phone: RiPhoneLine, "phone-forwarded": RiPhoneLine, trophy: RiTrophyLine, star: RiStarLine,
-  award: RiAwardLine, target: RiTargetLine, "trending-up": RiArrowRightUpLine, "refresh-cw": RiRefreshLine,
-  "clipboard-check": RiClipboardLine, "book-open": RiBookOpenLine, flame: RiFireLine, zap: RiFlashlightLine,
+  phone: RiPhoneLine,
+  "phone-forwarded": RiPhoneLine,
+  trophy: RiTrophyLine,
+  star: RiStarLine,
+  award: RiAwardLine,
+  target: RiTargetLine,
+  "trending-up": RiArrowRightUpLine,
+  "refresh-cw": RiRefreshLine,
+  "clipboard-check": RiClipboardLine,
+  "book-open": RiBookOpenLine,
+  flame: RiFireLine,
+  zap: RiFlashlightLine,
 };
 
 function BadgeDisplay({ badge, earned = true }: { badge: BadgeDefinition & { awardedAt?: string }; earned?: boolean }) {
   const Icon = iconMap[badge.icon] || RiAwardLine;
   return (
-    <div className={`flex flex-col items-center gap-1 p-3 rounded-lg border text-center ${earned ? "bg-background" : "bg-muted/50 opacity-50"}`}>
+    <div
+      className={`flex flex-col items-center gap-1 p-3 rounded-lg border text-center ${earned ? "bg-background" : "bg-muted/50 opacity-50"}`}
+    >
       <div className={`p-2 rounded-full ${earned ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
         <Icon className="w-6 h-6" />
       </div>
@@ -125,7 +149,8 @@ export default function GamificationPage() {
               ) : (
                 <div className="space-y-2">
                   {leaderboard.map((entry) => (
-                    <div key={entry.employeeId}
+                    <div
+                      key={entry.employeeId}
                       className={`flex items-center gap-4 p-3 rounded-lg border ${entry.rank <= 3 ? "bg-primary/5" : ""}`}
                       onClick={() => setSelectedEmployee(entry.employeeId)}
                       role="button"
@@ -164,14 +189,14 @@ export default function GamificationPage() {
               <CardDescription>Achievements employees can earn</CardDescription>
             </CardHeader>
             <CardContent>
-              {(["milestone", "performance", "improvement", "engagement", "streak"] as const).map(category => {
-                const badges = BADGE_DEFINITIONS.filter(b => b.category === category);
+              {(["milestone", "performance", "improvement", "engagement", "streak"] as const).map((category) => {
+                const badges = BADGE_DEFINITIONS.filter((b) => b.category === category);
                 if (badges.length === 0) return null;
                 return (
                   <div key={category} className="mb-6">
                     <h3 className="text-sm font-medium mb-3 capitalize">{category}</h3>
                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                      {badges.map(badge => (
+                      {badges.map((badge) => (
                         <BadgeDisplay key={badge.id} badge={badge} earned={false} />
                       ))}
                     </div>
@@ -189,8 +214,10 @@ export default function GamificationPage() {
                 <SelectValue placeholder="Select an employee..." />
               </SelectTrigger>
               <SelectContent>
-                {employees.map(e => (
-                  <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
+                {employees.map((e) => (
+                  <SelectItem key={e.id} value={e.id}>
+                    {e.name}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -249,7 +276,7 @@ export default function GamificationPage() {
                     <p className="text-sm text-muted-foreground text-center py-4">No badges earned yet</p>
                   ) : (
                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                      {profile.badges.map(badge => (
+                      {profile.badges.map((badge) => (
                         <BadgeDisplay key={badge.id} badge={badge} earned={true} />
                       ))}
                     </div>
@@ -264,7 +291,7 @@ export default function GamificationPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                      {profile.availableBadges.map(badge => (
+                      {profile.availableBadges.map((badge) => (
                         <BadgeDisplay key={badge.id} badge={badge} earned={false} />
                       ))}
                     </div>

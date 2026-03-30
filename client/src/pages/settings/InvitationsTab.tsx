@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import type { Invitation } from "@shared/schema";
-import {  RiAddLine, RiDeleteBinLine, RiMailLine, RiFileCopyLine, RiTimeLine  } from "@remixicon/react";
+import { RiAddLine, RiDeleteBinLine, RiMailLine, RiFileCopyLine, RiTimeLine } from "@remixicon/react";
 
 export default function InvitationsTab() {
   const { toast } = useToast();
@@ -103,7 +103,9 @@ export default function InvitationsTab() {
               className="flex-1"
             />
             <Select value={inviteRole} onValueChange={setInviteRole}>
-              <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-32">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="viewer">Viewer</SelectItem>
                 <SelectItem value="manager">Manager</SelectItem>
@@ -131,7 +133,10 @@ export default function InvitationsTab() {
           ) : (
             <div className="space-y-2">
               {invitations.map((inv) => (
-                <div key={inv.id} className="flex items-center gap-4 p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors">
+                <div
+                  key={inv.id}
+                  className="flex items-center gap-4 p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors"
+                >
                   <div className="w-10 h-10 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full flex items-center justify-center shrink-0">
                     <RiMailLine className="w-4 h-4 text-primary" />
                   </div>
@@ -155,7 +160,12 @@ export default function InvitationsTab() {
                   <div className="flex items-center gap-1 shrink-0">
                     {inv.status === "pending" && (
                       <>
-                        <Button variant="ghost" size="sm" onClick={() => copyInviteLink(inv.token)} title="Copy invite link">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => copyInviteLink(inv.token)}
+                          title="Copy invite link"
+                        >
                           <RiFileCopyLine className="w-4 h-4" />
                         </Button>
                         <Button

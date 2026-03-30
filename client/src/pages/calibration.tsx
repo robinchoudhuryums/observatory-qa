@@ -12,7 +12,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import type { Call, User } from "@shared/schema";
-import {  RiScales3Line, RiAddLine, RiTeamLine, RiCheckboxCircleLine, RiTimeLine, RiAlertLine, RiBarChartBoxLine, RiUserLine, RiInputMethodLine  } from "@remixicon/react";
+import {
+  RiScales3Line,
+  RiAddLine,
+  RiTeamLine,
+  RiCheckboxCircleLine,
+  RiTimeLine,
+  RiAlertLine,
+  RiBarChartBoxLine,
+  RiUserLine,
+  RiInputMethodLine,
+} from "@remixicon/react";
 
 type CalibrationSessionSummary = {
   id: string;
@@ -87,7 +97,7 @@ export default function CalibrationPage() {
     queryFn: getQueryFn({ on401: "returnNull" }),
   });
 
-  const completedCalls = calls.filter(c => c.status === "completed");
+  const completedCalls = calls.filter((c) => c.status === "completed");
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof form) => {
@@ -108,7 +118,15 @@ export default function CalibrationPage() {
   });
 
   const evaluateMutation = useMutation({
-    mutationFn: async ({ sessionId, performanceScore, notes }: { sessionId: string; performanceScore: number; notes: string }) => {
+    mutationFn: async ({
+      sessionId,
+      performanceScore,
+      notes,
+    }: {
+      sessionId: string;
+      performanceScore: number;
+      notes: string;
+    }) => {
       const res = await fetch(`/api/calibration/${sessionId}/evaluate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -125,7 +143,15 @@ export default function CalibrationPage() {
   });
 
   const completeMutation = useMutation({
-    mutationFn: async ({ id, targetScore, consensusNotes }: { id: string; targetScore?: number; consensusNotes?: string }) => {
+    mutationFn: async ({
+      id,
+      targetScore,
+      consensusNotes,
+    }: {
+      id: string;
+      targetScore?: number;
+      consensusNotes?: string;
+    }) => {
       const res = await fetch(`/api/calibration/${id}/complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -152,7 +178,9 @@ export default function CalibrationPage() {
         </div>
         <Dialog open={showCreate} onOpenChange={setShowCreate}>
           <DialogTrigger asChild>
-            <Button><RiAddLine className="w-4 h-4 mr-2" /> New Session</Button>
+            <Button>
+              <RiAddLine className="w-4 h-4 mr-2" /> New Session
+            </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
@@ -161,15 +189,20 @@ export default function CalibrationPage() {
             <div className="space-y-3">
               <div>
                 <Label>Title</Label>
-                <Input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-                  placeholder="e.g., Weekly QA Calibration #12" />
+                <Input
+                  value={form.title}
+                  onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                  placeholder="e.g., Weekly QA Calibration #12"
+                />
               </div>
               <div>
                 <Label>Call to Evaluate</Label>
-                <Select value={form.callId} onValueChange={v => setForm(f => ({ ...f, callId: v }))}>
-                  <SelectTrigger><SelectValue placeholder="Select a completed call..." /></SelectTrigger>
+                <Select value={form.callId} onValueChange={(v) => setForm((f) => ({ ...f, callId: v }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a completed call..." />
+                  </SelectTrigger>
                   <SelectContent>
-                    {completedCalls.slice(0, 50).map(c => (
+                    {completedCalls.slice(0, 50).map((c) => (
                       <SelectItem key={c.id} value={c.id}>
                         {c.fileName || c.id.slice(0, 8)} {c.callCategory ? `(${c.callCategory})` : ""}
                       </SelectItem>
@@ -180,24 +213,32 @@ export default function CalibrationPage() {
               <div>
                 <Label>Evaluators</Label>
                 <div className="space-y-1 max-h-40 overflow-y-auto border rounded-md p-2">
-                  {users.filter(u => u.role !== "viewer").map(u => (
-                    <label key={u.id} className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input type="checkbox" checked={form.evaluatorIds.includes(u.id)}
-                        onChange={e => {
-                          setForm(f => ({
-                            ...f,
-                            evaluatorIds: e.target.checked
-                              ? [...f.evaluatorIds, u.id]
-                              : f.evaluatorIds.filter(id => id !== u.id),
-                          }));
-                        }} />
-                      {u.name} ({u.role})
-                    </label>
-                  ))}
+                  {users
+                    .filter((u) => u.role !== "viewer")
+                    .map((u) => (
+                      <label key={u.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={form.evaluatorIds.includes(u.id)}
+                          onChange={(e) => {
+                            setForm((f) => ({
+                              ...f,
+                              evaluatorIds: e.target.checked
+                                ? [...f.evaluatorIds, u.id]
+                                : f.evaluatorIds.filter((id) => id !== u.id),
+                            }));
+                          }}
+                        />
+                        {u.name} ({u.role})
+                      </label>
+                    ))}
                 </div>
               </div>
-              <Button className="w-full" onClick={() => createMutation.mutate(form)}
-                disabled={!form.title || !form.callId || form.evaluatorIds.length === 0 || createMutation.isPending}>
+              <Button
+                className="w-full"
+                onClick={() => createMutation.mutate(form)}
+                disabled={!form.title || !form.callId || form.evaluatorIds.length === 0 || createMutation.isPending}
+              >
                 Create Session
               </Button>
             </div>
@@ -210,17 +251,17 @@ export default function CalibrationPage() {
         <div className="space-y-3">
           {sessions.length === 0 ? (
             <Card>
-              <CardContent className="py-8 text-center text-muted-foreground">
-                No calibration sessions yet.
-              </CardContent>
+              <CardContent className="py-8 text-center text-muted-foreground">No calibration sessions yet.</CardContent>
             </Card>
           ) : (
-            sessions.map(s => {
+            sessions.map((s) => {
               const StatusIcon = statusIcons[s.status] || RiTimeLine;
               return (
-                <Card key={s.id}
+                <Card
+                  key={s.id}
                   className={`cursor-pointer transition-colors ${selectedId === s.id ? "ring-2 ring-primary" : ""}`}
-                  onClick={() => setSelectedId(s.id)}>
+                  onClick={() => setSelectedId(s.id)}
+                >
                   <CardContent className="pt-4">
                     <div className="flex items-start justify-between">
                       <div>
@@ -266,16 +307,22 @@ export default function CalibrationPage() {
                     <div>
                       <CardTitle>{detail.title}</CardTitle>
                       <CardDescription>
-                        Facilitated by {detail.facilitatorName} | Call: {detail.call?.fileName || detail.callId.slice(0, 8)}
+                        Facilitated by {detail.facilitatorName} | Call:{" "}
+                        {detail.call?.fileName || detail.callId.slice(0, 8)}
                         {detail.aiScore != null && ` | AI Score: ${detail.aiScore.toFixed(1)}`}
                       </CardDescription>
                     </div>
                     {detail.status !== "completed" && (
-                      <Button size="sm" onClick={() => completeMutation.mutate({
-                        id: detail.id,
-                        targetScore: detail.avgScore ?? undefined,
-                        consensusNotes: `Agreed upon score after calibration discussion.`,
-                      })}>
+                      <Button
+                        size="sm"
+                        onClick={() =>
+                          completeMutation.mutate({
+                            id: detail.id,
+                            targetScore: detail.avgScore ?? undefined,
+                            consensusNotes: `Agreed upon score after calibration discussion.`,
+                          })
+                        }
+                      >
                         <RiCheckboxCircleLine className="w-4 h-4 mr-1" /> Complete
                       </Button>
                     )}
@@ -289,7 +336,7 @@ export default function CalibrationPage() {
                         No evaluations submitted yet. Evaluators can score this call below.
                       </p>
                     ) : (
-                      detail.evaluations.map(ev => (
+                      detail.evaluations.map((ev) => (
                         <div key={ev.id} className="flex items-center gap-4 p-3 rounded-lg border">
                           <div className="flex-1">
                             <p className="font-medium text-sm">{ev.evaluatorName}</p>
@@ -298,7 +345,9 @@ export default function CalibrationPage() {
                           <div className="text-right">
                             <p className="text-2xl font-bold">{ev.performanceScore.toFixed(1)}</p>
                             {detail.targetScore != null && (
-                              <p className={`text-xs ${Math.abs(ev.performanceScore - detail.targetScore) <= 1 ? "text-green-600" : "text-red-600"}`}>
+                              <p
+                                className={`text-xs ${Math.abs(ev.performanceScore - detail.targetScore) <= 1 ? "text-green-600" : "text-red-600"}`}
+                              >
                                 {ev.performanceScore > detail.targetScore ? "+" : ""}
                                 {(ev.performanceScore - detail.targetScore).toFixed(1)} from target
                               </p>
@@ -329,17 +378,34 @@ export default function CalibrationPage() {
                   <CardContent className="space-y-4">
                     <div>
                       <Label>Performance Score: {evalScore.toFixed(1)}</Label>
-                      <Slider value={[evalScore]} onValueChange={([v]) => setEvalScore(v)}
-                        min={0} max={10} step={0.5} className="mt-2" />
+                      <Slider
+                        value={[evalScore]}
+                        onValueChange={([v]) => setEvalScore(v)}
+                        min={0}
+                        max={10}
+                        step={0.5}
+                        className="mt-2"
+                      />
                     </div>
                     <div>
                       <Label>Notes</Label>
-                      <Textarea value={evalNotes} onChange={e => setEvalNotes(e.target.value)}
-                        placeholder="Explain your scoring rationale..." rows={3} />
+                      <Textarea
+                        value={evalNotes}
+                        onChange={(e) => setEvalNotes(e.target.value)}
+                        placeholder="Explain your scoring rationale..."
+                        rows={3}
+                      />
                     </div>
-                    <Button onClick={() => evaluateMutation.mutate({
-                      sessionId: detail.id, performanceScore: evalScore, notes: evalNotes,
-                    })} disabled={evaluateMutation.isPending}>
+                    <Button
+                      onClick={() =>
+                        evaluateMutation.mutate({
+                          sessionId: detail.id,
+                          performanceScore: evalScore,
+                          notes: evalNotes,
+                        })
+                      }
+                      disabled={evaluateMutation.isPending}
+                    >
                       Submit Evaluation
                     </Button>
                   </CardContent>

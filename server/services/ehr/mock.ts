@@ -100,12 +100,17 @@ let pushCounter = 0;
 export class MockEhrAdapter implements IEhrAdapter {
   readonly system = "mock" as const;
 
-  async testConnection(_config: EhrConnectionConfig): Promise<{ connected: boolean; version?: string; error?: string }> {
+  async testConnection(
+    _config: EhrConnectionConfig,
+  ): Promise<{ connected: boolean; version?: string; error?: string }> {
     return { connected: true, version: "mock-1.0.0" };
   }
 
-  async searchPatients(_config: EhrConnectionConfig, query: { name?: string; dob?: string; phone?: string }): Promise<EhrPatient[]> {
-    return MOCK_PATIENTS.filter(p => {
+  async searchPatients(
+    _config: EhrConnectionConfig,
+    query: { name?: string; dob?: string; phone?: string },
+  ): Promise<EhrPatient[]> {
+    return MOCK_PATIENTS.filter((p) => {
       if (query.name) {
         const q = query.name.toLowerCase();
         if (!p.firstName.toLowerCase().includes(q) && !p.lastName.toLowerCase().includes(q)) return false;
@@ -117,11 +122,14 @@ export class MockEhrAdapter implements IEhrAdapter {
   }
 
   async getPatient(_config: EhrConnectionConfig, ehrPatientId: string): Promise<EhrPatient | null> {
-    return MOCK_PATIENTS.find(p => p.ehrPatientId === ehrPatientId) || null;
+    return MOCK_PATIENTS.find((p) => p.ehrPatientId === ehrPatientId) || null;
   }
 
-  async getAppointments(_config: EhrConnectionConfig, params: { startDate: string; endDate: string; providerId?: string }): Promise<EhrAppointment[]> {
-    return MOCK_APPOINTMENTS.filter(a => {
+  async getAppointments(
+    _config: EhrConnectionConfig,
+    params: { startDate: string; endDate: string; providerId?: string },
+  ): Promise<EhrAppointment[]> {
+    return MOCK_APPOINTMENTS.filter((a) => {
       if (a.date < params.startDate || a.date > params.endDate) return false;
       if (params.providerId && a.providerId !== params.providerId) return false;
       return true;
@@ -144,23 +152,41 @@ export class MockEhrAdapter implements IEhrAdapter {
 
   async getPatientTreatmentPlans(_config: EhrConnectionConfig, patientId: string): Promise<EhrTreatmentPlan[]> {
     if (patientId !== "mock-1001") return [];
-    return [{
-      ehrPlanId: "tp-3001",
-      patientId,
-      providerId: "prov-1",
-      status: "accepted",
-      phases: [{
-        phase: 1,
-        description: "Restorative",
-        procedures: [
-          { code: "D2391", description: "Composite - 1 surface", toothNumber: "14", fee: 250, insuranceEstimate: 175, patientEstimate: 75 },
-          { code: "D2392", description: "Composite - 2 surfaces", toothNumber: "19", fee: 325, insuranceEstimate: 225, patientEstimate: 100 },
+    return [
+      {
+        ehrPlanId: "tp-3001",
+        patientId,
+        providerId: "prov-1",
+        status: "accepted",
+        phases: [
+          {
+            phase: 1,
+            description: "Restorative",
+            procedures: [
+              {
+                code: "D2391",
+                description: "Composite - 1 surface",
+                toothNumber: "14",
+                fee: 250,
+                insuranceEstimate: 175,
+                patientEstimate: 75,
+              },
+              {
+                code: "D2392",
+                description: "Composite - 2 surfaces",
+                toothNumber: "19",
+                fee: 325,
+                insuranceEstimate: 225,
+                patientEstimate: 100,
+              },
+            ],
+          },
         ],
-      }],
-      totalFee: 575,
-      totalInsurance: 400,
-      totalPatient: 175,
-      createdAt: "2026-02-01",
-    }];
+        totalFee: 575,
+        totalInsurance: 400,
+        totalPatient: 175,
+        createdAt: "2026-02-01",
+      },
+    ];
   }
 }

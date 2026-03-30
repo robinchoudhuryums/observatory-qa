@@ -8,7 +8,7 @@ export const COMMUNICATION_CHANNELS = [
   { value: "sms", label: "SMS", description: "Text message conversation" },
 ] as const;
 
-export type CommunicationChannel = typeof COMMUNICATION_CHANNELS[number]["value"];
+export type CommunicationChannel = (typeof COMMUNICATION_CHANNELS)[number]["value"];
 
 // --- CALL CATEGORY ---
 export const CALL_CATEGORIES = [
@@ -19,19 +19,55 @@ export const CALL_CATEGORIES = [
   { value: "clinical_encounter", label: "Clinical Encounter", description: "Doctor-patient clinical visit recording" },
   { value: "telemedicine", label: "Telemedicine Visit", description: "Remote telehealth consultation" },
   // Dental practice categories
-  { value: "dental_scheduling", label: "Dental Scheduling", description: "Appointment scheduling, rescheduling, or cancellation call" },
-  { value: "dental_insurance", label: "Dental Insurance", description: "Insurance verification, benefits explanation, or pre-authorization" },
-  { value: "dental_treatment", label: "Dental Treatment Discussion", description: "Treatment plan discussion, acceptance, or financial arrangements" },
-  { value: "dental_recall", label: "Dental Recall/Recare", description: "Recall or recare reminder call, hygiene appointment booking" },
-  { value: "dental_emergency", label: "Dental Emergency Triage", description: "Emergency triage call — toothache, trauma, swelling" },
-  { value: "dental_encounter", label: "Dental Clinical Encounter", description: "In-office dental visit or procedure recording" },
-  { value: "dental_consultation", label: "Dental Consultation", description: "New patient consultation or second opinion" },
+  {
+    value: "dental_scheduling",
+    label: "Dental Scheduling",
+    description: "Appointment scheduling, rescheduling, or cancellation call",
+  },
+  {
+    value: "dental_insurance",
+    label: "Dental Insurance",
+    description: "Insurance verification, benefits explanation, or pre-authorization",
+  },
+  {
+    value: "dental_treatment",
+    label: "Dental Treatment Discussion",
+    description: "Treatment plan discussion, acceptance, or financial arrangements",
+  },
+  {
+    value: "dental_recall",
+    label: "Dental Recall/Recare",
+    description: "Recall or recare reminder call, hygiene appointment booking",
+  },
+  {
+    value: "dental_emergency",
+    label: "Dental Emergency Triage",
+    description: "Emergency triage call — toothache, trauma, swelling",
+  },
+  {
+    value: "dental_encounter",
+    label: "Dental Clinical Encounter",
+    description: "In-office dental visit or procedure recording",
+  },
+  {
+    value: "dental_consultation",
+    label: "Dental Consultation",
+    description: "New patient consultation or second opinion",
+  },
   // Email categories
   { value: "email_support", label: "Support Email", description: "Customer support or help request email" },
   { value: "email_billing", label: "Billing Email", description: "Billing inquiry, payment, or invoice-related email" },
   { value: "email_complaint", label: "Complaint Email", description: "Customer complaint or escalation email" },
-  { value: "email_appointment", label: "Appointment Email", description: "Appointment request, confirmation, or scheduling email" },
-  { value: "email_insurance", label: "Insurance Email", description: "Insurance inquiry, authorization, or claims email" },
+  {
+    value: "email_appointment",
+    label: "Appointment Email",
+    description: "Appointment request, confirmation, or scheduling email",
+  },
+  {
+    value: "email_insurance",
+    label: "Insurance Email",
+    description: "Insurance inquiry, authorization, or claims email",
+  },
   { value: "email_referral", label: "Referral Email", description: "Patient or customer referral communication" },
   { value: "email_followup", label: "Follow-up Email", description: "Post-service or post-appointment follow-up" },
   { value: "email_general", label: "General Email", description: "General inquiry or miscellaneous email" },
@@ -73,9 +109,17 @@ export const CLINICAL_NOTE_FORMATS = [
   { value: "dental_operative", label: "Operative Note", description: "Restorative/operative procedure documentation" },
   { value: "dental_perio", label: "Periodontal Note", description: "Periodontal examination and treatment" },
   { value: "dental_endo", label: "Endodontic Note", description: "Root canal or endodontic procedure" },
-  { value: "dental_ortho_progress", label: "Ortho Progress Note", description: "Orthodontic adjustment/progress visit" },
+  {
+    value: "dental_ortho_progress",
+    label: "Ortho Progress Note",
+    description: "Orthodontic adjustment/progress visit",
+  },
   { value: "dental_surgery", label: "Oral Surgery Note", description: "Extraction or oral surgery documentation" },
-  { value: "dental_treatment_plan", label: "Treatment Plan", description: "Comprehensive treatment plan documentation" },
+  {
+    value: "dental_treatment_plan",
+    label: "Treatment Plan",
+    description: "Comprehensive treatment plan documentation",
+  },
 ] as const;
 
 export const clinicalNoteSchema = z.object({
@@ -89,13 +133,26 @@ export const clinicalNoteSchema = z.object({
   hpiNarrative: z.string().optional(),
   reviewOfSystems: z.record(z.string()).optional(),
   differentialDiagnoses: z.array(z.string()).optional(),
-  icd10Codes: z.array(z.object({ code: z.string().regex(/^[A-TV-Z]\d{2}(\.\d{1,4})?$/, "Invalid ICD-10 format"), description: z.string() })).optional(),
-  cptCodes: z.array(z.object({ code: z.string().regex(/^\d{5}[A-Z]?$/, "Invalid CPT format"), description: z.string() })).optional(),
-  prescriptions: z.array(z.object({
-    medication: z.string(),
-    dosage: z.string().optional(),
-    instructions: z.string().optional(),
-  })).optional(),
+  icd10Codes: z
+    .array(
+      z.object({
+        code: z.string().regex(/^[A-TV-Z]\d{2}(\.\d{1,4})?$/, "Invalid ICD-10 format"),
+        description: z.string(),
+      }),
+    )
+    .optional(),
+  cptCodes: z
+    .array(z.object({ code: z.string().regex(/^\d{5}[A-Z]?$/, "Invalid CPT format"), description: z.string() }))
+    .optional(),
+  prescriptions: z
+    .array(
+      z.object({
+        medication: z.string(),
+        dosage: z.string().optional(),
+        instructions: z.string().optional(),
+      }),
+    )
+    .optional(),
   followUp: z.string().optional(),
   documentationCompleteness: z.number().min(0).max(10).optional(),
   clinicalAccuracy: z.number().min(0).max(10).optional(),
@@ -107,15 +164,22 @@ export const clinicalNoteSchema = z.object({
   // Attestation & audit metadata (HIPAA-required)
   attestedBy: z.string().optional(),
   attestedById: z.string().optional(),
-  attestedNpi: z.string().regex(/^\d{10}$/, "NPI must be exactly 10 digits").optional(),
+  attestedNpi: z
+    .string()
+    .regex(/^\d{10}$/, "NPI must be exactly 10 digits")
+    .optional(),
   attestedAt: z.string().optional(),
   consentRecordedBy: z.string().optional(),
   consentRecordedAt: z.string().optional(),
-  editHistory: z.array(z.object({
-    editedBy: z.string(),
-    editedAt: z.string(),
-    fieldsChanged: z.array(z.string()),
-  })).optional(),
+  editHistory: z
+    .array(
+      z.object({
+        editedBy: z.string(),
+        editedAt: z.string(),
+        fieldsChanged: z.array(z.string()),
+      }),
+    )
+    .optional(),
   // Behavioral health (DAP/BIRP) fields
   data: z.string().optional(), // DAP: combined subjective/objective data
   behavior: z.string().optional(), // BIRP: observable client behaviors
@@ -124,89 +188,127 @@ export const clinicalNoteSchema = z.object({
   // Validation warnings from server-side code/format validation
   validationWarnings: z.array(z.string()).optional(),
   // Quality feedback from reviewers (manager/admin rating the AI-generated note)
-  qualityFeedback: z.array(z.object({
-    rating: z.number().min(1).max(5),
-    comment: z.string().optional(),
-    improvementAreas: z.array(z.string()).optional(),
-    ratedBy: z.string().optional(),
-    ratedById: z.string().optional(),
-    ratedAt: z.string(),
-  })).optional(),
+  qualityFeedback: z
+    .array(
+      z.object({
+        rating: z.number().min(1).max(5),
+        comment: z.string().optional(),
+        improvementAreas: z.array(z.string()).optional(),
+        ratedBy: z.string().optional(),
+        ratedById: z.string().optional(),
+        ratedAt: z.string(),
+      }),
+    )
+    .optional(),
   // Dental-specific fields
-  cdtCodes: z.array(z.object({ code: z.string().regex(/^D\d{4}$/, "Invalid CDT format (must be D followed by 4 digits)"), description: z.string() })).optional(),
+  cdtCodes: z
+    .array(
+      z.object({
+        code: z.string().regex(/^D\d{4}$/, "Invalid CDT format (must be D followed by 4 digits)"),
+        description: z.string(),
+      }),
+    )
+    .optional(),
   toothNumbers: z.array(z.string()).optional(),
   quadrants: z.array(z.string()).optional(),
   periodontalFindings: z.record(z.string()).optional(),
-  treatmentPhases: z.array(z.object({
-    phase: z.number(),
-    description: z.string(),
-    procedures: z.array(z.string()),
-    estimatedCost: z.string().optional(),
-  })).optional(),
+  treatmentPhases: z
+    .array(
+      z.object({
+        phase: z.number(),
+        description: z.string(),
+        procedures: z.array(z.string()),
+        estimatedCost: z.string().optional(),
+      }),
+    )
+    .optional(),
   // Amendment/addendum workflow (HIPAA medical records compliance)
-  amendments: z.array(z.object({
-    type: z.enum(["amendment", "addendum"]),
-    reason: z.string(),
-    amendedBy: z.string(),
-    amendedById: z.string().optional(),
-    amendedAt: z.string(),
-    fieldsChanged: z.array(z.string()),
-    // Snapshot of non-PHI fields at time of amendment (PHI fields noted by name only)
-    noteSnapshot: z.record(z.unknown()).optional(),
-    // For addenda: the addendum content text
-    content: z.string().optional(),
-  })).optional(),
+  amendments: z
+    .array(
+      z.object({
+        type: z.enum(["amendment", "addendum"]),
+        reason: z.string(),
+        amendedBy: z.string(),
+        amendedById: z.string().optional(),
+        amendedAt: z.string(),
+        fieldsChanged: z.array(z.string()),
+        // Snapshot of non-PHI fields at time of amendment (PHI fields noted by name only)
+        noteSnapshot: z.record(z.unknown()).optional(),
+        // For addenda: the addendum content text
+        content: z.string().optional(),
+      }),
+    )
+    .optional(),
   // Co-signature / supervising provider workflow
   cosignatureRequired: z.boolean().optional(),
-  cosignature: z.object({
-    cosignedBy: z.string(),
-    cosignedById: z.string().optional(),
-    cosignedNpi: z.string().regex(/^\d{10}$/, "NPI must be exactly 10 digits").optional(),
-    cosignedAt: z.string(),
-    role: z.string().optional(), // "attending", "supervisor", "supervising_dentist"
-  }).optional(),
+  cosignature: z
+    .object({
+      cosignedBy: z.string(),
+      cosignedById: z.string().optional(),
+      cosignedNpi: z
+        .string()
+        .regex(/^\d{10}$/, "NPI must be exactly 10 digits")
+        .optional(),
+      cosignedAt: z.string(),
+      role: z.string().optional(), // "attending", "supervisor", "supervising_dentist"
+    })
+    .optional(),
   // Structured data extracted from note free text (vitals, medications, allergies)
-  structuredData: z.object({
-    vitals: z.object({
-      bloodPressureSystolic: z.number().optional(),
-      bloodPressureDiastolic: z.number().optional(),
-      heartRate: z.number().optional(),
-      respiratoryRate: z.number().optional(),
-      temperature: z.number().optional(),
-      temperatureUnit: z.enum(["F", "C"]).optional(),
-      oxygenSaturation: z.number().optional(),
-      painScale: z.number().min(0).max(10).optional(),
-      weight: z.number().optional(),
-      weightUnit: z.enum(["lbs", "kg"]).optional(),
-      height: z.number().optional(),
-      heightUnit: z.enum(["in", "cm"]).optional(),
-      bmi: z.number().optional(),
-    }).optional(),
-    medications: z.array(z.object({
-      name: z.string(),
-      dose: z.string().optional(),
-      frequency: z.string().optional(),
-      route: z.string().optional(),
-      isNew: z.boolean().optional(),
-    })).optional(),
-    allergies: z.array(z.object({
-      substance: z.string(),
-      reaction: z.string().optional(),
-      severity: z.enum(["mild", "moderate", "severe"]).optional(),
-    })).optional(),
-  }).optional(),
+  structuredData: z
+    .object({
+      vitals: z
+        .object({
+          bloodPressureSystolic: z.number().optional(),
+          bloodPressureDiastolic: z.number().optional(),
+          heartRate: z.number().optional(),
+          respiratoryRate: z.number().optional(),
+          temperature: z.number().optional(),
+          temperatureUnit: z.enum(["F", "C"]).optional(),
+          oxygenSaturation: z.number().optional(),
+          painScale: z.number().min(0).max(10).optional(),
+          weight: z.number().optional(),
+          weightUnit: z.enum(["lbs", "kg"]).optional(),
+          height: z.number().optional(),
+          heightUnit: z.enum(["in", "cm"]).optional(),
+          bmi: z.number().optional(),
+        })
+        .optional(),
+      medications: z
+        .array(
+          z.object({
+            name: z.string(),
+            dose: z.string().optional(),
+            frequency: z.string().optional(),
+            route: z.string().optional(),
+            isNew: z.boolean().optional(),
+          }),
+        )
+        .optional(),
+      allergies: z
+        .array(
+          z.object({
+            substance: z.string(),
+            reaction: z.string().optional(),
+            severity: z.enum(["mild", "moderate", "severe"]).optional(),
+          }),
+        )
+        .optional(),
+    })
+    .optional(),
   // Quality score breakdown beyond basic completeness
-  qualityScoreBreakdown: z.object({
-    icd10Specificity: z.number().min(0).max(10).optional(),
-    requiredElementsPresent: z.number().min(0).max(10).optional(),
-    planDiagnosisAlignment: z.number().min(0).max(10).optional(),
-    overallQuality: z.number().min(0).max(10).optional(),
-  }).optional(),
+  qualityScoreBreakdown: z
+    .object({
+      icd10Specificity: z.number().min(0).max(10).optional(),
+      requiredElementsPresent: z.number().min(0).max(10).optional(),
+      planDiagnosisAlignment: z.number().min(0).max(10).optional(),
+      overallQuality: z.number().min(0).max(10).optional(),
+    })
+    .optional(),
 });
 
 export type ClinicalNote = z.infer<typeof clinicalNoteSchema>;
 
-export type CallCategory = typeof CALL_CATEGORIES[number]["value"];
+export type CallCategory = (typeof CALL_CATEGORIES)[number]["value"];
 
 // --- CALL SCHEMAS ---
 // "Call" is the universal interaction entity — supports voice calls, emails, chat, and SMS.
@@ -229,14 +331,14 @@ export const insertCallSchema = z.object({
   emailFrom: z.string().optional(),
   emailTo: z.string().optional(),
   emailCc: z.string().optional(),
-  emailBody: z.string().optional(),      // plain text body
-  emailBodyHtml: z.string().optional(),  // HTML body (for display)
+  emailBody: z.string().optional(), // plain text body
+  emailBodyHtml: z.string().optional(), // HTML body (for display)
   emailMessageId: z.string().optional(), // external message ID (Gmail, Outlook, etc.)
-  emailThreadId: z.string().optional(),  // thread/conversation grouping
+  emailThreadId: z.string().optional(), // thread/conversation grouping
   emailReceivedAt: z.string().optional(),
   // Chat/SMS fields (for future use)
-  chatPlatform: z.string().optional(),   // "intercom", "zendesk", "twilio", etc.
-  messageCount: z.number().optional(),   // number of messages in conversation
+  chatPlatform: z.string().optional(), // "intercom", "zendesk", "twilio", etc.
+  messageCount: z.number().optional(), // number of messages in conversation
 });
 
 export const callSchema = insertCallSchema.extend({
@@ -255,11 +357,11 @@ export const transcriptWordSchema = z.object({
 });
 
 export const transcriptCorrectionSchema = z.object({
-  wordIndex: z.number(),       // index into words array
+  wordIndex: z.number(), // index into words array
   original: z.string(),
   corrected: z.string(),
-  correctedBy: z.string(),     // user name
-  correctedAt: z.string(),     // ISO timestamp
+  correctedBy: z.string(), // user name
+  correctedAt: z.string(), // ISO timestamp
 });
 
 export const insertTranscriptSchema = z.object({
@@ -303,8 +405,12 @@ export const sentimentAnalysisSchema = insertSentimentAnalysisSchema.extend({
 
 // --- CALL ANALYSIS SCHEMAS ---
 export const analysisFeedbackSchema = z.object({
-  strengths: z.array(z.union([z.string(), z.object({ text: z.string(), timestamp: z.string().optional() })])).optional(),
-  suggestions: z.array(z.union([z.string(), z.object({ text: z.string(), timestamp: z.string().optional() })])).optional(),
+  strengths: z
+    .array(z.union([z.string(), z.object({ text: z.string(), timestamp: z.string().optional() })]))
+    .optional(),
+  suggestions: z
+    .array(z.union([z.string(), z.object({ text: z.string(), timestamp: z.string().optional() })]))
+    .optional(),
 });
 
 export const manualEditSchema = z.object({
@@ -326,17 +432,17 @@ export const confidenceFactorsSchema = z.object({
 
 // Speech analytics computed from word timing data
 export const speechMetricsSchema = z.object({
-  talkSpeedWpm: z.number().optional(),             // Words per minute
-  deadAirSeconds: z.number().optional(),            // Total silence > 3s
-  deadAirCount: z.number().optional(),              // Number of silence gaps > 3s
-  longestDeadAirSeconds: z.number().optional(),     // Longest single silence
-  interruptionCount: z.number().optional(),         // Times speakers overlapped
-  fillerWordCount: z.number().optional(),           // "um", "uh", "like", "you know" etc.
-  fillerWords: z.record(z.number()).optional(),      // Breakdown by filler word
-  avgResponseTimeMs: z.number().optional(),         // Avg time between speaker turns
-  talkListenRatio: z.number().optional(),           // Agent talk / total talk ratio
-  speakerATalkPercent: z.number().optional(),       // Speaker A % of total talk time
-  speakerBTalkPercent: z.number().optional(),       // Speaker B % of total talk time
+  talkSpeedWpm: z.number().optional(), // Words per minute
+  deadAirSeconds: z.number().optional(), // Total silence > 3s
+  deadAirCount: z.number().optional(), // Number of silence gaps > 3s
+  longestDeadAirSeconds: z.number().optional(), // Longest single silence
+  interruptionCount: z.number().optional(), // Times speakers overlapped
+  fillerWordCount: z.number().optional(), // "um", "uh", "like", "you know" etc.
+  fillerWords: z.record(z.number()).optional(), // Breakdown by filler word
+  avgResponseTimeMs: z.number().optional(), // Avg time between speaker turns
+  talkListenRatio: z.number().optional(), // Agent talk / total talk ratio
+  speakerATalkPercent: z.number().optional(), // Speaker A % of total talk time
+  speakerBTalkPercent: z.number().optional(), // Speaker B % of total talk time
 });
 
 export const insertCallAnalysisSchema = z.object({
@@ -356,12 +462,14 @@ export const insertCallAnalysisSchema = z.object({
   manualEdits: z.array(manualEditSchema).optional(),
   confidenceScore: z.string().optional(),
   confidenceFactors: confidenceFactorsSchema.optional(),
-  subScores: z.object({
-    compliance: z.number().min(0).max(10).optional(),
-    customerExperience: z.number().min(0).max(10).optional(),
-    communication: z.number().min(0).max(10).optional(),
-    resolution: z.number().min(0).max(10).optional(),
-  }).optional(),
+  subScores: z
+    .object({
+      compliance: z.number().min(0).max(10).optional(),
+      customerExperience: z.number().min(0).max(10).optional(),
+      communication: z.number().min(0).max(10).optional(),
+      resolution: z.number().min(0).max(10).optional(),
+    })
+    .optional(),
   detectedAgentName: z.string().optional(),
   // Score rationale: 3-5 bullet points per dimension explaining the score
   scoreRationale: z.record(z.array(z.string())).optional(),
@@ -370,47 +478,55 @@ export const insertCallAnalysisSchema = z.object({
   clinicalNote: clinicalNoteSchema.optional(),
   speechMetrics: speechMetricsSchema.optional(),
   // Self-review: agent can review their own call
-  selfReview: z.object({
-    score: z.number().min(0).max(10).optional(),
-    notes: z.string().optional(),
-    reviewedAt: z.string().optional(),
-    reviewedBy: z.string().optional(),
-  }).optional(),
+  selfReview: z
+    .object({
+      score: z.number().min(0).max(10).optional(),
+      notes: z.string().optional(),
+      reviewedAt: z.string().optional(),
+      reviewedBy: z.string().optional(),
+    })
+    .optional(),
   // Score dispute: agent can dispute the QA score
-  scoreDispute: z.object({
-    status: z.enum(["open", "under_review", "accepted", "rejected"]),
-    reason: z.string(),
-    disputedBy: z.string(),
-    disputedAt: z.string(),
-    resolvedBy: z.string().optional(),
-    resolvedAt: z.string().optional(),
-    resolution: z.string().optional(),
-    originalScore: z.number().optional(),
-    adjustedScore: z.number().optional(),
-  }).optional(),
+  scoreDispute: z
+    .object({
+      status: z.enum(["open", "under_review", "accepted", "rejected"]),
+      reason: z.string(),
+      disputedBy: z.string(),
+      disputedAt: z.string(),
+      resolvedBy: z.string().optional(),
+      resolvedAt: z.string().optional(),
+      resolution: z.string().optional(),
+      originalScore: z.number().optional(),
+      adjustedScore: z.number().optional(),
+    })
+    .optional(),
   // Patient-facing visit summary (plain language)
   patientSummary: z.string().optional(),
   // AI-generated referral letter
   referralLetter: z.string().optional(),
   // Auto-suggested billing codes from transcript
-  suggestedBillingCodes: z.object({
-    cptCodes: z.array(z.object({ code: z.string(), description: z.string(), confidence: z.number() })).optional(),
-    icd10Codes: z.array(z.object({ code: z.string(), description: z.string(), confidence: z.number() })).optional(),
-    cdtCodes: z.array(z.object({ code: z.string(), description: z.string(), confidence: z.number() })).optional(),
-  }).optional(),
+  suggestedBillingCodes: z
+    .object({
+      cptCodes: z.array(z.object({ code: z.string(), description: z.string(), confidence: z.number() })).optional(),
+      icd10Codes: z.array(z.object({ code: z.string(), description: z.string(), confidence: z.number() })).optional(),
+      cdtCodes: z.array(z.object({ code: z.string(), description: z.string(), confidence: z.number() })).optional(),
+    })
+    .optional(),
   // Speaker role mapping — maps speaker labels to roles (e.g., { A: "agent", B: "customer" })
   speakerRoleMap: z.record(z.string(), z.string()).optional(),
   // Detected language from AssemblyAI language detection (ISO code, e.g., "en", "es")
   detectedLanguage: z.string().optional(),
   // EHR note push status — updated by push route and ehr-note-push worker
-  ehrPushStatus: z.object({
-    success: z.boolean(),
-    ehrRecordId: z.string().optional(),
-    error: z.string().optional(),
-    timestamp: z.string(),
-    retriedViaQueue: z.boolean().optional(),
-    requiresManualRetry: z.boolean().optional(),
-  }).optional(),
+  ehrPushStatus: z
+    .object({
+      success: z.boolean(),
+      ehrRecordId: z.string().optional(),
+      error: z.string().optional(),
+      timestamp: z.string(),
+      retriedViaQueue: z.boolean().optional(),
+      requiresManualRetry: z.boolean().optional(),
+    })
+    .optional(),
 });
 
 export const callAnalysisSchema = insertCallAnalysisSchema.extend({
@@ -423,11 +539,11 @@ export const callAnalysisSchema = insertCallAnalysisSchema.extend({
 export const insertCallShareSchema = z.object({
   orgId: z.string(),
   callId: z.string(),
-  tokenHash: z.string(),       // SHA-256 of the plaintext share token
-  tokenPrefix: z.string(),     // First 8 chars for display/revocation
+  tokenHash: z.string(), // SHA-256 of the plaintext share token
+  tokenPrefix: z.string(), // First 8 chars for display/revocation
   viewerLabel: z.string().optional(), // Human label, e.g. "Dr. Smith review"
-  expiresAt: z.string(),       // ISO date — when the link expires
-  createdBy: z.string(),       // userId who created the share
+  expiresAt: z.string(), // ISO date — when the link expires
+  createdBy: z.string(), // userId who created the share
 });
 
 export const callShareSchema = insertCallShareSchema.extend({

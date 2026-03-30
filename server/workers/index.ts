@@ -119,7 +119,7 @@ async function main() {
   const shutdown = async () => {
     logger.info("Shutting down workers...");
     clearInterval(healthMonitorInterval);
-    await Promise.all(workers.map(w => w.close()));
+    await Promise.all(workers.map((w) => w.close()));
     logger.info("All workers stopped");
     process.exit(0);
   };

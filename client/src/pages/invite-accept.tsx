@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, getQueryFn } from "@/lib/queryClient";
-import {  RiVoiceprintLine, RiUserAddLine, RiAlertLine  } from "@remixicon/react";
+import { RiVoiceprintLine, RiUserAddLine, RiAlertLine } from "@remixicon/react";
 
 interface InviteAcceptProps {
   token: string;
@@ -28,7 +28,11 @@ export default function InviteAcceptPage({ token, onComplete }: InviteAcceptProp
   const [name, setName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  const { data: invite, isLoading: loadingInvite, error } = useQuery<InviteInfo>({
+  const {
+    data: invite,
+    isLoading: loadingInvite,
+    error,
+  } = useQuery<InviteInfo>({
     queryKey: [`/api/invitations/token/${token}`],
     queryFn: getQueryFn({ on401: "returnNull" }),
     retry: false,
@@ -79,7 +83,7 @@ export default function InviteAcceptPage({ token, onComplete }: InviteAcceptProp
                   ? "This invitation has expired."
                   : "This invitation link is invalid or has been revoked."}
             </p>
-            <Button variant="outline" onClick={() => window.location.href = "/"}>
+            <Button variant="outline" onClick={() => (window.location.href = "/")}>
               Go to Login
             </Button>
           </CardContent>
@@ -99,7 +103,10 @@ export default function InviteAcceptPage({ token, onComplete }: InviteAcceptProp
           </div>
           <CardTitle className="text-2xl">Join {invite.orgName}</CardTitle>
           <CardDescription>
-            You've been invited as a <Badge variant="secondary" className="mx-1">{invite.role}</Badge>
+            You've been invited as a{" "}
+            <Badge variant="secondary" className="mx-1">
+              {invite.role}
+            </Badge>
           </CardDescription>
           <p className="text-sm text-muted-foreground mt-1">
             Invited email: <strong>{invite.email}</strong>
@@ -109,12 +116,7 @@ export default function InviteAcceptPage({ token, onComplete }: InviteAcceptProp
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="text-sm font-medium text-foreground">Full Name</label>
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Your full name"
-                required
-              />
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your full name" required />
             </div>
             <div>
               <label className="text-sm font-medium text-foreground">Username</label>

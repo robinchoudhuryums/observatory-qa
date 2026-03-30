@@ -29,14 +29,14 @@ import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import type { Request, Response } from "express";
 
 export function registerEmailRoutes(app: Express): void {
-
   /**
    * POST /api/emails/submit
    * Submit an email for AI quality analysis.
    * Creates a Call record with channel="email" and runs AI analysis directly
    * (no transcription step needed).
    */
-  app.post("/api/emails/submit",
+  app.post(
+    "/api/emails/submit",
     requireAuth,
     requireRole("manager", "admin"),
     requireActiveSubscription,
@@ -73,9 +73,8 @@ export function registerEmailRoutes(app: Express): void {
         const userName = (req.user as any)?.name || (req.user as any)?.username || "unknown";
 
         // Determine email category
-        const emailCategory = category && typeof category === "string" && category.startsWith("email_")
-          ? category
-          : "email_general";
+        const emailCategory =
+          category && typeof category === "string" && category.startsWith("email_") ? category : "email_general";
 
         // Create the call record with channel="email"
         const call = await storage.createCall(orgId, {
@@ -93,14 +92,14 @@ export function registerEmailRoutes(app: Express): void {
           emailThreadId: threadId || undefined,
           emailReceivedAt: receivedAt || new Date().toISOString(),
           employeeId: employeeId || undefined,
-          fileName: `email-${subject.slice(0, 50).replace(/[^a-zA-Z0-9]/g, '_')}`,
+          fileName: `email-${subject.slice(0, 50).replace(/[^a-zA-Z0-9]/g, "_")}`,
           tags: ["email"],
         });
 
         broadcastCallUpdate(call.id, "processing", { step: 1, totalSteps: 3, label: "Analyzing email..." }, orgId);
 
         // Process email analysis asynchronously
-        processEmailAnalysis(orgId, call.id, subject, body, emailCategory, userId, userName).catch(err => {
+        processEmailAnalysis(orgId, call.id, subject, body, emailCategory, userId, userName).catch((err) => {
           logger.error({ err, callId: call.id }, "Email analysis failed");
         });
 
@@ -114,14 +113,15 @@ export function registerEmailRoutes(app: Express): void {
         logger.error({ err: error }, "Failed to submit email");
         res.status(500).json({ message: "Failed to submit email for analysis" });
       }
-    }
+    },
   );
 
   /**
    * POST /api/emails/bulk-submit
    * Submit multiple emails at once (e.g., from inbox integration).
    */
-  app.post("/api/emails/bulk-submit",
+  app.post(
+    "/api/emails/bulk-submit",
     requireAuth,
     requireRole("manager"),
     requireActiveSubscription,
@@ -148,9 +148,8 @@ export function registerEmailRoutes(app: Express): void {
         }
 
         try {
-          const emailCategory = email.category && email.category.startsWith("email_")
-            ? email.category
-            : "email_general";
+          const emailCategory =
+            email.category && email.category.startsWith("email_") ? email.category : "email_general";
 
           const call = await storage.createCall(orgId, {
             orgId,
@@ -166,14 +165,16 @@ export function registerEmailRoutes(app: Express): void {
             emailThreadId: email.threadId || undefined,
             emailReceivedAt: email.receivedAt || new Date().toISOString(),
             employeeId: email.employeeId || undefined,
-            fileName: `email-${email.subject.slice(0, 50).replace(/[^a-zA-Z0-9]/g, '_')}`,
+            fileName: `email-${email.subject.slice(0, 50).replace(/[^a-zA-Z0-9]/g, "_")}`,
             tags: ["email"],
           });
 
           // Fire-and-forget analysis
-          processEmailAnalysis(orgId, call.id, email.subject, email.body, emailCategory, userId, userName).catch(err => {
-            logger.error({ err, callId: call.id }, "Bulk email analysis failed");
-          });
+          processEmailAnalysis(orgId, call.id, email.subject, email.body, emailCategory, userId, userName).catch(
+            (err) => {
+              logger.error({ err, callId: call.id }, "Bulk email analysis failed");
+            },
+          );
 
           results.push({ id: call.id, subject: email.subject, status: "processing" });
         } catch (error) {
@@ -181,129 +182,118 @@ export function registerEmailRoutes(app: Express): void {
         }
       }
 
-      res.json({ submitted: results.filter(r => r.status === "processing").length, results });
-    }
+      res.json({ submitted: results.filter((r) => r.status === "processing").length, results });
+    },
   );
 
   /**
    * GET /api/emails
    * List all email interactions for the org (convenience endpoint, filters by channel).
    */
-  app.get("/api/emails",
-    requireAuth,
-    async (req, res) => {
-      const orgId = req.orgId;
-      if (!orgId) return res.status(403).json({ message: "Organization context required" });
+  app.get("/api/emails", requireAuth, async (req, res) => {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-      try {
-        const allCalls = await storage.getCallsWithDetails(orgId, {
-          limit: parseInt(req.query.limit as string) || 100,
-          offset: parseInt(req.query.offset as string) || 0,
-        });
+    try {
+      const allCalls = await storage.getCallsWithDetails(orgId, {
+        limit: parseInt(req.query.limit as string) || 100,
+        offset: parseInt(req.query.offset as string) || 0,
+      });
 
-        // Filter to email channel only
-        const emails = allCalls.filter(c => c.channel === "email");
+      // Filter to email channel only
+      const emails = allCalls.filter((c) => c.channel === "email");
 
-        res.json(emails);
-      } catch (error) {
-        logger.error({ err: error }, "Failed to list emails");
-        res.status(500).json({ message: "Failed to list emails" });
-      }
+      res.json(emails);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to list emails");
+      res.status(500).json({ message: "Failed to list emails" });
     }
-  );
+  });
 
   /**
    * GET /api/emails/threads
    * Get email conversations grouped by thread ID.
    */
-  app.get("/api/emails/threads",
-    requireAuth,
-    async (req, res) => {
-      const orgId = req.orgId;
-      if (!orgId) return res.status(403).json({ message: "Organization context required" });
+  app.get("/api/emails/threads", requireAuth, async (req, res) => {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-      try {
-        const allCalls = await storage.getAllCalls(orgId);
-        const emailCalls = allCalls.filter(c => c.channel === "email" && c.emailThreadId);
+    try {
+      const allCalls = await storage.getAllCalls(orgId);
+      const emailCalls = allCalls.filter((c) => c.channel === "email" && c.emailThreadId);
 
-        // Group by thread ID
-        const threads = new Map<string, typeof emailCalls>();
-        for (const email of emailCalls) {
-          const tid = email.emailThreadId!;
-          if (!threads.has(tid)) threads.set(tid, []);
-          threads.get(tid)!.push(email);
-        }
-
-        const result = Array.from(threads.entries()).map(([threadId, messages]) => ({
-          threadId,
-          messageCount: messages.length,
-          latestSubject: messages.sort((a, b) => (b.uploadedAt || "").localeCompare(a.uploadedAt || ""))[0]?.emailSubject,
-          latestDate: messages[0]?.uploadedAt,
-          messages: messages.sort((a, b) => (a.uploadedAt || "").localeCompare(b.uploadedAt || "")),
-        }));
-
-        res.json(result.sort((a, b) => (b.latestDate || "").localeCompare(a.latestDate || "")));
-      } catch (error) {
-        logger.error({ err: error }, "Failed to list email threads");
-        res.status(500).json({ message: "Failed to list email threads" });
+      // Group by thread ID
+      const threads = new Map<string, typeof emailCalls>();
+      for (const email of emailCalls) {
+        const tid = email.emailThreadId!;
+        if (!threads.has(tid)) threads.set(tid, []);
+        threads.get(tid)!.push(email);
       }
+
+      const result = Array.from(threads.entries()).map(([threadId, messages]) => ({
+        threadId,
+        messageCount: messages.length,
+        latestSubject: messages.sort((a, b) => (b.uploadedAt || "").localeCompare(a.uploadedAt || ""))[0]?.emailSubject,
+        latestDate: messages[0]?.uploadedAt,
+        messages: messages.sort((a, b) => (a.uploadedAt || "").localeCompare(b.uploadedAt || "")),
+      }));
+
+      res.json(result.sort((a, b) => (b.latestDate || "").localeCompare(a.latestDate || "")));
+    } catch (error) {
+      logger.error({ err: error }, "Failed to list email threads");
+      res.status(500).json({ message: "Failed to list email threads" });
     }
-  );
+  });
 
   /**
    * GET /api/emails/stats
    * Email channel analytics: volume, avg scores, category breakdown.
    */
-  app.get("/api/emails/stats",
-    requireAuth,
-    async (req, res) => {
-      const orgId = req.orgId;
-      if (!orgId) return res.status(403).json({ message: "Organization context required" });
+  app.get("/api/emails/stats", requireAuth, async (req, res) => {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-      try {
-        const allCalls = await storage.getCallsWithDetails(orgId);
-        const emails = allCalls.filter(c => c.channel === "email");
+    try {
+      const allCalls = await storage.getCallsWithDetails(orgId);
+      const emails = allCalls.filter((c) => c.channel === "email");
 
-        const completed = emails.filter(e => e.status === "completed");
-        const scores = completed
-          .map(e => parseFloat(e.analysis?.performanceScore || "0"))
-          .filter(s => s > 0);
+      const completed = emails.filter((e) => e.status === "completed");
+      const scores = completed.map((e) => parseFloat(e.analysis?.performanceScore || "0")).filter((s) => s > 0);
 
-        const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+      const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
 
-        // Category breakdown
-        const byCategory: Record<string, number> = {};
-        for (const e of emails) {
-          const cat = e.callCategory || "email_general";
-          byCategory[cat] = (byCategory[cat] || 0) + 1;
-        }
-
-        // Sentiment breakdown
-        const sentiments = { positive: 0, neutral: 0, negative: 0 };
-        for (const e of completed) {
-          const sent = e.sentiment?.overallSentiment as keyof typeof sentiments;
-          if (sent && sentiments[sent] !== undefined) sentiments[sent]++;
-        }
-
-        // Thread count
-        const threadIds = new Set(emails.filter(e => e.emailThreadId).map(e => e.emailThreadId));
-
-        res.json({
-          totalEmails: emails.length,
-          completed: completed.length,
-          processing: emails.filter(e => e.status === "processing").length,
-          failed: emails.filter(e => e.status === "failed").length,
-          avgPerformanceScore: Math.round(avgScore * 10) / 10,
-          sentimentDistribution: sentiments,
-          categoryBreakdown: byCategory,
-          threadCount: threadIds.size,
-        });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to get email stats");
-        res.status(500).json({ message: "Failed to get email stats" });
+      // Category breakdown
+      const byCategory: Record<string, number> = {};
+      for (const e of emails) {
+        const cat = e.callCategory || "email_general";
+        byCategory[cat] = (byCategory[cat] || 0) + 1;
       }
+
+      // Sentiment breakdown
+      const sentiments = { positive: 0, neutral: 0, negative: 0 };
+      for (const e of completed) {
+        const sent = e.sentiment?.overallSentiment as keyof typeof sentiments;
+        if (sent && sentiments[sent] !== undefined) sentiments[sent]++;
+      }
+
+      // Thread count
+      const threadIds = new Set(emails.filter((e) => e.emailThreadId).map((e) => e.emailThreadId));
+
+      res.json({
+        totalEmails: emails.length,
+        completed: completed.length,
+        processing: emails.filter((e) => e.status === "processing").length,
+        failed: emails.filter((e) => e.status === "failed").length,
+        avgPerformanceScore: Math.round(avgScore * 10) / 10,
+        sentimentDistribution: sentiments,
+        categoryBreakdown: byCategory,
+        threadCount: threadIds.size,
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to get email stats");
+      res.status(500).json({ message: "Failed to get email stats" });
     }
-  );
+  });
 }
 
 /**
@@ -355,7 +345,7 @@ async function processEmailAnalysis(
     // Load reference documents (RAG or full-text)
     try {
       const refDocs = await storage.getReferenceDocumentsForCategory(orgId, emailCategory);
-      const docsWithText = refDocs.filter(d => d.extractedText && d.extractedText.length > 0);
+      const docsWithText = refDocs.filter((d) => d.extractedText && d.extractedText.length > 0);
       if (docsWithText.length > 0) {
         if (!promptTemplate) promptTemplate = {};
 
@@ -364,22 +354,26 @@ async function processEmailAnalysis(
           const sub = await storage.getSubscription(orgId);
           const tier = (sub?.planTier as PlanTier) || "free";
           useRag = PLAN_DEFINITIONS[tier]?.limits?.ragEnabled === true;
-        } catch { /* default to non-RAG */ }
+        } catch {
+          /* default to non-RAG */
+        }
 
         if (useRag && process.env.DATABASE_URL) {
           try {
             const { getDatabase } = await import("../db/index");
             const db = getDatabase();
             if (db) {
-              const docIds = docsWithText.map(d => d.id);
+              const docIds = docsWithText.map((d) => d.id);
               const queryText = transcriptText.slice(0, 2000);
               const chunks = await searchRelevantChunks(db as any, orgId, queryText, docIds, { topK: 6 });
               if (chunks.length > 0) {
-                promptTemplate.referenceDocuments = [{
-                  name: "Retrieved Knowledge Base Context",
-                  category: "rag_retrieval",
-                  text: formatRetrievedContext(chunks),
-                }];
+                promptTemplate.referenceDocuments = [
+                  {
+                    name: "Retrieved Knowledge Base Context",
+                    category: "rag_retrieval",
+                    text: formatRetrievedContext(chunks),
+                  },
+                ];
               }
             }
           } catch (ragErr) {
@@ -388,7 +382,7 @@ async function processEmailAnalysis(
         }
 
         if (!promptTemplate.referenceDocuments) {
-          promptTemplate.referenceDocuments = docsWithText.map(d => ({
+          promptTemplate.referenceDocuments = docsWithText.map((d) => ({
             name: d.name,
             category: d.category,
             text: d.extractedText!,
@@ -406,7 +400,7 @@ async function processEmailAnalysis(
         // Use email-specific system prompt
         aiAnalysis = await withRetry(
           () => aiProvider.analyzeCallTranscript(transcriptText, callId, emailCategory, promptTemplate),
-          { retries: 2, baseDelay: 2000, label: `Email analysis for ${callId}` }
+          { retries: 2, baseDelay: 2000, label: `Email analysis for ${callId}` },
         );
         logger.info({ callId }, "Email AI analysis complete");
       } catch (aiError) {
@@ -436,12 +430,14 @@ async function processEmailAnalysis(
     if (clampedScore >= 9.0 && !flags.includes("exceptional_call")) flags.push("exceptional_call");
     flags.push("email"); // Always tag emails
 
-    const subScores = aiAnalysis?.sub_scores ? {
-      compliance: aiAnalysis.sub_scores.compliance ?? 0,
-      customerExperience: aiAnalysis.sub_scores.customer_experience ?? 0,
-      communication: aiAnalysis.sub_scores.communication ?? 0,
-      resolution: aiAnalysis.sub_scores.resolution ?? 0,
-    } : undefined;
+    const subScores = aiAnalysis?.sub_scores
+      ? {
+          compliance: aiAnalysis.sub_scores.compliance ?? 0,
+          customerExperience: aiAnalysis.sub_scores.customer_experience ?? 0,
+          communication: aiAnalysis.sub_scores.communication ?? 0,
+          resolution: aiAnalysis.sub_scores.resolution ?? 0,
+        }
+      : undefined;
 
     const analysis = await storage.createCallAnalysis(orgId, {
       orgId,
@@ -462,7 +458,7 @@ async function processEmailAnalysis(
         callDurationSeconds: 0,
         transcriptLength: body.length,
         aiAnalysisCompleted: aiAnalysis !== null,
-        overallScore: aiAnalysis ? 0.95 : 0.30,
+        overallScore: aiAnalysis ? 0.95 : 0.3,
       },
     });
 
@@ -470,9 +466,9 @@ async function processEmailAnalysis(
     if (aiAnalysis?.detected_agent_name) {
       try {
         const employees = await storage.getAllEmployees(orgId);
-        const activeEmployees = employees.filter(e => e.status === "Active");
+        const activeEmployees = employees.filter((e) => e.status === "Active");
         const agentName = aiAnalysis.detected_agent_name.toLowerCase().trim();
-        const exact = activeEmployees.filter(e => e.name.toLowerCase().trim() === agentName);
+        const exact = activeEmployees.filter((e) => e.name.toLowerCase().trim() === agentName);
         if (exact.length === 1) {
           await storage.updateCall(orgId, callId, { employeeId: exact[0].id });
         }
@@ -513,7 +509,7 @@ async function processEmailAnalysis(
     }
 
     // Notify if flagged
-    if (flags.some(f => ["low_score", "agent_misconduct", "escalation_needed"].some(s => f.includes(s)))) {
+    if (flags.some((f) => ["low_score", "agent_misconduct", "escalation_needed"].some((s) => f.includes(s)))) {
       try {
         await notifyFlaggedCall({
           event: "call_flagged",
@@ -550,6 +546,8 @@ async function processEmailAnalysis(
     try {
       await storage.updateCall(orgId, callId, { status: "failed" });
       broadcastCallUpdate(callId, "failed", { error: "Email analysis failed" }, orgId);
-    } catch { /* best-effort status update */ }
+    } catch {
+      /* best-effort status update */
+    }
   }
 }

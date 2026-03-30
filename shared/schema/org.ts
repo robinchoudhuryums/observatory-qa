@@ -21,7 +21,7 @@ export const INDUSTRY_TYPES = [
   { value: "other", label: "Other" },
 ] as const;
 
-export type IndustryType = typeof INDUSTRY_TYPES[number]["value"];
+export type IndustryType = (typeof INDUSTRY_TYPES)[number]["value"];
 
 export const orgSettingsSchema = z.object({
   industryType: z.string().optional(),
@@ -66,7 +66,7 @@ export const orgSettingsSchema = z.object({
   oidcClientSecret: z.string().optional(),
   // SCIM 2.0 provisioning (Enterprise plan only)
   scimEnabled: z.boolean().optional(),
-  scimTokenHash: z.string().optional(),   // SHA-256 hash of the bearer token
+  scimTokenHash: z.string().optional(), // SHA-256 hash of the bearer token
   scimTokenPrefix: z.string().optional(), // First 8 chars for identification
   // MFA enforcement (HIPAA recommended safeguard)
   mfaRequired: z.boolean().optional(), // When true, all users in this org must enable MFA
@@ -75,64 +75,79 @@ export const orgSettingsSchema = z.object({
   // ISO timestamp when mfaRequired was first enabled (used to compute deadlines)
   mfaRequiredEnabledAt: z.string().optional(),
   // EHR integration configuration
-  ehrConfig: z.object({
-    system: z.enum(["open_dental", "eaglesoft", "dentrix"]),
-    baseUrl: z.string(),
-    apiKey: z.string().optional(),
-    options: z.record(z.string()).optional(),
-    enabled: z.boolean().default(false),
-  }).optional(),
+  ehrConfig: z
+    .object({
+      system: z.enum(["open_dental", "eaglesoft", "dentrix"]),
+      baseUrl: z.string(),
+      apiKey: z.string().optional(),
+      options: z.record(z.string()).optional(),
+      enabled: z.boolean().default(false),
+    })
+    .optional(),
   // Billing alerts: send email when call quota approaches threshold
-  billingAlerts: z.object({
-    enabled: z.boolean().default(false),
-    /** Percentage of monthly quota (50–100) at which to send an alert */
-    quotaThresholdPct: z.number().min(50).max(100).default(80),
-    /** Email address to notify (defaults to the admin's username/email) */
-    alertEmail: z.string().email().optional(),
-    /** ISO timestamp of the last quota alert email sent (prevents flooding) */
-    lastQuotaAlertSentAt: z.string().optional(),
-  }).optional(),
+  billingAlerts: z
+    .object({
+      enabled: z.boolean().default(false),
+      /** Percentage of monthly quota (50–100) at which to send an alert */
+      quotaThresholdPct: z.number().min(50).max(100).default(80),
+      /** Email address to notify (defaults to the admin's username/email) */
+      alertEmail: z.string().email().optional(),
+      /** ISO timestamp of the last quota alert email sent (prevents flooding) */
+      lastQuotaAlertSentAt: z.string().optional(),
+    })
+    .optional(),
   // Gamification settings
-  gamification: z.object({
-    /** Global enable/disable for gamification features */
-    enabled: z.boolean().default(true),
-    /** Roles that are opted out of leaderboards/badges (e.g., ["viewer"] for clinical settings) */
-    optedOutRoles: z.array(z.string()).optional(),
-    /** Individual employee IDs opted out of gamification */
-    optedOutEmployeeIds: z.array(z.string()).optional(),
-    /** Enable team/department competitions */
-    teamCompetitionsEnabled: z.boolean().default(false),
-  }).optional(),
+  gamification: z
+    .object({
+      /** Global enable/disable for gamification features */
+      enabled: z.boolean().default(true),
+      /** Roles that are opted out of leaderboards/badges (e.g., ["viewer"] for clinical settings) */
+      optedOutRoles: z.array(z.string()).optional(),
+      /** Individual employee IDs opted out of gamification */
+      optedOutEmployeeIds: z.array(z.string()).optional(),
+      /** Enable team/department competitions */
+      teamCompetitionsEnabled: z.boolean().default(false),
+    })
+    .optional(),
   // Budget alerts: admin-configurable spend thresholds
-  budgetAlerts: z.object({
-    enabled: z.boolean().default(false),
-    /** Monthly spend threshold in USD — alert when estimated spend exceeds this */
-    monthlyBudgetUsd: z.number().min(0).optional(),
-    /** Email address for budget alerts */
-    alertEmail: z.string().email().optional(),
-    /** ISO timestamp of last budget alert sent (prevents flooding, max 1/day) */
-    lastBudgetAlertSentAt: z.string().optional(),
-  }).optional(),
+  budgetAlerts: z
+    .object({
+      enabled: z.boolean().default(false),
+      /** Monthly spend threshold in USD — alert when estimated spend exceeds this */
+      monthlyBudgetUsd: z.number().min(0).optional(),
+      /** Email address for budget alerts */
+      alertEmail: z.string().email().optional(),
+      /** ISO timestamp of last budget alert sent (prevents flooding, max 1/day) */
+      lastBudgetAlertSentAt: z.string().optional(),
+    })
+    .optional(),
   // Provider-specific clinical note style preferences (self-learning feature)
-  providerStylePreferences: z.record(z.string(), z.object({
-    noteFormat: z.string().optional(),
-    sectionOrder: z.array(z.string()).optional(),
-    abbreviationLevel: z.enum(["minimal", "moderate", "heavy"]).optional(),
-    includeNegativePertinents: z.boolean().optional(),
-    defaultSpecialty: z.string().optional(),
-    customSections: z.array(z.string()).optional(),
-    templateOverrides: z.record(z.string()).optional(),
-  })).optional(),
+  providerStylePreferences: z
+    .record(
+      z.string(),
+      z.object({
+        noteFormat: z.string().optional(),
+        sectionOrder: z.array(z.string()).optional(),
+        abbreviationLevel: z.enum(["minimal", "moderate", "heavy"]).optional(),
+        includeNegativePertinents: z.boolean().optional(),
+        defaultSpecialty: z.string().optional(),
+        customSections: z.array(z.string()).optional(),
+        templateOverrides: z.record(z.string()).optional(),
+      }),
+    )
+    .optional(),
   // PII/PHI redaction config (overrides always-on defaults)
-  piiRedaction: z.object({
-    enabled: z.boolean().default(true),
-    policies: z.array(z.string()).optional(), // override specific policies
-    substitution: z.enum(["hash", "entity_name"]).default("hash"),
-  }).optional(),
+  piiRedaction: z
+    .object({
+      enabled: z.boolean().default(true),
+      policies: z.array(z.string()).optional(), // override specific policies
+      substitution: z.enum(["hash", "entity_name"]).default("hash"),
+    })
+    .optional(),
   // Custom vocabulary — word boost list for better transcription of org-specific terms
   customVocabulary: z.array(z.string()).optional(),
   // Co-signature requirements (clinical documentation)
-  requiresCosignature: z.boolean().optional(),   // all notes require co-signature
+  requiresCosignature: z.boolean().optional(), // all notes require co-signature
   cosignatureRoles: z.array(z.string()).optional(), // ["admin", "manager"] can co-sign
   // SIEM forwarding for Enterprise customers (Splunk, Datadog, etc.)
   siemWebhookUrl: z.string().url().optional(),
@@ -141,28 +156,35 @@ export const orgSettingsSchema = z.object({
   // The encrypted DEK (data encryption key) is stored here; the KEK (key encryption key)
   // lives in AWS KMS and is identified by kmsKeyId. PHI fields are encrypted with the DEK,
   // not the master key, enabling efficient key rotation without re-encrypting all data.
-  encryptedDataKey: z.string().optional(),  // KMS-encrypted DEK blob (base64)
-  kmsKeyId: z.string().optional(),           // CMK ARN used to encrypt the DEK
+  encryptedDataKey: z.string().optional(), // KMS-encrypted DEK blob (base64)
+  kmsKeyId: z.string().optional(), // CMK ARN used to encrypt the DEK
   // Speaker role configuration — maps speaker labels to roles for call analysis.
   // Default: { A: "agent", B: "customer" }. Override per-org when agent doesn't speak first
   // (e.g., IVR-routed calls where customer speaks first).
   defaultSpeakerRoles: z.record(z.string(), z.string()).optional(),
   // Edit pattern insights: aggregated analysis of manager manual score edits
-  editPatternInsights: z.object({
-    updatedAt: z.string(),
-    totalEdits: z.number(),
-    insights: z.array(z.object({
-      dimension: z.string(),
-      avgDelta: z.number(),
-      editCount: z.number(),
-      pattern: z.string(),
-    })),
-  }).optional(),
+  editPatternInsights: z
+    .object({
+      updatedAt: z.string(),
+      totalEdits: z.number(),
+      insights: z.array(
+        z.object({
+          dimension: z.string(),
+          avgDelta: z.number(),
+          editCount: z.number(),
+          pattern: z.string(),
+        }),
+      ),
+    })
+    .optional(),
 });
 
 export const insertOrganizationSchema = z.object({
   name: z.string().min(1),
-  slug: z.string().min(1).regex(/^[a-z0-9-]+$/, "Slug must be lowercase alphanumeric with hyphens"),
+  slug: z
+    .string()
+    .min(1)
+    .regex(/^[a-z0-9-]+$/, "Slug must be lowercase alphanumeric with hyphens"),
   settings: orgSettingsSchema.optional(),
   status: z.enum(["active", "suspended", "trial", "deleted"]).default("active"),
 });
@@ -183,21 +205,29 @@ export const insertUserSchema = z.object({
   mfaSecret: z.string().optional(),
   mfaBackupCodes: z.array(z.string()).optional(),
   // WebAuthn/Passkey credentials (each user can have multiple hardware keys / passkeys)
-  webauthnCredentials: z.array(z.object({
-    credentialId: z.string(),     // base64url-encoded credential ID
-    publicKey: z.string(),        // base64url-encoded COSE public key
-    counter: z.number(),          // signature counter for replay protection
-    transports: z.array(z.string()).optional(), // usb, nfc, ble, internal
-    name: z.string(),             // user-assigned device name
-    createdAt: z.string(),
-  })).optional(),
+  webauthnCredentials: z
+    .array(
+      z.object({
+        credentialId: z.string(), // base64url-encoded credential ID
+        publicKey: z.string(), // base64url-encoded COSE public key
+        counter: z.number(), // signature counter for replay protection
+        transports: z.array(z.string()).optional(), // usb, nfc, ble, internal
+        name: z.string(), // user-assigned device name
+        createdAt: z.string(),
+      }),
+    )
+    .optional(),
   // Trusted device tokens — hashed bearer tokens set after MFA, exempt for N days
-  mfaTrustedDevices: z.array(z.object({
-    tokenHash: z.string(),        // SHA-256 of the cookie value
-    name: z.string(),             // device name / browser info
-    createdAt: z.string(),
-    expiresAt: z.string(),
-  })).optional(),
+  mfaTrustedDevices: z
+    .array(
+      z.object({
+        tokenHash: z.string(), // SHA-256 of the cookie value
+        name: z.string(), // device name / browser info
+        createdAt: z.string(),
+        expiresAt: z.string(),
+      }),
+    )
+    .optional(),
   // Grace period deadline for MFA enrollment (set when org enables mfaRequired)
   mfaEnrollmentDeadline: z.string().optional(), // ISO date
   // Team scope for managers — limits visibility to employees/calls in this subTeam only

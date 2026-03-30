@@ -9,7 +9,21 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { USER_ROLES } from "@shared/schema";
 import type { AccessRequest } from "@shared/schema";
-import {  RiShieldLine, RiUserAddLine, RiCheckboxCircleLine, RiCloseCircleLine, RiTimeLine, RiEyeLine, RiSettings3Line, RiArrowRightSLine, RiTeamLine, RiPlayLine, RiSearchLine, RiUploadLine, RiHistoryLine  } from "@remixicon/react";
+import {
+  RiShieldLine,
+  RiUserAddLine,
+  RiCheckboxCircleLine,
+  RiCloseCircleLine,
+  RiTimeLine,
+  RiEyeLine,
+  RiSettings3Line,
+  RiArrowRightSLine,
+  RiTeamLine,
+  RiPlayLine,
+  RiSearchLine,
+  RiUploadLine,
+  RiHistoryLine,
+} from "@remixicon/react";
 
 type TabView = "requests" | "roles";
 
@@ -18,7 +32,11 @@ export default function AdminPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: requests, isLoading, error: requestsError } = useQuery<AccessRequest[]>({
+  const {
+    data: requests,
+    isLoading,
+    error: requestsError,
+  } = useQuery<AccessRequest[]>({
     queryKey: ["/api/access-requests"],
   });
 
@@ -31,9 +49,10 @@ export default function AdminPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/access-requests"] });
       toast({
         title: variables.status === "approved" ? "Request Approved" : "Request Denied",
-        description: variables.status === "approved"
-          ? "You can now add this user to AUTH_USERS with the approved role."
-          : "The access request has been denied.",
+        description:
+          variables.status === "approved"
+            ? "You can now add this user to AUTH_USERS with the approved role."
+            : "The access request has been denied.",
       });
     },
     onError: (error) => {
@@ -41,8 +60,8 @@ export default function AdminPage() {
     },
   });
 
-  const pendingRequests = requests?.filter(r => r.status === "pending") || [];
-  const reviewedRequests = requests?.filter(r => r.status !== "pending") || [];
+  const pendingRequests = requests?.filter((r) => r.status === "pending") || [];
+  const reviewedRequests = requests?.filter((r) => r.status !== "pending") || [];
 
   const roleIcons: Record<string, React.ReactNode> = {
     viewer: <RiEyeLine className="w-4 h-4 text-blue-500" />,
@@ -53,11 +72,26 @@ export default function AdminPage() {
   const statusBadge = (status: string) => {
     switch (status) {
       case "pending":
-        return <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"><RiTimeLine className="w-3 h-3 mr-1" />Pending</Badge>;
+        return (
+          <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
+            <RiTimeLine className="w-3 h-3 mr-1" />
+            Pending
+          </Badge>
+        );
       case "approved":
-        return <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"><RiCheckboxCircleLine className="w-3 h-3 mr-1" />Approved</Badge>;
+        return (
+          <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+            <RiCheckboxCircleLine className="w-3 h-3 mr-1" />
+            Approved
+          </Badge>
+        );
       case "denied":
-        return <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"><RiCloseCircleLine className="w-3 h-3 mr-1" />Denied</Badge>;
+        return (
+          <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+            <RiCloseCircleLine className="w-3 h-3 mr-1" />
+            Denied
+          </Badge>
+        );
       default:
         return <Badge variant="secondary">{status}</Badge>;
     }
@@ -100,11 +134,7 @@ export default function AdminPage() {
       <div className="p-6 space-y-6">
         {/* Tabs */}
         <div className="flex gap-2">
-          <Button
-            variant={tab === "requests" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setTab("requests")}
-          >
+          <Button variant={tab === "requests" ? "default" : "outline"} size="sm" onClick={() => setTab("requests")}>
             <RiUserAddLine className="w-4 h-4 mr-2" />
             Access Requests
             {pendingRequests.length > 0 && (
@@ -113,11 +143,7 @@ export default function AdminPage() {
               </span>
             )}
           </Button>
-          <Button
-            variant={tab === "roles" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setTab("roles")}
-          >
+          <Button variant={tab === "roles" ? "default" : "outline"} size="sm" onClick={() => setTab("roles")}>
             <RiShieldLine className="w-4 h-4 mr-2" />
             Role Definitions
           </Button>
@@ -134,7 +160,8 @@ export default function AdminPage() {
                   Pending Requests ({pendingRequests.length})
                 </CardTitle>
                 <CardDescription>
-                  Review and approve or deny access requests. After approving, add the user to your AUTH_USERS environment variable with their assigned role.
+                  Review and approve or deny access requests. After approving, add the user to your AUTH_USERS
+                  environment variable with their assigned role.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -168,7 +195,10 @@ export default function AdminPage() {
                 ) : (
                   <div className="space-y-3">
                     {pendingRequests.map((req) => (
-                      <div key={req.id} className="flex items-center gap-4 p-4 rounded-lg border border-border bg-muted/30">
+                      <div
+                        key={req.id}
+                        className="flex items-center gap-4 p-4 rounded-lg border border-border bg-muted/30"
+                      >
                         <div className="w-10 h-10 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full flex items-center justify-center shrink-0">
                           <RiTeamLine className="w-5 h-5 text-primary" />
                         </div>
@@ -178,9 +208,7 @@ export default function AdminPage() {
                             {roleBadge(req.requestedRole)}
                           </div>
                           <p className="text-sm text-muted-foreground">{req.email}</p>
-                          {req.reason && (
-                            <p className="text-xs text-muted-foreground mt-1">"{req.reason}"</p>
-                          )}
+                          {req.reason && <p className="text-xs text-muted-foreground mt-1">"{req.reason}"</p>}
                           <p className="text-xs text-muted-foreground mt-1">
                             Requested {req.createdAt ? new Date(req.createdAt).toLocaleDateString() : "recently"}
                           </p>
@@ -235,9 +263,7 @@ export default function AdminPage() {
                             {new Date(req.reviewedAt).toLocaleDateString()}
                           </span>
                         )}
-                        {req.reviewedBy && (
-                          <span className="text-xs text-muted-foreground">by {req.reviewedBy}</span>
-                        )}
+                        {req.reviewedBy && <span className="text-xs text-muted-foreground">by {req.reviewedBy}</span>}
                       </div>
                     ))}
                   </div>
@@ -250,13 +276,18 @@ export default function AdminPage() {
               <CardContent className="pt-6">
                 <h4 className="text-sm font-semibold text-foreground mb-2">Setting Up New Users</h4>
                 <p className="text-sm text-muted-foreground mb-3">
-                  After approving a request, add the user to your <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">AUTH_USERS</code> environment variable:
+                  After approving a request, add the user to your{" "}
+                  <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">AUTH_USERS</code> environment
+                  variable:
                 </p>
                 <div className="bg-background border border-border rounded-md p-3 font-mono text-xs text-foreground">
-                  AUTH_USERS=admin:password:admin:Admin Name,<span className="text-primary">newuser:password:viewer:Their Name</span>
+                  AUTH_USERS=admin:password:admin:Admin Name,
+                  <span className="text-primary">newuser:password:viewer:Their Name</span>
                 </div>
                 <p className="text-xs text-muted-foreground mt-2">
-                  Format: <code className="bg-muted px-1 py-0.5 rounded font-mono">username:password:role:displayName</code> — Roles: <strong>viewer</strong>, <strong>manager</strong>, <strong>admin</strong>
+                  Format:{" "}
+                  <code className="bg-muted px-1 py-0.5 rounded font-mono">username:password:role:displayName</code> —
+                  Roles: <strong>viewer</strong>, <strong>manager</strong>, <strong>admin</strong>
                 </p>
               </CardContent>
             </Card>
@@ -283,40 +314,92 @@ export default function AdminPage() {
                       {/* Permission details per role */}
                       {role.value === "viewer" && (
                         <div className="grid grid-cols-2 gap-2 text-xs">
-                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> View dashboard & metrics</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> View call transcripts</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> View reports & charts</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> View employee profiles</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> Search calls</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> Play audio recordings</div>
-                          <div className="flex items-center gap-1.5 text-red-400"><RiCloseCircleLine className="w-3 h-3" /> Upload calls</div>
-                          <div className="flex items-center gap-1.5 text-red-400"><RiCloseCircleLine className="w-3 h-3" /> Edit analysis</div>
-                          <div className="flex items-center gap-1.5 text-red-400"><RiCloseCircleLine className="w-3 h-3" /> Delete calls</div>
-                          <div className="flex items-center gap-1.5 text-red-400"><RiCloseCircleLine className="w-3 h-3" /> Manage employees</div>
+                          <div className="flex items-center gap-1.5 text-green-600">
+                            <RiCheckboxCircleLine className="w-3 h-3" /> View dashboard & metrics
+                          </div>
+                          <div className="flex items-center gap-1.5 text-green-600">
+                            <RiCheckboxCircleLine className="w-3 h-3" /> View call transcripts
+                          </div>
+                          <div className="flex items-center gap-1.5 text-green-600">
+                            <RiCheckboxCircleLine className="w-3 h-3" /> View reports & charts
+                          </div>
+                          <div className="flex items-center gap-1.5 text-green-600">
+                            <RiCheckboxCircleLine className="w-3 h-3" /> View employee profiles
+                          </div>
+                          <div className="flex items-center gap-1.5 text-green-600">
+                            <RiCheckboxCircleLine className="w-3 h-3" /> Search calls
+                          </div>
+                          <div className="flex items-center gap-1.5 text-green-600">
+                            <RiCheckboxCircleLine className="w-3 h-3" /> Play audio recordings
+                          </div>
+                          <div className="flex items-center gap-1.5 text-red-400">
+                            <RiCloseCircleLine className="w-3 h-3" /> Upload calls
+                          </div>
+                          <div className="flex items-center gap-1.5 text-red-400">
+                            <RiCloseCircleLine className="w-3 h-3" /> Edit analysis
+                          </div>
+                          <div className="flex items-center gap-1.5 text-red-400">
+                            <RiCloseCircleLine className="w-3 h-3" /> Delete calls
+                          </div>
+                          <div className="flex items-center gap-1.5 text-red-400">
+                            <RiCloseCircleLine className="w-3 h-3" /> Manage employees
+                          </div>
                         </div>
                       )}
                       {role.value === "manager" && (
                         <div className="grid grid-cols-2 gap-2 text-xs">
-                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> All Viewer permissions</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> Upload call recordings</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> Assign calls to employees</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> Edit call analysis</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> Manage employees</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> Export reports</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> Delete calls</div>
-                          <div className="flex items-center gap-1.5 text-red-400"><RiCloseCircleLine className="w-3 h-3" /> Manage users</div>
-                          <div className="flex items-center gap-1.5 text-red-400"><RiCloseCircleLine className="w-3 h-3" /> Approve access requests</div>
-                          <div className="flex items-center gap-1.5 text-red-400"><RiCloseCircleLine className="w-3 h-3" /> Bulk import</div>
+                          <div className="flex items-center gap-1.5 text-green-600">
+                            <RiCheckboxCircleLine className="w-3 h-3" /> All Viewer permissions
+                          </div>
+                          <div className="flex items-center gap-1.5 text-green-600">
+                            <RiCheckboxCircleLine className="w-3 h-3" /> Upload call recordings
+                          </div>
+                          <div className="flex items-center gap-1.5 text-green-600">
+                            <RiCheckboxCircleLine className="w-3 h-3" /> Assign calls to employees
+                          </div>
+                          <div className="flex items-center gap-1.5 text-green-600">
+                            <RiCheckboxCircleLine className="w-3 h-3" /> Edit call analysis
+                          </div>
+                          <div className="flex items-center gap-1.5 text-green-600">
+                            <RiCheckboxCircleLine className="w-3 h-3" /> Manage employees
+                          </div>
+                          <div className="flex items-center gap-1.5 text-green-600">
+                            <RiCheckboxCircleLine className="w-3 h-3" /> Export reports
+                          </div>
+                          <div className="flex items-center gap-1.5 text-green-600">
+                            <RiCheckboxCircleLine className="w-3 h-3" /> Delete calls
+                          </div>
+                          <div className="flex items-center gap-1.5 text-red-400">
+                            <RiCloseCircleLine className="w-3 h-3" /> Manage users
+                          </div>
+                          <div className="flex items-center gap-1.5 text-red-400">
+                            <RiCloseCircleLine className="w-3 h-3" /> Approve access requests
+                          </div>
+                          <div className="flex items-center gap-1.5 text-red-400">
+                            <RiCloseCircleLine className="w-3 h-3" /> Bulk import
+                          </div>
                         </div>
                       )}
                       {role.value === "admin" && (
                         <div className="grid grid-cols-2 gap-2 text-xs">
-                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> All Manager permissions</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> Manage users & roles</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> Approve/deny access requests</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> Bulk CSV import</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> System configuration</div>
-                          <div className="flex items-center gap-1.5 text-green-600"><RiCheckboxCircleLine className="w-3 h-3" /> Full API access</div>
+                          <div className="flex items-center gap-1.5 text-green-600">
+                            <RiCheckboxCircleLine className="w-3 h-3" /> All Manager permissions
+                          </div>
+                          <div className="flex items-center gap-1.5 text-green-600">
+                            <RiCheckboxCircleLine className="w-3 h-3" /> Manage users & roles
+                          </div>
+                          <div className="flex items-center gap-1.5 text-green-600">
+                            <RiCheckboxCircleLine className="w-3 h-3" /> Approve/deny access requests
+                          </div>
+                          <div className="flex items-center gap-1.5 text-green-600">
+                            <RiCheckboxCircleLine className="w-3 h-3" /> Bulk CSV import
+                          </div>
+                          <div className="flex items-center gap-1.5 text-green-600">
+                            <RiCheckboxCircleLine className="w-3 h-3" /> System configuration
+                          </div>
+                          <div className="flex items-center gap-1.5 text-green-600">
+                            <RiCheckboxCircleLine className="w-3 h-3" /> Full API access
+                          </div>
                         </div>
                       )}
                     </div>

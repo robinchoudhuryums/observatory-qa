@@ -72,11 +72,7 @@ export const apiKeyAuth: RequestHandler = async (req, res, next) => {
     const resourceScopes = permissions.filter((p) => p.includes(":"));
 
     // Derive role from broad permissions (backward compat)
-    const permLevel = broadPerms.includes("admin")
-      ? "admin"
-      : broadPerms.includes("write")
-        ? "manager"
-        : "viewer";
+    const permLevel = broadPerms.includes("admin") ? "admin" : broadPerms.includes("write") ? "manager" : "viewer";
 
     req.user = {
       id: `apikey:${apiKey.id}`,
@@ -94,11 +90,13 @@ export const apiKeyAuth: RequestHandler = async (req, res, next) => {
     }
 
     // Update last used (fire and forget)
-    storage.updateApiKey(apiKey.orgId, apiKey.id, {
-      lastUsedAt: new Date().toISOString(),
-    }).catch((err) => {
-      logger.warn({ err, apiKeyId: apiKey.id }, "Failed to update API key last-used timestamp (non-blocking)");
-    });
+    storage
+      .updateApiKey(apiKey.orgId, apiKey.id, {
+        lastUsedAt: new Date().toISOString(),
+      })
+      .catch((err) => {
+        logger.warn({ err, apiKeyId: apiKey.id }, "Failed to update API key last-used timestamp (non-blocking)");
+      });
 
     next();
   } catch (error) {
@@ -154,10 +152,8 @@ export function registerApiKeyRoutes(app: Express): void {
       // Never return the hash — only metadata
       const now = Date.now();
       const KEY_ROTATION_DAYS = 90;
-      const sanitized = keys.map(k => {
-        const staleDays = k.createdAt
-          ? Math.floor((now - new Date(k.createdAt).getTime()) / (1000 * 60 * 60 * 24))
-          : 0;
+      const sanitized = keys.map((k) => {
+        const staleDays = k.createdAt ? Math.floor((now - new Date(k.createdAt).getTime()) / (1000 * 60 * 60 * 24)) : 0;
         // Warn if key has no expiry and was created more than KEY_ROTATION_DAYS ago
         const rotationWarning = !k.expiresAt && staleDays >= KEY_ROTATION_DAYS;
         // Show resource scopes in response

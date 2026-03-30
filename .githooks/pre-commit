@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Git pre-commit hook — prevents committing code with type errors.
+# Install: git config core.hooksPath .githooks
+set -e
+
+echo "Pre-commit: running TypeScript type check..."
+npx tsc --noEmit
+
+echo "Pre-commit: type check passed."

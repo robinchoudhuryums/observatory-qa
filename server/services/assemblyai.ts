@@ -119,7 +119,10 @@ export function detectSpeakerRolesFromTranscript(
     for (const s of Array.from(speakers)) {
       roles[s] = s === agentSpeaker ? "agent" : "customer";
     }
-    logger.debug({ agentSpeaker, agentConfidence, customerSpeaker, customerConfidence }, "Speaker roles detected via greeting patterns");
+    logger.debug(
+      { agentSpeaker, agentConfidence, customerSpeaker, customerConfidence },
+      "Speaker roles detected via greeting patterns",
+    );
     return roles;
   }
 
@@ -142,13 +145,13 @@ export interface TranscriptWord {
 
 export interface AssemblyAIResponse {
   id: string;
-  status: 'queued' | 'processing' | 'completed' | 'error';
+  status: "queued" | "processing" | "completed" | "error";
   text?: string;
   confidence?: number;
   words?: TranscriptWord[];
   sentiment_analysis_results?: Array<{
     text: string;
-    sentiment: 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE';
+    sentiment: "POSITIVE" | "NEUTRAL" | "NEGATIVE";
     confidence: number;
     start: number;
     end: number;
@@ -173,7 +176,7 @@ export interface TranscriptionOptions {
   piiRedaction?: {
     enabled: boolean;
     policies?: string[];
-    substitution?: 'hash' | 'entity_name';
+    substitution?: "hash" | "entity_name";
   };
   languageDetection?: boolean;
 }
@@ -193,7 +196,7 @@ export class AssemblyAIService {
   constructor() {
     this.config = {
       apiKey: process.env.ASSEMBLYAI_API_KEY || "",
-      baseUrl: 'https://api.assemblyai.com/v2'
+      baseUrl: "https://api.assemblyai.com/v2",
     };
     if (!this.config.apiKey) {
       logger.warn("ASSEMBLYAI_API_KEY is not set. Audio processing will fail.");
@@ -202,9 +205,9 @@ export class AssemblyAIService {
 
   async uploadAudioFile(audioBuffer: Buffer, fileName: string): Promise<string> {
     const response = await fetch(`${this.config.baseUrl}/upload`, {
-      method: 'POST',
-      headers: { 'Authorization': this.config.apiKey, 'Content-Type': 'application/octet-stream' },
-      body: audioBuffer
+      method: "POST",
+      headers: { Authorization: this.config.apiKey, "Content-Type": "application/octet-stream" },
+      body: audioBuffer,
     });
     if (!response.ok) throw new Error(`Failed to upload audio file: ${await response.text()}`);
     return (await response.json()).upload_url;
@@ -213,16 +216,24 @@ export class AssemblyAIService {
   async transcribeAudio(audioUrl: string, options?: TranscriptionOptions): Promise<string> {
     // Default PII redaction policies (used when no override provided)
     const defaultPiiPolicies = [
-      "person_name", "phone_number", "email_address", "date_of_birth",
-      "us_social_security_number", "credit_card_number", "medical_record_number",
-      "blood_type", "drug", "injury", "medical_condition",
+      "person_name",
+      "phone_number",
+      "email_address",
+      "date_of_birth",
+      "us_social_security_number",
+      "credit_card_number",
+      "medical_record_number",
+      "blood_type",
+      "drug",
+      "injury",
+      "medical_condition",
     ];
 
     // Determine PII redaction settings
     const piiOpts = options?.piiRedaction;
     const piiEnabled = piiOpts ? piiOpts.enabled : true; // default on
-    const piiPolicies = (piiOpts?.policies && piiOpts.policies.length > 0) ? piiOpts.policies : defaultPiiPolicies;
-    const piiSub = piiOpts?.substitution ?? 'hash';
+    const piiPolicies = piiOpts?.policies && piiOpts.policies.length > 0 ? piiOpts.policies : defaultPiiPolicies;
+    const piiSub = piiOpts?.substitution ?? "hash";
 
     const body: Record<string, unknown> = {
       audio_url: audioUrl,
@@ -233,10 +244,12 @@ export class AssemblyAIService {
       sentiment_analysis: true,
       // PII/PHI auto-redaction
       redact_pii: piiEnabled,
-      ...(piiEnabled ? {
-        redact_pii_policies: piiPolicies,
-        redact_pii_sub: piiSub,
-      } : {}),
+      ...(piiEnabled
+        ? {
+            redact_pii_policies: piiPolicies,
+            redact_pii_sub: piiSub,
+          }
+        : {}),
     };
 
     // Language detection
@@ -259,8 +272,8 @@ export class AssemblyAIService {
     }
 
     const response = await fetch(`${this.config.baseUrl}/transcript`, {
-      method: 'POST',
-      headers: { 'Authorization': this.config.apiKey, 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { Authorization: this.config.apiKey, "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
     if (!response.ok) throw new Error(`Failed to start transcription: ${await response.text()}`);
@@ -269,7 +282,7 @@ export class AssemblyAIService {
 
   async getTranscript(transcriptId: string): Promise<AssemblyAIResponse> {
     const response = await fetch(`${this.config.baseUrl}/transcript/${transcriptId}`, {
-      headers: { 'Authorization': this.config.apiKey }
+      headers: { Authorization: this.config.apiKey },
     });
     if (!response.ok) throw new Error(`Failed to get transcript: ${await response.text()}`);
     return await response.json();
@@ -283,28 +296,28 @@ export class AssemblyAIService {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const transcript = await this.getTranscript(transcriptId);
 
-      if (transcript.status === 'completed') {
+      if (transcript.status === "completed") {
         return transcript;
       }
-      if (transcript.status === 'error') {
-        throw new Error(`Transcription failed: ${transcript.error || 'Unknown error'}`);
+      if (transcript.status === "error") {
+        throw new Error(`Transcription failed: ${transcript.error || "Unknown error"}`);
       }
 
       onProgress?.(attempt, maxAttempts, transcript.status);
 
       // Wait with backoff: 3s for first 10 attempts, then 5s
       const delay = attempt < 10 ? 3000 : 5000;
-      await new Promise(resolve => setTimeout(resolve, delay));
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
-    throw new Error('Transcription polling timed out');
+    throw new Error("Transcription polling timed out");
   }
 
   // LeMUR task endpoint is synchronous - it returns the result directly
   async submitLeMURTask(transcriptId: string): Promise<LeMURResponse> {
     logger.info({ transcriptId }, "Submitting task to LeMUR");
     const response = await fetch(`https://api.assemblyai.com/lemur/v3/generate/task`, {
-      method: 'POST',
-      headers: { 'Authorization': this.config.apiKey, 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { Authorization: this.config.apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({
         transcript_ids: [transcriptId],
         prompt: `Analyze this customer service call for a medical supply company. Provide your response in the following JSON format only, with no additional text:
@@ -324,7 +337,7 @@ export class AssemblyAIService {
 For sentiment_score, use 0.0-1.0 where 1.0 is most positive.
 For performance_score, use 0.0-10.0 where 10.0 is best.
 Evaluate the agent on: professionalism, product knowledge, empathy, problem resolution, and compliance with medical supply protocols.`,
-      })
+      }),
     });
     if (!response.ok) throw new Error(`Failed to submit LeMUR task: ${await response.text()}`);
     const result = await response.json();
@@ -344,30 +357,32 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
     const transcript: InsertTranscript = {
       orgId,
       callId,
-      text: transcriptResponse.text || '',
+      text: transcriptResponse.text || "",
       confidence: transcriptResponse.confidence?.toString(),
       words: transcriptResponse.words || [],
     };
 
     // Determine sentiment: prefer Gemini analysis, fall back to AssemblyAI sentiment results
-    let overallSentiment = aiAnalysis?.sentiment || 'neutral';
+    let overallSentiment = aiAnalysis?.sentiment || "neutral";
     let overallScore = aiAnalysis?.sentiment_score ?? 0.5;
 
     // If no AI analysis, derive sentiment from AssemblyAI's built-in sentiment results
     if (!aiAnalysis && transcriptResponse.sentiment_analysis_results?.length) {
       const sentiments = transcriptResponse.sentiment_analysis_results;
-      const positiveCount = sentiments.filter(s => s.sentiment === 'POSITIVE').length;
-      const negativeCount = sentiments.filter(s => s.sentiment === 'NEGATIVE').length;
+      const positiveCount = sentiments.filter((s) => s.sentiment === "POSITIVE").length;
+      const negativeCount = sentiments.filter((s) => s.sentiment === "NEGATIVE").length;
       const total = sentiments.length;
 
-      if (positiveCount > total * 0.5) overallSentiment = 'positive';
-      else if (negativeCount > total * 0.3) overallSentiment = 'negative';
-      else overallSentiment = 'neutral';
+      if (positiveCount > total * 0.5) overallSentiment = "positive";
+      else if (negativeCount > total * 0.3) overallSentiment = "negative";
+      else overallSentiment = "neutral";
 
-      const avgConfidence = sentiments.reduce((sum, s) => {
-        const weight = s.sentiment === 'POSITIVE' ? s.confidence : s.sentiment === 'NEGATIVE' ? (1 - s.confidence) : 0.5;
-        return sum + weight;
-      }, 0) / total;
+      const avgConfidence =
+        sentiments.reduce((sum, s) => {
+          const weight =
+            s.sentiment === "POSITIVE" ? s.confidence : s.sentiment === "NEGATIVE" ? 1 - s.confidence : 0.5;
+          return sum + weight;
+        }, 0) / total;
       overallScore = Math.round(avgConfidence * 100) / 100;
     }
 
@@ -390,7 +405,7 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
     let talkTimeRatio = 0.5;
     if (words.length > 0) {
       const speakerATime = words
-        .filter((w: TranscriptWord) => w.speaker === 'A')
+        .filter((w: TranscriptWord) => w.speaker === "A")
         .reduce((sum: number, w: TranscriptWord) => sum + (w.end - w.start), 0);
       const totalTime = words[words.length - 1].end - words[0].start;
       if (totalTime > 0) {
@@ -405,8 +420,9 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
     // Priority: (1) auto-detect from transcript patterns + AI-detected agent name,
     //           (2) org-configured default, (3) hardcoded default (A=agent, B=customer).
     const detectedRoles = detectSpeakerRolesFromTranscript(words, aiAnalysis?.detected_agent_name);
-    const speakerRoleMap: Record<string, string> = detectedRoles
-      ?? (orgSpeakerRoles && Object.keys(orgSpeakerRoles).length > 0 ? orgSpeakerRoles : { A: "agent", B: "customer" });
+    const speakerRoleMap: Record<string, string> =
+      detectedRoles ??
+      (orgSpeakerRoles && Object.keys(orgSpeakerRoles).length > 0 ? orgSpeakerRoles : { A: "agent", B: "customer" });
 
     // Determine flags
     const flags: string[] = aiAnalysis?.flags || [];
@@ -425,7 +441,12 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
       responseTime: undefined,
       keywords: normalizeStringArray(aiAnalysis?.topics),
       topics: normalizeStringArray(aiAnalysis?.topics),
-      summary: typeof aiAnalysis?.summary === "string" ? aiAnalysis.summary : (aiAnalysis?.summary ? JSON.stringify(aiAnalysis.summary) : transcriptResponse.text?.slice(0, 500) || ''),
+      summary:
+        typeof aiAnalysis?.summary === "string"
+          ? aiAnalysis.summary
+          : aiAnalysis?.summary
+            ? JSON.stringify(aiAnalysis.summary)
+            : transcriptResponse.text?.slice(0, 500) || "",
       actionItems: normalizeStringArray(aiAnalysis?.action_items),
       feedback: aiAnalysis?.feedback || { strengths: [], suggestions: [] },
       lemurResponse: undefined,
@@ -448,9 +469,24 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
     const DEAD_AIR_THRESHOLD_MS = 3000; // 3 seconds
     // Single-word fillers (matched per word token)
     const FILLER_WORDS = new Set([
-      "um", "uh", "uhm", "hmm", "hm", "ah", "er", "erm",
-      "like", "basically", "actually", "literally", "essentially",
-      "right", "so", "well", "okay", "ok",
+      "um",
+      "uh",
+      "uhm",
+      "hmm",
+      "hm",
+      "ah",
+      "er",
+      "erm",
+      "like",
+      "basically",
+      "actually",
+      "literally",
+      "essentially",
+      "right",
+      "so",
+      "well",
+      "okay",
+      "ok",
     ]);
     // Two-word filler phrases (matched by looking at consecutive word pairs)
     const FILLER_BIGRAMS = new Set(["you know", "i mean", "sort of", "kind of"]);
@@ -479,8 +515,7 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
     // --- Interruption detection (speaker overlap) ---
     let interruptionCount = 0;
     for (let i = 1; i < words.length; i++) {
-      if (words[i].speaker && words[i - 1].speaker &&
-          words[i].speaker !== words[i - 1].speaker) {
+      if (words[i].speaker && words[i - 1].speaker && words[i].speaker !== words[i - 1].speaker) {
         // Speaker changed — check if there's overlap (new speaker starts before old ends)
         if (words[i].start < words[i - 1].end) {
           interruptionCount++;
@@ -495,8 +530,10 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
 
     // First pass: detect bigram filler phrases (e.g., "you know", "i mean")
     for (let i = 0; i < words.length - 1; i++) {
-      const pair = words[i].text.toLowerCase().replace(/[.,!?]/g, "") + " " +
-                   words[i + 1].text.toLowerCase().replace(/[.,!?]/g, "");
+      const pair =
+        words[i].text.toLowerCase().replace(/[.,!?]/g, "") +
+        " " +
+        words[i + 1].text.toLowerCase().replace(/[.,!?]/g, "");
       if (FILLER_BIGRAMS.has(pair)) {
         fillerWordCounts[pair] = (fillerWordCounts[pair] || 0) + 1;
         fillerWordTotal++;
@@ -518,17 +555,16 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
     // --- Average response time between speaker turns ---
     const turnGaps: number[] = [];
     for (let i = 1; i < words.length; i++) {
-      if (words[i].speaker && words[i - 1].speaker &&
-          words[i].speaker !== words[i - 1].speaker) {
+      if (words[i].speaker && words[i - 1].speaker && words[i].speaker !== words[i - 1].speaker) {
         const gap = words[i].start - words[i - 1].end;
-        if (gap > 0 && gap < 30000) { // Ignore unreasonable gaps
+        if (gap > 0 && gap < 30000) {
+          // Ignore unreasonable gaps
           turnGaps.push(gap);
         }
       }
     }
-    const avgResponseTimeMs = turnGaps.length > 0
-      ? Math.round(turnGaps.reduce((a, b) => a + b, 0) / turnGaps.length)
-      : undefined;
+    const avgResponseTimeMs =
+      turnGaps.length > 0 ? Math.round(turnGaps.reduce((a, b) => a + b, 0) / turnGaps.length) : undefined;
 
     // --- Per-speaker talk percentages ---
     const speakerTime: Record<string, number> = {};
@@ -537,8 +573,10 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
       speakerTime[speaker] = (speakerTime[speaker] || 0) + (w.end - w.start);
     }
     const totalTalkTime = Object.values(speakerTime).reduce((a, b) => a + b, 0);
-    const speakerATalkPercent = totalTalkTime > 0 ? Math.round(((speakerTime["A"] || 0) / totalTalkTime) * 100) : undefined;
-    const speakerBTalkPercent = totalTalkTime > 0 ? Math.round(((speakerTime["B"] || 0) / totalTalkTime) * 100) : undefined;
+    const speakerATalkPercent =
+      totalTalkTime > 0 ? Math.round(((speakerTime["A"] || 0) / totalTalkTime) * 100) : undefined;
+    const speakerBTalkPercent =
+      totalTalkTime > 0 ? Math.round(((speakerTime["B"] || 0) / totalTalkTime) * 100) : undefined;
 
     return {
       talkSpeedWpm,

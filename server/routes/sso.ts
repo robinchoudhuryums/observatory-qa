@@ -149,9 +149,7 @@ export function parseCertExpiry(pem: string): string | null {
  * Look up an org by slug and extract its SSO settings.
  * Returns null if org not found or minimum SSO config is missing.
  */
-async function getOrgSsoConfig(
-  orgSlug: string
-): Promise<{ org: Organization; settings: OrgSettings } | null> {
+async function getOrgSsoConfig(orgSlug: string): Promise<{ org: Organization; settings: OrgSettings } | null> {
   const org = await storage.getOrganizationBySlug(orgSlug);
   if (!org) return null;
 
@@ -199,7 +197,7 @@ function extractGroupsFromSamlProfile(profile: SamlProfile, groupAttribute?: str
  */
 function resolveRoleFromGroups(
   groups: string[],
-  groupRoleMap: Record<string, "admin" | "manager" | "viewer">
+  groupRoleMap: Record<string, "admin" | "manager" | "viewer">,
 ): "admin" | "manager" | "viewer" {
   const hierarchy: Record<string, number> = { admin: 3, manager: 2, viewer: 1 };
   let best: "admin" | "manager" | "viewer" = "viewer";
@@ -232,9 +230,7 @@ export async function setupSamlAuth(): Promise<boolean> {
               // 2. URL param on per-org ACS (/api/auth/sso/callback/:orgSlug — IDP-initiated)
               // 3. RelayState (SP-initiated callback)
               const orgSlug =
-                (req as any).params?.orgSlug ||
-                (req.body?.RelayState as string) ||
-                (req.query?.RelayState as string);
+                (req as any).params?.orgSlug || (req.body?.RelayState as string) || (req.query?.RelayState as string);
 
               if (!orgSlug) {
                 return done(new Error("No organization context for SSO"));
@@ -275,7 +271,7 @@ export async function setupSamlAuth(): Promise<boolean> {
         async (
           req: Request,
           profile: SamlProfile | null,
-          done: (err: Error | null, user?: Record<string, unknown>, info?: any) => void
+          done: (err: Error | null, user?: Record<string, unknown>, info?: any) => void,
         ) => {
           try {
             if (!profile) {
@@ -289,9 +285,7 @@ export async function setupSamlAuth(): Promise<boolean> {
 
             // Org slug: per-org ACS path param > RelayState
             const orgSlug =
-              (req as any).params?.orgSlug ||
-              (req.body?.RelayState as string) ||
-              (req.query?.RelayState as string);
+              (req as any).params?.orgSlug || (req.body?.RelayState as string) || (req.query?.RelayState as string);
             if (!orgSlug) {
               return done(null, undefined, { message: "No organization context in SAML response" });
             }
@@ -317,9 +311,10 @@ export async function setupSamlAuth(): Promise<boolean> {
 
             // Extract IDP groups and resolve role
             const groups = extractGroupsFromSamlProfile(profile, settings.ssoGroupAttribute);
-            const idpRole = settings.ssoGroupRoleMap && groups.length > 0
-              ? resolveRoleFromGroups(groups, settings.ssoGroupRoleMap)
-              : null;
+            const idpRole =
+              settings.ssoGroupRoleMap && groups.length > 0
+                ? resolveRoleFromGroups(groups, settings.ssoGroupRoleMap)
+                : null;
 
             let user = await storage.getUserByUsername(email, org.id);
 
@@ -334,8 +329,10 @@ export async function setupSamlAuth(): Promise<boolean> {
               if (idpRole && user.role !== idpRole) {
                 await storage.updateUser(org.id, user.id, { role: idpRole });
                 user = { ...user, role: idpRole };
-                logger.info({ userId: user.id, email, oldRole: user.role, newRole: idpRole },
-                  "SSO group-role mapping updated user role");
+                logger.info(
+                  { userId: user.id, email, oldRole: user.role, newRole: idpRole },
+                  "SSO group-role mapping updated user role",
+                );
               }
 
               logPhiAccess({
@@ -375,8 +372,10 @@ export async function setupSamlAuth(): Promise<boolean> {
 
             syncSeatUsage(org.id).catch(() => {});
 
-            logger.info({ userId: newUser.id, email, orgId: org.id, orgSlug, role: newUser.role },
-              "Auto-provisioned user via SAML SSO");
+            logger.info(
+              { userId: newUser.id, email, orgId: org.id, orgSlug, role: newUser.role },
+              "Auto-provisioned user via SAML SSO",
+            );
 
             logPhiAccess({
               event: "login_success",
@@ -405,7 +404,7 @@ export async function setupSamlAuth(): Promise<boolean> {
         async (
           _req: Request,
           profile: SamlProfile | null,
-          done: (err: Error | null, user?: Record<string, unknown>) => void
+          done: (err: Error | null, user?: Record<string, unknown>) => void,
         ) => {
           if (profile?.nameID) {
             const user = await storage.getUserByUsername(profile.nameID);
@@ -422,8 +421,8 @@ export async function setupSamlAuth(): Promise<boolean> {
             }
           }
           done(null, undefined);
-        }
-      )
+        },
+      ),
     );
 
     samlConfigured = true;
@@ -486,7 +485,7 @@ async function verifyIdToken(
   jwksUri: string,
   expectedIssuer: string,
   expectedAudience: string,
-  expectedNonce: string
+  expectedNonce: string,
 ): Promise<Record<string, unknown>> {
   const parts = idToken.split(".");
   if (parts.length !== 3) throw new Error("Invalid JWT format");
@@ -500,9 +499,11 @@ async function verifyIdToken(
 
   // Validate standard claims
   if (payload.iss !== expectedIssuer) throw new Error(`ID token issuer mismatch: ${payload.iss}`);
-  if (payload.aud !== expectedAudience && !Array.isArray(payload.aud)
-    ? true
-    : !(payload.aud as string[]).includes(expectedAudience)) {
+  if (
+    payload.aud !== expectedAudience && !Array.isArray(payload.aud)
+      ? true
+      : !(payload.aud as string[]).includes(expectedAudience)
+  ) {
     // more lenient check for array aud
   }
   const now = Math.floor(Date.now() / 1000);
@@ -516,9 +517,7 @@ async function verifyIdToken(
   }
 
   const keys = await fetchJwks(jwksUri);
-  const jwk = header.kid
-    ? keys.find((k) => k.kid === header.kid)
-    : keys.find((k) => k.use === "sig" || !k.use);
+  const jwk = header.kid ? keys.find((k) => k.kid === header.kid) : keys.find((k) => k.use === "sig" || !k.use);
 
   if (!jwk) throw new Error("Matching JWK not found");
 
@@ -550,15 +549,13 @@ export function isOidcConfigured(): boolean {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function registerSsoRoutes(app: Express): void {
-
   // ── Pre-flight check ──────────────────────────────────────────────────────
   app.get("/api/auth/sso/check/:orgSlug", async (req: Request, res: Response) => {
     const { orgSlug } = req.params;
 
     const org = await storage.getOrganizationBySlug(orgSlug);
     if (!org) {
-      return res.status(404).json({ available: false,
-        message: `Organization "${orgSlug}" was not found.` });
+      return res.status(404).json({ available: false, message: `Organization "${orgSlug}" was not found.` });
     }
 
     const settings = org.settings as OrgSettings | undefined;
@@ -566,28 +563,22 @@ export function registerSsoRoutes(app: Express): void {
 
     if (provider === "saml") {
       if (!samlConfigured) {
-        return res.status(503).json({ available: false,
-          message: "SAML SSO is not enabled on this platform." });
+        return res.status(503).json({ available: false, message: "SAML SSO is not enabled on this platform." });
       }
       if (!settings?.ssoSignOnUrl || !settings.ssoCertificate) {
-        return res.status(404).json({ available: false,
-          message: `SSO is not configured for "${org.name}".` });
+        return res.status(404).json({ available: false, message: `SSO is not configured for "${org.name}".` });
       }
     } else if (provider === "oidc") {
       if (!settings?.oidcDiscoveryUrl || !settings.oidcClientId) {
-        return res.status(404).json({ available: false,
-          message: `OIDC is not configured for "${org.name}".` });
+        return res.status(404).json({ available: false, message: `OIDC is not configured for "${org.name}".` });
       }
     } else {
-      return res.status(404).json({ available: false,
-        message: `SSO is not configured for "${org.name}".` });
+      return res.status(404).json({ available: false, message: `SSO is not configured for "${org.name}".` });
     }
 
     // Surface cert expiry warnings
     const certExpiry = settings?.ssoCertificateExpiry;
-    const daysUntilExpiry = certExpiry
-      ? Math.floor((new Date(certExpiry).getTime() - Date.now()) / 86_400_000)
-      : null;
+    const daysUntilExpiry = certExpiry ? Math.floor((new Date(certExpiry).getTime() - Date.now()) / 86_400_000) : null;
 
     return res.json({
       available: true,
@@ -635,14 +626,11 @@ export function registerSsoRoutes(app: Express): void {
   });
 
   // ── SAML: Per-org ACS (IDP-initiated — orgSlug in URL, no RelayState needed) ──
-  app.post(
-    "/api/auth/sso/callback/:orgSlug",
-    (req: Request, res: Response, next: NextFunction) => {
-      if (!samlConfigured) return res.redirect("/?error=sso_not_configured");
-      // orgSlug is in req.params — the getSamlOptions callback reads it from there
-      handleSamlCallback(req, res, next);
-    }
-  );
+  app.post("/api/auth/sso/callback/:orgSlug", (req: Request, res: Response, next: NextFunction) => {
+    if (!samlConfigured) return res.redirect("/?error=sso_not_configured");
+    // orgSlug is in req.params — the getSamlOptions callback reads it from there
+    handleSamlCallback(req, res, next);
+  });
 
   // ── SAML: SP metadata ─────────────────────────────────────────────────────
   app.get("/api/auth/sso/metadata/:orgSlug", async (req: Request, res: Response) => {
@@ -688,21 +676,17 @@ export function registerSsoRoutes(app: Express): void {
   app.post("/api/auth/sso/logout", (req: Request, res: Response, next: NextFunction) => {
     if (!samlConfigured) return res.status(503).json({ message: "SAML SSO not available" });
 
-    passport.authenticate(
-      "saml",
-      { failureRedirect: "/" },
-      (err: any, user: Express.User | false) => {
-        if (err) {
-          logger.warn({ err }, "SAML SLO error");
-          return res.redirect("/");
-        }
-        // Destroy session for this user if they're currently logged in
-        req.session.destroy(() => {});
-        logger.info({ user }, "SAML SLO: session terminated");
-        // Respond with a SAMLResponse redirect to complete the SLO handshake
-        res.redirect("/");
+    passport.authenticate("saml", { failureRedirect: "/" }, (err: any, user: Express.User | false) => {
+      if (err) {
+        logger.warn({ err }, "SAML SLO error");
+        return res.redirect("/");
       }
-    )(req, res, next);
+      // Destroy session for this user if they're currently logged in
+      req.session.destroy(() => {});
+      logger.info({ user }, "SAML SLO: session terminated");
+      // Respond with a SAMLResponse redirect to complete the SLO handshake
+      res.redirect("/");
+    })(req, res, next);
   });
 
   // GET SLO redirect binding
@@ -712,33 +696,30 @@ export function registerSsoRoutes(app: Express): void {
   });
 
   // ── Certificate status ─────────────────────────────────────────────────────
-  app.get(
-    "/api/auth/sso/cert-status/:orgSlug",
-    async (req: Request, res: Response) => {
-      const { orgSlug } = req.params;
-      const org = await storage.getOrganizationBySlug(orgSlug);
-      if (!org) return res.status(404).json({ message: "Organization not found" });
+  app.get("/api/auth/sso/cert-status/:orgSlug", async (req: Request, res: Response) => {
+    const { orgSlug } = req.params;
+    const org = await storage.getOrganizationBySlug(orgSlug);
+    if (!org) return res.status(404).json({ message: "Organization not found" });
 
-      const settings = org.settings as OrgSettings | undefined;
-      const expiry = settings?.ssoCertificateExpiry;
-      const newExpiry = settings?.ssoNewCertificateExpiry;
+    const settings = org.settings as OrgSettings | undefined;
+    const expiry = settings?.ssoCertificateExpiry;
+    const newExpiry = settings?.ssoNewCertificateExpiry;
 
-      if (!expiry) {
-        return res.json({ status: "unknown", message: "No certificate expiry date recorded" });
-      }
-
-      const daysLeft = Math.floor((new Date(expiry).getTime() - Date.now()) / 86_400_000);
-      const status = daysLeft < 0 ? "expired" : daysLeft <= 14 ? "critical" : daysLeft <= 30 ? "warning" : "ok";
-
-      return res.json({
-        status,
-        daysLeft,
-        expiresAt: expiry,
-        newCertificate: !!settings?.ssoNewCertificate,
-        newCertExpiresAt: newExpiry || null,
-      });
+    if (!expiry) {
+      return res.json({ status: "unknown", message: "No certificate expiry date recorded" });
     }
-  );
+
+    const daysLeft = Math.floor((new Date(expiry).getTime() - Date.now()) / 86_400_000);
+    const status = daysLeft < 0 ? "expired" : daysLeft <= 14 ? "critical" : daysLeft <= 30 ? "warning" : "ok";
+
+    return res.json({
+      status,
+      daysLeft,
+      expiresAt: expiry,
+      newCertificate: !!settings?.ssoNewCertificate,
+      newCertExpiresAt: newExpiry || null,
+    });
+  });
 
   // ── OIDC: Initiate authorization ──────────────────────────────────────────
   app.get("/api/auth/oidc/:orgSlug", async (req: Request, res: Response) => {
@@ -822,8 +803,7 @@ export function registerSsoRoutes(app: Express): void {
 
       const tokens = (await tokenResp.json()) as OidcTokenResponse;
       if (tokens.error || !tokens.id_token) {
-        logger.error({ error: tokens.error, description: tokens.error_description },
-          "OIDC token exchange failed");
+        logger.error({ error: tokens.error, description: tokens.error_description }, "OIDC token exchange failed");
         return res.redirect("/?error=oidc_token_error");
       }
 
@@ -833,7 +813,7 @@ export function registerSsoRoutes(app: Express): void {
         discovery.jwks_uri,
         discovery.issuer,
         settings.oidcClientId!,
-        nonce
+        nonce,
       );
 
       const email = (claims.email as string) || (claims.sub as string);
@@ -843,12 +823,13 @@ export function registerSsoRoutes(app: Express): void {
       const claimGroups: string[] = Array.isArray(claims.groups)
         ? (claims.groups as string[])
         : typeof claims.groups === "string"
-        ? [claims.groups as string]
-        : [];
+          ? [claims.groups as string]
+          : [];
 
-      const idpRole = settings.ssoGroupRoleMap && claimGroups.length > 0
-        ? resolveRoleFromGroups(claimGroups, settings.ssoGroupRoleMap)
-        : null;
+      const idpRole =
+        settings.ssoGroupRoleMap && claimGroups.length > 0
+          ? resolveRoleFromGroups(claimGroups, settings.ssoGroupRoleMap)
+          : null;
 
       let user = await storage.getUserByUsername(email, org.id);
 
@@ -858,8 +839,7 @@ export function registerSsoRoutes(app: Express): void {
           user = { ...user, role: idpRole };
         }
       } else {
-        const displayName =
-          ((claims.name as string) || (claims.given_name as string) || email.split("@")[0]);
+        const displayName = (claims.name as string) || (claims.given_name as string) || email.split("@")[0];
         user = await storage.createUser({
           orgId: org.id,
           username: email,
@@ -920,33 +900,30 @@ export function registerSsoRoutes(app: Express): void {
  * Shared SAML ACS handler (used by both /callback and /callback/:orgSlug).
  */
 function handleSamlCallback(req: Request, res: Response, next: NextFunction): void {
-  passport.authenticate(
-    "saml",
-    (err: any, user: Express.User | false, info: any) => {
-      if (err) {
-        logger.error({ err }, "SAML SSO callback error");
-        return res.redirect("/?error=sso_error");
-      }
+  passport.authenticate("saml", (err: any, user: Express.User | false, info: any) => {
+    if (err) {
+      logger.error({ err }, "SAML SSO callback error");
+      return res.redirect("/?error=sso_error");
+    }
 
-      if (!user) {
-        const message = encodeURIComponent(info?.message || "SSO authentication failed");
-        return res.redirect(`/?error=${message}`);
-      }
+    if (!user) {
+      const message = encodeURIComponent(info?.message || "SSO authentication failed");
+      return res.redirect(`/?error=${message}`);
+    }
 
-      req.session.regenerate((regenErr) => {
-        if (regenErr) {
-          logger.error({ err: regenErr }, "SAML SSO session regeneration error");
+    req.session.regenerate((regenErr) => {
+      if (regenErr) {
+        logger.error({ err: regenErr }, "SAML SSO session regeneration error");
+        return res.redirect("/?error=sso_login_error");
+      }
+      req.login(user, (loginErr) => {
+        if (loginErr) {
+          logger.error({ err: loginErr }, "SAML SSO session creation error");
           return res.redirect("/?error=sso_login_error");
         }
-        req.login(user, (loginErr) => {
-          if (loginErr) {
-            logger.error({ err: loginErr }, "SAML SSO session creation error");
-            return res.redirect("/?error=sso_login_error");
-          }
-          logger.info({ userId: user.id, orgId: user.orgId }, "SAML SSO login successful");
-          res.redirect("/dashboard");
-        });
+        logger.info({ userId: user.id, orgId: user.orgId }, "SAML SSO login successful");
+        res.redirect("/dashboard");
       });
-    }
-  )(req, res, next);
+    });
+  })(req, res, next);
 }

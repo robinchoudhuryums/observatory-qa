@@ -224,7 +224,9 @@ if (typeof window !== "undefined") {
     if (saved === "en" || saved === "es") {
       currentLocale = saved;
     }
-  } catch { /* storage unavailable */ }
+  } catch {
+    /* storage unavailable */
+  }
 }
 
 /**
@@ -253,7 +255,11 @@ export function t(key: string, params?: Record<string, string | number>): string
 export function setLocale(locale: Locale): void {
   currentLocale = locale;
   if (typeof window !== "undefined") {
-    try { localStorage.setItem("observatory-locale", locale); } catch { /* storage unavailable */ }
+    try {
+      localStorage.setItem("observatory-locale", locale);
+    } catch {
+      /* storage unavailable */
+    }
   }
 }
 

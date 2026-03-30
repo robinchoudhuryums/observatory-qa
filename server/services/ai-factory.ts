@@ -83,7 +83,10 @@ export function acquireBedrockSlot(orgId: string): boolean {
   // Check per-org concurrency
   const current = orgConcurrent.get(orgId) || 0;
   if (current >= MAX_CONCURRENT_PER_ORG) {
-    logger.warn({ orgId, concurrent: current, limit: MAX_CONCURRENT_PER_ORG }, "Bedrock per-org concurrency limit reached");
+    logger.warn(
+      { orgId, concurrent: current, limit: MAX_CONCURRENT_PER_ORG },
+      "Bedrock per-org concurrency limit reached",
+    );
     return false;
   }
 
@@ -91,7 +94,7 @@ export function acquireBedrockSlot(orgId: string): boolean {
   const now = Date.now();
   const windowStart = now - 60_000;
   let timestamps = orgRequestTimestamps.get(orgId) || [];
-  timestamps = timestamps.filter(ts => ts > windowStart);
+  timestamps = timestamps.filter((ts) => ts > windowStart);
   if (timestamps.length >= MAX_RPM_PER_ORG) {
     logger.warn({ orgId, rpm: timestamps.length, limit: MAX_RPM_PER_ORG }, "Bedrock per-org RPM limit reached");
     orgRequestTimestamps.set(orgId, timestamps);
@@ -207,7 +210,11 @@ function getCircuitDecision(): "allow" | "reject" | "probe" {
 }
 
 /** Expose circuit state for health checks and monitoring. */
-export function getBedrockCircuitState(): { state: CircuitState; consecutiveFailures: number; openedAt: number | null } {
+export function getBedrockCircuitState(): {
+  state: CircuitState;
+  consecutiveFailures: number;
+  openedAt: number | null;
+} {
   return { state: circuitState, consecutiveFailures, openedAt: circuitOpenedAt };
 }
 

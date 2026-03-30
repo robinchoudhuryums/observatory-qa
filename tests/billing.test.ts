@@ -42,8 +42,9 @@ describe("PLAN_DEFINITIONS", () => {
     assert.ok(PLAN_DEFINITIONS.enterprise.yearlyPriceUsd < entMonthlyAnnual);
   });
 
-  it("enterprise plan has unlimited (-1) calls", () => {
-    assert.strictEqual(PLAN_DEFINITIONS.enterprise.limits.callsPerMonth, -1);
+  it("enterprise plan has high call cap with overage pricing", () => {
+    assert.ok(PLAN_DEFINITIONS.enterprise.limits.callsPerMonth >= 5000, "Enterprise should have at least 5000 calls/mo");
+    assert.ok(PLAN_DEFINITIONS.enterprise.limits.overagePricePerCallUsd > 0, "Enterprise should have overage pricing");
   });
 
   it("free plan has limited calls", () => {

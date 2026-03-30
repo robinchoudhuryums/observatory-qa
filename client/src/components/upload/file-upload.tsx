@@ -8,14 +8,25 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { CALL_CATEGORIES } from "@shared/schema";
 import type { Employee } from "@shared/schema";
-import {  RiUploadCloud2Line, RiFileMusicLine, RiCloseLine, RiCheckboxCircleLine, RiCloseCircleLine, RiLoader4Line, RiUploadLine, RiCheckLine, RiArrowDownSLine, RiSettings3Line  } from "@remixicon/react";
+import {
+  RiUploadCloud2Line,
+  RiFileMusicLine,
+  RiCloseLine,
+  RiCheckboxCircleLine,
+  RiCloseCircleLine,
+  RiLoader4Line,
+  RiUploadLine,
+  RiCheckLine,
+  RiArrowDownSLine,
+  RiSettings3Line,
+} from "@remixicon/react";
 
 interface UploadFile {
   file: File;
   employeeId: string;
   callCategory: string;
   progress: number;
-  status: 'pending' | 'uploading' | 'processing' | 'completed' | 'error';
+  status: "pending" | "uploading" | "processing" | "completed" | "error";
   error?: string;
   callId?: string;
   processingStep?: string;
@@ -42,21 +53,28 @@ export default function FileUpload() {
     const handler = (e: Event) => {
       const data = (e as CustomEvent).detail;
       if (data?.callId) {
-        setUploadFiles(prev => prev.map(f => {
-          if (f.callId === data.callId) {
-            const stepIndex = PROCESSING_STEPS.findIndex(s => s.key === data.status);
-            const progress = stepIndex >= 0 ? Math.round(((stepIndex + 1) / PROCESSING_STEPS.length) * 100) : f.processingProgress;
-            return {
-              ...f,
-              processingStep: data.label || data.status,
-              processingProgress: progress || 0,
-              status: data.status === "completed" ? "completed" as const :
-                      data.status === "failed" ? "error" as const : "processing" as const,
-              error: data.status === "failed" ? "Processing failed" : undefined,
-            };
-          }
-          return f;
-        }));
+        setUploadFiles((prev) =>
+          prev.map((f) => {
+            if (f.callId === data.callId) {
+              const stepIndex = PROCESSING_STEPS.findIndex((s) => s.key === data.status);
+              const progress =
+                stepIndex >= 0 ? Math.round(((stepIndex + 1) / PROCESSING_STEPS.length) * 100) : f.processingProgress;
+              return {
+                ...f,
+                processingStep: data.label || data.status,
+                processingProgress: progress || 0,
+                status:
+                  data.status === "completed"
+                    ? ("completed" as const)
+                    : data.status === "failed"
+                      ? ("error" as const)
+                      : ("processing" as const),
+                error: data.status === "failed" ? "Processing failed" : undefined,
+              };
+            }
+            return f;
+          }),
+        );
       }
     };
     window.addEventListener("ws:call_update", handler);
@@ -68,21 +86,29 @@ export default function FileUpload() {
   });
 
   const uploadMutation = useMutation({
-    mutationFn: async ({ file, employeeId, callCategory }: { file: File; employeeId?: string; callCategory?: string }) => {
+    mutationFn: async ({
+      file,
+      employeeId,
+      callCategory,
+    }: {
+      file: File;
+      employeeId?: string;
+      callCategory?: string;
+    }) => {
       const formData = new FormData();
-      formData.append('audioFile', file);
-      if (employeeId) formData.append('employeeId', employeeId);
-      if (callCategory) formData.append('callCategory', callCategory);
+      formData.append("audioFile", file);
+      if (employeeId) formData.append("employeeId", employeeId);
+      if (callCategory) formData.append("callCategory", callCategory);
 
-      const response = await fetch('/api/calls/upload', {
-        method: 'POST',
+      const response = await fetch("/api/calls/upload", {
+        method: "POST",
         body: formData,
-        credentials: 'include',
+        credentials: "include",
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || 'Upload failed');
+        throw new Error(errorData.message || "Upload failed");
       }
       return response.json();
     },
@@ -96,10 +122,14 @@ export default function FileUpload() {
   });
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
-    const newFiles = acceptedFiles.map(file => ({
-      file, employeeId: '', callCategory: '', progress: 0, status: 'pending' as const,
+    const newFiles = acceptedFiles.map((file) => ({
+      file,
+      employeeId: "",
+      callCategory: "",
+      progress: 0,
+      status: "pending" as const,
     }));
-    setUploadFiles(prev => [...prev, ...newFiles]);
+    setUploadFiles((prev) => [...prev, ...newFiles]);
   }, []);
 
   const MAX_BATCH_SIZE = 20;
@@ -108,32 +138,36 @@ export default function FileUpload() {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: (accepted, rejected) => {
       if (rejected.length > 0) {
-        const reasons = rejected.map(r => r.errors.map(e => e.message).join(", ")).join("; ");
+        const reasons = rejected.map((r) => r.errors.map((e) => e.message).join(", ")).join("; ");
         toast({ title: "Some files rejected", description: reasons, variant: "destructive" });
       }
       const currentCount = uploadFiles.length;
       const allowed = accepted.slice(0, MAX_BATCH_SIZE - currentCount);
       if (allowed.length < accepted.length) {
-        toast({ title: "Batch limit", description: `Maximum ${MAX_BATCH_SIZE} files per batch. ${accepted.length - allowed.length} file(s) were skipped.`, variant: "destructive" });
+        toast({
+          title: "Batch limit",
+          description: `Maximum ${MAX_BATCH_SIZE} files per batch. ${accepted.length - allowed.length} file(s) were skipped.`,
+          variant: "destructive",
+        });
       }
       onDrop(allowed);
     },
-    accept: { 'audio/*': ['.mp3', '.wav', '.m4a', '.mp4', '.flac', '.ogg'] },
+    accept: { "audio/*": [".mp3", ".wav", ".m4a", ".mp4", ".flac", ".ogg"] },
     maxSize: MAX_FILE_SIZE,
   });
 
   const updateFile = (index: number, updates: Partial<UploadFile>) => {
-    setUploadFiles(prev => prev.map((file, i) => i === index ? { ...file, ...updates } : file));
+    setUploadFiles((prev) => prev.map((file, i) => (i === index ? { ...file, ...updates } : file)));
   };
 
   const removeFile = (index: number) => {
-    setUploadFiles(prev => prev.filter((_, i) => i !== index));
+    setUploadFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   const uploadFile = async (index: number) => {
     const fileData = uploadFiles[index];
     try {
-      updateFile(index, { status: 'uploading', progress: 0, processingStep: "Uploading to server..." });
+      updateFile(index, { status: "uploading", progress: 0, processingStep: "Uploading to server..." });
       const result = await uploadMutation.mutateAsync({
         file: fileData.file,
         employeeId: fileData.employeeId || undefined,
@@ -142,7 +176,7 @@ export default function FileUpload() {
       // The API returns the call ID — track it for WebSocket updates
       const callId = result?.id || result?.callId;
       updateFile(index, {
-        status: 'processing',
+        status: "processing",
         progress: 100,
         callId,
         processingStep: "Queued for processing...",
@@ -150,7 +184,7 @@ export default function FileUpload() {
       });
       toast({ title: "Upload Successful", description: "Your file is now being processed." });
     } catch (error) {
-      updateFile(index, { status: 'error', error: error instanceof Error ? error.message : 'Upload failed' });
+      updateFile(index, { status: "error", error: error instanceof Error ? error.message : "Upload failed" });
     }
   };
 
@@ -158,13 +192,13 @@ export default function FileUpload() {
 
   const uploadAll = async () => {
     const pendingIndices = uploadFiles
-      .map((file, index) => file.status === 'pending' ? index : -1)
-      .filter(i => i >= 0);
+      .map((file, index) => (file.status === "pending" ? index : -1))
+      .filter((i) => i >= 0);
 
     // Process in batches of MAX_CONCURRENT
     for (let i = 0; i < pendingIndices.length; i += MAX_CONCURRENT) {
       const batch = pendingIndices.slice(i, i + MAX_CONCURRENT);
-      await Promise.allSettled(batch.map(idx => uploadFile(idx)));
+      await Promise.allSettled(batch.map((idx) => uploadFile(idx)));
     }
   };
 
@@ -174,11 +208,17 @@ export default function FileUpload() {
         Upload Call Recordings
         <HelpTip text="Upload audio files to automatically transcribe, analyze sentiment, score performance, and generate coaching insights. Processing takes 1-3 minutes per call." />
       </h3>
-      <div {...getRootProps()} data-testid="file-upload-dropzone" className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
-        isDragActive ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
-      }`}>
+      <div
+        {...getRootProps()}
+        data-testid="file-upload-dropzone"
+        className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+          isDragActive ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
+        }`}
+      >
         <input {...getInputProps()} data-testid="file-input" />
-        <RiUploadCloud2Line className={`mx-auto h-12 w-12 ${isDragActive ? "text-primary" : "text-muted-foreground"}`} />
+        <RiUploadCloud2Line
+          className={`mx-auto h-12 w-12 ${isDragActive ? "text-primary" : "text-muted-foreground"}`}
+        />
         {uploadFiles.length >= MAX_BATCH_SIZE ? (
           <>
             <p className="mt-2 text-sm font-medium text-amber-600 dark:text-amber-400">
@@ -191,7 +231,9 @@ export default function FileUpload() {
             <p className="mt-2 text-sm text-muted-foreground">
               {isDragActive ? "Drop files here..." : "Drag & drop files here, or click to select files"}
             </p>
-            <p className="text-xs text-muted-foreground mt-1">MP3, WAV, M4A, MP4, FLAC, OGG — up to 100MB per file, {MAX_BATCH_SIZE} files max</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              MP3, WAV, M4A, MP4, FLAC, OGG — up to 100MB per file, {MAX_BATCH_SIZE} files max
+            </p>
           </>
         )}
       </div>
@@ -202,27 +244,33 @@ export default function FileUpload() {
             <h4 className="font-medium text-foreground">
               Files to Upload
               <span className="text-xs text-muted-foreground ml-2 font-normal">
-                ({uploadFiles.filter(f => f.status === 'completed').length}/{uploadFiles.length} complete)
+                ({uploadFiles.filter((f) => f.status === "completed").length}/{uploadFiles.length} complete)
               </span>
             </h4>
             <div className="flex items-center gap-2">
-              {uploadFiles.length > 1 && uploadFiles.some(f => f.status !== 'pending') && (
+              {uploadFiles.length > 1 && uploadFiles.some((f) => f.status !== "pending") && (
                 <span className="text-xs text-muted-foreground">
-                  {uploadFiles.filter(f => f.status === 'uploading' || f.status === 'processing').length} in progress
+                  {uploadFiles.filter((f) => f.status === "uploading" || f.status === "processing").length} in progress
                 </span>
               )}
               {(() => {
-                const pendingCount = uploadFiles.filter(f => f.status === 'pending' || f.status === 'uploading' || f.status === 'processing').length;
+                const pendingCount = uploadFiles.filter(
+                  (f) => f.status === "pending" || f.status === "uploading" || f.status === "processing",
+                ).length;
                 const estimatedMinutes = Math.ceil(pendingCount * 2.5);
-                return pendingCount > 0 && uploadFiles.some(f => f.status === 'uploading' || f.status === 'processing') ? (
-                  <span className="text-xs text-muted-foreground italic">
-                    ~{estimatedMinutes} min remaining
-                  </span>
+                return pendingCount > 0 &&
+                  uploadFiles.some((f) => f.status === "uploading" || f.status === "processing") ? (
+                  <span className="text-xs text-muted-foreground italic">~{estimatedMinutes} min remaining</span>
                 ) : null;
               })()}
-              {uploadFiles.some(f => f.status === 'pending') && (
-                <Button type="button" onClick={uploadAll} disabled={uploadMutation.isPending} data-testid="upload-all-button">
-                  Upload All ({uploadFiles.filter(f => f.status === 'pending').length})
+              {uploadFiles.some((f) => f.status === "pending") && (
+                <Button
+                  type="button"
+                  onClick={uploadAll}
+                  disabled={uploadMutation.isPending}
+                  data-testid="upload-all-button"
+                >
+                  Upload All ({uploadFiles.filter((f) => f.status === "pending").length})
                 </Button>
               )}
             </div>
@@ -236,7 +284,7 @@ export default function FileUpload() {
                   <p className="text-xs text-muted-foreground">{(fileData.file.size / 1024 / 1024).toFixed(1)} MB</p>
                 </div>
 
-                {fileData.status === 'pending' && (
+                {fileData.status === "pending" && (
                   <>
                     <button
                       type="button"
@@ -246,48 +294,68 @@ export default function FileUpload() {
                     >
                       <RiSettings3Line className="w-3.5 h-3.5" />
                       <span className="hidden sm:inline">Details</span>
-                      <RiArrowDownSLine className={`w-3 h-3 transition-transform ${fileData.detailsOpen ? "rotate-180" : ""}`} />
+                      <RiArrowDownSLine
+                        className={`w-3 h-3 transition-transform ${fileData.detailsOpen ? "rotate-180" : ""}`}
+                      />
                     </button>
-                    <Button size="sm" variant="ghost" onClick={() => removeFile(index)} className="shrink-0"><RiCloseLine className="w-4 h-4" /></Button>
+                    <Button size="sm" variant="ghost" onClick={() => removeFile(index)} className="shrink-0">
+                      <RiCloseLine className="w-4 h-4" />
+                    </Button>
                   </>
                 )}
 
-                {fileData.status === 'completed' && (
+                {fileData.status === "completed" && (
                   <div className="flex items-center gap-2 text-green-600">
                     <RiCheckboxCircleLine className="w-5 h-5" />
                     <span className="text-sm font-medium">Complete</span>
-                    <Button size="sm" variant="ghost" onClick={() => removeFile(index)}><RiCloseLine className="w-4 h-4" /></Button>
+                    <Button size="sm" variant="ghost" onClick={() => removeFile(index)}>
+                      <RiCloseLine className="w-4 h-4" />
+                    </Button>
                   </div>
                 )}
 
-                {fileData.status === 'error' && (
+                {fileData.status === "error" && (
                   <div className="flex items-center gap-2 text-red-600">
                     <RiCloseCircleLine className="w-5 h-5" />
                     <span className="text-sm">{fileData.error}</span>
-                    <Button size="sm" variant="ghost" onClick={() => removeFile(index)}><RiCloseLine className="w-4 h-4" /></Button>
+                    <Button size="sm" variant="ghost" onClick={() => removeFile(index)}>
+                      <RiCloseLine className="w-4 h-4" />
+                    </Button>
                   </div>
                 )}
               </div>
 
               {/* Collapsible call details (progressive disclosure) */}
-              {fileData.status === 'pending' && fileData.detailsOpen && (
+              {fileData.status === "pending" && fileData.detailsOpen && (
                 <div className="flex flex-wrap gap-2 pt-1 pl-11">
                   <Select onValueChange={(value) => updateFile(index, { callCategory: value })}>
-                    <SelectTrigger className="h-8 w-36 text-xs"><SelectValue placeholder="Call type" /></SelectTrigger>
+                    <SelectTrigger className="h-8 w-36 text-xs">
+                      <SelectValue placeholder="Call type" />
+                    </SelectTrigger>
                     <SelectContent>
-                      {CALL_CATEGORIES.map(cat => (
-                        <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+                      {CALL_CATEGORIES.map((cat) => (
+                        <SelectItem key={cat.value} value={cat.value}>
+                          {cat.label}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  <Select onValueChange={(value) => updateFile(index, { employeeId: value === "__unassigned__" ? "" : value })}>
-                    <SelectTrigger className="h-8 w-40 text-xs"><SelectValue placeholder="Assign to agent" /></SelectTrigger>
+                  <Select
+                    onValueChange={(value) =>
+                      updateFile(index, { employeeId: value === "__unassigned__" ? "" : value })
+                    }
+                  >
+                    <SelectTrigger className="h-8 w-40 text-xs">
+                      <SelectValue placeholder="Assign to agent" />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__unassigned__">
                         <span className="text-muted-foreground italic">Unassigned (auto-detect)</span>
                       </SelectItem>
-                      {employees?.map(employee => (
-                        <SelectItem key={employee.id} value={employee.id}>{employee.name}</SelectItem>
+                      {employees?.map((employee) => (
+                        <SelectItem key={employee.id} value={employee.id}>
+                          {employee.name}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -295,15 +363,21 @@ export default function FileUpload() {
               )}
 
               {/* Processing Progress Indicator */}
-              {(fileData.status === 'uploading' || fileData.status === 'processing') && (
+              {(fileData.status === "uploading" || fileData.status === "processing") && (
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <RiLoader4Line className={`w-4 h-4 animate-spin ${
-                      fileData.status === 'uploading' ? 'text-blue-500' : 'text-violet-500'
-                    }`} />
-                    <span className={`text-xs font-medium ${
-                      fileData.status === 'uploading' ? 'text-blue-600 dark:text-blue-400' : 'text-violet-600 dark:text-violet-400'
-                    }`}>
+                    <RiLoader4Line
+                      className={`w-4 h-4 animate-spin ${
+                        fileData.status === "uploading" ? "text-blue-500" : "text-violet-500"
+                      }`}
+                    />
+                    <span
+                      className={`text-xs font-medium ${
+                        fileData.status === "uploading"
+                          ? "text-blue-600 dark:text-blue-400"
+                          : "text-violet-600 dark:text-violet-400"
+                      }`}
+                    >
                       {fileData.processingStep || "Processing..."}
                     </span>
                   </div>
@@ -311,27 +385,28 @@ export default function FileUpload() {
                     <Progress
                       value={fileData.processingProgress || 0}
                       className={`h-2 ${
-                        fileData.status === 'uploading'
-                          ? '[&>div]:bg-blue-500'
-                          : '[&>div]:bg-violet-500'
+                        fileData.status === "uploading" ? "[&>div]:bg-blue-500" : "[&>div]:bg-violet-500"
                       }`}
                     />
                   </div>
                   <div className="flex justify-between text-xs px-0.5">
                     {PROCESSING_STEPS.map((step, i) => {
-                      const currentIdx = PROCESSING_STEPS.findIndex(s =>
-                        fileData.processingStep?.toLowerCase().includes(s.key)
+                      const currentIdx = PROCESSING_STEPS.findIndex((s) =>
+                        fileData.processingStep?.toLowerCase().includes(s.key),
                       );
                       const isDone = i < currentIdx;
                       const isCurrent = i === currentIdx;
                       return (
-                        <span key={step.key} className={`inline-flex items-center gap-0.5 ${
-                          isDone
-                            ? "text-green-600 dark:text-green-400"
-                            : isCurrent
-                              ? "font-bold text-primary"
-                              : "text-muted-foreground"
-                        }`}>
+                        <span
+                          key={step.key}
+                          className={`inline-flex items-center gap-0.5 ${
+                            isDone
+                              ? "text-green-600 dark:text-green-400"
+                              : isCurrent
+                                ? "font-bold text-primary"
+                                : "text-muted-foreground"
+                          }`}
+                        >
                           {isDone && <RiCheckLine className="w-3 h-3" />}
                           {isCurrent && (
                             <span className="relative flex h-2 w-2 mr-0.5">

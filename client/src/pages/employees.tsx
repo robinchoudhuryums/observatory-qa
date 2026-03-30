@@ -11,7 +11,18 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Link } from "wouter";
 import { DEFAULT_SUBTEAMS } from "@shared/schema";
 import type { Employee } from "@shared/schema";
-import {  RiUserAddLine, RiTeamLine, RiUploadLine, RiDownloadLine, RiArrowDownSLine, RiArrowRightSLine, RiPencilLine, RiEyeLine, RiGitBranchLine, RiSaveLine  } from "@remixicon/react";
+import {
+  RiUserAddLine,
+  RiTeamLine,
+  RiUploadLine,
+  RiDownloadLine,
+  RiArrowDownSLine,
+  RiArrowRightSLine,
+  RiPencilLine,
+  RiEyeLine,
+  RiGitBranchLine,
+  RiSaveLine,
+} from "@remixicon/react";
 
 // Departments that use sub-teams (uses shared defaults; org-specific overrides come from org settings)
 const DEPARTMENTS_WITH_SUBTEAMS: Record<string, readonly string[]> = DEFAULT_SUBTEAMS;
@@ -52,8 +63,8 @@ function groupByDepartment(employees: Employee[]): DepartmentGroup[] {
 
       // Order sub-teams by the defined chronological order
       const subTeams = subTeamDefs
-        .filter(st => subTeamMap.has(st))
-        .map(st => ({ name: st, employees: subTeamMap.get(st)! }));
+        .filter((st) => subTeamMap.has(st))
+        .map((st) => ({ name: st, employees: subTeamMap.get(st)! }));
 
       groups.push({ department: dept, subTeams, employees: unassigned });
     } else {
@@ -160,14 +171,18 @@ export default function EmployeesPage() {
   const [compareIds, setCompareIds] = useState<string[]>([]);
 
   const toggleCompare = (id: string) => {
-    setCompareIds(prev => {
-      if (prev.includes(id)) return prev.filter(x => x !== id);
+    setCompareIds((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id);
       if (prev.length >= 2) return [prev[1], id]; // Replace oldest
       return [...prev, id];
     });
   };
 
-  const { data: employees, isLoading, error: employeesError } = useQuery<Employee[]>({
+  const {
+    data: employees,
+    isLoading,
+    error: employeesError,
+  } = useQuery<Employee[]>({
     queryKey: ["/api/employees"],
   });
 
@@ -182,7 +197,7 @@ export default function EmployeesPage() {
   }, [employees]);
 
   const toggleDept = (dept: string) => {
-    setCollapsedDepts(prev => {
+    setCollapsedDepts((prev) => {
       const next = new Set(prev);
       if (next.has(dept)) next.delete(dept);
       else next.add(dept);
@@ -191,7 +206,14 @@ export default function EmployeesPage() {
   };
 
   const createMutation = useMutation({
-    mutationFn: async (data: { name: string; email: string; role?: string; initials?: string; status?: string; subTeam?: string; }) => {
+    mutationFn: async (data: {
+      name: string;
+      email: string;
+      role?: string;
+      initials?: string;
+      status?: string;
+      subTeam?: string;
+    }) => {
       const res = await apiRequest("POST", "/api/employees", data);
       return res.json();
     },
@@ -237,7 +259,10 @@ export default function EmployeesPage() {
   });
 
   const resetAddForm = () => {
-    setName(""); setRole(""); setSubTeam(""); setStatus("Active");
+    setName("");
+    setRole("");
+    setSubTeam("");
+    setStatus("Active");
   };
 
   const openEditDialog = (emp: Employee) => {
@@ -257,9 +282,10 @@ export default function EmployeesPage() {
     }
     const trimmedName = name.trim();
     const nameParts = trimmedName.split(/\s+/);
-    const initials = nameParts.length >= 2
-      ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase()
-      : trimmedName.slice(0, 2).toUpperCase();
+    const initials =
+      nameParts.length >= 2
+        ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase()
+        : trimmedName.slice(0, 2).toUpperCase();
 
     // Auto-generate placeholder email from name (server may override domain from org settings)
     const autoEmail = `${trimmedName.toLowerCase().replace(/\s+/g, ".")}@placeholder.local`;
@@ -292,7 +318,7 @@ export default function EmployeesPage() {
     return DEPARTMENTS_WITH_SUBTEAMS[dept];
   };
 
-  const totalActive = employees?.filter(e => e.status === "Active").length || 0;
+  const totalActive = employees?.filter((e) => e.status === "Active").length || 0;
 
   const renderEmployeeRow = (emp: Employee) => (
     <tr key={emp.id} className={`hover:bg-muted/30 ${compareIds.includes(emp.id) ? "bg-primary/5" : ""}`}>
@@ -306,9 +332,11 @@ export default function EmployeesPage() {
       </td>
       <td className="px-4 py-2.5 text-sm text-muted-foreground">{emp.subTeam || "—"}</td>
       <td className="px-4 py-2.5 text-sm">
-        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-          emp.status === "Active" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"
-        }`}>
+        <span
+          className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+            emp.status === "Active" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"
+          }`}
+        >
           {emp.status || "Active"}
         </span>
       </td>
@@ -338,30 +366,37 @@ export default function EmployeesPage() {
 
   const renderTable = (emps: Employee[]) => (
     <div className="overflow-x-auto">
-    <table className="w-full min-w-[500px]">
-      <thead>
-        <tr className="border-b border-border">
-          <th className="text-left px-4 py-2 text-xs font-medium text-muted-foreground">Name</th>
-          <th className="text-left px-4 py-2 text-xs font-medium text-muted-foreground">Sub-Team</th>
-          <th className="text-left px-4 py-2 text-xs font-medium text-muted-foreground">Status</th>
-          <th className="text-left px-4 py-2 text-xs font-medium text-muted-foreground w-12"></th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-border">
-        {emps.map(renderEmployeeRow)}
-      </tbody>
-    </table>
+      <table className="w-full min-w-[500px]">
+        <thead>
+          <tr className="border-b border-border">
+            <th className="text-left px-4 py-2 text-xs font-medium text-muted-foreground">Name</th>
+            <th className="text-left px-4 py-2 text-xs font-medium text-muted-foreground">Sub-Team</th>
+            <th className="text-left px-4 py-2 text-xs font-medium text-muted-foreground">Status</th>
+            <th className="text-left px-4 py-2 text-xs font-medium text-muted-foreground w-12"></th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border">{emps.map(renderEmployeeRow)}</tbody>
+      </table>
     </div>
   );
 
   const renderDepartmentField = (value: string, onChange: (v: string) => void, id: string) => (
     <div>
       <Label htmlFor={id}>Department</Label>
-      <Select value={value || "custom"} onValueChange={(v) => { if (v !== "custom") onChange(v); }}>
-        <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
+      <Select
+        value={value || "custom"}
+        onValueChange={(v) => {
+          if (v !== "custom") onChange(v);
+        }}
+      >
+        <SelectTrigger>
+          <SelectValue placeholder="Select department" />
+        </SelectTrigger>
         <SelectContent>
-          {allDepartments.map(dept => (
-            <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+          {allDepartments.map((dept) => (
+            <SelectItem key={dept} value={dept}>
+              {dept}
+            </SelectItem>
           ))}
         </SelectContent>
       </Select>
@@ -381,11 +416,15 @@ export default function EmployeesPage() {
       <div>
         <Label>Sub-Team</Label>
         <Select value={value || "none"} onValueChange={onChange}>
-          <SelectTrigger><SelectValue placeholder="Select sub-team" /></SelectTrigger>
+          <SelectTrigger>
+            <SelectValue placeholder="Select sub-team" />
+          </SelectTrigger>
           <SelectContent>
             <SelectItem value="none">No sub-team</SelectItem>
-            {subTeams.map(st => (
-              <SelectItem key={st} value={st}>{st}</SelectItem>
+            {subTeams.map((st) => (
+              <SelectItem key={st} value={st}>
+                {st}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -434,14 +473,21 @@ export default function EmployeesPage() {
               <form onSubmit={handleAdd} className="space-y-4 mt-2">
                 <div>
                   <Label htmlFor="add-name">Full Name *</Label>
-                  <Input id="add-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Jane Smith" />
+                  <Input
+                    id="add-name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Jane Smith"
+                  />
                 </div>
                 {renderDepartmentField(role, setRole, "add-role")}
                 {renderSubTeamField(role, subTeam, setSubTeam)}
                 <div>
                   <Label>Status</Label>
                   <Select value={status} onValueChange={setStatus}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Active">Active</SelectItem>
                       <SelectItem value="Inactive">Inactive</SelectItem>
@@ -458,7 +504,13 @@ export default function EmployeesPage() {
       </header>
 
       {/* Edit Employee Dialog */}
-      <Dialog open={editOpen} onOpenChange={(open) => { setEditOpen(open); if (!open) setEditEmployee(null); }}>
+      <Dialog
+        open={editOpen}
+        onOpenChange={(open) => {
+          setEditOpen(open);
+          if (!open) setEditEmployee(null);
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Employee</DialogTitle>
@@ -474,7 +526,9 @@ export default function EmployeesPage() {
               <div>
                 <Label>Status</Label>
                 <Select value={editStatus} onValueChange={setEditStatus}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Active">Active</SelectItem>
                     <SelectItem value="Inactive">Inactive</SelectItem>
@@ -490,26 +544,30 @@ export default function EmployeesPage() {
       </Dialog>
 
       {/* Team Comparison Panel */}
-      {compareIds.length === 2 && employees && (() => {
-        const emp1 = employees.find(e => e.id === compareIds[0]);
-        const emp2 = employees.find(e => e.id === compareIds[1]);
-        if (!emp1 || !emp2) return null;
-        return (
-          <div className="mx-6 mt-6 bg-card rounded-lg border border-primary/30 p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
-                <RiGitBranchLine className="w-5 h-5 text-primary" />
-                Comparing Agents
-              </h3>
-              <Button size="sm" variant="ghost" onClick={() => setCompareIds([])}>Clear</Button>
+      {compareIds.length === 2 &&
+        employees &&
+        (() => {
+          const emp1 = employees.find((e) => e.id === compareIds[0]);
+          const emp2 = employees.find((e) => e.id === compareIds[1]);
+          if (!emp1 || !emp2) return null;
+          return (
+            <div className="mx-6 mt-6 bg-card rounded-lg border border-primary/30 p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                  <RiGitBranchLine className="w-5 h-5 text-primary" />
+                  Comparing Agents
+                </h3>
+                <Button size="sm" variant="ghost" onClick={() => setCompareIds([])}>
+                  Clear
+                </Button>
+              </div>
+              <div className="grid grid-cols-2 gap-6">
+                <CompareCard employee={emp1} />
+                <CompareCard employee={emp2} />
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-6">
-              <CompareCard employee={emp1} />
-              <CompareCard employee={emp2} />
-            </div>
-          </div>
-        );
-      })()}
+          );
+        })()}
 
       <div className="p-6">
         {isLoading ? (
@@ -532,8 +590,8 @@ export default function EmployeesPage() {
           <div className="space-y-3">
             {departments.map(({ department, subTeams, employees: deptEmployees }) => {
               const isCollapsed = collapsedDepts.has(department);
-              const allInDept = [...deptEmployees, ...(subTeams?.flatMap(st => st.employees) || [])];
-              const activeCount = allInDept.filter(e => e.status === "Active").length;
+              const allInDept = [...deptEmployees, ...(subTeams?.flatMap((st) => st.employees) || [])];
+              const activeCount = allInDept.filter((e) => e.status === "Active").length;
               const hasSubTeams = subTeams && subTeams.length > 0;
 
               return (
@@ -543,7 +601,11 @@ export default function EmployeesPage() {
                     className="w-full flex items-center justify-between px-4 py-3 bg-muted hover:bg-muted/80 transition-colors"
                   >
                     <div className="flex items-center gap-2">
-                      {isCollapsed ? <RiArrowRightSLine className="w-4 h-4" /> : <RiArrowDownSLine className="w-4 h-4" />}
+                      {isCollapsed ? (
+                        <RiArrowRightSLine className="w-4 h-4" />
+                      ) : (
+                        <RiArrowDownSLine className="w-4 h-4" />
+                      )}
                       <span className="font-semibold text-sm text-foreground">{department}</span>
                     </div>
                     <span className="text-xs text-muted-foreground">
@@ -552,20 +614,25 @@ export default function EmployeesPage() {
                   </button>
                   {!isCollapsed && (
                     <div>
-                      {hasSubTeams && subTeams!.map(({ name: stName, employees: stEmps }) => (
-                        <div key={stName}>
-                          <div className="px-6 py-1.5 bg-muted/40 border-t border-border">
-                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{stName}</span>
-                            <span className="text-xs text-muted-foreground ml-2">({stEmps.length})</span>
+                      {hasSubTeams &&
+                        subTeams!.map(({ name: stName, employees: stEmps }) => (
+                          <div key={stName}>
+                            <div className="px-6 py-1.5 bg-muted/40 border-t border-border">
+                              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                                {stName}
+                              </span>
+                              <span className="text-xs text-muted-foreground ml-2">({stEmps.length})</span>
+                            </div>
+                            {renderTable(stEmps)}
                           </div>
-                          {renderTable(stEmps)}
-                        </div>
-                      ))}
+                        ))}
                       {deptEmployees.length > 0 && (
                         <div>
                           {hasSubTeams && (
                             <div className="px-6 py-1.5 bg-muted/40 border-t border-border">
-                              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Unassigned Sub-Team</span>
+                              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                                Unassigned Sub-Team
+                              </span>
                               <span className="text-xs text-muted-foreground ml-2">({deptEmployees.length})</span>
                             </div>
                           )}

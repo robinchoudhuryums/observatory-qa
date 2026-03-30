@@ -7,20 +7,22 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? "github" : "html",
-  timeout: 30_000,
+  timeout: 60_000,
+  expect: { timeout: 15_000 },
 
   use: {
     baseURL: process.env.BASE_URL || "http://localhost:5000",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     viewport: { width: 1280, height: 720 },
+    actionTimeout: 15_000,
   },
 
   webServer: process.env.CI
     ? {
         command: "npm run start",
         port: 5000,
-        timeout: 60_000,
+        timeout: 90_000,
         reuseExistingServer: false,
         env: {
           NODE_ENV: "production",
@@ -29,6 +31,7 @@ export default defineConfig({
           SESSION_SECRET: "e2e-test-secret",
           ASSEMBLYAI_API_KEY: "test-key",
           AUTH_USERS: "admin:admin123:admin:Test Admin:default,viewer:viewer123:viewer:Test Viewer:default",
+          PHI_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
           E2E_TESTING: "true",
         },
       }

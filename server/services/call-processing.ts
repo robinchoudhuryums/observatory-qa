@@ -65,12 +65,15 @@ async function getCachedRefDocs(orgId: string, callCategory: string) {
 }
 
 // Prune expired cache entries
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of Array.from(refDocCache)) {
-    if (now > entry.expiresAt) refDocCache.delete(key);
-  }
-}, 5 * 60 * 1000).unref();
+setInterval(
+  () => {
+    const now = Date.now();
+    for (const [key, entry] of Array.from(refDocCache)) {
+      if (now > entry.expiresAt) refDocCache.delete(key);
+    }
+  },
+  5 * 60 * 1000,
+).unref();
 
 // ==================== FILE CLEANUP ====================
 
@@ -175,24 +178,24 @@ export async function autoAssignEmployee(
   if (!normalized) return { reason: "no_name" };
 
   const allEmployees = await storage.getAllEmployees(orgId);
-  const activeEmployees = allEmployees.filter(emp => !emp.status || emp.status === "Active");
+  const activeEmployees = allEmployees.filter((emp) => !emp.status || emp.status === "Active");
 
   // Phase 1: Exact full-name match (highest confidence)
-  const exactMatch = activeEmployees.find(emp => emp.name.toLowerCase().trim() === normalized);
+  const exactMatch = activeEmployees.find((emp) => emp.name.toLowerCase().trim() === normalized);
   if (exactMatch) {
     return { employeeId: exactMatch.id, reason: "exact_match" };
   }
 
   // Phase 2: Multi-part name matching (require at least 2 name parts to match)
   const detectedParts = normalized.split(/\s+/);
-  const partialMatches = activeEmployees.filter(emp => {
+  const partialMatches = activeEmployees.filter((emp) => {
     const empName = emp.name.toLowerCase().trim();
     const empParts = empName.split(/\s+/);
 
     // If detected name has multiple parts, check if each part matches an employee name part
     if (detectedParts.length >= 2) {
-      const matchedParts = detectedParts.filter(dp =>
-        empParts.some(ep => ep === dp || ep.startsWith(dp) || dp.startsWith(ep))
+      const matchedParts = detectedParts.filter((dp) =>
+        empParts.some((ep) => ep === dp || ep.startsWith(dp) || dp.startsWith(ep)),
       );
       return matchedParts.length >= 2;
     }
@@ -210,8 +213,10 @@ export async function autoAssignEmployee(
   }
 
   if (partialMatches.length > 1) {
-    logger.info({ orgId, detectedName, matchCount: partialMatches.length, matchNames: partialMatches.map(m => m.name) },
-      "Ambiguous employee name match — skipping auto-assignment");
+    logger.info(
+      { orgId, detectedName, matchCount: partialMatches.length, matchNames: partialMatches.map((m) => m.name) },
+      "Ambiguous employee name match — skipping auto-assignment",
+    );
     return { reason: "ambiguous" };
   }
 
@@ -313,7 +318,7 @@ async function loadPromptTemplate(
   // Load reference documents (RAG or full-text)
   try {
     const refDocs = await getCachedRefDocs(orgId, callCategory || "");
-    const docsWithText = refDocs.filter(d => d.extractedText && d.extractedText.length > 0);
+    const docsWithText = refDocs.filter((d) => d.extractedText && d.extractedText.length > 0);
 
     if (docsWithText.length > 0) {
       if (!template) template = {};
@@ -369,7 +374,7 @@ async function loadReferenceContext(
       const { getDatabase } = await import("../db/index");
       const db = getDatabase();
       if (db) {
-        const docIds = docsWithText.map(d => d.id);
+        const docIds = docsWithText.map((d) => d.id);
         const queryText = transcriptText.slice(0, 2000);
         const chunks = await searchRelevantChunks(db as any, orgId, queryText, docIds, { topK: 6 });
 
@@ -378,7 +383,7 @@ async function loadReferenceContext(
           logger.info({ callId, chunkCount: chunks.length }, "RAG: injecting relevant chunks");
 
           // Store citations for later attachment to confidenceFactors
-          lastRagCitations = chunks.map(c => ({
+          lastRagCitations = chunks.map((c) => ({
             chunkId: c.id,
             documentId: c.documentId,
             documentName: c.documentName,
@@ -387,7 +392,10 @@ async function loadReferenceContext(
           }));
 
           // Increment retrieval counts (fire-and-forget)
-          incrementRetrievalCounts(db as any, chunks.map(c => c.documentId)).catch(err => {
+          incrementRetrievalCounts(
+            db as any,
+            chunks.map((c) => c.documentId),
+          ).catch((err) => {
             logger.debug({ err }, "Failed to increment retrieval counts");
           });
 
@@ -406,7 +414,7 @@ async function loadReferenceContext(
 
   // Fallback to full-text injection
   logger.info({ callId, docCount: docsWithText.length }, "Injecting reference documents (full-text)");
-  return docsWithText.map(d => ({ name: d.name, category: d.category, text: d.extractedText! }));
+  return docsWithText.map((d) => ({ name: d.name, category: d.category, text: d.extractedText! }));
 }
 
 // ==================== MAIN PROCESSING PIPELINE ====================
@@ -425,7 +433,18 @@ export interface ProcessAudioOptions {
 }
 
 export async function processAudioFile(opts: ProcessAudioOptions): Promise<void> {
-  const { orgId, callId, filePath, audioBuffer, originalName, mimeType, callCategory, userId, clinicalSpecialty, noteFormat } = opts;
+  const {
+    orgId,
+    callId,
+    filePath,
+    audioBuffer,
+    originalName,
+    mimeType,
+    callCategory,
+    userId,
+    clinicalSpecialty,
+    noteFormat,
+  } = opts;
 
   logger.info({ callId }, "Starting audio processing");
   broadcastCallUpdate(callId, "uploading", { step: 1, totalSteps: 6, label: "Uploading audio..." }, orgId);
@@ -444,14 +463,23 @@ export async function processAudioFile(opts: ProcessAudioOptions): Promise<void>
       piiRedaction: settings?.piiRedaction,
       languageDetection: true,
       // Only use webhooks when APP_BASE_URL is set (not in dev without tunnel)
-      ...(appBaseUrl ? {
-        webhookUrl: `${appBaseUrl}/api/webhooks/assemblyai`,
-        webhookAuthHeaderValue: webhookSecret,
-      } : {}),
+      ...(appBaseUrl
+        ? {
+            webhookUrl: `${appBaseUrl}/api/webhooks/assemblyai`,
+            webhookAuthHeaderValue: webhookSecret,
+          }
+        : {}),
     };
 
     // Step 2-3: Transcribe
-    const transcriptResult = await transcribe(orgId, callId, uploadResult, uploadResult.audioArchived, filePath, transcriptionOptions);
+    const transcriptResult = await transcribe(
+      orgId,
+      callId,
+      uploadResult,
+      uploadResult.audioArchived,
+      filePath,
+      transcriptionOptions,
+    );
     if (!transcriptResult) return; // Empty transcript handled, or webhook mode (async)
 
     // In webhook mode, processing continues in the webhook handler
@@ -463,12 +491,14 @@ export async function processAudioFile(opts: ProcessAudioOptions): Promise<void>
     const { transcriptResponse, audioArchived } = transcriptResult;
 
     await continueAfterTranscription(orgId, callId, transcriptResponse!, {
-      callCategory, userId, clinicalSpecialty, noteFormat,
+      callCategory,
+      userId,
+      clinicalSpecialty,
+      noteFormat,
       audioArchived: audioArchived!,
       originalName,
       filePath,
     });
-
   } catch (error) {
     logger.error({ callId, err: error }, "Critical error during audio processing");
     await storage.updateCall(orgId, callId, { status: "failed" });
@@ -519,13 +549,23 @@ export async function continueAfterTranscription(
 
   try {
     // Step 4: AI analysis
-    const aiAnalysis = await runAiAnalysis(orgId, callId, resolvedCallCategory, userId, clinicalSpecialty, noteFormat, transcriptResponse.text);
+    const aiAnalysis = await runAiAnalysis(
+      orgId,
+      callId,
+      resolvedCallCategory,
+      userId,
+      clinicalSpecialty,
+      noteFormat,
+      transcriptResponse.text,
+    );
 
     // Warn if clinical call didn't produce a clinical note
     if (resolvedCallCategory && CLINICAL_CATEGORIES.includes(resolvedCallCategory) && !aiAnalysis?.clinical_note) {
-      const reason = !aiProvider.isAvailable ? "AI provider not configured"
-        : aiAnalysis === null ? "AI analysis failed"
-        : "AI response did not include clinical note";
+      const reason = !aiProvider.isAvailable
+        ? "AI provider not configured"
+        : aiAnalysis === null
+          ? "AI analysis failed"
+          : "AI response did not include clinical note";
       logger.warn({ callId, callCategory: resolvedCallCategory, reason }, "Clinical encounter without clinical note");
     }
 
@@ -535,13 +575,22 @@ export async function continueAfterTranscription(
     const org = await storage.getOrganization(orgId);
     const orgSettings = org?.settings as OrgSettings | undefined;
     const { transcript, sentiment, analysis } = assemblyAIService.processTranscriptData(
-      transcriptResponse, aiAnalysis, callId, orgId, orgSettings?.defaultSpeakerRoles,
+      transcriptResponse,
+      aiAnalysis,
+      callId,
+      orgId,
+      orgSettings?.defaultSpeakerRoles,
     );
 
     // Confidence scoring
     const wordCount = transcriptResponse.words?.length || 0;
     const callDuration = Math.floor((transcriptResponse.words?.[transcriptResponse.words.length - 1]?.end || 0) / 1000);
-    const confidence = computeConfidence(transcriptResponse.confidence || 0, wordCount, callDuration, aiAnalysis !== null);
+    const confidence = computeConfidence(
+      transcriptResponse.confidence || 0,
+      wordCount,
+      callDuration,
+      aiAnalysis !== null,
+    );
     confidence.factors.transcriptLength = (transcriptResponse.text || "").length;
     analysis.confidenceScore = confidence.score.toFixed(3);
     const ragCitations = consumeRagCitations();
@@ -580,9 +629,9 @@ export async function continueAfterTranscription(
     // Language detection — store detected language and flag non-English calls
     if (transcriptResponse.language_code) {
       analysis.detectedLanguage = transcriptResponse.language_code;
-      if (transcriptResponse.language_code !== 'en') {
-        const flags = Array.isArray(analysis.flags) ? [...analysis.flags as string[]] : [];
-        if (!flags.includes('non_english')) flags.push('non_english');
+      if (transcriptResponse.language_code !== "en") {
+        const flags = Array.isArray(analysis.flags) ? [...(analysis.flags as string[])] : [];
+        if (!flags.includes("non_english")) flags.push("non_english");
         analysis.flags = flags;
       }
     }
@@ -612,7 +661,10 @@ export async function continueAfterTranscription(
       const assignment = await autoAssignEmployee(orgId, aiAnalysis?.detected_agent_name);
       if (assignment.employeeId) {
         assignedEmployeeId = assignment.employeeId;
-        logger.info({ callId, employeeId: assignment.employeeId, reason: assignment.reason }, "Auto-assigned to employee");
+        logger.info(
+          { callId, employeeId: assignment.employeeId, reason: assignment.reason },
+          "Auto-assigned to employee",
+        );
       }
     }
 
@@ -631,13 +683,20 @@ export async function continueAfterTranscription(
     broadcastCallUpdate(callId, "completed", { step: 6, totalSteps: 6, label: "Complete" }, orgId);
 
     // Invalidate dashboard cache so next request picks up new data
-    invalidateDashboardCache(orgId).catch(err => {
+    invalidateDashboardCache(orgId).catch((err) => {
       logger.debug({ err, orgId }, "Failed to invalidate dashboard cache (non-blocking)");
     });
 
     // Non-blocking: notifications, coaching, usage tracking
-    await postProcessing(orgId, callId, analysis, aiAnalysis, assignedEmployeeId, resolvedOriginalName || callId, transcriptResponse);
-
+    await postProcessing(
+      orgId,
+      callId,
+      analysis,
+      aiAnalysis,
+      assignedEmployeeId,
+      resolvedOriginalName || callId,
+      transcriptResponse,
+    );
   } catch (error) {
     logger.error({ callId, err: error }, "Critical error during post-transcription processing");
     await storage.updateCall(orgId, callId, { status: "failed" });
@@ -659,8 +718,12 @@ export async function continueAfterTranscription(
 // ==================== PIPELINE SUB-STEPS ====================
 
 async function uploadAndArchive(
-  orgId: string, callId: string, filePath: string,
-  audioBuffer: Buffer, originalName: string, mimeType: string,
+  orgId: string,
+  callId: string,
+  filePath: string,
+  audioBuffer: Buffer,
+  originalName: string,
+  mimeType: string,
 ) {
   logger.info({ callId, step: "1/7" }, "Uploading audio file to AssemblyAI");
   const audioUrl = await assemblyAIService.uploadAudioFile(audioBuffer, path.basename(filePath));
@@ -677,9 +740,11 @@ async function uploadAndArchive(
 }
 
 async function transcribe(
-  orgId: string, callId: string,
+  orgId: string,
+  callId: string,
   uploadResult: { audioUrl: string; audioArchived: boolean },
-  audioArchived: boolean, filePath: string,
+  audioArchived: boolean,
+  filePath: string,
   transcriptionOptions?: TranscriptionOptions,
 ): Promise<{ transcriptResponse?: AssemblyAIResponse; audioArchived?: boolean; webhookMode?: boolean } | null> {
   broadcastCallUpdate(callId, "transcribing", { step: 2, totalSteps: 6, label: "Transcribing audio..." }, orgId);
@@ -689,14 +754,24 @@ async function transcribe(
   // Webhook mode: return early — AssemblyAI will POST results asynchronously
   if (transcriptionOptions?.webhookUrl) {
     logger.info({ callId, transcriptId }, "Webhook mode: transcription submitted, waiting for webhook callback");
-    broadcastCallUpdate(callId, "transcribing", { step: 3, totalSteps: 6, label: "Waiting for transcript (webhook)..." }, orgId);
+    broadcastCallUpdate(
+      callId,
+      "transcribing",
+      { step: 3, totalSteps: 6, label: "Waiting for transcript (webhook)..." },
+      orgId,
+    );
     return { webhookMode: true };
   }
 
   broadcastCallUpdate(callId, "transcribing", { step: 3, totalSteps: 6, label: "Waiting for transcript..." }, orgId);
   const transcriptResponse = await assemblyAIService.pollTranscript(transcriptId, 60, (attempt, max, status) => {
     const pct = Math.round((attempt / max) * 100);
-    broadcastCallUpdate(callId, "transcribing", { step: 3, totalSteps: 6, label: `Transcribing... (${status})`, progress: pct }, orgId);
+    broadcastCallUpdate(
+      callId,
+      "transcribing",
+      { step: 3, totalSteps: 6, label: `Transcribing... (${status})`, progress: pct },
+      orgId,
+    );
   });
 
   if (!transcriptResponse || transcriptResponse.status !== "completed") {
@@ -714,16 +789,39 @@ async function transcribe(
 }
 
 async function handleEmptyTranscript(
-  orgId: string, callId: string, transcriptResponse: any, audioArchived: boolean, filePath: string,
+  orgId: string,
+  callId: string,
+  transcriptResponse: any,
+  audioArchived: boolean,
+  filePath: string,
 ) {
-  broadcastCallUpdate(callId, "completed", {
-    step: 6, totalSteps: 6, label: "Complete (no speech detected)",
-    warning: "Transcript was empty — audio may be silent, corrupted, or too short",
-  }, orgId);
+  broadcastCallUpdate(
+    callId,
+    "completed",
+    {
+      step: 6,
+      totalSteps: 6,
+      label: "Complete (no speech detected)",
+      warning: "Transcript was empty — audio may be silent, corrupted, or too short",
+    },
+    orgId,
+  );
 
-  const { transcript, sentiment, analysis } = assemblyAIService.processTranscriptData(transcriptResponse, null, callId, orgId);
+  const { transcript, sentiment, analysis } = assemblyAIService.processTranscriptData(
+    transcriptResponse,
+    null,
+    callId,
+    orgId,
+  );
   analysis.confidenceScore = "0.10";
-  analysis.confidenceFactors = { transcriptConfidence: 0, wordCount: 0, callDurationSeconds: 0, transcriptLength: 0, aiAnalysisCompleted: false, overallScore: 0.1 };
+  analysis.confidenceFactors = {
+    transcriptConfidence: 0,
+    wordCount: 0,
+    callDurationSeconds: 0,
+    transcriptLength: 0,
+    aiAnalysisCompleted: false,
+    overallScore: 0.1,
+  };
   (analysis.flags as string[]) = ["empty_transcript", "low_confidence"];
 
   await Promise.all([
@@ -739,13 +837,25 @@ async function handleEmptyTranscript(
 }
 
 async function runAiAnalysis(
-  orgId: string, callId: string, callCategory: string | undefined,
-  userId: string | undefined, clinicalSpecialty: string | undefined,
-  noteFormat: string | undefined, transcriptText: string | undefined,
+  orgId: string,
+  callId: string,
+  callCategory: string | undefined,
+  userId: string | undefined,
+  clinicalSpecialty: string | undefined,
+  noteFormat: string | undefined,
+  transcriptText: string | undefined,
 ) {
   broadcastCallUpdate(callId, "analyzing", { step: 4, totalSteps: 6, label: "Running AI analysis..." }, orgId);
 
-  const promptTemplate = await loadPromptTemplate(orgId, callId, callCategory, userId, clinicalSpecialty, noteFormat, transcriptText);
+  const promptTemplate = await loadPromptTemplate(
+    orgId,
+    callId,
+    callCategory,
+    userId,
+    clinicalSpecialty,
+    noteFormat,
+    transcriptText,
+  );
 
   if (!aiProvider.isAvailable || !transcriptText) {
     logger.info({ callId }, "AI provider not available or no transcript text");
@@ -754,10 +864,11 @@ async function runAiAnalysis(
 
   try {
     const result = await withBedrockProtection(orgId, () =>
-      withRetry(
-        () => aiProvider.analyzeCallTranscript(transcriptText, callId, callCategory, promptTemplate),
-        { retries: 2, baseDelay: 2000, label: `AI analysis for ${callId}` },
-      ),
+      withRetry(() => aiProvider.analyzeCallTranscript(transcriptText, callId, callCategory, promptTemplate), {
+        retries: 2,
+        baseDelay: 2000,
+        label: `AI analysis for ${callId}`,
+      }),
     );
     // Attach prompt version ID for audit trail (12-char SHA-256 prefix of rendered system prompt)
     try {
@@ -809,19 +920,28 @@ async function applyScoreCalibration(orgId: string, callId: string, analysis: an
 function validateAndEncryptClinicalNote(callId: string, cn: any) {
   const validation = validateClinicalNote(cn);
   if (!validation.valid) {
-    logger.warn({ callId, format: validation.format, missingSections: validation.missingSections }, "Clinical note has missing sections");
+    logger.warn(
+      { callId, format: validation.format, missingSections: validation.missingSections },
+      "Clinical note has missing sections",
+    );
     const aiMissing = cn.missingSections || [];
-    cn.missingSections = Array.from(new Set([...aiMissing, ...validation.missingSections, ...validation.emptySections]));
+    cn.missingSections = Array.from(
+      new Set([...aiMissing, ...validation.missingSections, ...validation.emptySections]),
+    );
   }
 
   const aiCompleteness = cn.documentationCompleteness || 0;
   const serverCompleteness = validation.computedCompleteness;
-  cn.documentationCompleteness = Math.min(aiCompleteness || serverCompleteness, serverCompleteness || aiCompleteness) || serverCompleteness;
+  cn.documentationCompleteness =
+    Math.min(aiCompleteness || serverCompleteness, serverCompleteness || aiCompleteness) || serverCompleteness;
 
   // Flag notes with low completeness (below 60% / score 6.0)
   if (cn.documentationCompleteness < 6.0) {
     cn.lowCompleteness = true;
-    logger.warn({ callId, completeness: cn.documentationCompleteness }, "Clinical note has low completeness — review required before attestation");
+    logger.warn(
+      { callId, completeness: cn.documentationCompleteness },
+      "Clinical note has low completeness — review required before attestation",
+    );
   }
 
   if (validation.warnings.length > 0) {
@@ -830,40 +950,56 @@ function validateAndEncryptClinicalNote(callId: string, cn: any) {
   }
 
   // Encrypt PHI fields (must match PHI_FIELDS in phi-encryption.ts)
-  const phiFields = ["subjective", "objective", "assessment", "hpiNarrative", "chiefComplaint",
-    "reviewOfSystems", "differentialDiagnoses", "periodontalFindings"];
+  const phiFields = [
+    "subjective",
+    "objective",
+    "assessment",
+    "hpiNarrative",
+    "chiefComplaint",
+    "reviewOfSystems",
+    "differentialDiagnoses",
+    "periodontalFindings",
+  ];
   for (const field of phiFields) {
     if (typeof cn[field] === "string") cn[field] = encryptField(cn[field]);
   }
 }
 
 async function postProcessing(
-  orgId: string, callId: string, analysis: any, aiAnalysis: any,
-  assignedEmployeeId: string | undefined, originalName: string, transcriptResponse: any,
+  orgId: string,
+  callId: string,
+  analysis: any,
+  aiAnalysis: any,
+  assignedEmployeeId: string | undefined,
+  originalName: string,
+  transcriptResponse: any,
 ) {
   // Webhook notification for flagged calls
   const flags = (analysis.flags as string[]) || [];
   if (flags.length > 0) {
     withRetry(
-      () => notifyFlaggedCall({
-        event: "call_flagged", callId, orgId, flags,
-        performanceScore: analysis.performanceScore ? safeFloat(analysis.performanceScore) : undefined,
-        agentName: analysis.detectedAgentName || undefined,
-        fileName: originalName,
-        summary: typeof analysis.summary === "string" ? analysis.summary : undefined,
-        timestamp: new Date().toISOString(),
-      }),
+      () =>
+        notifyFlaggedCall({
+          event: "call_flagged",
+          callId,
+          orgId,
+          flags,
+          performanceScore: analysis.performanceScore ? safeFloat(analysis.performanceScore) : undefined,
+          agentName: analysis.detectedAgentName || undefined,
+          fileName: originalName,
+          summary: typeof analysis.summary === "string" ? analysis.summary : undefined,
+          timestamp: new Date().toISOString(),
+        }),
       { retries: 2, baseDelay: 1000, label: "flagged-call-notification" },
-    ).catch(err => logger.warn({ callId, err }, "Failed to send flagged call notification after retries"));
+    ).catch((err) => logger.warn({ callId, err }, "Failed to send flagged call notification after retries"));
   }
 
   // Coaching recommendations
-  withRetry(
-    () => onCallAnalysisComplete(orgId, callId, assignedEmployeeId),
-    { retries: 2, baseDelay: 1000, label: "coaching-recommendations" },
-  ).catch(err =>
-    logger.warn({ callId, err }, "Failed to generate coaching recommendations after retries"),
-  );
+  withRetry(() => onCallAnalysisComplete(orgId, callId, assignedEmployeeId), {
+    retries: 2,
+    baseDelay: 1000,
+    label: "coaching-recommendations",
+  }).catch((err) => logger.warn({ callId, err }, "Failed to generate coaching recommendations after retries"));
 
   // Gamification: record activity and check for badge awards
   if (assignedEmployeeId) {
@@ -894,9 +1030,19 @@ async function postProcessing(
     const callStatus = await storage.getCall(orgId, callId);
     if (callStatus?.status === "failed") {
       logger.warn({ callId, orgId }, "Call marked as failed — rolling back usage tracking");
-      trackUsage({ orgId, eventType: "transcription", quantity: -1, metadata: { callId, reason: "rollback_failed_call" } });
+      trackUsage({
+        orgId,
+        eventType: "transcription",
+        quantity: -1,
+        metadata: { callId, reason: "rollback_failed_call" },
+      });
       if (aiAnalysis) {
-        trackUsage({ orgId, eventType: "ai_analysis", quantity: -1, metadata: { callId, reason: "rollback_failed_call" } });
+        trackUsage({
+          orgId,
+          eventType: "ai_analysis",
+          quantity: -1,
+          metadata: { callId, reason: "rollback_failed_call" },
+        });
       }
     }
   } catch (err) {
@@ -905,7 +1051,9 @@ async function postProcessing(
 
   // Cost estimation
   try {
-    const audioDuration = Math.floor((transcriptResponse.words?.[transcriptResponse.words.length - 1]?.end || 0) / 1000);
+    const audioDuration = Math.floor(
+      (transcriptResponse.words?.[transcriptResponse.words.length - 1]?.end || 0) / 1000,
+    );
     const assemblyaiCost = estimateAssemblyAICost(audioDuration);
     const estimatedInputTokens = Math.ceil((transcriptResponse.text || "").length / 4) + 500;
     const estimatedOutputTokens = 800;
@@ -913,11 +1061,24 @@ async function postProcessing(
     const bedrockCost = aiAnalysis ? estimateBedrockCost(bedrockModel, estimatedInputTokens, estimatedOutputTokens) : 0;
 
     const spendRecord: UsageRecord = {
-      id: randomUUID(), orgId, callId, type: "call",
-      timestamp: new Date().toISOString(), user: "system",
+      id: randomUUID(),
+      orgId,
+      callId,
+      type: "call",
+      timestamp: new Date().toISOString(),
+      user: "system",
       services: {
         assemblyai: { durationSeconds: audioDuration, estimatedCost: Math.round(assemblyaiCost * 10000) / 10000 },
-        ...(aiAnalysis ? { bedrock: { model: bedrockModel, estimatedInputTokens, estimatedOutputTokens, estimatedCost: Math.round(bedrockCost * 10000) / 10000 } } : {}),
+        ...(aiAnalysis
+          ? {
+              bedrock: {
+                model: bedrockModel,
+                estimatedInputTokens,
+                estimatedOutputTokens,
+                estimatedCost: Math.round(bedrockCost * 10000) / 10000,
+              },
+            }
+          : {}),
       },
       totalEstimatedCost: Math.round((assemblyaiCost + bedrockCost) * 10000) / 10000,
     };

@@ -85,10 +85,10 @@ async function getImdsCredentials(): Promise<AwsCredentials | null> {
     const timeout = setTimeout(() => controller.abort(), 3000);
 
     // Get the IAM role name
-    const roleRes = await fetch(
-      `${IMDS_BASE}/latest/meta-data/iam/security-credentials/`,
-      { headers, signal: controller.signal },
-    );
+    const roleRes = await fetch(`${IMDS_BASE}/latest/meta-data/iam/security-credentials/`, {
+      headers,
+      signal: controller.signal,
+    });
     clearTimeout(timeout);
 
     if (!roleRes.ok) return null;
@@ -98,10 +98,10 @@ async function getImdsCredentials(): Promise<AwsCredentials | null> {
     // Get credentials for the role
     const controller2 = new AbortController();
     const timeout2 = setTimeout(() => controller2.abort(), 3000);
-    const credRes = await fetch(
-      `${IMDS_BASE}/latest/meta-data/iam/security-credentials/${roleName}`,
-      { headers, signal: controller2.signal },
-    );
+    const credRes = await fetch(`${IMDS_BASE}/latest/meta-data/iam/security-credentials/${roleName}`, {
+      headers,
+      signal: controller2.signal,
+    });
     clearTimeout(timeout2);
 
     if (!credRes.ok) return null;
@@ -114,13 +114,15 @@ async function getImdsCredentials(): Promise<AwsCredentials | null> {
     try {
       const controller3 = new AbortController();
       const timeout3 = setTimeout(() => controller3.abort(), 2000);
-      const regionRes = await fetch(
-        `${IMDS_BASE}/latest/meta-data/placement/region`,
-        { headers, signal: controller3.signal },
-      );
+      const regionRes = await fetch(`${IMDS_BASE}/latest/meta-data/placement/region`, {
+        headers,
+        signal: controller3.signal,
+      });
       clearTimeout(timeout3);
       if (regionRes.ok) region = (await regionRes.text()).trim();
-    } catch { /* fall back to default region */ }
+    } catch {
+      /* fall back to default region */
+    }
 
     return {
       accessKeyId: creds.AccessKeyId,
@@ -183,11 +185,14 @@ export async function getAwsCredentials(): Promise<AwsCredentials | null> {
   if (imdsCreds) {
     cachedCredentials = imdsCreds;
     if (imdsCreds.expiresAt) scheduleRefresh(imdsCreds.expiresAt);
-    logger.info({
-      source: "imdsv2",
-      region: imdsCreds.region,
-      expiresAt: imdsCreds.expiresAt?.toISOString(),
-    }, "AWS credentials loaded from EC2 instance profile");
+    logger.info(
+      {
+        source: "imdsv2",
+        region: imdsCreds.region,
+        expiresAt: imdsCreds.expiresAt?.toISOString(),
+      },
+      "AWS credentials loaded from EC2 instance profile",
+    );
     return imdsCreds;
   }
 

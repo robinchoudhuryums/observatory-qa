@@ -48,7 +48,7 @@ export async function setupGoogleOAuth(): Promise<boolean> {
             }
 
             // Look up user by username (email) — no org context yet, search globally
-            let user = await storage.getUserByUsername(email);
+            const user = await storage.getUserByUsername(email);
 
             if (user) {
               // Existing user — resolve org for session
@@ -66,9 +66,7 @@ export async function setupGoogleOAuth(): Promise<boolean> {
             // Check if email domain matches any org's emailDomain setting
             const emailDomain = email.split("@")[1];
             const orgs = await storage.listOrganizations();
-            const matchingOrg = orgs.find(
-              (o) => o.settings?.emailDomain && o.settings.emailDomain === emailDomain
-            );
+            const matchingOrg = orgs.find((o) => o.settings?.emailDomain && o.settings.emailDomain === emailDomain);
 
             if (matchingOrg) {
               // Auto-provision user for matching org domain
@@ -83,7 +81,7 @@ export async function setupGoogleOAuth(): Promise<boolean> {
 
               logger.info(
                 { userId: newUser.id, email, orgId: matchingOrg.id },
-                "Auto-provisioned user via Google OAuth"
+                "Auto-provisioned user via Google OAuth",
               );
 
               // Sync seat count to Stripe (fire-and-forget)
@@ -106,8 +104,8 @@ export async function setupGoogleOAuth(): Promise<boolean> {
           } catch (err) {
             return done(err as Error);
           }
-        }
-      )
+        },
+      ),
     );
 
     googleOAuthConfigured = true;

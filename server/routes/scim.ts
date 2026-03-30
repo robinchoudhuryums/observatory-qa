@@ -38,25 +38,32 @@ const SCIM_ERROR_SCHEMA = "urn:ietf:params:scim:api:messages:2.0:Error";
 const OBS_USER_EXT = "urn:ietf:params:scim:schemas:extension:observatory:2.0:User";
 
 function scimError(res: Response, status: number, detail: string, scimType?: string): void {
-  res.status(status).type(SCIM_CONTENT_TYPE).json({
-    schemas: [SCIM_ERROR_SCHEMA],
-    status: String(status),
-    detail,
-    ...(scimType ? { scimType } : {}),
-  });
+  res
+    .status(status)
+    .type(SCIM_CONTENT_TYPE)
+    .json({
+      schemas: [SCIM_ERROR_SCHEMA],
+      status: String(status),
+      detail,
+      ...(scimType ? { scimType } : {}),
+    });
 }
 
 /**
  * Map an Observatory user to SCIM User resource representation.
  */
-function toScimUser(user: {
-  id: string;
-  username: string;
-  name: string;
-  role: string;
-  orgId: string;
-  createdAt?: string;
-}, orgSlug: string, active = true) {
+function toScimUser(
+  user: {
+    id: string;
+    username: string;
+    name: string;
+    role: string;
+    orgId: string;
+    createdAt?: string;
+  },
+  orgSlug: string,
+  active = true,
+) {
   const [firstName, ...rest] = (user.name || "").split(" ");
   const lastName = rest.join(" ");
 
@@ -76,7 +83,10 @@ function toScimUser(user: {
       created: user.createdAt || new Date().toISOString(),
       lastModified: user.createdAt || new Date().toISOString(),
       location: `/api/scim/v2/Users/${user.id}`,
-      version: `W/"${createHash("md5").update(user.id + user.role).digest("hex").slice(0, 8)}"`,
+      version: `W/"${createHash("md5")
+        .update(user.id + user.role)
+        .digest("hex")
+        .slice(0, 8)}"`,
     },
     // Observatory extension: expose role
     [OBS_USER_EXT]: {
@@ -150,7 +160,6 @@ async function scimAuth(req: Request, res: Response, next: NextFunction): Promis
 }
 
 export function registerScimRoutes(app: Express): void {
-
   // ── ServiceProviderConfig ─────────────────────────────────────────────────
   app.get("/api/scim/v2/ServiceProviderConfig", (_req, res) => {
     res.type(SCIM_CONTENT_TYPE).json({
@@ -162,13 +171,15 @@ export function registerScimRoutes(app: Express): void {
       changePassword: { supported: false },
       sort: { supported: false },
       etag: { supported: true },
-      authenticationSchemes: [{
-        type: "oauthbearertoken",
-        name: "OAuth Bearer Token",
-        description: "Authentication scheme using the OAuth Bearer Token standard",
-        specUri: "http://www.rfc-editor.org/info/rfc6750",
-        primary: true,
-      }],
+      authenticationSchemes: [
+        {
+          type: "oauthbearertoken",
+          name: "OAuth Bearer Token",
+          description: "Authentication scheme using the OAuth Bearer Token standard",
+          specUri: "http://www.rfc-editor.org/info/rfc6750",
+          primary: true,
+        },
+      ],
       meta: {
         resourceType: "ServiceProviderConfig",
         location: "/api/scim/v2/ServiceProviderConfig",
@@ -181,22 +192,28 @@ export function registerScimRoutes(app: Express): void {
     res.type(SCIM_CONTENT_TYPE).json({
       schemas: [SCIM_LIST_RESPONSE_SCHEMA],
       totalResults: 1,
-      Resources: [{
-        id: SCIM_USER_SCHEMA,
-        name: "User",
-        description: "User Account",
-        attributes: [
-          { name: "userName", type: "string", required: true, uniqueness: "server" },
-          { name: "name", type: "complex", subAttributes: [
-            { name: "formatted", type: "string" },
-            { name: "givenName", type: "string" },
-            { name: "familyName", type: "string" },
-          ]},
-          { name: "emails", type: "complex", multiValued: true },
-          { name: "active", type: "boolean" },
-        ],
-        meta: { resourceType: "Schema", location: `/api/scim/v2/Schemas/${SCIM_USER_SCHEMA}` },
-      }],
+      Resources: [
+        {
+          id: SCIM_USER_SCHEMA,
+          name: "User",
+          description: "User Account",
+          attributes: [
+            { name: "userName", type: "string", required: true, uniqueness: "server" },
+            {
+              name: "name",
+              type: "complex",
+              subAttributes: [
+                { name: "formatted", type: "string" },
+                { name: "givenName", type: "string" },
+                { name: "familyName", type: "string" },
+              ],
+            },
+            { name: "emails", type: "complex", multiValued: true },
+            { name: "active", type: "boolean" },
+          ],
+          meta: { resourceType: "Schema", location: `/api/scim/v2/Schemas/${SCIM_USER_SCHEMA}` },
+        },
+      ],
     });
   });
 
@@ -205,8 +222,8 @@ export function registerScimRoutes(app: Express): void {
     const orgId = (req as any).orgId as string;
     const orgSlug = (req as any).orgSlug as string;
 
-    const startIndex = Math.max(1, parseInt(req.query.startIndex as string || "1", 10));
-    const count = Math.min(200, Math.max(1, parseInt(req.query.count as string || "100", 10)));
+    const startIndex = Math.max(1, parseInt((req.query.startIndex as string) || "1", 10));
+    const count = Math.min(200, Math.max(1, parseInt((req.query.count as string) || "100", 10)));
     const filter = (req.query.filter as string | undefined) || "";
 
     try {
@@ -284,9 +301,7 @@ export function registerScimRoutes(app: Express): void {
       }
 
       const displayName =
-        name?.formatted ||
-        [name?.givenName, name?.familyName].filter(Boolean).join(" ") ||
-        email.split("@")[0];
+        name?.formatted || [name?.givenName, name?.familyName].filter(Boolean).join(" ") || email.split("@")[0];
 
       // Role from SCIM roles array, extension, or default
       const scimRole = roles?.[0]?.value || ext?.role;
@@ -312,7 +327,8 @@ export function registerScimRoutes(app: Express): void {
 
       logger.info({ userId: newUser.id, email, orgId, role }, "SCIM: user provisioned");
 
-      res.status(201)
+      res
+        .status(201)
         .type(SCIM_CONTENT_TYPE)
         .set("Location", `/api/scim/v2/Users/${newUser.id}`)
         .json(toScimUser(newUser, orgSlug));
@@ -335,10 +351,7 @@ export function registerScimRoutes(app: Express): void {
 
       const { name, active, roles, [OBS_USER_EXT]: ext } = req.body as any;
 
-      const displayName =
-        name?.formatted ||
-        [name?.givenName, name?.familyName].filter(Boolean).join(" ") ||
-        user.name;
+      const displayName = name?.formatted || [name?.givenName, name?.familyName].filter(Boolean).join(" ") || user.name;
 
       const scimRole = roles?.[0]?.value || ext?.role;
       const role = scimRole ? scimRoleToObs(scimRole) : user.role;

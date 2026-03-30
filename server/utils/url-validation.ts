@@ -32,11 +32,7 @@ const BLOCKED_IPV4_RANGES: Ipv4Range[] = [
   { start: ipv4ToNum("192.168.0.0"), end: ipv4ToNum("192.168.255.255") },
 ];
 
-const BLOCKED_HOSTNAMES = new Set([
-  "metadata.google.internal",
-  "metadata.google.com",
-  "instance-data",
-]);
+const BLOCKED_HOSTNAMES = new Set(["metadata.google.internal", "metadata.google.com", "instance-data"]);
 
 function isBlockedIpv4(ip: string): boolean {
   const parts = ip.split(".");

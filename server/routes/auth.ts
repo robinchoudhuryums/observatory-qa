@@ -32,7 +32,7 @@ export function registerAuthRoutes(app: Express): void {
                 const tokenHash = createHash("sha256").update(cookieToken).digest("hex");
                 const devices: any[] = (dbUser as any).mfaTrustedDevices || [];
                 const trustedDevice = devices.find(
-                  (d: any) => d.tokenHash === tokenHash && new Date(d.expiresAt) > new Date()
+                  (d: any) => d.tokenHash === tokenHash && new Date(d.expiresAt) > new Date(),
                 );
                 if (trustedDevice) {
                   // Trusted device — proceed to session creation directly
@@ -40,12 +40,23 @@ export function registerAuthRoutes(app: Express): void {
                     if (loginErr) return next(loginErr);
                     logPhiAccess({
                       event: "session_created",
-                      orgId: user.orgId, userId: user.id, username: user.username,
-                      role: user.role, resourceType: "auth",
-                      ip: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress,
+                      orgId: user.orgId,
+                      userId: user.id,
+                      username: user.username,
+                      role: user.role,
+                      resourceType: "auth",
+                      ip:
+                        (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress,
                       detail: "Login via trusted device (MFA skipped)",
                     });
-                    res.json({ id: user.id, username: user.username, name: user.name, role: user.role, orgId: user.orgId, orgSlug: user.orgSlug });
+                    res.json({
+                      id: user.id,
+                      username: user.username,
+                      name: user.name,
+                      role: user.role,
+                      orgId: user.orgId,
+                      orgSlug: user.orgSlug,
+                    });
                   });
                   return;
                 }
@@ -68,7 +79,8 @@ export function registerAuthRoutes(app: Express): void {
           if (enrollmentDeadline && new Date(enrollmentDeadline) < new Date()) {
             // Grace period expired — block login, force MFA enrollment
             return res.status(403).json({
-              message: "MFA enrollment deadline has passed. You must enroll in MFA to continue. Contact your administrator.",
+              message:
+                "MFA enrollment deadline has passed. You must enroll in MFA to continue. Contact your administrator.",
               mfaEnrollmentExpired: true,
               errorCode: "OBS-AUTH-007",
             });
@@ -79,8 +91,12 @@ export function registerAuthRoutes(app: Express): void {
           req.login(user, (loginErr) => {
             if (loginErr) return next(loginErr);
             res.json({
-              id: user.id, username: user.username, name: user.name,
-              role: user.role, orgId: user.orgId, orgSlug: user.orgSlug,
+              id: user.id,
+              username: user.username,
+              name: user.name,
+              role: user.role,
+              orgId: user.orgId,
+              orgSlug: user.orgSlug,
               mfaSetupRequired: true,
               enrollmentDeadline: enrollmentDeadline || null,
               message: "Your organization requires MFA. Please set it up immediately.",
@@ -108,7 +124,14 @@ export function registerAuthRoutes(app: Express): void {
           userAgent: req.headers["user-agent"],
           detail: "Interactive login session established",
         });
-        res.json({ id: user.id, username: user.username, name: user.name, role: user.role, orgId: user.orgId, orgSlug: user.orgSlug });
+        res.json({
+          id: user.id,
+          username: user.username,
+          name: user.name,
+          role: user.role,
+          orgId: user.orgId,
+          orgSlug: user.orgSlug,
+        });
       });
     })(req, res, next);
   });

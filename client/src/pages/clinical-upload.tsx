@@ -11,18 +11,39 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { CLINICAL_SPECIALTIES, CLINICAL_NOTE_FORMATS } from "@shared/schema";
 import type { Employee } from "@shared/schema";
-import {  RiMicLine, RiUploadLine as UploadIcon, RiStethoscopeLine, RiShieldCheckLine, RiSparklingLine, RiSettings3Line, RiInputMethodLine  } from "@remixicon/react";
+import {
+  RiMicLine,
+  RiUploadLine as UploadIcon,
+  RiStethoscopeLine,
+  RiShieldCheckLine,
+  RiSparklingLine,
+  RiSettings3Line,
+  RiInputMethodLine,
+} from "@remixicon/react";
 
 type UploadTab = "file" | "record";
 
 // Specialty → recommended note format mapping (mirrors server-side clinical-validation.ts)
 const SPECIALTY_FORMAT_MAP: Record<string, string> = {
-  primary_care: "soap", internal_medicine: "soap", cardiology: "hpi_focused",
-  dermatology: "soap", orthopedics: "soap", psychiatry: "dap",
-  pediatrics: "soap", ob_gyn: "soap", emergency: "soap", urgent_care: "soap",
-  general_dentistry: "soap", periodontics: "soap", endodontics: "procedure_note",
-  oral_surgery: "procedure_note", orthodontics: "soap", prosthodontics: "procedure_note",
-  pediatric_dentistry: "soap", behavioral_health: "dap", general: "soap",
+  primary_care: "soap",
+  internal_medicine: "soap",
+  cardiology: "hpi_focused",
+  dermatology: "soap",
+  orthopedics: "soap",
+  psychiatry: "dap",
+  pediatrics: "soap",
+  ob_gyn: "soap",
+  emergency: "soap",
+  urgent_care: "soap",
+  general_dentistry: "soap",
+  periodontics: "soap",
+  endodontics: "procedure_note",
+  oral_surgery: "procedure_note",
+  orthodontics: "soap",
+  prosthodontics: "procedure_note",
+  pediatric_dentistry: "soap",
+  behavioral_health: "dap",
+  general: "soap",
 };
 
 interface ClinicalTemplate {
@@ -84,7 +105,11 @@ export default function ClinicalUploadPage() {
 
   const handleUpload = async (file: File) => {
     if (!consentConfirmed) {
-      toast({ title: "Patient consent required", description: "Please confirm patient consent before uploading.", variant: "destructive" });
+      toast({
+        title: "Patient consent required",
+        description: "Please confirm patient consent before uploading.",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -108,7 +133,10 @@ export default function ClinicalUploadPage() {
         throw new Error(err.message || "Upload failed");
       }
 
-      toast({ title: "Encounter uploaded", description: "Recording is being transcribed and clinical notes will be generated shortly." });
+      toast({
+        title: "Encounter uploaded",
+        description: "Recording is being transcribed and clinical notes will be generated shortly.",
+      });
       queryClient.invalidateQueries({ queryKey: ["/api/calls"] });
     } catch (error: any) {
       toast({ title: "Upload failed", description: error.message, variant: "destructive" });
@@ -139,9 +167,8 @@ export default function ClinicalUploadPage() {
             <div className="text-sm">
               <p className="font-medium text-amber-800 dark:text-amber-200">HIPAA Compliance Notice</p>
               <p className="text-amber-700 dark:text-amber-300 mt-1">
-                All recordings are encrypted in transit and at rest. Clinical notes are AI-generated drafts
-                that require provider review and attestation before use. Patient consent must be obtained
-                before recording.
+                All recordings are encrypted in transit and at rest. Clinical notes are AI-generated drafts that require
+                provider review and attestation before use. Patient consent must be obtained before recording.
               </p>
             </div>
           </div>
@@ -155,9 +182,7 @@ export default function ClinicalUploadPage() {
             <div className="flex items-center gap-3">
               <RiSparklingLine className="w-5 h-5 text-blue-600 shrink-0" />
               <div className="text-sm">
-                <p className="font-medium text-blue-800 dark:text-blue-200">
-                  Using template: {selectedTemplate.name}
-                </p>
+                <p className="font-medium text-blue-800 dark:text-blue-200">Using template: {selectedTemplate.name}</p>
                 <p className="text-blue-700 dark:text-blue-300 text-xs mt-0.5">
                   Specialty and format have been pre-filled. You can adjust them below.
                 </p>
@@ -194,8 +219,10 @@ export default function ClinicalUploadPage() {
                   <SelectValue placeholder="Select specialty..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {CLINICAL_SPECIALTIES.map(s => (
-                    <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                  {CLINICAL_SPECIALTIES.map((s) => (
+                    <SelectItem key={s.value} value={s.value}>
+                      {s.label}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -206,7 +233,8 @@ export default function ClinicalUploadPage() {
                 <Label>Note Format</Label>
                 {formatAutoSet && (
                   <Badge variant="outline" className="text-xs text-blue-600 border-blue-300 gap-1">
-                    <RiSparklingLine className="w-3 h-3" />Auto
+                    <RiSparklingLine className="w-3 h-3" />
+                    Auto
                   </Badge>
                 )}
               </div>
@@ -215,8 +243,10 @@ export default function ClinicalUploadPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {CLINICAL_NOTE_FORMATS.map(f => (
-                    <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                  {CLINICAL_NOTE_FORMATS.map((f) => (
+                    <SelectItem key={f.value} value={f.value}>
+                      {f.label}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -230,8 +260,10 @@ export default function ClinicalUploadPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__unassigned__">Auto-detect from recording</SelectItem>
-                  {employees?.map(emp => (
-                    <SelectItem key={emp.id} value={emp.id}>{emp.name}</SelectItem>
+                  {employees?.map((emp) => (
+                    <SelectItem key={emp.id} value={emp.id}>
+                      {emp.name}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -250,7 +282,8 @@ export default function ClinicalUploadPage() {
                 Patient consent obtained
               </Label>
               <p className="text-xs text-muted-foreground mt-0.5">
-                I confirm that the patient has been informed about and consented to this recording being used for clinical documentation.
+                I confirm that the patient has been informed about and consented to this recording being used for
+                clinical documentation.
               </p>
             </div>
           </div>
@@ -261,9 +294,7 @@ export default function ClinicalUploadPage() {
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center gap-2">
-            <CardTitle className="text-lg">
-              {tab === "record" ? "Record Encounter" : "Upload Recording"}
-            </CardTitle>
+            <CardTitle className="text-lg">{tab === "record" ? "Record Encounter" : "Upload Recording"}</CardTitle>
             {!consentConfirmed && (
               <Badge variant="outline" className="text-amber-600 border-amber-300">
                 Consent required
