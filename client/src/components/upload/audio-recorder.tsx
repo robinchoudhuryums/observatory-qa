@@ -57,7 +57,6 @@ export default function AudioRecorder({ onRecordingComplete }: AudioRecorderProp
       }
       if (audioUrl) URL.revokeObjectURL(audioUrl);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const stopVisualization = useCallback(() => {
