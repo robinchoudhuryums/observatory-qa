@@ -8,9 +8,12 @@ test.describe("Dashboard", () => {
   });
 
   test("shows metrics overview", async ({ page }) => {
-    await page.goto("/dashboard");
-    await page.waitForLoadState("networkidle");
-    await expect(page.locator("[data-testid='metrics-overview']")).toBeVisible({ timeout: 30000 });
+    // Navigate and wait for full page load
+    await page.goto("/");
+    // Wait for the dashboard to confirm auth succeeded and page rendered
+    await expect(page.locator("[data-testid='dashboard-page']")).toBeVisible({ timeout: 30000 });
+    // MetricsOverview renders in all states (loading, error, success)
+    await expect(page.locator("[data-testid='metrics-overview']")).toBeVisible({ timeout: 15000 });
   });
 
   test("shows sentiment analysis", async ({ page }) => {
