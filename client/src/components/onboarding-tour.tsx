@@ -3,7 +3,20 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { ObservatoryLogo } from "@/components/observatory-logo";
 import { safeStorage } from "@/lib/utils";
-import {  RiCloseLine, RiArrowRightSLine, RiArrowLeftSLine, RiUploadLine, RiBarChartBoxLine, RiSearchLine, RiTeamLine, RiFileTextLine, RiArrowLeftLine, RiArrowRightLine, RiCheckLine, RiFilterLine  } from "@remixicon/react";
+import {
+  RiCloseLine,
+  RiArrowRightSLine,
+  RiArrowLeftSLine,
+  RiUploadLine,
+  RiBarChartBoxLine,
+  RiSearchLine,
+  RiTeamLine,
+  RiFileTextLine,
+  RiArrowLeftLine,
+  RiArrowRightLine,
+  RiCheckLine,
+  RiFilterLine,
+} from "@remixicon/react";
 
 interface TourStep {
   title: string;
@@ -16,37 +29,43 @@ interface TourStep {
 const TOUR_STEPS: TourStep[] = [
   {
     title: "Welcome to your QA Dashboard",
-    description: "This is your command center for call quality analysis. Let's take a quick tour of the key features available in the sidebar navigation.",
+    description:
+      "This is your command center for call quality analysis. Let's take a quick tour of the key features available in the sidebar navigation.",
     icon: <ObservatoryLogo variant="icon" height={24} color="white" />,
     position: "center",
   },
   {
     title: "Upload Call Recordings",
-    description: "Head to the Upload page in the sidebar to drag and drop audio files. Each call is automatically transcribed, analyzed for sentiment, and scored. Processing takes 1-3 minutes.",
+    description:
+      "Head to the Upload page in the sidebar to drag and drop audio files. Each call is automatically transcribed, analyzed for sentiment, and scored. Processing takes 1-3 minutes.",
     icon: <RiUploadLine className="w-6 h-6" />,
     position: "center",
   },
   {
     title: "Track Performance Metrics",
-    description: "This dashboard shows real-time KPIs: total calls, average sentiment, team score, and transcription time. Metrics update automatically as calls are processed.",
+    description:
+      "This dashboard shows real-time KPIs: total calls, average sentiment, team score, and transcription time. Metrics update automatically as calls are processed.",
     icon: <RiBarChartBoxLine className="w-6 h-6" />,
     position: "center",
   },
   {
     title: "Search & Filter Calls",
-    description: "Use the Search page to find specific calls by keyword, agent name, or topic. Filter by sentiment, status, or employee to narrow results.",
+    description:
+      "Use the Search page to find specific calls by keyword, agent name, or topic. Filter by sentiment, status, or employee to narrow results.",
     icon: <RiSearchLine className="w-6 h-6" />,
     position: "center",
   },
   {
     title: "Manage Your Team",
-    description: "Visit the Employees page to add team members. The AI detects agent names from transcripts and auto-assigns calls to your roster.",
+    description:
+      "Visit the Employees page to add team members. The AI detects agent names from transcripts and auto-assigns calls to your roster.",
     icon: <RiTeamLine className="w-6 h-6" />,
     position: "center",
   },
   {
     title: "Generate Reports & Insights",
-    description: "Check Reports and Insights in the sidebar for performance analytics by employee, department, or time period. Export to CSV or download AI-generated summaries.",
+    description:
+      "Check Reports and Insights in the sidebar for performance analytics by employee, department, or time period. Export to CSV or download AI-generated summaries.",
     icon: <RiFileTextLine className="w-6 h-6" />,
     position: "center",
   },
@@ -75,14 +94,14 @@ export default function OnboardingTour() {
 
   const next = useCallback(() => {
     if (step < TOUR_STEPS.length - 1) {
-      setStep(s => s + 1);
+      setStep((s) => s + 1);
     } else {
       dismiss();
     }
   }, [step, dismiss]);
 
   const prev = useCallback(() => {
-    if (step > 0) setStep(s => s - 1);
+    if (step > 0) setStep((s) => s - 1);
   }, [step]);
 
   // Keyboard navigation
@@ -165,14 +184,10 @@ export default function OnboardingTour() {
                 </p>
 
                 {/* Title */}
-                <h3 className="text-lg font-semibold text-foreground mb-2">
-                  {currentStep.title}
-                </h3>
+                <h3 className="text-lg font-semibold text-foreground mb-2">{currentStep.title}</h3>
 
                 {/* Description */}
-                <p className="text-sm text-muted-foreground leading-relaxed mb-6">
-                  {currentStep.description}
-                </p>
+                <p className="text-sm text-muted-foreground leading-relaxed mb-6">{currentStep.description}</p>
 
                 {/* Navigation */}
                 <div className="flex items-center justify-between">
@@ -182,11 +197,7 @@ export default function OnboardingTour() {
                         key={i}
                         onClick={() => setStep(i)}
                         className={`w-2 h-2 rounded-full transition-all duration-200 ${
-                          i === step
-                            ? "w-6 bg-primary"
-                            : i < step
-                            ? "bg-primary/40"
-                            : "bg-muted-foreground/20"
+                          i === step ? "w-6 bg-primary" : i < step ? "bg-primary/40" : "bg-muted-foreground/20"
                         }`}
                         aria-label={`Go to step ${i + 1}`}
                       />

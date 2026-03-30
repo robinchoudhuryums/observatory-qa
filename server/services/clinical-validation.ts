@@ -58,16 +58,16 @@ export function getRequiredSections(format: string): string[] {
 
 // --- Section importance weights (critical > standard > supplementary) ---
 const SECTION_WEIGHTS: Record<string, number> = {
-  chiefComplaint: 2.0,   // Critical — drives entire clinical reasoning
-  assessment: 2.0,        // Critical — clinical conclusion
-  plan: 1.8,              // Critical — actionable treatment
-  subjective: 1.5,        // Standard — patient report
-  objective: 1.5,         // Standard — provider findings
-  hpiNarrative: 1.5,      // Standard — detailed history
-  data: 1.5,              // Standard (DAP format)
-  behavior: 1.2,          // Standard (BIRP format)
-  intervention: 1.2,      // Standard (BIRP format)
-  response: 1.2,          // Standard (BIRP format)
+  chiefComplaint: 2.0, // Critical — drives entire clinical reasoning
+  assessment: 2.0, // Critical — clinical conclusion
+  plan: 1.8, // Critical — actionable treatment
+  subjective: 1.5, // Standard — patient report
+  objective: 1.5, // Standard — provider findings
+  hpiNarrative: 1.5, // Standard — detailed history
+  data: 1.5, // Standard (DAP format)
+  behavior: 1.2, // Standard (BIRP format)
+  intervention: 1.2, // Standard (BIRP format)
+  response: 1.2, // Standard (BIRP format)
 };
 
 export interface ClinicalNoteValidationResult {
@@ -175,9 +175,10 @@ export function validateClinicalNote(
   // Compute completeness: ratio of filled required sections (unweighted)
   const totalRequired = required.length;
   const filled = totalRequired - missingSections.length - emptySections.length;
-  const computedCompleteness = totalRequired > 0
-    ? Math.round((filled / totalRequired) * 10 * 10) / 10 // 0-10 scale, 1 decimal
-    : 0;
+  const computedCompleteness =
+    totalRequired > 0
+      ? Math.round((filled / totalRequired) * 10 * 10) / 10 // 0-10 scale, 1 decimal
+      : 0;
 
   // Compute weighted completeness: accounts for section importance
   let totalWeight = 0;
@@ -189,9 +190,7 @@ export function validateClinicalNote(
       filledWeight += weight;
     }
   }
-  const weightedCompleteness = totalWeight > 0
-    ? Math.round((filledWeight / totalWeight) * 10 * 10) / 10
-    : 0;
+  const weightedCompleteness = totalWeight > 0 ? Math.round((filledWeight / totalWeight) * 10 * 10) / 10 : 0;
 
   // Compute section depth: categorize content quality by length
   const sectionDepth: Record<string, "empty" | "minimal" | "adequate" | "thorough"> = {};
@@ -215,7 +214,7 @@ export function validateClinicalNote(
   }
 
   // Add depth warnings for critical sections that are too brief
-  const criticalSections = required.filter(s => (SECTION_WEIGHTS[s] || 1) >= 1.5);
+  const criticalSections = required.filter((s) => (SECTION_WEIGHTS[s] || 1) >= 1.5);
   for (const section of criticalSections) {
     if (sectionDepth[section] === "minimal") {
       const label = section.replace(/([A-Z])/g, " $1").trim();
@@ -272,8 +271,16 @@ export function validateClinicalEditFields(edits: Record<string, unknown>): stri
   }
 
   // Validate string fields length
-  const stringFields = ["chiefComplaint", "subjective", "objective", "assessment", "hpiNarrative",
-    "reviewOfSystems", "periodontalFindings", "followUp"];
+  const stringFields = [
+    "chiefComplaint",
+    "subjective",
+    "objective",
+    "assessment",
+    "hpiNarrative",
+    "reviewOfSystems",
+    "periodontalFindings",
+    "followUp",
+  ];
   for (const field of stringFields) {
     if (edits[field] !== undefined && typeof edits[field] === "string") {
       if ((edits[field] as string).length > MAX_STRING_FIELD_LENGTH) {
@@ -374,10 +381,10 @@ export function validateClinicalEditFields(edits: Record<string, unknown>): stri
 // --- Quality Score Breakdown ---
 
 export interface QualityScoreBreakdown {
-  icd10Specificity: number;         // 0-10: how specific are the ICD codes
-  requiredElementsPresent: number;  // 0-10: % of required fields filled
-  planDiagnosisAlignment: number;   // 0-10: basic check plan has items when assessment exists
-  overallQuality: number;           // 0-10: weighted average
+  icd10Specificity: number; // 0-10: how specific are the ICD codes
+  requiredElementsPresent: number; // 0-10: % of required fields filled
+  planDiagnosisAlignment: number; // 0-10: basic check plan has items when assessment exists
+  overallQuality: number; // 0-10: weighted average
 }
 
 /**
@@ -416,12 +423,15 @@ export function computeQualityScores(note: Record<string, unknown>): QualityScor
 
   // --- Required elements present ---
   const validation = validateClinicalNote(note);
-  const requiredTotal = (validation.missingSections.length + validation.emptySections.length +
-    (getRequiredSections(validation.format).length - validation.missingSections.length - validation.emptySections.length));
+  const requiredTotal =
+    validation.missingSections.length +
+    validation.emptySections.length +
+    (getRequiredSections(validation.format).length -
+      validation.missingSections.length -
+      validation.emptySections.length);
   const requiredFilled = requiredTotal - validation.missingSections.length - validation.emptySections.length;
-  const requiredElementsPresent = requiredTotal > 0
-    ? Math.min(10, Math.round((requiredFilled / requiredTotal) * 10 * 10) / 10)
-    : 0;
+  const requiredElementsPresent =
+    requiredTotal > 0 ? Math.min(10, Math.round((requiredFilled / requiredTotal) * 10 * 10) / 10) : 0;
 
   // --- Plan-diagnosis alignment ---
   let planDiagnosisAlignment = 0.0;
@@ -429,8 +439,10 @@ export function computeQualityScores(note: Record<string, unknown>): QualityScor
   const plan = note.plan;
   const hasAssessment = typeof assessment === "string" && assessment.trim().length > 0;
   const planItems = Array.isArray(plan)
-    ? (plan as string[]).filter(p => typeof p === "string" && p.trim().length > 0)
-    : (typeof plan === "string" && (plan as string).trim().length > 0 ? [(plan as string)] : []);
+    ? (plan as string[]).filter((p) => typeof p === "string" && p.trim().length > 0)
+    : typeof plan === "string" && (plan as string).trim().length > 0
+      ? [plan as string]
+      : [];
 
   if (!hasAssessment && planItems.length === 0) {
     planDiagnosisAlignment = 0.0;
@@ -443,9 +455,8 @@ export function computeQualityScores(note: Record<string, unknown>): QualityScor
   }
 
   // --- Overall quality: weighted average ---
-  const overallQuality = Math.round(
-    (icd10Specificity * 0.3 + requiredElementsPresent * 0.5 + planDiagnosisAlignment * 0.2) * 10,
-  ) / 10;
+  const overallQuality =
+    Math.round((icd10Specificity * 0.3 + requiredElementsPresent * 0.5 + planDiagnosisAlignment * 0.2) * 10) / 10;
 
   return {
     icd10Specificity: Math.round(icd10Specificity * 10) / 10,
@@ -510,7 +521,11 @@ export function sanitizeStylePreferences(prefs: Record<string, unknown>): Record
   }
 
   // Template overrides — sanitize keys and values
-  if (typeof prefs.templateOverrides === "object" && prefs.templateOverrides !== null && !Array.isArray(prefs.templateOverrides)) {
+  if (
+    typeof prefs.templateOverrides === "object" &&
+    prefs.templateOverrides !== null &&
+    !Array.isArray(prefs.templateOverrides)
+  ) {
     const cleanOverrides: Record<string, string> = {};
     for (const [key, value] of Object.entries(prefs.templateOverrides as Record<string, unknown>)) {
       const cleanKey = key.replace(/[^a-zA-Z_]/g, "").slice(0, 50);

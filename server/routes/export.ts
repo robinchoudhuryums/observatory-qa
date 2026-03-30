@@ -28,7 +28,6 @@ function toCsvRow(fields: unknown[]): string {
 const MAX_EXPORT_ROWS = 50_000;
 
 export function registerExportRoutes(app: Express): void {
-
   /**
    * Export performance data as CSV.
    * Includes: employee name, department, avg score, total calls.
@@ -40,12 +39,28 @@ export function registerExportRoutes(app: Express): void {
       const calls = rawCalls.slice(-MAX_EXPORT_ROWS);
 
       // Build per-employee performance stats
-      const empStats = new Map<string, {
-        name: string; role: string; totalCalls: number; totalScore: number; scoredCalls: number;
-        flaggedCalls: number; lastCallDate: string;
-      }>();
+      const empStats = new Map<
+        string,
+        {
+          name: string;
+          role: string;
+          totalCalls: number;
+          totalScore: number;
+          scoredCalls: number;
+          flaggedCalls: number;
+          lastCallDate: string;
+        }
+      >();
       for (const emp of employees) {
-        empStats.set(emp.id, { name: emp.name, role: emp.role || "", totalCalls: 0, totalScore: 0, scoredCalls: 0, flaggedCalls: 0, lastCallDate: "" });
+        empStats.set(emp.id, {
+          name: emp.name,
+          role: emp.role || "",
+          totalCalls: 0,
+          totalScore: 0,
+          scoredCalls: 0,
+          flaggedCalls: 0,
+          lastCallDate: "",
+        });
       }
 
       for (const call of calls) {
@@ -69,16 +84,22 @@ export function registerExportRoutes(app: Express): void {
 
       const headers = ["Employee", "Department", "Total Calls", "Avg Score", "Flagged Calls", "Last Call Date"];
       const rows = Array.from(empStats.values())
-        .filter(s => s.totalCalls > 0)
-        .sort((a, b) => (b.scoredCalls > 0 ? b.totalScore / b.scoredCalls : 0) - (a.scoredCalls > 0 ? a.totalScore / a.scoredCalls : 0))
-        .map(s => toCsvRow([
-          s.name,
-          s.role,
-          s.totalCalls,
-          s.scoredCalls > 0 ? (s.totalScore / s.scoredCalls).toFixed(1) : "",
-          s.flaggedCalls,
-          s.lastCallDate ? new Date(s.lastCallDate).toISOString().slice(0, 10) : "",
-        ]));
+        .filter((s) => s.totalCalls > 0)
+        .sort(
+          (a, b) =>
+            (b.scoredCalls > 0 ? b.totalScore / b.scoredCalls : 0) -
+            (a.scoredCalls > 0 ? a.totalScore / a.scoredCalls : 0),
+        )
+        .map((s) =>
+          toCsvRow([
+            s.name,
+            s.role,
+            s.totalCalls,
+            s.scoredCalls > 0 ? (s.totalScore / s.scoredCalls).toFixed(1) : "",
+            s.flaggedCalls,
+            s.lastCallDate ? new Date(s.lastCallDate).toISOString().slice(0, 10) : "",
+          ]),
+        );
 
       const csv = [toCsvRow(headers), ...rows].join("\n");
 
@@ -108,24 +129,26 @@ export function registerExportRoutes(app: Express): void {
     try {
       const rawCalls = await storage.getCallSummaries(req.orgId!, { status: "completed" });
       const flaggedCalls = rawCalls
-        .filter(c => {
+        .filter((c) => {
           const flags = (c.analysis as any)?.flags;
           return Array.isArray(flags) && flags.length > 0;
         })
         .slice(-MAX_EXPORT_ROWS);
 
       const employees = await storage.getAllEmployees(req.orgId!);
-      const empMap = new Map(employees.map(e => [e.id, e.name]));
+      const empMap = new Map(employees.map((e) => [e.id, e.name]));
 
       const headers = ["Date", "Employee", "Score", "Flags", "Summary", "Call ID"];
-      const rows = flaggedCalls.map(c => toCsvRow([
-        c.uploadedAt ? new Date(c.uploadedAt).toISOString().slice(0, 10) : "",
-        c.employeeId ? (empMap.get(c.employeeId) || "Unknown") : "Unassigned",
-        (c.analysis as any)?.performanceScore ?? "",
-        ((c.analysis as any)?.flags || []).join("; "),
-        (c.analysis as any)?.summary || "",
-        c.id,
-      ]));
+      const rows = flaggedCalls.map((c) =>
+        toCsvRow([
+          c.uploadedAt ? new Date(c.uploadedAt).toISOString().slice(0, 10) : "",
+          c.employeeId ? empMap.get(c.employeeId) || "Unknown" : "Unassigned",
+          (c.analysis as any)?.performanceScore ?? "",
+          ((c.analysis as any)?.flags || []).join("; "),
+          (c.analysis as any)?.summary || "",
+          c.id,
+        ]),
+      );
 
       const csv = [toCsvRow(headers), ...rows].join("\n");
 
@@ -155,9 +178,12 @@ export function registerExportRoutes(app: Express): void {
     try {
       const calls = await storage.getCallSummaries(req.orgId!, {});
       const employees = await storage.getAllEmployees(req.orgId!);
-      const empMap = new Map(employees.map(e => [e.id, e]));
+      const empMap = new Map(employees.map((e) => [e.id, e]));
 
-      const empSentiment = new Map<string, { name: string; positive: number; neutral: number; negative: number; total: number }>();
+      const empSentiment = new Map<
+        string,
+        { name: string; positive: number; neutral: number; negative: number; total: number }
+      >();
 
       for (const call of calls) {
         const sentiment = call.sentiment?.overallSentiment;
@@ -178,14 +204,16 @@ export function registerExportRoutes(app: Express): void {
       const headers = ["Employee", "Positive", "Neutral", "Negative", "Total", "Positive %"];
       const rows = Array.from(empSentiment.values())
         .sort((a, b) => (b.total > 0 ? b.positive / b.total : 0) - (a.total > 0 ? a.positive / a.total : 0))
-        .map(s => toCsvRow([
-          s.name,
-          s.positive,
-          s.neutral,
-          s.negative,
-          s.total,
-          s.total > 0 ? `${Math.round((s.positive / s.total) * 100)}%` : "",
-        ]));
+        .map((s) =>
+          toCsvRow([
+            s.name,
+            s.positive,
+            s.neutral,
+            s.negative,
+            s.total,
+            s.total > 0 ? `${Math.round((s.positive / s.total) * 100)}%` : "",
+          ]),
+        );
 
       const csv = [toCsvRow(headers), ...rows].join("\n");
 
@@ -250,16 +278,30 @@ export function registerExportRoutes(app: Express): void {
         }
       }
 
-      const sortedTopics = Array.from(topicCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 20);
-      const sortedComplaints = Array.from(complaintCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 20);
+      const sortedTopics = Array.from(topicCounts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 20);
+      const sortedComplaints = Array.from(complaintCounts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 20);
 
       // Build CSV with sections
       const lines: string[] = [];
       lines.push(toCsvRow(["Summary"]));
       lines.push(toCsvRow(["Total Calls Analyzed", calls.length]));
       lines.push(toCsvRow(["Average Score", totalScored > 0 ? (totalScoreSum / totalScored).toFixed(1) : "N/A"]));
-      lines.push(toCsvRow(["Negative Call Rate", calls.length > 0 ? `${Math.round((totalNegative / calls.length) * 100)}%` : "N/A"]));
-      lines.push(toCsvRow(["Escalation Rate (score <= 4)", totalScored > 0 ? `${Math.round((totalLowScore / totalScored) * 100)}%` : "N/A"]));
+      lines.push(
+        toCsvRow([
+          "Negative Call Rate",
+          calls.length > 0 ? `${Math.round((totalNegative / calls.length) * 100)}%` : "N/A",
+        ]),
+      );
+      lines.push(
+        toCsvRow([
+          "Escalation Rate (score <= 4)",
+          totalScored > 0 ? `${Math.round((totalLowScore / totalScored) * 100)}%` : "N/A",
+        ]),
+      );
       lines.push("");
       lines.push(toCsvRow(["Top Topics", "Count"]));
       for (const [topic, count] of sortedTopics) {
@@ -306,28 +348,42 @@ export function registerExportRoutes(app: Express): void {
 
       const calls = await storage.getCallSummaries(req.orgId!, filters);
       const employees = await storage.getAllEmployees(req.orgId!);
-      const empMap = new Map(employees.map(e => [e.id, e]));
+      const empMap = new Map(employees.map((e) => [e.id, e]));
 
       // Apply date filters
       let filtered = calls;
       if (from) {
         const fromDate = new Date(from as string);
-        filtered = filtered.filter(c => new Date(c.uploadedAt || 0) >= fromDate);
+        filtered = filtered.filter((c) => new Date(c.uploadedAt || 0) >= fromDate);
       }
       if (to) {
         const toDate = new Date(to as string);
         toDate.setHours(23, 59, 59, 999);
-        filtered = filtered.filter(c => new Date(c.uploadedAt || 0) <= toDate);
+        filtered = filtered.filter((c) => new Date(c.uploadedAt || 0) <= toDate);
       }
 
       const headers = [
-        "Call ID", "File Name", "Status", "Category", "Employee", "Employee Email",
-        "Duration (s)", "Upload Date", "Performance Score",
-        "Compliance", "Customer Experience", "Communication", "Resolution",
-        "Sentiment", "Sentiment Score", "Summary", "Flags", "Tags",
+        "Call ID",
+        "File Name",
+        "Status",
+        "Category",
+        "Employee",
+        "Employee Email",
+        "Duration (s)",
+        "Upload Date",
+        "Performance Score",
+        "Compliance",
+        "Customer Experience",
+        "Communication",
+        "Resolution",
+        "Sentiment",
+        "Sentiment Score",
+        "Summary",
+        "Flags",
+        "Tags",
       ];
 
-      const rows = filtered.map(call => {
+      const rows = filtered.map((call) => {
         const emp = call.employeeId ? empMap.get(call.employeeId) : undefined;
         const analysis = call.analysis as any;
         const subScores = analysis?.subScores || {};
@@ -384,10 +440,17 @@ export function registerExportRoutes(app: Express): void {
       const employees = await storage.getAllEmployees(req.orgId!);
 
       const headers = ["ID", "Name", "Email", "Role", "Status", "Sub-Team", "Initials"];
-      const rows = employees.map(emp => toCsvRow([
-        emp.id, emp.name, emp.email, emp.role || "", emp.status || "",
-        emp.subTeam || "", emp.initials || "",
-      ]));
+      const rows = employees.map((emp) =>
+        toCsvRow([
+          emp.id,
+          emp.name,
+          emp.email,
+          emp.role || "",
+          emp.status || "",
+          emp.subTeam || "",
+          emp.initials || "",
+        ]),
+      );
 
       const csv = [toCsvRow(headers), ...rows].join("\n");
 
@@ -416,17 +479,32 @@ export function registerExportRoutes(app: Express): void {
     try {
       const sessions = await storage.getAllCoachingSessions(req.orgId!);
       const employees = await storage.getAllEmployees(req.orgId!);
-      const empMap = new Map(employees.map(e => [e.id, e]));
+      const empMap = new Map(employees.map((e) => [e.id, e]));
 
       const headers = [
-        "Session ID", "Employee", "Category", "Title", "Status",
-        "Assigned By", "Due Date", "Created", "Completed", "Notes",
+        "Session ID",
+        "Employee",
+        "Category",
+        "Title",
+        "Status",
+        "Assigned By",
+        "Due Date",
+        "Created",
+        "Completed",
+        "Notes",
       ];
-      const rows = sessions.map(s => {
+      const rows = sessions.map((s) => {
         const emp = empMap.get(s.employeeId);
         return toCsvRow([
-          s.id, emp?.name || s.employeeId, s.category, s.title, s.status,
-          s.assignedBy, s.dueDate || "", s.createdAt || "", s.completedAt || "",
+          s.id,
+          emp?.name || s.employeeId,
+          s.category,
+          s.title,
+          s.status,
+          s.assignedBy,
+          s.dueDate || "",
+          s.createdAt || "",
+          s.completedAt || "",
           s.notes || "",
         ]);
       });

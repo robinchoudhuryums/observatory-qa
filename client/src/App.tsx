@@ -89,11 +89,7 @@ const pageTransition = {
 };
 
 function AnimatedPage({ children }: { children: React.ReactNode }) {
-  return (
-    <motion.div {...pageTransition}>
-      {children}
-    </motion.div>
-  );
+  return <motion.div {...pageTransition}>{children}</motion.div>;
 }
 
 const KEYBOARD_SHORTCUTS = [
@@ -137,11 +133,7 @@ function Router() {
     staleTime: 5 * 60 * 1000,
   });
   useEffect(() => {
-    if (
-      orgData &&
-      !orgData.settings?.branding?.onboardingCompleted &&
-      location !== "/onboarding"
-    ) {
+    if (orgData && !orgData.settings?.branding?.onboardingCompleted && location !== "/onboarding") {
       navigate("/onboarding");
     }
   }, [orgData, location, navigate]);
@@ -157,7 +149,7 @@ function Router() {
       switch (e.key) {
         case "?":
           e.preventDefault();
-          setShowShortcuts(prev => !prev);
+          setShowShortcuts((prev) => !prev);
           break;
         case "k":
         case "K":
@@ -195,38 +187,310 @@ function Router() {
         <Suspense fallback={<PageLoader />}>
           <AnimatePresence mode="wait">
             <Switch key={location}>
-              <Route path="/">{() => <ErrorBoundary><AnimatedPage><Dashboard /></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/upload">{() => <ErrorBoundary><AnimatedPage><Upload /></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/transcripts">{() => <ErrorBoundary><AnimatedPage><Transcripts /></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/transcripts/:id">{() => <ErrorBoundary><AnimatedPage><Transcripts /></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/search">{() => <ErrorBoundary><AnimatedPage><SearchPage /></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/performance">{() => <ErrorBoundary><AnimatedPage><PerformancePage /></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/sentiment">{() => <ErrorBoundary><AnimatedPage><SentimentPage /></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/reports">{() => <ErrorBoundary><AnimatedPage><ReportsPage /></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/employees">{() => <ErrorBoundary><AnimatedPage><EmployeesPage /></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/insights">{() => <ErrorBoundary><AnimatedPage><InsightsPage /></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/coaching">{() => <ErrorBoundary><AnimatedPage><ProtectedRoute minRole="manager"><CoachingPage /></ProtectedRoute></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/admin">{() => <ErrorBoundary><AnimatedPage><ProtectedRoute minRole="admin"><AdminPage /></ProtectedRoute></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/admin/templates">{() => <ErrorBoundary><AnimatedPage><ProtectedRoute minRole="admin"><PromptTemplatesPage /></ProtectedRoute></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/admin/settings">{() => <ErrorBoundary><AnimatedPage><ProtectedRoute minRole="admin"><SettingsPage /></ProtectedRoute></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/admin/audit-logs">{() => <ErrorBoundary><AnimatedPage><ProtectedRoute minRole="admin"><AuditLogsPage /></ProtectedRoute></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/admin/ab-testing">{() => <ErrorBoundary><AnimatedPage><ProtectedRoute minRole="admin"><ABTestingPage /></ProtectedRoute></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/admin/spend-tracking">{() => <ErrorBoundary><AnimatedPage><ProtectedRoute minRole="admin"><SpendTrackingPage /></ProtectedRoute></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/clinical">{() => <ErrorBoundary><AnimatedPage><ClinicalDashboardPage /></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/clinical/upload">{() => <ErrorBoundary><AnimatedPage><ClinicalUploadPage /></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/clinical/notes/:id">{() => <ErrorBoundary><AnimatedPage><ClinicalNotesPage /></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/clinical/templates">{() => <ErrorBoundary><AnimatedPage><ClinicalTemplatesPage /></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/clinical/live">{() => <ErrorBoundary><AnimatedPage><ClinicalLivePage /></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/admin/feedback">{() => <ErrorBoundary><AnimatedPage><ProtectedRoute minRole="admin"><FeedbackPage /></ProtectedRoute></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/gamification">{() => <ErrorBoundary><AnimatedPage><GamificationPage /></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/insurance-narratives">{() => <ErrorBoundary><AnimatedPage><ProtectedRoute minRole="manager"><InsuranceNarrativesPage /></ProtectedRoute></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/revenue">{() => <ErrorBoundary><AnimatedPage><RevenuePage /></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/calibration">{() => <ErrorBoundary><AnimatedPage><ProtectedRoute minRole="manager"><CalibrationPage /></ProtectedRoute></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/emails">{() => <ErrorBoundary><AnimatedPage><EmailsPage /></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/learning">{() => <ErrorBoundary><AnimatedPage><LearningPage /></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/marketing">{() => <ErrorBoundary><AnimatedPage><MarketingPage /></AnimatedPage></ErrorBoundary>}</Route>
-              <Route path="/onboarding">{() => <ErrorBoundary><OnboardingWizard /></ErrorBoundary>}</Route>
-              <Route>{() => <AnimatedPage><NotFound /></AnimatedPage>}</Route>
+              <Route path="/">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <Dashboard />
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/upload">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <Upload />
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/transcripts">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <Transcripts />
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/transcripts/:id">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <Transcripts />
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/search">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <SearchPage />
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/performance">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <PerformancePage />
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/sentiment">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <SentimentPage />
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/reports">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <ReportsPage />
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/employees">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <EmployeesPage />
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/insights">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <InsightsPage />
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/coaching">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <ProtectedRoute minRole="manager">
+                        <CoachingPage />
+                      </ProtectedRoute>
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/admin">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <ProtectedRoute minRole="admin">
+                        <AdminPage />
+                      </ProtectedRoute>
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/admin/templates">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <ProtectedRoute minRole="admin">
+                        <PromptTemplatesPage />
+                      </ProtectedRoute>
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/admin/settings">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <ProtectedRoute minRole="admin">
+                        <SettingsPage />
+                      </ProtectedRoute>
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/admin/audit-logs">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <ProtectedRoute minRole="admin">
+                        <AuditLogsPage />
+                      </ProtectedRoute>
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/admin/ab-testing">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <ProtectedRoute minRole="admin">
+                        <ABTestingPage />
+                      </ProtectedRoute>
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/admin/spend-tracking">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <ProtectedRoute minRole="admin">
+                        <SpendTrackingPage />
+                      </ProtectedRoute>
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/clinical">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <ClinicalDashboardPage />
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/clinical/upload">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <ClinicalUploadPage />
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/clinical/notes/:id">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <ClinicalNotesPage />
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/clinical/templates">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <ClinicalTemplatesPage />
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/clinical/live">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <ClinicalLivePage />
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/admin/feedback">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <ProtectedRoute minRole="admin">
+                        <FeedbackPage />
+                      </ProtectedRoute>
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/gamification">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <GamificationPage />
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/insurance-narratives">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <ProtectedRoute minRole="manager">
+                        <InsuranceNarrativesPage />
+                      </ProtectedRoute>
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/revenue">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <RevenuePage />
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/calibration">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <ProtectedRoute minRole="manager">
+                        <CalibrationPage />
+                      </ProtectedRoute>
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/emails">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <EmailsPage />
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/learning">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <LearningPage />
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/marketing">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <MarketingPage />
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/onboarding">
+                {() => (
+                  <ErrorBoundary>
+                    <OnboardingWizard />
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route>
+                {() => (
+                  <AnimatedPage>
+                    <NotFound />
+                  </AnimatedPage>
+                )}
+              </Route>
             </Switch>
           </AnimatePresence>
         </Suspense>
@@ -237,7 +501,11 @@ function Router() {
 
 function AuthenticatedApp() {
   const [authView, setAuthView] = useState<"landing" | "login" | "register" | "invite" | null>(null);
-  const { data: user, isLoading, error } = useQuery<AuthUser>({
+  const {
+    data: user,
+    isLoading,
+    error,
+  } = useQuery<AuthUser>({
     queryKey: ["/api/auth/me"],
     queryFn: getQueryFn({ on401: "returnNull" }),
     retry: false,

@@ -11,7 +11,14 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { safeStorage } from "@/lib/utils";
 import type { Organization } from "@shared/schema";
-import {  RiSettings3Line, RiSaveLine, RiNotification3Line, RiLockLine, RiInformationLine, RiCheckLine  } from "@remixicon/react";
+import {
+  RiSettings3Line,
+  RiSaveLine,
+  RiNotification3Line,
+  RiLockLine,
+  RiInformationLine,
+  RiCheckLine,
+} from "@remixicon/react";
 
 export default function OrganizationTab() {
   const { toast } = useToast();
@@ -74,10 +81,19 @@ export default function OrganizationTab() {
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    const parsedDepartments = departments.split(",").map(s => s.trim()).filter(Boolean);
-    const parsedCategories = callCategories.split(",").map(s => s.trim()).filter(Boolean);
+    const parsedDepartments = departments
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const parsedCategories = callCategories
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
 
-    const parsedEvents = webhookEvents.split(",").map(s => s.trim()).filter(Boolean);
+    const parsedEvents = webhookEvents
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
 
     mutation.mutate({
       emailDomain: emailDomain.trim() || undefined,
@@ -89,18 +105,26 @@ export default function OrganizationTab() {
       webhookUrl: webhookUrl.trim() || undefined,
       webhookPlatform: webhookPlatform,
       webhookEvents: parsedEvents.length > 0 ? parsedEvents : undefined,
-      ...(isEnterprise ? {
-        ssoProvider: ssoProvider || undefined,
-        ssoEntityId: ssoEntityId.trim() || undefined,
-        ssoSignOnUrl: ssoSignOnUrl.trim() || undefined,
-        ssoCertificate: ssoCertificate.trim() || undefined,
-        ssoEnforced,
-      } : {}),
+      ...(isEnterprise
+        ? {
+            ssoProvider: ssoProvider || undefined,
+            ssoEntityId: ssoEntityId.trim() || undefined,
+            ssoSignOnUrl: ssoSignOnUrl.trim() || undefined,
+            ssoCertificate: ssoCertificate.trim() || undefined,
+            ssoEnforced,
+          }
+        : {}),
     });
   };
 
   if (isLoading) {
-    return <Card><CardContent className="pt-6"><Skeleton className="h-40 w-full" /></CardContent></Card>;
+    return (
+      <Card>
+        <CardContent className="pt-6">
+          <Skeleton className="h-40 w-full" />
+        </CardContent>
+      </Card>
+    );
   }
 
   return (
@@ -249,7 +273,11 @@ export default function OrganizationTab() {
           <CardTitle className="text-lg flex items-center gap-2">
             <RiLockLine className="w-5 h-5 text-primary" />
             Single Sign-On (SSO)
-            {!isEnterprise && <Badge variant="secondary" className="ml-2">Enterprise</Badge>}
+            {!isEnterprise && (
+              <Badge variant="secondary" className="ml-2">
+                Enterprise
+              </Badge>
+            )}
           </CardTitle>
           <CardDescription>
             {isEnterprise
@@ -313,17 +341,23 @@ export default function OrganizationTab() {
                   />
                   <span className="text-sm font-medium text-foreground">Enforce SSO</span>
                 </label>
-                <p className="text-xs text-muted-foreground">When enabled, password login is disabled for all users. API keys still work.</p>
+                <p className="text-xs text-muted-foreground">
+                  When enabled, password login is disabled for all users. API keys still work.
+                </p>
               </div>
 
               {/* SP Metadata for IDP configuration */}
               {org?.slug && (
                 <div className="bg-muted/50 rounded-lg p-4 space-y-2">
                   <h4 className="text-sm font-semibold text-foreground">Service Provider Details</h4>
-                  <p className="text-xs text-muted-foreground">Provide these to your Identity Provider (Okta, Azure AD, Google Workspace, etc.):</p>
+                  <p className="text-xs text-muted-foreground">
+                    Provide these to your Identity Provider (Okta, Azure AD, Google Workspace, etc.):
+                  </p>
                   <div className="space-y-1.5">
                     <div>
-                      <span className="text-xs font-medium text-muted-foreground">ACS URL (Assertion Consumer Service):</span>
+                      <span className="text-xs font-medium text-muted-foreground">
+                        ACS URL (Assertion Consumer Service):
+                      </span>
                       <code className="block text-xs bg-background rounded px-2 py-1 mt-0.5 font-mono">{`${window.location.origin}/api/auth/sso/callback`}</code>
                     </div>
                     <div>
@@ -386,9 +420,7 @@ export default function OrganizationTab() {
             </div>
             <div>
               <p className="text-muted-foreground">Status</p>
-              <Badge variant={org?.status === "active" ? "default" : "secondary"}>
-                {org?.status}
-              </Badge>
+              <Badge variant={org?.status === "active" ? "default" : "secondary"}>{org?.status}</Badge>
             </div>
           </div>
         </CardContent>

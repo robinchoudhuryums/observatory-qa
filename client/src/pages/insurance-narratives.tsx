@@ -11,7 +11,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { INSURANCE_LETTER_TYPES, type InsuranceNarrative } from "@shared/schema";
-import {  RiFileTextLine, RiAddLine, RiFileCopyLine, RiRefreshLine, RiDeleteBinLine, RiCheckboxCircleLine, RiTimeLine, RiSendPlaneLine, RiInputMethodLine  } from "@remixicon/react";
+import {
+  RiFileTextLine,
+  RiAddLine,
+  RiFileCopyLine,
+  RiRefreshLine,
+  RiDeleteBinLine,
+  RiCheckboxCircleLine,
+  RiTimeLine,
+  RiSendPlaneLine,
+  RiInputMethodLine,
+} from "@remixicon/react";
 
 const statusColors: Record<string, string> = {
   draft: "bg-yellow-100 text-yellow-800",
@@ -20,7 +30,11 @@ const statusColors: Record<string, string> = {
 };
 
 /** Inline editor for draft narratives — allows direct text editing before finalization */
-function NarrativeEditor({ narrative, onSave, isSaving }: {
+function NarrativeEditor({
+  narrative,
+  onSave,
+  isSaving,
+}: {
   narrative: InsuranceNarrative;
   onSave: (text: string) => void;
   isSaving: boolean;
@@ -31,7 +45,9 @@ function NarrativeEditor({ narrative, onSave, isSaving }: {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">Edit the letter text below. Changes are saved when you click Save.</p>
+        <p className="text-xs text-muted-foreground">
+          Edit the letter text below. Changes are saved when you click Save.
+        </p>
         {isDirty && (
           <Button size="sm" onClick={() => onSave(editText)} disabled={isSaving}>
             {isSaving ? "Saving..." : "Save Changes"}
@@ -53,9 +69,14 @@ export default function InsuranceNarrativesPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [selectedNarrative, setSelectedNarrative] = useState<InsuranceNarrative | null>(null);
   const [form, setForm] = useState({
-    patientName: "", patientDob: "", memberId: "",
-    insurerName: "", insurerAddress: "", letterType: "prior_auth",
-    clinicalJustification: "", priorDenialReference: "",
+    patientName: "",
+    patientDob: "",
+    memberId: "",
+    insurerName: "",
+    insurerAddress: "",
+    letterType: "prior_auth",
+    clinicalJustification: "",
+    priorDenialReference: "",
   });
 
   const { data: narratives = [] } = useQuery<InsuranceNarrative[]>({
@@ -135,7 +156,9 @@ export default function InsuranceNarrativesPage() {
         </div>
         <Dialog open={showCreate} onOpenChange={setShowCreate}>
           <DialogTrigger asChild>
-            <Button><RiAddLine className="w-4 h-4 mr-2" /> New Narrative</Button>
+            <Button>
+              <RiAddLine className="w-4 h-4 mr-2" /> New Narrative
+            </Button>
           </DialogTrigger>
           <DialogContent className="max-w-lg">
             <DialogHeader>
@@ -144,11 +167,15 @@ export default function InsuranceNarrativesPage() {
             <div className="space-y-3">
               <div>
                 <Label>Letter Type</Label>
-                <Select value={form.letterType} onValueChange={v => setForm(f => ({ ...f, letterType: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                <Select value={form.letterType} onValueChange={(v) => setForm((f) => ({ ...f, letterType: v }))}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
-                    {INSURANCE_LETTER_TYPES.map(t => (
-                      <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                    {INSURANCE_LETTER_TYPES.map((t) => (
+                      <SelectItem key={t.value} value={t.value}>
+                        {t.label}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -156,35 +183,55 @@ export default function InsuranceNarrativesPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>Patient Name *</Label>
-                  <Input value={form.patientName} onChange={e => setForm(f => ({ ...f, patientName: e.target.value }))} />
+                  <Input
+                    value={form.patientName}
+                    onChange={(e) => setForm((f) => ({ ...f, patientName: e.target.value }))}
+                  />
                 </div>
                 <div>
                   <Label>Date of Birth</Label>
-                  <Input type="date" value={form.patientDob} onChange={e => setForm(f => ({ ...f, patientDob: e.target.value }))} />
+                  <Input
+                    type="date"
+                    value={form.patientDob}
+                    onChange={(e) => setForm((f) => ({ ...f, patientDob: e.target.value }))}
+                  />
                 </div>
               </div>
               <div>
                 <Label>Member ID</Label>
-                <Input value={form.memberId} onChange={e => setForm(f => ({ ...f, memberId: e.target.value }))} />
+                <Input value={form.memberId} onChange={(e) => setForm((f) => ({ ...f, memberId: e.target.value }))} />
               </div>
               <div>
                 <Label>Insurance Company *</Label>
-                <Input value={form.insurerName} onChange={e => setForm(f => ({ ...f, insurerName: e.target.value }))} />
+                <Input
+                  value={form.insurerName}
+                  onChange={(e) => setForm((f) => ({ ...f, insurerName: e.target.value }))}
+                />
               </div>
               <div>
                 <Label>Clinical Justification</Label>
-                <Textarea value={form.clinicalJustification} onChange={e => setForm(f => ({ ...f, clinicalJustification: e.target.value }))}
-                  placeholder="Clinical findings and medical necessity..." rows={3} />
+                <Textarea
+                  value={form.clinicalJustification}
+                  onChange={(e) => setForm((f) => ({ ...f, clinicalJustification: e.target.value }))}
+                  placeholder="Clinical findings and medical necessity..."
+                  rows={3}
+                />
               </div>
               {form.letterType === "appeal" && (
                 <div>
                   <Label>Prior Denial Reference</Label>
-                  <Input value={form.priorDenialReference} onChange={e => setForm(f => ({ ...f, priorDenialReference: e.target.value }))}
-                    placeholder="Claim/denial number" />
+                  <Input
+                    value={form.priorDenialReference}
+                    onChange={(e) => setForm((f) => ({ ...f, priorDenialReference: e.target.value }))}
+                    placeholder="Claim/denial number"
+                  />
                 </div>
               )}
-              <Button className="w-full" onClick={() => createMutation.mutate(form)}
-                disabled={!form.patientName || !form.insurerName || createMutation.isPending}>
+              <Button
+                className="w-full"
+                onClick={() => createMutation.mutate(form)}
+                disabled={!form.patientName || !form.insurerName || createMutation.isPending}
+              >
                 {createMutation.isPending ? "Generating..." : "Generate Narrative"}
               </Button>
             </div>
@@ -202,9 +249,12 @@ export default function InsuranceNarrativesPage() {
               </CardContent>
             </Card>
           ) : (
-            narratives.map(n => (
-              <Card key={n.id} className={`cursor-pointer transition-colors ${selectedNarrative?.id === n.id ? "ring-2 ring-primary" : ""}`}
-                onClick={() => setSelectedNarrative(n)}>
+            narratives.map((n) => (
+              <Card
+                key={n.id}
+                className={`cursor-pointer transition-colors ${selectedNarrative?.id === n.id ? "ring-2 ring-primary" : ""}`}
+                onClick={() => setSelectedNarrative(n)}
+              >
                 <CardContent className="pt-4">
                   <div className="flex items-start justify-between">
                     <div>
@@ -212,9 +262,11 @@ export default function InsuranceNarrativesPage() {
                       <p className="text-sm text-muted-foreground">{n.insurerName}</p>
                       <div className="flex items-center gap-2 mt-1">
                         <Badge variant="outline" className="text-xs">
-                          {INSURANCE_LETTER_TYPES.find(t => t.value === n.letterType)?.label || n.letterType}
+                          {INSURANCE_LETTER_TYPES.find((t) => t.value === n.letterType)?.label || n.letterType}
                         </Badge>
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[n.status || "draft"]}`}>
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[n.status || "draft"]}`}
+                        >
                           {n.status}
                         </span>
                       </div>
@@ -238,7 +290,8 @@ export default function InsuranceNarrativesPage() {
                   <div>
                     <CardTitle>{selectedNarrative.patientName}</CardTitle>
                     <CardDescription>
-                      {INSURANCE_LETTER_TYPES.find(t => t.value === selectedNarrative.letterType)?.label} — {selectedNarrative.insurerName}
+                      {INSURANCE_LETTER_TYPES.find((t) => t.value === selectedNarrative.letterType)?.label} —{" "}
+                      {selectedNarrative.insurerName}
                     </CardDescription>
                     <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
                       {selectedNarrative.patientDob && <span>DOB: {selectedNarrative.patientDob}</span>}
@@ -247,23 +300,38 @@ export default function InsuranceNarrativesPage() {
                     </div>
                   </div>
                   <div className="flex gap-2 flex-wrap justify-end">
-                    <Button size="sm" variant="outline" onClick={() => regenerateMutation.mutate(selectedNarrative.id)}
-                      disabled={regenerateMutation.isPending || selectedNarrative.status === "submitted"}>
-                      <RiRefreshLine className="w-4 h-4 mr-1" /> {regenerateMutation.isPending ? "Regenerating..." : "Regenerate"}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => regenerateMutation.mutate(selectedNarrative.id)}
+                      disabled={regenerateMutation.isPending || selectedNarrative.status === "submitted"}
+                    >
+                      <RiRefreshLine className="w-4 h-4 mr-1" />{" "}
+                      {regenerateMutation.isPending ? "Regenerating..." : "Regenerate"}
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => {
-                      navigator.clipboard.writeText(selectedNarrative.generatedNarrative || "");
-                      toast({ title: "Copied to clipboard" });
-                    }}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        navigator.clipboard.writeText(selectedNarrative.generatedNarrative || "");
+                        toast({ title: "Copied to clipboard" });
+                      }}
+                    >
                       <RiFileCopyLine className="w-4 h-4 mr-1" /> Copy
                     </Button>
                     {selectedNarrative.status === "draft" && (
-                      <Button size="sm" onClick={() => updateMutation.mutate({ id: selectedNarrative.id, status: "finalized" })}>
+                      <Button
+                        size="sm"
+                        onClick={() => updateMutation.mutate({ id: selectedNarrative.id, status: "finalized" })}
+                      >
                         <RiCheckboxCircleLine className="w-4 h-4 mr-1" /> Finalize
                       </Button>
                     )}
                     {selectedNarrative.status === "finalized" && (
-                      <Button size="sm" onClick={() => updateMutation.mutate({ id: selectedNarrative.id, status: "submitted" })}>
+                      <Button
+                        size="sm"
+                        onClick={() => updateMutation.mutate({ id: selectedNarrative.id, status: "submitted" })}
+                      >
                         <RiSendPlaneLine className="w-4 h-4 mr-1" /> Mark Submitted
                       </Button>
                     )}
@@ -286,26 +354,36 @@ export default function InsuranceNarrativesPage() {
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-4">
-                  {selectedNarrative.diagnosisCodes && (selectedNarrative.diagnosisCodes as Array<{code: string; description: string}>).length > 0 && (
-                    <div>
-                      <p className="text-sm font-medium mb-2">Diagnosis Codes</p>
-                      <div className="flex flex-wrap gap-2">
-                        {(selectedNarrative.diagnosisCodes as Array<{code: string; description: string}>).map((c, i) => (
-                          <Badge key={i} variant="secondary">{c.code}: {c.description}</Badge>
-                        ))}
+                  {selectedNarrative.diagnosisCodes &&
+                    (selectedNarrative.diagnosisCodes as Array<{ code: string; description: string }>).length > 0 && (
+                      <div>
+                        <p className="text-sm font-medium mb-2">Diagnosis Codes</p>
+                        <div className="flex flex-wrap gap-2">
+                          {(selectedNarrative.diagnosisCodes as Array<{ code: string; description: string }>).map(
+                            (c, i) => (
+                              <Badge key={i} variant="secondary">
+                                {c.code}: {c.description}
+                              </Badge>
+                            ),
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )}
-                  {selectedNarrative.procedureCodes && (selectedNarrative.procedureCodes as Array<{code: string; description: string}>).length > 0 && (
-                    <div>
-                      <p className="text-sm font-medium mb-2">Procedure Codes</p>
-                      <div className="flex flex-wrap gap-2">
-                        {(selectedNarrative.procedureCodes as Array<{code: string; description: string}>).map((c, i) => (
-                          <Badge key={i} variant="outline">{c.code}: {c.description}</Badge>
-                        ))}
+                    )}
+                  {selectedNarrative.procedureCodes &&
+                    (selectedNarrative.procedureCodes as Array<{ code: string; description: string }>).length > 0 && (
+                      <div>
+                        <p className="text-sm font-medium mb-2">Procedure Codes</p>
+                        <div className="flex flex-wrap gap-2">
+                          {(selectedNarrative.procedureCodes as Array<{ code: string; description: string }>).map(
+                            (c, i) => (
+                              <Badge key={i} variant="outline">
+                                {c.code}: {c.description}
+                              </Badge>
+                            ),
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
                 </div>
                 {selectedNarrative.clinicalJustification && (
                   <div>

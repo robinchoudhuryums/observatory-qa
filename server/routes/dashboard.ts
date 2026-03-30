@@ -15,7 +15,9 @@ async function withCache<T>(key: string, ttlSeconds: number, fn: () => Promise<T
     try {
       const cached = await redis.get(key);
       if (cached) return JSON.parse(cached) as T;
-    } catch { /* Redis unavailable — fall through */ }
+    } catch {
+      /* Redis unavailable — fall through */
+    }
   }
 
   const result = await fn();
@@ -23,7 +25,9 @@ async function withCache<T>(key: string, ttlSeconds: number, fn: () => Promise<T
   if (redis) {
     try {
       await redis.set(key, JSON.stringify(result), "EX", ttlSeconds);
-    } catch { /* Redis unavailable — skip caching */ }
+    } catch {
+      /* Redis unavailable — skip caching */
+    }
   }
 
   return result;
@@ -34,15 +38,14 @@ export async function invalidateDashboardCache(orgId: string): Promise<void> {
   const redis = getRedis();
   if (!redis) return;
   try {
-    const keys = [
-      `dashboard:metrics:${orgId}`,
-      `dashboard:sentiment:${orgId}`,
-    ];
+    const keys = [`dashboard:metrics:${orgId}`, `dashboard:sentiment:${orgId}`];
     // Also invalidate performers cache (keyed with limit suffix)
     const performerKeys = await redis.keys(`dashboard:performers:${orgId}:*`);
     keys.push(...performerKeys);
     if (keys.length > 0) await redis.del(...keys);
-  } catch { /* Redis unavailable — skip */ }
+  } catch {
+    /* Redis unavailable — skip */
+  }
 }
 
 export function registerDashboardRoutes(app: Express): void {
@@ -64,10 +67,8 @@ export function registerDashboardRoutes(app: Express): void {
   // Dashboard metrics (cached 60s per org)
   app.get("/api/dashboard/metrics", requireAuth, injectOrgContext, async (req, res) => {
     try {
-      const metrics = await withCache(
-        `dashboard:metrics:${req.orgId}`,
-        DASHBOARD_CACHE_TTL,
-        () => storage.getDashboardMetrics(req.orgId!),
+      const metrics = await withCache(`dashboard:metrics:${req.orgId}`, DASHBOARD_CACHE_TTL, () =>
+        storage.getDashboardMetrics(req.orgId!),
       );
       logPhiAccess({ ...auditContext(req), event: "view_dashboard_metrics", resourceType: "metrics" });
       res.json(metrics);
@@ -80,10 +81,8 @@ export function registerDashboardRoutes(app: Express): void {
   // Sentiment distribution (cached 60s per org)
   app.get("/api/dashboard/sentiment", requireAuth, injectOrgContext, async (req, res) => {
     try {
-      const distribution = await withCache(
-        `dashboard:sentiment:${req.orgId}`,
-        DASHBOARD_CACHE_TTL,
-        () => storage.getSentimentDistribution(req.orgId!),
+      const distribution = await withCache(`dashboard:sentiment:${req.orgId}`, DASHBOARD_CACHE_TTL, () =>
+        storage.getSentimentDistribution(req.orgId!),
       );
       logPhiAccess({ ...auditContext(req), event: "view_sentiment_distribution", resourceType: "sentiment" });
       res.json(distribution);
@@ -97,10 +96,8 @@ export function registerDashboardRoutes(app: Express): void {
   app.get("/api/dashboard/performers", requireAuth, injectOrgContext, async (req, res) => {
     try {
       const limit = Math.min(safeInt(req.query.limit, 3), 100);
-      const performers = await withCache(
-        `dashboard:performers:${req.orgId}:${limit}`,
-        DASHBOARD_CACHE_TTL,
-        () => storage.getTopPerformers(req.orgId!, limit),
+      const performers = await withCache(`dashboard:performers:${req.orgId}:${limit}`, DASHBOARD_CACHE_TTL, () =>
+        storage.getTopPerformers(req.orgId!, limit),
       );
       logPhiAccess({ ...auditContext(req), event: "view_top_performers", resourceType: "performance" });
       res.json(performers);

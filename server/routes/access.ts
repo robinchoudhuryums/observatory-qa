@@ -26,7 +26,9 @@ export function registerAccessRoutes(app: Express): void {
         return;
       }
       const request = await storage.createAccessRequest(org.id, parsed.data);
-      res.status(201).json({ message: "Access request submitted. An administrator will review your request.", id: request.id });
+      res
+        .status(201)
+        .json({ message: "Access request submitted. An administrator will review your request.", id: request.id });
     } catch (error) {
       logger.error({ err: error }, "Failed to submit access request");
       res.status(500).json({ message: "Failed to submit access request" });
@@ -47,9 +49,11 @@ export function registerAccessRoutes(app: Express): void {
   });
 
   // Approve or deny an access request
-  const accessRequestUpdateSchema = z.object({
-    status: z.enum(["approved", "denied"]),
-  }).strict();
+  const accessRequestUpdateSchema = z
+    .object({
+      status: z.enum(["approved", "denied"]),
+    })
+    .strict();
 
   app.patch("/api/access-requests/:id", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
     try {

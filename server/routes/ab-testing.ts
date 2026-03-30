@@ -39,11 +39,12 @@ export { estimateBedrockCost, estimateAssemblyAICost };
 async function cleanupFile(filePath: string) {
   try {
     await fs.promises.unlink(filePath);
-  } catch (err) { logger.debug({ err }, "Failed to clean up temporary file"); }
+  } catch (err) {
+    logger.debug({ err }, "Failed to clean up temporary file");
+  }
 }
 
 export function registerABTestRoutes(app: Express): void {
-
   // List all A/B tests
   app.get("/api/ab-tests", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
     try {
@@ -71,54 +72,65 @@ export function registerABTestRoutes(app: Express): void {
   });
 
   // Upload audio for A/B model comparison
-  app.post("/api/ab-tests/upload", requireAuth, requireRole("admin"), injectOrgContext, requireActiveSubscription(), requirePlanFeature("abTestingEnabled", "A/B model testing requires a Pro or Enterprise plan"), upload.single("audioFile"), async (req, res) => {
-    try {
-      if (!req.file) {
-        res.status(400).json({ message: "No audio file provided" });
-        return;
+  app.post(
+    "/api/ab-tests/upload",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    requireActiveSubscription(),
+    requirePlanFeature("abTestingEnabled", "A/B model testing requires a Pro or Enterprise plan"),
+    upload.single("audioFile"),
+    async (req, res) => {
+      try {
+        if (!req.file) {
+          res.status(400).json({ message: "No audio file provided" });
+          return;
+        }
+
+        const { testModel } = req.body;
+        const validModels = BEDROCK_MODEL_PRESETS.map((m) => m.value) as string[];
+        if (!testModel || !validModels.includes(testModel)) {
+          await cleanupFile(req.file.path);
+          res.status(400).json({ message: `Invalid model. Must be one of: ${validModels.join(", ")}` });
+          return;
+        }
+        const abValidCategories = CALL_CATEGORIES.map((c) => c.value) as string[];
+        const callCategory = abValidCategories.includes(req.body.callCategory) ? req.body.callCategory : undefined;
+
+        const user = req.user;
+        const orgId = req.orgId!;
+        const baselineModel = process.env.BEDROCK_MODEL || "us.anthropic.claude-sonnet-4-6";
+
+        const abTest = await storage.createABTest(orgId, {
+          orgId,
+          fileName: req.file.originalname,
+          callCategory: callCategory || undefined,
+          baselineModel,
+          testModel,
+          status: "processing",
+          createdBy: user?.username || "admin",
+        });
+
+        const filePath = req.file.path;
+
+        // Async processing — non-blocking
+        processABTest(orgId, abTest.id, filePath, callCategory, user?.username || "admin").catch(async (error) => {
+          logger.error({ testId: abTest.id, err: error }, "A/B test processing failed");
+          try {
+            await storage.updateABTest(orgId, abTest.id, { status: "failed" });
+          } catch (err) {
+            logger.warn({ err, testId: abTest.id }, "Failed to update A/B test status to failed");
+          }
+        });
+
+        res.status(201).json(abTest);
+      } catch (error) {
+        logger.error({ err: error }, "Error starting A/B test");
+        if (req.file?.path) await cleanupFile(req.file.path);
+        res.status(500).json({ message: "Failed to start A/B test" });
       }
-
-      const { testModel } = req.body;
-      const validModels = BEDROCK_MODEL_PRESETS.map(m => m.value) as string[];
-      if (!testModel || !validModels.includes(testModel)) {
-        await cleanupFile(req.file.path);
-        res.status(400).json({ message: `Invalid model. Must be one of: ${validModels.join(", ")}` });
-        return;
-      }
-      const abValidCategories = CALL_CATEGORIES.map(c => c.value) as string[];
-      const callCategory = abValidCategories.includes(req.body.callCategory) ? req.body.callCategory : undefined;
-
-      const user = req.user;
-      const orgId = req.orgId!;
-      const baselineModel = process.env.BEDROCK_MODEL || "us.anthropic.claude-sonnet-4-6";
-
-      const abTest = await storage.createABTest(orgId, {
-        orgId,
-        fileName: req.file.originalname,
-        callCategory: callCategory || undefined,
-        baselineModel,
-        testModel,
-        status: "processing",
-        createdBy: user?.username || "admin",
-      });
-
-      const filePath = req.file.path;
-
-      // Async processing — non-blocking
-      processABTest(orgId, abTest.id, filePath, callCategory, user?.username || "admin").catch(async (error) => {
-        logger.error({ testId: abTest.id, err: error }, "A/B test processing failed");
-        try {
-          await storage.updateABTest(orgId, abTest.id, { status: "failed" });
-        } catch (err) { logger.warn({ err, testId: abTest.id }, "Failed to update A/B test status to failed"); }
-      });
-
-      res.status(201).json(abTest);
-    } catch (error) {
-      logger.error({ err: error }, "Error starting A/B test");
-      if (req.file?.path) await cleanupFile(req.file.path);
-      res.status(500).json({ message: "Failed to start A/B test" });
-    }
-  });
+    },
+  );
 
   // Export A/B test result as JSON
   app.get("/api/ab-tests/:id/export", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
@@ -132,8 +144,9 @@ export function registerABTestRoutes(app: Express): void {
         res.status(400).json({ message: "Test must be completed before export" });
         return;
       }
-      const baselineLabel = BEDROCK_MODEL_PRESETS.find(m => m.value === test.baselineModel)?.label || test.baselineModel;
-      const testLabel = BEDROCK_MODEL_PRESETS.find(m => m.value === test.testModel)?.label || test.testModel;
+      const baselineLabel =
+        BEDROCK_MODEL_PRESETS.find((m) => m.value === test.baselineModel)?.label || test.baselineModel;
+      const testLabel = BEDROCK_MODEL_PRESETS.find((m) => m.value === test.testModel)?.label || test.testModel;
       const exportData = {
         testId: test.id,
         fileName: test.fileName,
@@ -181,8 +194,13 @@ export function registerABTestRoutes(app: Express): void {
   });
 
   // --- Batch upload: test multiple calls at once ---
-  app.post("/api/ab-tests/batch", requireAuth, requireRole("admin"), injectOrgContext,
-    requireActiveSubscription(), requirePlanFeature("abTestingEnabled", "A/B model testing requires a Pro or Enterprise plan"),
+  app.post(
+    "/api/ab-tests/batch",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    requireActiveSubscription(),
+    requirePlanFeature("abTestingEnabled", "A/B model testing requires a Pro or Enterprise plan"),
     upload.array("audioFiles", 50),
     async (req, res) => {
       try {
@@ -196,13 +214,13 @@ export function registerABTestRoutes(app: Express): void {
         }
 
         const { testModel } = req.body;
-        const validModels = BEDROCK_MODEL_PRESETS.map(m => m.value) as string[];
+        const validModels = BEDROCK_MODEL_PRESETS.map((m) => m.value) as string[];
         if (!testModel || !validModels.includes(testModel)) {
           for (const f of files) await cleanupFile(f.path);
           return res.status(400).json({ message: `Invalid model. Must be one of: ${validModels.join(", ")}` });
         }
 
-        const abValidCategories = CALL_CATEGORIES.map(c => c.value) as string[];
+        const abValidCategories = CALL_CATEGORIES.map((c) => c.value) as string[];
         const callCategory = abValidCategories.includes(req.body.callCategory) ? req.body.callCategory : undefined;
         const orgId = req.orgId!;
         const baselineModel = process.env.BEDROCK_MODEL || "us.anthropic.claude-sonnet-4-6";
@@ -228,7 +246,9 @@ export function registerABTestRoutes(app: Express): void {
             logger.error({ testId: abTest.id, err: error }, "Batch A/B test processing failed");
             try {
               await storage.updateABTest(orgId, abTest.id, { status: "failed" });
-            } catch (err) { logger.warn({ err }, "Failed to update batch test status"); }
+            } catch (err) {
+              logger.warn({ err }, "Failed to update batch test status");
+            }
           });
         }
 
@@ -248,15 +268,15 @@ export function registerABTestRoutes(app: Express): void {
     try {
       const orgId = req.orgId!;
       const allTests = await storage.getAllABTests(orgId);
-      const batchTests = allTests.filter(t => t.batchId === req.params.batchId);
+      const batchTests = allTests.filter((t) => t.batchId === req.params.batchId);
 
       if (batchTests.length === 0) {
         return res.status(404).json({ message: "Batch not found" });
       }
 
-      const completed = batchTests.filter(t => t.status === "completed");
-      const processing = batchTests.filter(t => t.status === "processing" || t.status === "analyzing");
-      const failed = batchTests.filter(t => t.status === "failed");
+      const completed = batchTests.filter((t) => t.status === "completed");
+      const processing = batchTests.filter((t) => t.status === "processing" || t.status === "analyzing");
+      const failed = batchTests.filter((t) => t.status === "failed");
 
       res.json({
         batchId: req.params.batchId,
@@ -264,7 +284,7 @@ export function registerABTestRoutes(app: Express): void {
         completedCount: completed.length,
         processingCount: processing.length,
         failedCount: failed.length,
-        partialCount: batchTests.filter(t => t.status === "partial").length,
+        partialCount: batchTests.filter((t) => t.status === "partial").length,
         isComplete: processing.length === 0,
         tests: batchTests,
       });
@@ -280,10 +300,10 @@ export function registerABTestRoutes(app: Express): void {
       const allTests = await storage.getAllABTests(orgId);
       const { batchId, baselineModel, testModel } = req.query;
 
-      let tests = allTests.filter(t => t.status === "completed");
-      if (batchId) tests = tests.filter(t => t.batchId === batchId);
-      if (baselineModel) tests = tests.filter(t => t.baselineModel === baselineModel);
-      if (testModel) tests = tests.filter(t => t.testModel === testModel);
+      let tests = allTests.filter((t) => t.status === "completed");
+      if (batchId) tests = tests.filter((t) => t.batchId === batchId);
+      if (baselineModel) tests = tests.filter((t) => t.baselineModel === baselineModel);
+      if (testModel) tests = tests.filter((t) => t.testModel === testModel);
 
       if (tests.length === 0) {
         return res.json({ testCount: 0, message: "No completed tests found matching filters" });
@@ -301,7 +321,7 @@ export function registerABTestRoutes(app: Express): void {
     try {
       const orgId = req.orgId!;
       const allTests = await storage.getAllABTests(orgId);
-      const completed = allTests.filter(t => t.status === "completed");
+      const completed = allTests.filter((t) => t.status === "completed");
 
       // Group by call category
       const segments: Record<string, typeof completed> = {};
@@ -352,7 +372,7 @@ export function registerABTestRoutes(app: Express): void {
     try {
       const orgId = req.orgId!;
       const allTests = await storage.getAllABTests(orgId);
-      const completed = allTests.filter(t => t.status === "completed");
+      const completed = allTests.filter((t) => t.status === "completed");
 
       if (completed.length < 5) {
         return res.json({
@@ -397,8 +417,8 @@ export function registerABTestRoutes(app: Express): void {
         const [bModel, tModel] = pairKey.split("::");
         const stats = computeAggregateStats(pairTests);
 
-        const baselineLabel = BEDROCK_MODEL_PRESETS.find(m => m.value === bModel)?.label || bModel;
-        const testLabel = BEDROCK_MODEL_PRESETS.find(m => m.value === tModel)?.label || tModel;
+        const baselineLabel = BEDROCK_MODEL_PRESETS.find((m) => m.value === bModel)?.label || bModel;
+        const testLabel = BEDROCK_MODEL_PRESETS.find((m) => m.value === tModel)?.label || tModel;
 
         let recommendation: string;
         let confidence: string;
@@ -411,7 +431,12 @@ export function registerABTestRoutes(app: Express): void {
           recommendation = `No statistically significant difference between ${baselineLabel} and ${testLabel}. Continue testing to gather more data.`;
           confidence = "low";
         } else if (scoreDiff > 0.5) {
-          const costNote = costDiff > 5 ? ` (${costDiff.toFixed(0)}% more expensive)` : costDiff < -5 ? ` (${Math.abs(costDiff).toFixed(0)}% cheaper)` : "";
+          const costNote =
+            costDiff > 5
+              ? ` (${costDiff.toFixed(0)}% more expensive)`
+              : costDiff < -5
+                ? ` (${Math.abs(costDiff).toFixed(0)}% cheaper)`
+                : "";
           recommendation = `Consider switching to ${testLabel} — scores ${scoreDiff.toFixed(1)} points higher on average${costNote}.`;
           confidence = pairTests.length >= 10 ? "high" : "moderate";
         } else if (scoreDiff < -0.5) {
@@ -433,7 +458,7 @@ export function registerABTestRoutes(app: Express): void {
           categories[cat].push(t);
         }
 
-        const categoryRecs: typeof recommendations[0]["categoryRecommendations"] = [];
+        const categoryRecs: (typeof recommendations)[0]["categoryRecommendations"] = [];
         for (const [cat, catTests] of Object.entries(categories)) {
           if (catTests.length < 2) continue;
           const catStats = computeAggregateStats(catTests);
@@ -496,7 +521,10 @@ function extractSubScore(analysis: any, field: string): number | null {
  * Welch's t-test for two independent samples (unequal variance).
  * Returns { tStatistic, degreesOfFreedom, pValue }.
  */
-function welchTTest(sample1: number[], sample2: number[]): { tStatistic: number; degreesOfFreedom: number; pValue: number } | null {
+function welchTTest(
+  sample1: number[],
+  sample2: number[],
+): { tStatistic: number; degreesOfFreedom: number; pValue: number } | null {
   if (sample1.length < 2 || sample2.length < 2) return null;
 
   const n1 = sample1.length;
@@ -540,7 +568,7 @@ function tDistPValue(absT: number, df: number): number {
     return 2 * normalCdfComplement(absT);
   }
   // Cornish-Fisher approximation: transform t → z for moderate df
-  const adjustedZ = absT * Math.pow(1 + absT * absT / df, -0.5);
+  const adjustedZ = absT * Math.pow(1 + (absT * absT) / df, -0.5);
   return Math.min(1, 2 * normalCdfComplement(adjustedZ));
 }
 
@@ -548,14 +576,14 @@ function tDistPValue(absT: number, df: number): number {
 function normalCdfComplement(z: number): number {
   // Abramowitz & Stegun approximation 26.2.17
   const p = 0.2316419;
-  const b1 = 0.319381530;
+  const b1 = 0.31938153;
   const b2 = -0.356563782;
   const b3 = 1.781477937;
   const b4 = -1.821255978;
   const b5 = 1.330274429;
 
   const t = 1 / (1 + p * Math.abs(z));
-  const phi = Math.exp(-z * z / 2) / Math.sqrt(2 * Math.PI);
+  const phi = Math.exp((-z * z) / 2) / Math.sqrt(2 * Math.PI);
   const cdf = phi * (b1 * t + b2 * t * t + b3 * Math.pow(t, 3) + b4 * Math.pow(t, 4) + b5 * Math.pow(t, 5));
   return z >= 0 ? cdf : 1 - cdf;
 }
@@ -605,7 +633,7 @@ function computeAggregateStats(tests: any[]) {
     }
   }
 
-  const avg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+  const avg = (arr: number[]) => (arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
   const round2 = (n: number) => Math.round(n * 100) / 100;
 
   const avgBaseline = avg(baselineScores);
@@ -614,13 +642,15 @@ function computeAggregateStats(tests: any[]) {
 
   // Statistical significance via Welch's t-test
   const tTest = welchTTest(baselineScores, testScores);
-  const significance = tTest ? {
-    tStatistic: tTest.tStatistic,
-    degreesOfFreedom: tTest.degreesOfFreedom,
-    pValue: tTest.pValue,
-    isSignificant: tTest.pValue < 0.05,
-    confidenceLevel: tTest.pValue < 0.01 ? "99%" : tTest.pValue < 0.05 ? "95%" : "not significant",
-  } : null;
+  const significance = tTest
+    ? {
+        tStatistic: tTest.tStatistic,
+        degreesOfFreedom: tTest.degreesOfFreedom,
+        pValue: tTest.pValue,
+        isSignificant: tTest.pValue < 0.05,
+        confidenceLevel: tTest.pValue < 0.01 ? "99%" : tTest.pValue < 0.05 ? "95%" : "not significant",
+      }
+    : null;
 
   // Confidence interval for score difference (bootstrap-free, using t-distribution)
   let confidenceInterval: { lower: number; upper: number; level: string } | null = null;
@@ -666,9 +696,10 @@ function computeAggregateStats(tests: any[]) {
   const latencyComparison = {
     avgBaselineMs: Math.round(avg(baselineLatencies)),
     avgTestMs: Math.round(avg(testLatencies)),
-    percentDiff: avg(baselineLatencies) > 0
-      ? round2(((avg(testLatencies) - avg(baselineLatencies)) / avg(baselineLatencies)) * 100)
-      : 0,
+    percentDiff:
+      avg(baselineLatencies) > 0
+        ? round2(((avg(testLatencies) - avg(baselineLatencies)) / avg(baselineLatencies)) * 100)
+        : 0,
   };
 
   return {
@@ -687,7 +718,13 @@ function computeAggregateStats(tests: any[]) {
 }
 
 // --- A/B test processing pipeline ---
-async function processABTest(orgId: string, testId: string, filePath: string, callCategory?: string, userName?: string) {
+async function processABTest(
+  orgId: string,
+  testId: string,
+  filePath: string,
+  callCategory?: string,
+  userName?: string,
+) {
   logger.info({ testId }, "Starting A/B model comparison");
   try {
     const abTest = await storage.getABTest(orgId, testId);
@@ -748,12 +785,22 @@ async function processABTest(orgId: string, testId: string, filePath: string, ca
     const [baselineResult, testResult] = await Promise.allSettled([
       (async () => {
         const start = Date.now();
-        const analysis = await baselineProvider.analyzeCallTranscript(transcriptText, `ab-baseline-${testId}`, callCategory, promptTemplate);
+        const analysis = await baselineProvider.analyzeCallTranscript(
+          transcriptText,
+          `ab-baseline-${testId}`,
+          callCategory,
+          promptTemplate,
+        );
         return { analysis, latencyMs: Date.now() - start };
       })(),
       (async () => {
         const start = Date.now();
-        const analysis = await testProvider.analyzeCallTranscript(transcriptText, `ab-test-${testId}`, callCategory, promptTemplate);
+        const analysis = await testProvider.analyzeCallTranscript(
+          transcriptText,
+          `ab-test-${testId}`,
+          callCategory,
+          promptTemplate,
+        );
         return { analysis, latencyMs: Date.now() - start };
       })(),
     ]);
@@ -801,9 +848,7 @@ async function processABTest(orgId: string, testId: string, filePath: string, ca
     try {
       // Estimate audio duration from transcript word count (~150 words/min conversational speech)
       const wordCount = transcriptText.split(/\s+/).length;
-      const audioDuration = wordCount > 0
-        ? Math.max(30, Math.ceil((wordCount / 150) * 60))
-        : 60;
+      const audioDuration = wordCount > 0 ? Math.max(30, Math.ceil((wordCount / 150) * 60)) : 60;
       const assemblyaiCost = estimateAssemblyAICost(audioDuration);
       // Token estimation: ~1.3 tokens per word for English text, plus system prompt overhead (~500 tokens)
       const estimatedInputTokens = Math.ceil(wordCount * 1.3) + 500;
@@ -854,15 +899,19 @@ async function processABTest(orgId: string, testId: string, filePath: string, ca
 
     // Track in standard usage events for quota enforcement — only count successful invocations
     trackUsage({ orgId, eventType: "transcription", quantity: 1, metadata: { callId: testId, type: "ab-test" } });
-    const successfulModels = [baselineResult, testResult].filter(r => r.status === "fulfilled").length;
+    const successfulModels = [baselineResult, testResult].filter((r) => r.status === "fulfilled").length;
     if (successfulModels > 0) {
-      trackUsage({ orgId, eventType: "ai_analysis", quantity: successfulModels, metadata: { callId: testId, type: "ab-test" } });
+      trackUsage({
+        orgId,
+        eventType: "ai_analysis",
+        quantity: successfulModels,
+        metadata: { callId: testId, type: "ab-test" },
+      });
     }
 
     await cleanupFile(filePath);
     broadcastCallUpdate(testId, "ab-test-completed", { label: "A/B test complete" }, orgId);
     logger.info({ testId }, "A/B comparison complete");
-
   } catch (error) {
     logger.error({ testId, err: error }, "A/B test processing error");
     await storage.updateABTest(orgId, testId, { status: "failed" });

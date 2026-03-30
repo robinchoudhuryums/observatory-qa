@@ -7,7 +7,15 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import {  RiAddLine, RiDeleteBinLine, RiFileCopyLine, RiTimeLine, RiKeyLine, RiForbidLine, RiTeamLine  } from "@remixicon/react";
+import {
+  RiAddLine,
+  RiDeleteBinLine,
+  RiFileCopyLine,
+  RiTimeLine,
+  RiKeyLine,
+  RiForbidLine,
+  RiTeamLine,
+} from "@remixicon/react";
 
 interface ApiKeyRecord {
   id: string;
@@ -77,9 +85,7 @@ export default function ApiKeysTab() {
   });
 
   const togglePerm = (perm: string) => {
-    setKeyPerms(prev =>
-      prev.includes(perm) ? prev.filter(p => p !== perm) : [...prev, perm]
-    );
+    setKeyPerms((prev) => (prev.includes(perm) ? prev.filter((p) => p !== perm) : [...prev, perm]));
   };
 
   const copyKey = (key: string) => {
@@ -107,12 +113,7 @@ export default function ApiKeysTab() {
                 <RiFileCopyLine className="w-4 h-4" />
               </Button>
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="mt-2"
-              onClick={() => setNewlyCreatedKey(null)}
-            >
+            <Button variant="ghost" size="sm" className="mt-2" onClick={() => setNewlyCreatedKey(null)}>
               Dismiss
             </Button>
           </CardContent>
@@ -128,11 +129,19 @@ export default function ApiKeysTab() {
                 API Keys
               </CardTitle>
               <CardDescription>
-                Create API keys for programmatic access. Use the header: <code className="text-xs">Authorization: Bearer obs_k_...</code>
+                Create API keys for programmatic access. Use the header:{" "}
+                <code className="text-xs">Authorization: Bearer obs_k_...</code>
               </CardDescription>
             </div>
-            <Button size="sm" onClick={() => { setShowCreate(!showCreate); setNewlyCreatedKey(null); }}>
-              <RiAddLine className="w-4 h-4 mr-2" />New Key
+            <Button
+              size="sm"
+              onClick={() => {
+                setShowCreate(!showCreate);
+                setNewlyCreatedKey(null);
+              }}
+            >
+              <RiAddLine className="w-4 h-4 mr-2" />
+              New Key
             </Button>
           </div>
         </CardHeader>
@@ -154,7 +163,12 @@ export default function ApiKeysTab() {
               >
                 <div>
                   <label className="text-xs font-medium text-muted-foreground">Key Name</label>
-                  <Input value={keyName} onChange={(e) => setKeyName(e.target.value)} placeholder="Production API" required />
+                  <Input
+                    value={keyName}
+                    onChange={(e) => setKeyName(e.target.value)}
+                    placeholder="Production API"
+                    required
+                  />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground">Permissions</label>
@@ -190,7 +204,9 @@ export default function ApiKeysTab() {
                   <Button type="submit" size="sm" disabled={createMutation.isPending}>
                     {createMutation.isPending ? "Creating..." : "Create Key"}
                   </Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setShowCreate(false)}>Cancel</Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setShowCreate(false)}>
+                    Cancel
+                  </Button>
                 </div>
               </form>
             </div>
@@ -199,7 +215,9 @@ export default function ApiKeysTab() {
           {/* Keys List */}
           {isLoading ? (
             <div className="space-y-3">
-              {Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}
+              {Array.from({ length: 2 }).map((_, i) => (
+                <Skeleton key={i} className="h-16 w-full" />
+              ))}
             </div>
           ) : !keys || keys.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
@@ -209,7 +227,10 @@ export default function ApiKeysTab() {
           ) : (
             <div className="space-y-2">
               {keys.map((k) => (
-                <div key={k.id} className="flex items-center gap-4 p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors">
+                <div
+                  key={k.id}
+                  className="flex items-center gap-4 p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors"
+                >
                   <div className="w-10 h-10 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full flex items-center justify-center shrink-0">
                     <RiKeyLine className="w-4 h-4 text-primary" />
                   </div>
@@ -217,10 +238,13 @@ export default function ApiKeysTab() {
                     <div className="flex items-center gap-2">
                       <p className="font-medium text-foreground">{k.name}</p>
                       <code className="text-xs text-muted-foreground font-mono">{k.keyPrefix}...</code>
-                      <Badge className={k.status === "active"
-                        ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
-                        : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
-                      }>
+                      <Badge
+                        className={
+                          k.status === "active"
+                            ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                            : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
+                        }
+                      >
                         {k.status}
                       </Badge>
                     </div>
@@ -294,18 +318,21 @@ function OAuthStatusCard() {
                 <p className="text-xs text-muted-foreground">Sign in with Google Workspace</p>
               </div>
             </div>
-            <Badge className={providers?.google
-              ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
-              : "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400"
-            }>
+            <Badge
+              className={
+                providers?.google
+                  ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                  : "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400"
+              }
+            >
               {providers?.google ? "Configured" : "Not configured"}
             </Badge>
           </div>
           {!providers?.google && (
             <p className="text-xs text-muted-foreground">
               Set <code className="bg-muted px-1 rounded">GOOGLE_CLIENT_ID</code> and{" "}
-              <code className="bg-muted px-1 rounded">GOOGLE_CLIENT_SECRET</code> environment variables to enable.
-              Users with matching email domains will be auto-provisioned.
+              <code className="bg-muted px-1 rounded">GOOGLE_CLIENT_SECRET</code> environment variables to enable. Users
+              with matching email domains will be auto-provisioned.
             </p>
           )}
         </div>

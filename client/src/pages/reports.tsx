@@ -8,11 +8,52 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import type { Employee } from "@shared/schema";
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import {
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from "recharts";
 import { useAppName } from "@/hooks/use-organization";
 import { HelpTip } from "@/components/ui/help-tip";
 import OwlLoading from "@/components/owl-loading";
-import {  RiDownloadLine, RiBarChartLine, RiBarChartBoxLine, RiEmotionLine, RiStarLine, RiUserLine, RiTeamLine, RiArrowRightUpLine, RiCalendarLine, RiArrowRightLine, RiVoiceprintLine, RiArrowUpSLine, RiArrowDownSLine, RiSparklingLine, RiPhoneLine, RiAlertLine, RiAwardLine, RiPlayLine, RiPauseLine, RiEyeLine, RiEqualizerLine, RiShieldLine, RiChat1Line, RiHeadphoneLine, RiCheckboxCircleLine, RiUploadLine, RiCheckLine, RiFilterLine, RiInputMethodLine  } from "@remixicon/react";
+import {
+  RiDownloadLine,
+  RiBarChartLine,
+  RiBarChartBoxLine,
+  RiEmotionLine,
+  RiStarLine,
+  RiUserLine,
+  RiTeamLine,
+  RiArrowRightUpLine,
+  RiCalendarLine,
+  RiArrowRightLine,
+  RiVoiceprintLine,
+  RiArrowUpSLine,
+  RiArrowDownSLine,
+  RiSparklingLine,
+  RiPhoneLine,
+  RiAlertLine,
+  RiAwardLine,
+  RiPlayLine,
+  RiPauseLine,
+  RiEyeLine,
+  RiEqualizerLine,
+  RiShieldLine,
+  RiChat1Line,
+  RiHeadphoneLine,
+  RiCheckboxCircleLine,
+  RiUploadLine,
+  RiCheckLine,
+  RiFilterLine,
+  RiInputMethodLine,
+} from "@remixicon/react";
 
 // ---- Types ----
 
@@ -23,7 +64,14 @@ interface FilteredReportData {
   metrics: { totalCalls: number; avgSentiment: number; avgPerformanceScore: number };
   sentiment: { positive: number; neutral: number; negative: number };
   performers: Array<{ id: string; name: string; role: string; avgPerformanceScore: number | null; totalCalls: number }>;
-  trends: Array<{ month: string; calls: number; avgScore: number | null; positive: number; neutral: number; negative: number }>;
+  trends: Array<{
+    month: string;
+    calls: number;
+    avgScore: number | null;
+    positive: number;
+    neutral: number;
+    negative: number;
+  }>;
   avgSubScores?: { compliance: number; customerExperience: number; communication: number; resolution: number } | null;
   autoAssignedCount?: number;
 }
@@ -167,7 +215,11 @@ export default function ReportsPage() {
 
   // Primary data
   const primaryQueryKey = ["/api/reports/filtered", buildParams(dateRange)];
-  const { data: report, isLoading, error: reportError } = useQuery<FilteredReportData>({
+  const {
+    data: report,
+    isLoading,
+    error: reportError,
+  } = useQuery<FilteredReportData>({
     queryKey: primaryQueryKey,
     queryFn: async () => {
       const res = await fetch(`/api/reports/filtered?${buildParams(dateRange)}`, { credentials: "include" });
@@ -204,11 +256,12 @@ export default function ReportsPage() {
   const handleDownloadReport = () => {
     if (!report) return;
     const lines: string[] = [];
-    const typeLabel = reportType === "employee"
-      ? `Employee Report: ${employees?.find(e => e.id === selectedEmployee)?.name || selectedEmployee}`
-      : reportType === "department"
-      ? `Department Report: ${selectedDepartment}`
-      : "Overall Report";
+    const typeLabel =
+      reportType === "employee"
+        ? `Employee Report: ${employees?.find((e) => e.id === selectedEmployee)?.name || selectedEmployee}`
+        : reportType === "department"
+          ? `Department Report: ${selectedDepartment}`
+          : "Overall Report";
 
     lines.push(`${appName} Performance Report`);
     lines.push("===============================");
@@ -231,20 +284,24 @@ export default function ReportsPage() {
     lines.push("Performers");
     lines.push("----------");
     report.performers.forEach((p, i) => {
-      lines.push(`${i + 1}. ${p.name} — ${p.avgPerformanceScore != null ? Number(p.avgPerformanceScore).toFixed(1) : "N/A"}/10 (${p.totalCalls} calls)`);
+      lines.push(
+        `${i + 1}. ${p.name} — ${p.avgPerformanceScore != null ? Number(p.avgPerformanceScore).toFixed(1) : "N/A"}/10 (${p.totalCalls} calls)`,
+      );
     });
 
     if (agentProfile && reportType === "employee") {
       lines.push("");
       lines.push("Agent Profile Summary");
       lines.push("---------------------");
-      lines.push(`Score Range: ${agentProfile.lowScore?.toFixed(1) ?? "N/A"} - ${agentProfile.highScore?.toFixed(1) ?? "N/A"}`);
+      lines.push(
+        `Score Range: ${agentProfile.lowScore?.toFixed(1) ?? "N/A"} - ${agentProfile.highScore?.toFixed(1) ?? "N/A"}`,
+      );
       lines.push("");
       lines.push("Top Strengths:");
-      agentProfile.topStrengths.forEach(s => lines.push(`  - ${s.text} (x${s.count})`));
+      agentProfile.topStrengths.forEach((s) => lines.push(`  - ${s.text} (x${s.count})`));
       lines.push("");
       lines.push("Top Suggestions:");
-      agentProfile.topSuggestions.forEach(s => lines.push(`  - ${s.text} (x${s.count})`));
+      agentProfile.topSuggestions.forEach((s) => lines.push(`  - ${s.text} (x${s.count})`));
     }
 
     if (aiSummary) {
@@ -294,7 +351,7 @@ export default function ReportsPage() {
         <RiBarChartBoxLine className="w-12 h-12 mb-3 text-muted-foreground/50" />
         <p className="font-semibold text-foreground">No report data yet</p>
         <p className="text-sm mt-1">Upload and analyze some calls first, then come back to view reports.</p>
-        <Button variant="outline" className="mt-4" onClick={() => window.location.href = "/upload"}>
+        <Button variant="outline" className="mt-4" onClick={() => (window.location.href = "/upload")}>
           <RiUploadLine className="w-4 h-4 mr-2" /> Upload Calls
         </Button>
       </div>
@@ -343,11 +400,25 @@ export default function ReportsPage() {
           <div className="min-w-[160px]">
             <Label className="text-xs text-muted-foreground">Report Type</Label>
             <Select value={reportType} onValueChange={(v) => setReportType(v as ReportType)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="overall"><span className="flex items-center gap-1.5"><RiBarChartLine className="w-3.5 h-3.5" /> Overall</span></SelectItem>
-                <SelectItem value="employee"><span className="flex items-center gap-1.5"><RiUserLine className="w-3.5 h-3.5" /> Individual Employee</span></SelectItem>
-                <SelectItem value="department"><span className="flex items-center gap-1.5"><RiTeamLine className="w-3.5 h-3.5" /> Department</span></SelectItem>
+                <SelectItem value="overall">
+                  <span className="flex items-center gap-1.5">
+                    <RiBarChartLine className="w-3.5 h-3.5" /> Overall
+                  </span>
+                </SelectItem>
+                <SelectItem value="employee">
+                  <span className="flex items-center gap-1.5">
+                    <RiUserLine className="w-3.5 h-3.5" /> Individual Employee
+                  </span>
+                </SelectItem>
+                <SelectItem value="department">
+                  <span className="flex items-center gap-1.5">
+                    <RiTeamLine className="w-3.5 h-3.5" /> Department
+                  </span>
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -357,11 +428,17 @@ export default function ReportsPage() {
             <div className="min-w-[200px]">
               <Label className="text-xs text-muted-foreground">Employee</Label>
               <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
-                <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select employee" />
+                </SelectTrigger>
                 <SelectContent>
-                  {employees?.filter(e => e.status === "Active").map(emp => (
-                    <SelectItem key={emp.id} value={emp.id}>{emp.name}</SelectItem>
-                  ))}
+                  {employees
+                    ?.filter((e) => e.status === "Active")
+                    .map((emp) => (
+                      <SelectItem key={emp.id} value={emp.id}>
+                        {emp.name}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>
@@ -372,10 +449,14 @@ export default function ReportsPage() {
             <div className="min-w-[200px]">
               <Label className="text-xs text-muted-foreground">Department</Label>
               <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
-                <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select department" />
+                </SelectTrigger>
                 <SelectContent>
-                  {departments.map(dept => (
-                    <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                  {departments.map((dept) => (
+                    <SelectItem key={dept} value={dept}>
+                      {dept}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -386,9 +467,15 @@ export default function ReportsPage() {
           <div className="min-w-[160px]">
             <Label className="text-xs text-muted-foreground">Call Party</Label>
             <Select value={callPartyFilter} onValueChange={setCallPartyFilter}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all"><span className="flex items-center gap-1.5"><RiPhoneLine className="w-3.5 h-3.5" /> All Parties</span></SelectItem>
+                <SelectItem value="all">
+                  <span className="flex items-center gap-1.5">
+                    <RiPhoneLine className="w-3.5 h-3.5" /> All Parties
+                  </span>
+                </SelectItem>
                 <SelectItem value="customer">Customer</SelectItem>
                 <SelectItem value="insurance">Insurance</SelectItem>
                 <SelectItem value="medical_facility">Medical Facility</SelectItem>
@@ -403,7 +490,9 @@ export default function ReportsPage() {
           <div className="min-w-[160px]">
             <Label className="text-xs text-muted-foreground">Time Period</Label>
             <Select value={datePreset} onValueChange={(v) => setDatePreset(v as DatePreset)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="last30">Last 30 Days</SelectItem>
                 <SelectItem value="last90">Last 90 Days</SelectItem>
@@ -419,11 +508,21 @@ export default function ReportsPage() {
             <>
               <div>
                 <Label className="text-xs text-muted-foreground">From</Label>
-                <Input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="w-[150px]" />
+                <Input
+                  type="date"
+                  value={customFrom}
+                  onChange={(e) => setCustomFrom(e.target.value)}
+                  className="w-[150px]"
+                />
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">To</Label>
-                <Input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="w-[150px]" />
+                <Input
+                  type="date"
+                  value={customTo}
+                  onChange={(e) => setCustomTo(e.target.value)}
+                  className="w-[150px]"
+                />
               </div>
             </>
           )}
@@ -450,7 +549,9 @@ export default function ReportsPage() {
             </div>
             <div className="min-w-[160px]">
               <Select value={compareDatePreset} onValueChange={(v) => setCompareDatePreset(v as DatePreset)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="last30">Last 30 Days</SelectItem>
                   <SelectItem value="last90">Last 90 Days</SelectItem>
@@ -463,10 +564,20 @@ export default function ReportsPage() {
             {compareDatePreset === "custom" && (
               <>
                 <div>
-                  <Input type="date" value={compareCustomFrom} onChange={e => setCompareCustomFrom(e.target.value)} className="w-[150px]" />
+                  <Input
+                    type="date"
+                    value={compareCustomFrom}
+                    onChange={(e) => setCompareCustomFrom(e.target.value)}
+                    className="w-[150px]"
+                  />
                 </div>
                 <div>
-                  <Input type="date" value={compareCustomTo} onChange={e => setCompareCustomTo(e.target.value)} className="w-[150px]" />
+                  <Input
+                    type="date"
+                    value={compareCustomTo}
+                    onChange={(e) => setCompareCustomTo(e.target.value)}
+                    className="w-[150px]"
+                  />
                 </div>
               </>
             )}
@@ -481,341 +592,428 @@ export default function ReportsPage() {
             <RiBarChartLine className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
             <h3 className="text-lg font-semibold text-foreground mb-1">No data for this period</h3>
             <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">
-              No calls match the selected filters. Try adjusting the time period{reportType === "employee" ? ", employee selection," : ""} or report type.
+              No calls match the selected filters. Try adjusting the time period
+              {reportType === "employee" ? ", employee selection," : ""} or report type.
             </p>
           </div>
         )}
 
         {/* Metrics Cards */}
-        {report && report.metrics.totalCalls > 0 && (<>
-        <div className="bg-card rounded-lg border border-border p-6">
-          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
-            <RiBarChartLine className="w-5 h-5 mr-2" />
-            Metrics — {PRESET_LABELS[datePreset]}
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
-            <MetricCard
-              label="Total Calls Analyzed"
-              value={report?.metrics.totalCalls ?? 0}
-              format="int"
-              compareValue={compareEnabled && !isCompareLoading ? compareReport?.metrics.totalCalls : undefined}
-              delta={compareEnabled && !isCompareLoading ? delta(report?.metrics.totalCalls ?? 0, compareReport?.metrics.totalCalls) : null}
-            />
-            <MetricCard
-              label="Average Sentiment Score"
-              value={report?.metrics.avgSentiment ?? 0}
-              format="sentiment"
-              color="text-blue-500"
-              compareValue={compareEnabled && !isCompareLoading ? compareReport?.metrics.avgSentiment : undefined}
-              delta={compareEnabled && !isCompareLoading ? delta(report?.metrics.avgSentiment ?? 0, compareReport?.metrics.avgSentiment) : null}
-            />
-            <MetricCard
-              label="Average Performance Score"
-              value={report?.metrics.avgPerformanceScore ?? 0}
-              format="score"
-              color="text-green-500"
-              compareValue={compareEnabled && !isCompareLoading ? compareReport?.metrics.avgPerformanceScore : undefined}
-              delta={compareEnabled && !isCompareLoading ? delta(report?.metrics.avgPerformanceScore ?? 0, compareReport?.metrics.avgPerformanceScore) : null}
-            />
-            {compareEnabled && isCompareLoading && (
-              <div className="col-span-3 text-center text-sm text-muted-foreground">
-                <RiVoiceprintLine className="w-4 h-4 animate-spin inline mr-2" />
-                Loading comparison data...
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Detailed Sub-Scores (toggleable) */}
-        {report?.avgSubScores && (
-          <div className="bg-card rounded-lg border border-border p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-foreground flex items-center">
-                <RiEqualizerLine className="w-5 h-5 mr-2" />
-                Score Breakdown
+        {report && report.metrics.totalCalls > 0 && (
+          <>
+            <div className="bg-card rounded-lg border border-border p-6">
+              <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
+                <RiBarChartLine className="w-5 h-5 mr-2" />
+                Metrics — {PRESET_LABELS[datePreset]}
               </h3>
-              <Button
-                variant={showDetailedScores ? "default" : "outline"}
-                size="sm"
-                onClick={() => setShowDetailedScores(!showDetailedScores)}
-              >
-                {showDetailedScores ? "Hide Details" : "Show Details"}
-              </Button>
-            </div>
-            {showDetailedScores && (
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <SubScoreCard icon={RiShieldLine} label="Compliance" score={report.avgSubScores.compliance} color="text-blue-600" barColor="from-blue-500 to-blue-400" />
-                <SubScoreCard icon={RiHeadphoneLine} label="Customer Experience" score={report.avgSubScores.customerExperience} color="text-green-600" barColor="from-green-500 to-emerald-400" />
-                <SubScoreCard icon={RiChat1Line} label="Communication" score={report.avgSubScores.communication} color="text-purple-600" barColor="from-purple-500 to-violet-400" />
-                <SubScoreCard icon={RiCheckboxCircleLine} label="Resolution" score={report.avgSubScores.resolution} color="text-amber-600" barColor="from-amber-500 to-yellow-400" />
-              </div>
-            )}
-            {!showDetailedScores && (
-              <div className="flex gap-6">
-                {[
-                  { label: "Compliance", value: report.avgSubScores.compliance, color: "text-blue-600" },
-                  { label: "Customer Exp.", value: report.avgSubScores.customerExperience, color: "text-green-600" },
-                  { label: "Communication", value: report.avgSubScores.communication, color: "text-purple-600" },
-                  { label: "Resolution", value: report.avgSubScores.resolution, color: "text-amber-600" },
-                ].map(s => (
-                  <div key={s.label} className="text-center">
-                    <p className="text-xs text-muted-foreground">{s.label}</p>
-                    <p className={`text-lg font-bold ${s.color}`}>{s.value.toFixed(1)}</p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+                <MetricCard
+                  label="Total Calls Analyzed"
+                  value={report?.metrics.totalCalls ?? 0}
+                  format="int"
+                  compareValue={compareEnabled && !isCompareLoading ? compareReport?.metrics.totalCalls : undefined}
+                  delta={
+                    compareEnabled && !isCompareLoading
+                      ? delta(report?.metrics.totalCalls ?? 0, compareReport?.metrics.totalCalls)
+                      : null
+                  }
+                />
+                <MetricCard
+                  label="Average Sentiment Score"
+                  value={report?.metrics.avgSentiment ?? 0}
+                  format="sentiment"
+                  color="text-blue-500"
+                  compareValue={compareEnabled && !isCompareLoading ? compareReport?.metrics.avgSentiment : undefined}
+                  delta={
+                    compareEnabled && !isCompareLoading
+                      ? delta(report?.metrics.avgSentiment ?? 0, compareReport?.metrics.avgSentiment)
+                      : null
+                  }
+                />
+                <MetricCard
+                  label="Average Performance Score"
+                  value={report?.metrics.avgPerformanceScore ?? 0}
+                  format="score"
+                  color="text-green-500"
+                  compareValue={
+                    compareEnabled && !isCompareLoading ? compareReport?.metrics.avgPerformanceScore : undefined
+                  }
+                  delta={
+                    compareEnabled && !isCompareLoading
+                      ? delta(report?.metrics.avgPerformanceScore ?? 0, compareReport?.metrics.avgPerformanceScore)
+                      : null
+                  }
+                />
+                {compareEnabled && isCompareLoading && (
+                  <div className="col-span-3 text-center text-sm text-muted-foreground">
+                    <RiVoiceprintLine className="w-4 h-4 animate-spin inline mr-2" />
+                    Loading comparison data...
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Trend Chart */}
-        {report?.trends && report.trends.length > 0 && (
-          <div className="bg-card rounded-lg border border-border p-6">
-            <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
-              <RiArrowRightUpLine className="w-5 h-5 mr-2" />
-              Performance Trend
-            </h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={report.trends.map(t => ({ ...t, monthLabel: formatMonth(t.month) }))}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="monthLabel" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
-                <YAxis domain={[0, 10]} tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
-                <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
-                <Legend />
-                <Line type="monotone" dataKey="avgScore" name="Avg Score" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} />
-                <Line type="monotone" dataKey="calls" name="Call Volume" stroke="hsl(var(--muted-foreground))" strokeWidth={1} strokeDasharray="5 5" yAxisId="right" />
-                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-
-        {/* Sentiment Trend (stacked bar) */}
-        {report?.trends && report.trends.length > 0 && (
-          <div className="bg-card rounded-lg border border-border p-6">
-            <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
-              <RiEmotionLine className="w-5 h-5 mr-2" />
-              Sentiment Trend
-            </h3>
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={report.trends.map(t => ({ ...t, monthLabel: formatMonth(t.month) }))}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="monthLabel" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
-                <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
-                <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
-                <Legend />
-                <Bar dataKey="positive" name="Positive" stackId="sentiment" fill="#22c55e" />
-                <Bar dataKey="neutral" name="Neutral" stackId="sentiment" fill="#94a3b8" />
-                <Bar dataKey="negative" name="Negative" stackId="sentiment" fill="#ef4444" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-
-        {/* Top Performers & Sentiment Breakdown */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-card rounded-lg border border-border p-6">
-            <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
-              <RiStarLine className="w-5 h-5 mr-2" />
-              Top Performers
-            </h3>
-            {report?.performers && report.performers.length > 0 ? (
-              <ul className="space-y-3">
-                {report.performers.slice(0, 10).map((p, i) => (
-                  <li key={p.id || i} className="flex justify-between items-center">
-                    <span className="font-medium">
-                      <span className="text-muted-foreground mr-2">{i + 1}.</span>
-                      {p.name}
-                      <span className="text-xs text-muted-foreground ml-2">({p.totalCalls} calls)</span>
-                    </span>
-                    <span className="font-bold text-green-500">
-                      {p.avgPerformanceScore != null ? Number(p.avgPerformanceScore).toFixed(1) : "N/A"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-muted-foreground text-sm">No data for this period.</p>
-            )}
-          </div>
-
-          <div className="bg-card rounded-lg border border-border p-6">
-            <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
-              <RiEmotionLine className="w-5 h-5 mr-2" />
-              Sentiment Breakdown
-            </h3>
-            <ul className="space-y-3">
-              {(["positive", "neutral", "negative"] as const).map(key => {
-                const colors = { positive: "text-green-600", neutral: "text-gray-600", negative: "text-red-600" };
-                const current = report?.sentiment[key] ?? 0;
-                const prev = compareEnabled ? compareReport?.sentiment[key] : undefined;
-                const d = compareEnabled && prev !== undefined ? delta(current, prev) : null;
-                return (
-                  <li key={key} className="flex justify-between items-center">
-                    <span className={`font-medium capitalize ${colors[key]}`}>{key}</span>
-                    <span className="flex items-center gap-2">
-                      <span className="font-bold">{current}</span>
-                      {d && (
-                        <span className={`text-xs ${d.positive ? "text-green-500" : "text-red-500"}`}>
-                          ({d.positive ? "+" : ""}{d.pct}%)
-                        </span>
-                      )}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        </div>
-
-        {/* Agent Profile Section (employee reports only) */}
-        {reportType === "employee" && selectedEmployee && agentProfile && (
-          <div className="bg-card rounded-lg border border-border p-6">
-            <h3 className="text-lg font-semibold text-foreground mb-1 flex items-center">
-              <RiUserLine className="w-5 h-5 mr-2" />
-              Agent Profile: {agentProfile.employee.name}
-            </h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              Aggregated feedback from {agentProfile.totalCalls} analyzed calls
-              {agentProfile.employee.role && ` — ${agentProfile.employee.role}`}
-            </p>
-
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-              <div className="text-center p-3 bg-muted/30 rounded-lg">
-                <p className="text-xs text-muted-foreground">Avg Score</p>
-                <p className="text-2xl font-bold text-green-500">{agentProfile.avgPerformanceScore?.toFixed(1) ?? "N/A"}</p>
-              </div>
-              <div className="text-center p-3 bg-muted/30 rounded-lg">
-                <p className="text-xs text-muted-foreground">Best Score</p>
-                <p className="text-2xl font-bold">{agentProfile.highScore?.toFixed(1) ?? "N/A"}</p>
-              </div>
-              <div className="text-center p-3 bg-muted/30 rounded-lg">
-                <p className="text-xs text-muted-foreground">Lowest Score</p>
-                <p className="text-2xl font-bold">{agentProfile.lowScore?.toFixed(1) ?? "N/A"}</p>
-              </div>
-              <div className="text-center p-3 bg-muted/30 rounded-lg">
-                <p className="text-xs text-muted-foreground">Total Calls</p>
-                <p className="text-2xl font-bold">{agentProfile.totalCalls}</p>
+                )}
               </div>
             </div>
 
-            {/* Agent score trend */}
-            {agentProfile.scoreTrend.length > 1 && (
-              <div className="mb-6">
-                <h4 className="text-sm font-semibold text-foreground mb-2">Score Trend Over Time</h4>
-                <ResponsiveContainer width="100%" height={200}>
-                  <LineChart data={agentProfile.scoreTrend.map(t => ({ ...t, monthLabel: formatMonth(t.month) }))}>
+            {/* Detailed Sub-Scores (toggleable) */}
+            {report?.avgSubScores && (
+              <div className="bg-card rounded-lg border border-border p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-foreground flex items-center">
+                    <RiEqualizerLine className="w-5 h-5 mr-2" />
+                    Score Breakdown
+                  </h3>
+                  <Button
+                    variant={showDetailedScores ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setShowDetailedScores(!showDetailedScores)}
+                  >
+                    {showDetailedScores ? "Hide Details" : "Show Details"}
+                  </Button>
+                </div>
+                {showDetailedScores && (
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <SubScoreCard
+                      icon={RiShieldLine}
+                      label="Compliance"
+                      score={report.avgSubScores.compliance}
+                      color="text-blue-600"
+                      barColor="from-blue-500 to-blue-400"
+                    />
+                    <SubScoreCard
+                      icon={RiHeadphoneLine}
+                      label="Customer Experience"
+                      score={report.avgSubScores.customerExperience}
+                      color="text-green-600"
+                      barColor="from-green-500 to-emerald-400"
+                    />
+                    <SubScoreCard
+                      icon={RiChat1Line}
+                      label="Communication"
+                      score={report.avgSubScores.communication}
+                      color="text-purple-600"
+                      barColor="from-purple-500 to-violet-400"
+                    />
+                    <SubScoreCard
+                      icon={RiCheckboxCircleLine}
+                      label="Resolution"
+                      score={report.avgSubScores.resolution}
+                      color="text-amber-600"
+                      barColor="from-amber-500 to-yellow-400"
+                    />
+                  </div>
+                )}
+                {!showDetailedScores && (
+                  <div className="flex gap-6">
+                    {[
+                      { label: "Compliance", value: report.avgSubScores.compliance, color: "text-blue-600" },
+                      {
+                        label: "Customer Exp.",
+                        value: report.avgSubScores.customerExperience,
+                        color: "text-green-600",
+                      },
+                      { label: "Communication", value: report.avgSubScores.communication, color: "text-purple-600" },
+                      { label: "Resolution", value: report.avgSubScores.resolution, color: "text-amber-600" },
+                    ].map((s) => (
+                      <div key={s.label} className="text-center">
+                        <p className="text-xs text-muted-foreground">{s.label}</p>
+                        <p className={`text-lg font-bold ${s.color}`}>{s.value.toFixed(1)}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Trend Chart */}
+            {report?.trends && report.trends.length > 0 && (
+              <div className="bg-card rounded-lg border border-border p-6">
+                <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
+                  <RiArrowRightUpLine className="w-5 h-5 mr-2" />
+                  Performance Trend
+                </h3>
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={report.trends.map((t) => ({ ...t, monthLabel: formatMonth(t.month) }))}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis dataKey="monthLabel" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                    <YAxis domain={[0, 10]} tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                    <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
-                    <Line type="monotone" dataKey="avgScore" name="Avg Score" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} />
+                    <XAxis dataKey="monthLabel" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
+                    <YAxis domain={[0, 10]} tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
+                    />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="avgScore"
+                      name="Avg Score"
+                      stroke="hsl(var(--primary))"
+                      strokeWidth={2}
+                      dot={{ r: 4 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="calls"
+                      name="Call Volume"
+                      stroke="hsl(var(--muted-foreground))"
+                      strokeWidth={1}
+                      strokeDasharray="5 5"
+                      yAxisId="right"
+                    />
+                    <YAxis
+                      yAxisId="right"
+                      orientation="right"
+                      tick={{ fontSize: 12 }}
+                      stroke="hsl(var(--muted-foreground))"
+                    />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Strengths */}
-              <div>
-                <h4 className="text-sm font-semibold text-foreground mb-2 text-green-600">Recurring Strengths</h4>
-                {agentProfile.topStrengths.length > 0 ? (
-                  <ul className="space-y-1.5">
-                    {agentProfile.topStrengths.map((s, i) => (
-                      <li key={i} className="text-sm flex items-start gap-2">
-                        <span className="text-green-500 mt-0.5 shrink-0">+</span>
-                        <span className="capitalize">{s.text}</span>
-                        {s.count > 1 && <span className="text-xs text-muted-foreground shrink-0">x{s.count}</span>}
+            {/* Sentiment Trend (stacked bar) */}
+            {report?.trends && report.trends.length > 0 && (
+              <div className="bg-card rounded-lg border border-border p-6">
+                <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
+                  <RiEmotionLine className="w-5 h-5 mr-2" />
+                  Sentiment Trend
+                </h3>
+                <ResponsiveContainer width="100%" height={250}>
+                  <BarChart data={report.trends.map((t) => ({ ...t, monthLabel: formatMonth(t.month) }))}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="monthLabel" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
+                    <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
+                    />
+                    <Legend />
+                    <Bar dataKey="positive" name="Positive" stackId="sentiment" fill="#22c55e" />
+                    <Bar dataKey="neutral" name="Neutral" stackId="sentiment" fill="#94a3b8" />
+                    <Bar dataKey="negative" name="Negative" stackId="sentiment" fill="#ef4444" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* Top Performers & Sentiment Breakdown */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-card rounded-lg border border-border p-6">
+                <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
+                  <RiStarLine className="w-5 h-5 mr-2" />
+                  Top Performers
+                </h3>
+                {report?.performers && report.performers.length > 0 ? (
+                  <ul className="space-y-3">
+                    {report.performers.slice(0, 10).map((p, i) => (
+                      <li key={p.id || i} className="flex justify-between items-center">
+                        <span className="font-medium">
+                          <span className="text-muted-foreground mr-2">{i + 1}.</span>
+                          {p.name}
+                          <span className="text-xs text-muted-foreground ml-2">({p.totalCalls} calls)</span>
+                        </span>
+                        <span className="font-bold text-green-500">
+                          {p.avgPerformanceScore != null ? Number(p.avgPerformanceScore).toFixed(1) : "N/A"}
+                        </span>
                       </li>
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-sm text-muted-foreground">No data yet.</p>
+                  <p className="text-muted-foreground text-sm">No data for this period.</p>
                 )}
               </div>
 
-              {/* Suggestions */}
-              <div>
-                <h4 className="text-sm font-semibold text-foreground mb-2 text-amber-600">Recurring Suggestions</h4>
-                {agentProfile.topSuggestions.length > 0 ? (
-                  <ul className="space-y-1.5">
-                    {agentProfile.topSuggestions.map((s, i) => (
-                      <li key={i} className="text-sm flex items-start gap-2">
-                        <span className="text-amber-500 mt-0.5 shrink-0">!</span>
-                        <span className="capitalize">{s.text}</span>
-                        {s.count > 1 && <span className="text-xs text-muted-foreground shrink-0">x{s.count}</span>}
+              <div className="bg-card rounded-lg border border-border p-6">
+                <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
+                  <RiEmotionLine className="w-5 h-5 mr-2" />
+                  Sentiment Breakdown
+                </h3>
+                <ul className="space-y-3">
+                  {(["positive", "neutral", "negative"] as const).map((key) => {
+                    const colors = { positive: "text-green-600", neutral: "text-gray-600", negative: "text-red-600" };
+                    const current = report?.sentiment[key] ?? 0;
+                    const prev = compareEnabled ? compareReport?.sentiment[key] : undefined;
+                    const d = compareEnabled && prev !== undefined ? delta(current, prev) : null;
+                    return (
+                      <li key={key} className="flex justify-between items-center">
+                        <span className={`font-medium capitalize ${colors[key]}`}>{key}</span>
+                        <span className="flex items-center gap-2">
+                          <span className="font-bold">{current}</span>
+                          {d && (
+                            <span className={`text-xs ${d.positive ? "text-green-500" : "text-red-500"}`}>
+                              ({d.positive ? "+" : ""}
+                              {d.pct}%)
+                            </span>
+                          )}
+                        </span>
                       </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-muted-foreground">No data yet.</p>
+                    );
+                  })}
+                </ul>
+              </div>
+            </div>
+
+            {/* Agent Profile Section (employee reports only) */}
+            {reportType === "employee" && selectedEmployee && agentProfile && (
+              <div className="bg-card rounded-lg border border-border p-6">
+                <h3 className="text-lg font-semibold text-foreground mb-1 flex items-center">
+                  <RiUserLine className="w-5 h-5 mr-2" />
+                  Agent Profile: {agentProfile.employee.name}
+                </h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Aggregated feedback from {agentProfile.totalCalls} analyzed calls
+                  {agentProfile.employee.role && ` — ${agentProfile.employee.role}`}
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                  <div className="text-center p-3 bg-muted/30 rounded-lg">
+                    <p className="text-xs text-muted-foreground">Avg Score</p>
+                    <p className="text-2xl font-bold text-green-500">
+                      {agentProfile.avgPerformanceScore?.toFixed(1) ?? "N/A"}
+                    </p>
+                  </div>
+                  <div className="text-center p-3 bg-muted/30 rounded-lg">
+                    <p className="text-xs text-muted-foreground">Best Score</p>
+                    <p className="text-2xl font-bold">{agentProfile.highScore?.toFixed(1) ?? "N/A"}</p>
+                  </div>
+                  <div className="text-center p-3 bg-muted/30 rounded-lg">
+                    <p className="text-xs text-muted-foreground">Lowest Score</p>
+                    <p className="text-2xl font-bold">{agentProfile.lowScore?.toFixed(1) ?? "N/A"}</p>
+                  </div>
+                  <div className="text-center p-3 bg-muted/30 rounded-lg">
+                    <p className="text-xs text-muted-foreground">Total Calls</p>
+                    <p className="text-2xl font-bold">{agentProfile.totalCalls}</p>
+                  </div>
+                </div>
+
+                {/* Agent score trend */}
+                {agentProfile.scoreTrend.length > 1 && (
+                  <div className="mb-6">
+                    <h4 className="text-sm font-semibold text-foreground mb-2">Score Trend Over Time</h4>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <LineChart
+                        data={agentProfile.scoreTrend.map((t) => ({ ...t, monthLabel: formatMonth(t.month) }))}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis dataKey="monthLabel" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+                        <YAxis domain={[0, 10]} tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+                        <Tooltip
+                          contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="avgScore"
+                          name="Avg Score"
+                          stroke="hsl(var(--primary))"
+                          strokeWidth={2}
+                          dot={{ r: 4 }}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
                 )}
-              </div>
-            </div>
 
-            {/* Common topics */}
-            {agentProfile.commonTopics.length > 0 && (
-              <div className="mt-4 pt-4 border-t border-border">
-                <h4 className="text-sm font-semibold text-foreground mb-2">Common Call Topics</h4>
-                <div className="flex flex-wrap gap-2">
-                  {agentProfile.commonTopics.map((t, i) => (
-                    <span key={i} className="inline-flex items-center px-2.5 py-1 rounded-full text-xs bg-primary/10 text-primary font-medium capitalize">
-                      {t.text}
-                      {t.count > 1 && <span className="ml-1 text-muted-foreground">({t.count})</span>}
-                    </span>
-                  ))}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Strengths */}
+                  <div>
+                    <h4 className="text-sm font-semibold text-foreground mb-2 text-green-600">Recurring Strengths</h4>
+                    {agentProfile.topStrengths.length > 0 ? (
+                      <ul className="space-y-1.5">
+                        {agentProfile.topStrengths.map((s, i) => (
+                          <li key={i} className="text-sm flex items-start gap-2">
+                            <span className="text-green-500 mt-0.5 shrink-0">+</span>
+                            <span className="capitalize">{s.text}</span>
+                            {s.count > 1 && <span className="text-xs text-muted-foreground shrink-0">x{s.count}</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No data yet.</p>
+                    )}
+                  </div>
+
+                  {/* Suggestions */}
+                  <div>
+                    <h4 className="text-sm font-semibold text-foreground mb-2 text-amber-600">Recurring Suggestions</h4>
+                    {agentProfile.topSuggestions.length > 0 ? (
+                      <ul className="space-y-1.5">
+                        {agentProfile.topSuggestions.map((s, i) => (
+                          <li key={i} className="text-sm flex items-start gap-2">
+                            <span className="text-amber-500 mt-0.5 shrink-0">!</span>
+                            <span className="capitalize">{s.text}</span>
+                            {s.count > 1 && <span className="text-xs text-muted-foreground shrink-0">x{s.count}</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No data yet.</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Common topics */}
+                {agentProfile.commonTopics.length > 0 && (
+                  <div className="mt-4 pt-4 border-t border-border">
+                    <h4 className="text-sm font-semibold text-foreground mb-2">Common Call Topics</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {agentProfile.commonTopics.map((t, i) => (
+                        <span
+                          key={i}
+                          className="inline-flex items-center px-2.5 py-1 rounded-full text-xs bg-primary/10 text-primary font-medium capitalize"
+                        >
+                          {t.text}
+                          {t.count > 1 && <span className="ml-1 text-muted-foreground">({t.count})</span>}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Flagged Calls */}
+                {agentProfile.flaggedCalls && agentProfile.flaggedCalls.length > 0 && (
+                  <div className="mt-4 pt-4 border-t border-border">
+                    <h4 className="text-sm font-semibold text-foreground mb-3">Flagged Calls</h4>
+                    <div className="space-y-2">
+                      {agentProfile.flaggedCalls.map((fc) => (
+                        <FlaggedCallCard key={fc.id} call={fc} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* AI Summary */}
+                <div className="mt-4 pt-4 border-t border-border">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                      <RiSparklingLine className="w-4 h-4" /> AI Performance Summary
+                    </h4>
+                    <Button
+                      size="sm"
+                      variant={aiSummary ? "outline" : "default"}
+                      onClick={() => summaryMutation.mutate()}
+                      disabled={summaryMutation.isPending}
+                    >
+                      <RiSparklingLine className="w-3.5 h-3.5 mr-1.5" />
+                      {summaryMutation.isPending ? "Generating..." : aiSummary ? "Regenerate" : "Generate AI Summary"}
+                    </Button>
+                  </div>
+                  {summaryMutation.isError && (
+                    <p className="text-sm text-red-500 mb-2">
+                      <RiAlertLine className="w-3.5 h-3.5 inline mr-1" />
+                      {summaryMutation.error?.message || "Failed to generate summary"}
+                    </p>
+                  )}
+                  {aiSummary && (
+                    <div className="bg-muted/50 rounded-lg p-4 text-sm text-foreground whitespace-pre-wrap leading-relaxed">
+                      {aiSummary}
+                    </div>
+                  )}
+                  {!aiSummary && !summaryMutation.isPending && (
+                    <p className="text-sm text-muted-foreground">
+                      Click "Generate AI Summary" to create a narrative performance review based on aggregated call
+                      data.
+                    </p>
+                  )}
                 </div>
               </div>
             )}
-
-            {/* Flagged Calls */}
-            {agentProfile.flaggedCalls && agentProfile.flaggedCalls.length > 0 && (
-              <div className="mt-4 pt-4 border-t border-border">
-                <h4 className="text-sm font-semibold text-foreground mb-3">Flagged Calls</h4>
-                <div className="space-y-2">
-                  {agentProfile.flaggedCalls.map(fc => (
-                    <FlaggedCallCard key={fc.id} call={fc} />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* AI Summary */}
-            <div className="mt-4 pt-4 border-t border-border">
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
-                  <RiSparklingLine className="w-4 h-4" /> AI Performance Summary
-                </h4>
-                <Button
-                  size="sm"
-                  variant={aiSummary ? "outline" : "default"}
-                  onClick={() => summaryMutation.mutate()}
-                  disabled={summaryMutation.isPending}
-                >
-                  <RiSparklingLine className="w-3.5 h-3.5 mr-1.5" />
-                  {summaryMutation.isPending ? "Generating..." : aiSummary ? "Regenerate" : "Generate AI Summary"}
-                </Button>
-              </div>
-              {summaryMutation.isError && (
-                <p className="text-sm text-red-500 mb-2">
-                  <RiAlertLine className="w-3.5 h-3.5 inline mr-1" />
-                  {summaryMutation.error?.message || "Failed to generate summary"}
-                </p>
-              )}
-              {aiSummary && (
-                <div className="bg-muted/50 rounded-lg p-4 text-sm text-foreground whitespace-pre-wrap leading-relaxed">
-                  {aiSummary}
-                </div>
-              )}
-              {!aiSummary && !summaryMutation.isPending && (
-                <p className="text-sm text-muted-foreground">
-                  Click "Generate AI Summary" to create a narrative performance review based on aggregated call data.
-                </p>
-              )}
-            </div>
-          </div>
+          </>
         )}
-        </>)}
       </main>
     </div>
   );
@@ -839,21 +1037,30 @@ function MetricCard({
   delta: { diff: number; pct: string; positive: boolean } | null | undefined;
 }) {
   const formatted =
-    format === "int" ? String(value)
-    : format === "sentiment" ? value.toFixed(2)
-    : `${value.toFixed(1)}/10`;
+    format === "int" ? String(value) : format === "sentiment" ? value.toFixed(2) : `${value.toFixed(1)}/10`;
 
   return (
     <div>
       <p className="text-sm text-muted-foreground">{label}</p>
       <p className={`text-3xl font-bold ${color || ""}`}>{formatted}</p>
       {d && (
-        <div className={`flex items-center justify-center gap-1 mt-1 text-xs ${d.positive ? "text-green-500" : "text-red-500"}`}>
+        <div
+          className={`flex items-center justify-center gap-1 mt-1 text-xs ${d.positive ? "text-green-500" : "text-red-500"}`}
+        >
           {d.positive ? <RiArrowUpSLine className="w-3 h-3" /> : <RiArrowDownSLine className="w-3 h-3" />}
-          <span>{d.positive ? "+" : ""}{d.pct}%</span>
+          <span>
+            {d.positive ? "+" : ""}
+            {d.pct}%
+          </span>
           {compareValue !== undefined && (
             <span className="text-muted-foreground ml-1">
-              (was {format === "int" ? compareValue : format === "sentiment" ? compareValue.toFixed(2) : `${compareValue.toFixed(1)}`})
+              (was{" "}
+              {format === "int"
+                ? compareValue
+                : format === "sentiment"
+                  ? compareValue.toFixed(2)
+                  : `${compareValue.toFixed(1)}`}
+              )
             </span>
           )}
         </div>
@@ -862,7 +1069,9 @@ function MetricCard({
   );
 }
 
-function FlaggedCallCard({ call }: {
+function FlaggedCallCard({
+  call,
+}: {
   call: {
     id: string;
     fileName?: string;
@@ -929,16 +1138,35 @@ function FlaggedCallCard({ call }: {
                 const isMisconduct = flag.startsWith("agent_misconduct");
                 const isLow = flag === "low_score";
                 const isMedicare = flag === "medicare_call";
-                const label = isExceptional ? "Exceptional" : isMisconduct ? "Misconduct" : isLow ? "Low Score" : isMedicare ? "Medicare" : flag;
-                const color = isExceptional ? "bg-emerald-200 text-emerald-900" : isMisconduct ? "bg-red-200 text-red-900" : isMedicare ? "bg-blue-200 text-blue-900" : "bg-amber-200 text-amber-900";
-                return <Badge key={i} className={`${color} text-[10px] px-1.5 py-0`}>{label}</Badge>;
+                const label = isExceptional
+                  ? "Exceptional"
+                  : isMisconduct
+                    ? "Misconduct"
+                    : isLow
+                      ? "Low Score"
+                      : isMedicare
+                        ? "Medicare"
+                        : flag;
+                const color = isExceptional
+                  ? "bg-emerald-200 text-emerald-900"
+                  : isMisconduct
+                    ? "bg-red-200 text-red-900"
+                    : isMedicare
+                      ? "bg-blue-200 text-blue-900"
+                      : "bg-amber-200 text-amber-900";
+                return (
+                  <Badge key={i} className={`${color} text-[10px] px-1.5 py-0`}>
+                    {label}
+                  </Badge>
+                );
               })}
             </div>
           </div>
-          {call.summary && (
-            <p className="text-xs text-muted-foreground line-clamp-2">{call.summary}</p>
-          )}
-          <Link href={`/transcripts/${call.id}`} className="text-xs text-primary hover:underline mt-1 inline-flex items-center gap-1">
+          {call.summary && <p className="text-xs text-muted-foreground line-clamp-2">{call.summary}</p>}
+          <Link
+            href={`/transcripts/${call.id}`}
+            className="text-xs text-primary hover:underline mt-1 inline-flex items-center gap-1"
+          >
             <RiEyeLine className="w-3 h-3" /> View Full Call
           </Link>
         </div>
@@ -947,7 +1175,13 @@ function FlaggedCallCard({ call }: {
   );
 }
 
-function SubScoreCard({ icon: Icon, label, score, color, barColor }: {
+function SubScoreCard({
+  icon: Icon,
+  label,
+  score,
+  color,
+  barColor,
+}: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   score: number;
@@ -955,7 +1189,8 @@ function SubScoreCard({ icon: Icon, label, score, color, barColor }: {
   barColor: string;
 }) {
   const level = score >= 8 ? "Excellent" : score >= 6 ? "Good" : score >= 4 ? "Needs Work" : "Critical";
-  const levelColor = score >= 8 ? "text-green-600" : score >= 6 ? "text-blue-600" : score >= 4 ? "text-yellow-600" : "text-red-600";
+  const levelColor =
+    score >= 8 ? "text-green-600" : score >= 6 ? "text-blue-600" : score >= 4 ? "text-yellow-600" : "text-red-600";
   return (
     <div className="p-4 bg-muted/30 rounded-lg">
       <div className="flex items-center gap-2 mb-2">

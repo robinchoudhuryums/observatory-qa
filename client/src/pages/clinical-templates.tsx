@@ -6,7 +6,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import {  RiBookOpenLine, RiSearchLine, RiArrowLeftLine, RiFileTextLine, RiArrowDownSLine, RiArrowUpSLine, RiCodeLine  } from "@remixicon/react";
+import {
+  RiBookOpenLine,
+  RiSearchLine,
+  RiArrowLeftLine,
+  RiFileTextLine,
+  RiArrowDownSLine,
+  RiArrowUpSLine,
+  RiCodeLine,
+} from "@remixicon/react";
 
 interface ClinicalTemplate {
   id: string;
@@ -21,13 +29,19 @@ interface ClinicalTemplate {
 }
 
 const FORMAT_LABELS: Record<string, string> = {
-  soap: "SOAP", dap: "DAP", birp: "BIRP",
-  hpi_focused: "HPI-Focused", procedure_note: "Procedure Note",
+  soap: "SOAP",
+  dap: "DAP",
+  birp: "BIRP",
+  hpi_focused: "HPI-Focused",
+  procedure_note: "Procedure Note",
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
-  general: "General", dental: "Dental", behavioral_health: "Behavioral Health",
-  surgical: "Surgical", preventive: "Preventive",
+  general: "General",
+  dental: "Dental",
+  behavioral_health: "Behavioral Health",
+  surgical: "Surgical",
+  preventive: "Preventive",
 };
 
 export default function ClinicalTemplatesPage() {
@@ -78,7 +92,7 @@ export default function ClinicalTemplatesPage() {
           <Input
             placeholder="Search templates..."
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
           />
         </div>
@@ -89,7 +103,9 @@ export default function ClinicalTemplatesPage() {
           <SelectContent>
             <SelectItem value="all">All Categories</SelectItem>
             {Object.entries(CATEGORY_LABELS).map(([val, label]) => (
-              <SelectItem key={val} value={val}>{label}</SelectItem>
+              <SelectItem key={val} value={val}>
+                {label}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -100,7 +116,9 @@ export default function ClinicalTemplatesPage() {
           <SelectContent>
             <SelectItem value="all">All Formats</SelectItem>
             {Object.entries(FORMAT_LABELS).map(([val, label]) => (
-              <SelectItem key={val} value={val}>{label}</SelectItem>
+              <SelectItem key={val} value={val}>
+                {label}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -119,7 +137,7 @@ export default function ClinicalTemplatesPage() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {templates.map(tmpl => {
+          {templates.map((tmpl) => {
             const isExpanded = expandedId === tmpl.id;
             return (
               <Card key={tmpl.id} className="overflow-hidden">
@@ -176,7 +194,7 @@ export default function ClinicalTemplatesPage() {
                             Default Billing Codes
                           </h4>
                           <div className="flex flex-wrap gap-2">
-                            {tmpl.defaultCodes.map(code => (
+                            {tmpl.defaultCodes.map((code) => (
                               <Badge key={code.code} variant="outline" className="text-xs">
                                 {code.code}: {code.description}
                               </Badge>
@@ -187,16 +205,16 @@ export default function ClinicalTemplatesPage() {
 
                       {/* Tags */}
                       <div className="flex flex-wrap gap-1.5">
-                        {tmpl.tags.map(tag => (
-                          <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
+                        {tmpl.tags.map((tag) => (
+                          <Badge key={tag} variant="secondary" className="text-xs">
+                            {tag}
+                          </Badge>
                         ))}
                       </div>
 
                       {/* Use Template Button */}
                       <div className="flex justify-end pt-2">
-                        <Button onClick={() => navigate(`/clinical/upload?template=${tmpl.id}`)}>
-                          Use Template
-                        </Button>
+                        <Button onClick={() => navigate(`/clinical/upload?template=${tmpl.id}`)}>Use Template</Button>
                       </div>
                     </div>
                   </CardContent>

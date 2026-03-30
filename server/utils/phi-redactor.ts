@@ -41,7 +41,7 @@ export function redactPhi(text: string): string {
   result = result.replace(DATE_MMDDYYYY, REDACTED);
   result = result.replace(DATE_ISO, REDACTED);
   result = result.replace(MRN_PATTERN, REDACTED);
-  result = result.replace(MEDICARE_PATTERN, (match) => isClinicalCode(match) ? match : REDACTED);
+  result = result.replace(MEDICARE_PATTERN, (match) => (isClinicalCode(match) ? match : REDACTED));
   result = result.replace(MEDICAID_PATTERN, REDACTED);
   result = result.replace(EMAIL_PATTERN, REDACTED);
   result = result.replace(PHONE_PATTERN, REDACTED);

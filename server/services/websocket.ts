@@ -202,7 +202,12 @@ function cleanupClient(ws: WebSocket, orgId: string | undefined) {
  * When Redis is available, publishes to pub/sub so all instances deliver.
  * Otherwise, delivers only to local clients (single-instance mode).
  */
-export function broadcastCallUpdate(callId: string, status: string, extra: Record<string, any> | undefined, orgId: string) {
+export function broadcastCallUpdate(
+  callId: string,
+  status: string,
+  extra: Record<string, any> | undefined,
+  orgId: string,
+) {
   if (!wss) return;
   const message = JSON.stringify({ type: "call_update", callId, status, ...extra });
 

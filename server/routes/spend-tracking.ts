@@ -11,17 +11,17 @@ function filterRecords(records: UsageRecord[], query: Record<string, any>): Usag
   if (query.from && typeof query.from === "string") {
     const fromDate = new Date(query.from);
     if (!isNaN(fromDate.getTime())) {
-      filtered = filtered.filter(r => new Date(r.timestamp) >= fromDate);
+      filtered = filtered.filter((r) => new Date(r.timestamp) >= fromDate);
     }
   }
   if (query.to && typeof query.to === "string") {
     const toDate = new Date(query.to);
     if (!isNaN(toDate.getTime())) {
-      filtered = filtered.filter(r => new Date(r.timestamp) <= toDate);
+      filtered = filtered.filter((r) => new Date(r.timestamp) <= toDate);
     }
   }
   if (query.type && typeof query.type === "string") {
-    filtered = filtered.filter(r => r.type === query.type);
+    filtered = filtered.filter((r) => r.type === query.type);
   }
   return filtered;
 }
@@ -29,11 +29,10 @@ function filterRecords(records: UsageRecord[], query: Record<string, any>): Usag
 function getCurrentMonthRecords(records: UsageRecord[]): UsageRecord[] {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  return records.filter(r => new Date(r.timestamp) >= monthStart);
+  return records.filter((r) => new Date(r.timestamp) >= monthStart);
 }
 
 export function registerSpendTrackingRoutes(app: Express): void {
-
   // Get usage/spend records with optional date filtering and pagination
   app.get("/api/usage", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
     try {
@@ -74,7 +73,7 @@ export function registerSpendTrackingRoutes(app: Express): void {
       const records = await storage.getUsageRecords(req.orgId!);
       const now = new Date();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      const currentMonthRecords = records.filter(r => new Date(r.timestamp) >= monthStart);
+      const currentMonthRecords = records.filter((r) => new Date(r.timestamp) >= monthStart);
 
       const currentMonthSpend = currentMonthRecords.reduce((sum, r) => sum + (r.totalEstimatedCost || 0), 0);
       const dayOfMonth = now.getDate();
@@ -88,7 +87,7 @@ export function registerSpendTrackingRoutes(app: Express): void {
         const date = new Date(now);
         date.setDate(date.getDate() - i);
         const dateStr = date.toISOString().split("T")[0];
-        const dayRecords = records.filter(r => r.timestamp.startsWith(dateStr));
+        const dayRecords = records.filter((r) => r.timestamp.startsWith(dateStr));
         last7Days.push({
           date: dateStr,
           cost: Math.round(dayRecords.reduce((s, r) => s + (r.totalEstimatedCost || 0), 0) * 100) / 100,
@@ -99,7 +98,7 @@ export function registerSpendTrackingRoutes(app: Express): void {
       // Previous month comparison
       const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
       const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
-      const prevMonthRecords = records.filter(r => {
+      const prevMonthRecords = records.filter((r) => {
         const d = new Date(r.timestamp);
         return d >= prevMonthStart && d <= prevMonthEnd;
       });
@@ -108,7 +107,12 @@ export function registerSpendTrackingRoutes(app: Express): void {
       // Budget alert status
       const org = await storage.getOrganization(req.orgId!);
       const budgetConfig = (org?.settings as any)?.budgetAlerts;
-      let budgetStatus: { monthlyBudgetUsd: number; percentUsed: number; isOverBudget: boolean; projectedOverBudget: boolean } | null = null;
+      let budgetStatus: {
+        monthlyBudgetUsd: number;
+        percentUsed: number;
+        isOverBudget: boolean;
+        projectedOverBudget: boolean;
+      } | null = null;
       if (budgetConfig?.enabled && budgetConfig.monthlyBudgetUsd) {
         const pctUsed = Math.round((currentMonthSpend / budgetConfig.monthlyBudgetUsd) * 10000) / 100;
         budgetStatus = {
@@ -127,13 +131,14 @@ export function registerSpendTrackingRoutes(app: Express): void {
         daysInMonth,
         daysRemaining: daysInMonth - dayOfMonth,
         previousMonthSpend: Math.round(prevMonthSpend * 100) / 100,
-        monthOverMonthChange: prevMonthSpend > 0
-          ? Math.round(((projectedMonthlySpend - prevMonthSpend) / prevMonthSpend) * 10000) / 100
-          : null,
+        monthOverMonthChange:
+          prevMonthSpend > 0
+            ? Math.round(((projectedMonthlySpend - prevMonthSpend) / prevMonthSpend) * 10000) / 100
+            : null,
         last7Days,
         budgetStatus,
-        currentMonthCallCount: currentMonthRecords.filter(r => r.type === "call").length,
-        currentMonthABTestCount: currentMonthRecords.filter(r => r.type === "ab-test").length,
+        currentMonthCallCount: currentMonthRecords.filter((r) => r.type === "call").length,
+        currentMonthABTestCount: currentMonthRecords.filter((r) => r.type === "ab-test").length,
       });
     } catch (error) {
       logger.error({ err: error }, "Error computing spend forecast");
@@ -148,7 +153,7 @@ export function registerSpendTrackingRoutes(app: Express): void {
       const records = await storage.getUsageRecords(orgId);
       const filtered = filterRecords(records, req.query);
 
-      const callRecords = filtered.filter(r => r.type === "call");
+      const callRecords = filtered.filter((r) => r.type === "call");
       const totalCallCost = callRecords.reduce((s, r) => s + (r.totalEstimatedCost || 0), 0);
       const scoredCallCount = callRecords.length;
 
@@ -160,15 +165,20 @@ export function registerSpendTrackingRoutes(app: Express): void {
       try {
         const sessions = await storage.getAllCoachingSessions(orgId);
         coachingSessions = sessions.length;
-      } catch { /* non-critical */ }
-      const costPerCoachingSession = coachingSessions > 0 ? Math.round((totalCallCost / coachingSessions) * 100) / 100 : null;
+      } catch {
+        /* non-critical */
+      }
+      const costPerCoachingSession =
+        coachingSessions > 0 ? Math.round((totalCallCost / coachingSessions) * 100) / 100 : null;
 
       // Cost per converted call (revenue tracking)
       let convertedCalls = 0;
       try {
         const revenues = await storage.listCallRevenues(orgId, { conversionStatus: "converted" });
         convertedCalls = revenues.length;
-      } catch { /* non-critical */ }
+      } catch {
+        /* non-critical */
+      }
       const costPerConvertedCall = convertedCalls > 0 ? Math.round((totalCallCost / convertedCalls) * 100) / 100 : null;
 
       // Service breakdown
@@ -206,15 +216,18 @@ export function registerSpendTrackingRoutes(app: Express): void {
       const orgId = req.orgId!;
       const records = await storage.getUsageRecords(orgId);
       const filtered = filterRecords(records, req.query);
-      const callRecords = filtered.filter(r => r.type === "call");
+      const callRecords = filtered.filter((r) => r.type === "call");
 
       // Get all calls and employees to map callId → employee → subTeam
       const calls = await storage.getAllCalls(orgId);
-      const callMap = new Map(calls.map(c => [c.id, c]));
+      const callMap = new Map(calls.map((c) => [c.id, c]));
       const employees = await storage.getAllEmployees(orgId);
-      const employeeMap = new Map(employees.map(e => [e.id, e]));
+      const employeeMap = new Map(employees.map((e) => [e.id, e]));
 
-      const departments: Record<string, { cost: number; callCount: number; avgCostPerCall: number; employees: Set<string> }> = {};
+      const departments: Record<
+        string,
+        { cost: number; callCount: number; avgCostPerCall: number; employees: Set<string> }
+      > = {};
 
       for (const record of callRecords) {
         const call = callMap.get(record.callId);
@@ -276,7 +289,7 @@ export function registerSpendTrackingRoutes(app: Express): void {
         return res.json({ anomalies: [], message: "Need at least 5 records for anomaly detection" });
       }
 
-      const costs = filtered.map(r => r.totalEstimatedCost || 0);
+      const costs = filtered.map((r) => r.totalEstimatedCost || 0);
       const mean = costs.reduce((a, b) => a + b, 0) / costs.length;
       const stdDev = Math.sqrt(costs.reduce((sum, c) => sum + Math.pow(c - mean, 2), 0) / costs.length);
 
@@ -306,7 +319,8 @@ export function registerSpendTrackingRoutes(app: Express): void {
 
         // Check for unusually long transcription
         const duration = record.services?.assemblyai?.durationSeconds || 0;
-        const avgDuration = filtered.reduce((s, r) => s + (r.services?.assemblyai?.durationSeconds || 0), 0) / filtered.length;
+        const avgDuration =
+          filtered.reduce((s, r) => s + (r.services?.assemblyai?.durationSeconds || 0), 0) / filtered.length;
         if (duration > avgDuration * 3 && duration > 300) {
           reasons.push(`Audio duration ${Math.round(duration)}s is ${Math.round(duration / avgDuration)}× average`);
         }
@@ -366,7 +380,9 @@ export function registerSpendTrackingRoutes(app: Express): void {
       const { enabled, monthlyBudgetUsd, alertEmail } = req.body;
 
       if (enabled && (!monthlyBudgetUsd || monthlyBudgetUsd <= 0)) {
-        return res.status(400).json({ message: "monthlyBudgetUsd must be a positive number when budget alerts are enabled" });
+        return res
+          .status(400)
+          .json({ message: "monthlyBudgetUsd must be a positive number when budget alerts are enabled" });
       }
 
       const org = await storage.getOrganization(orgId);

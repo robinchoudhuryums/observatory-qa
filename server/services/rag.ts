@@ -51,7 +51,8 @@ export async function updateIndexingStatus(
   if (error !== undefined) setValues.indexingError = error;
   else if (status !== "failed") setValues.indexingError = null;
 
-  await db.update(tables.referenceDocuments)
+  await db
+    .update(tables.referenceDocuments)
     .set(setValues)
     .where(and(eq(tables.referenceDocuments.orgId, orgId), eq(tables.referenceDocuments.id, documentId)));
 }
@@ -84,8 +85,7 @@ export async function indexDocument(
 
   try {
     // Remove old chunks for this document (handles re-indexing)
-    await db.delete(tables.documentChunks)
-      .where(eq(tables.documentChunks.documentId, documentId));
+    await db.delete(tables.documentChunks).where(eq(tables.documentChunks.documentId, documentId));
 
     // Chunk the document
     const chunks = chunkDocument(documentId, extractedText, chunkOptions);
@@ -135,12 +135,8 @@ export async function indexDocument(
 /**
  * Remove all chunks for a document (called on document deletion).
  */
-export async function removeDocumentChunks(
-  db: NodePgDatabase,
-  documentId: string,
-): Promise<void> {
-  await db.delete(tables.documentChunks)
-    .where(eq(tables.documentChunks.documentId, documentId));
+export async function removeDocumentChunks(db: NodePgDatabase, documentId: string): Promise<void> {
+  await db.delete(tables.documentChunks).where(eq(tables.documentChunks.documentId, documentId));
 }
 
 /**
@@ -228,9 +224,13 @@ export async function searchRelevantChunks(
   }
 
   // Compute dynamic average document length from candidates
-  const avgDocLen = candidates.rows.length > 0
-    ? Math.round((candidates.rows as any[]).reduce((sum: number, r: any) => sum + tokenize(r.text).length, 0) / candidates.rows.length)
-    : 500;
+  const avgDocLen =
+    candidates.rows.length > 0
+      ? Math.round(
+          (candidates.rows as any[]).reduce((sum: number, r: any) => sum + tokenize(r.text).length, 0) /
+            candidates.rows.length,
+        )
+      : 500;
 
   // Apply BM25-style keyword boosting with dynamic avgDocLen
   const results: RetrievedChunk[] = (candidates.rows as any[]).map((row) => {
@@ -261,9 +261,13 @@ export async function searchRelevantChunks(
       const headerLower = result.sectionHeader.toLowerCase();
       const queryLower = queryText.toLowerCase();
       const queryTerms = queryLower.split(/\s+/);
-      if (queryTerms.some(term => headerLower.includes(term))) { boost += 0.15; }
+      if (queryTerms.some((term) => headerLower.includes(term))) {
+        boost += 0.15;
+      }
     }
-    if (result.text.length < 50) { boost -= 0.10; }
+    if (result.text.length < 50) {
+      boost -= 0.1;
+    }
     result.score = Math.max(0, result.score * (1 + boost));
   }
   timer.mark("rerank");
@@ -271,7 +275,7 @@ export async function searchRelevantChunks(
   // Sort by combined score, filter out low-relevance chunks, and return top K
   results.sort((a, b) => b.score - a.score);
   const MIN_RELEVANCE_SCORE = 0.3;
-  const relevant = results.filter(r => r.score >= MIN_RELEVANCE_SCORE);
+  const relevant = results.filter((r) => r.score >= MIN_RELEVANCE_SCORE);
   const finalResults = relevant.slice(0, topK);
 
   // Compute confidence for tracing and FAQ analytics
@@ -292,9 +296,7 @@ export async function searchRelevantChunks(
     candidateCount: candidates.rows.length,
     returnedCount: finalResults.length,
     topScore: finalResults.length > 0 ? finalResults[0].score : 0,
-    avgScore: finalResults.length > 0
-      ? finalResults.reduce((sum, c) => sum + c.score, 0) / finalResults.length
-      : 0,
+    avgScore: finalResults.length > 0 ? finalResults.reduce((sum, c) => sum + c.score, 0) / finalResults.length : 0,
     confidenceLevel: confidence.level,
     confidenceScore: confidence.score,
     injectionBlocked: false,
@@ -325,7 +327,10 @@ export function formatRetrievedContext(chunks: RetrievedChunk[]): string {
  * Scan AI/RAG output for PHI before returning to client.
  * Logs a warning if PHI is detected and returns a redacted version.
  */
-export function scanAndRedactOutput(text: string, context?: { orgId?: string; queryId?: string }): { text: string; phiDetected: boolean } {
+export function scanAndRedactOutput(
+  text: string,
+  context?: { orgId?: string; queryId?: string },
+): { text: string; phiDetected: boolean } {
   const redacted = redactPhi(text);
   const phiDetected = redacted !== text;
 
@@ -342,10 +347,7 @@ export function scanAndRedactOutput(text: string, context?: { orgId?: string; qu
 /**
  * Check if an org has any indexed document chunks.
  */
-export async function hasIndexedChunks(
-  db: NodePgDatabase,
-  orgId: string,
-): Promise<boolean> {
+export async function hasIndexedChunks(db: NodePgDatabase, orgId: string): Promise<boolean> {
   const result = await db.execute(sql`
     SELECT EXISTS(
       SELECT 1 FROM document_chunks WHERE org_id = ${orgId} AND embedding IS NOT NULL
@@ -358,10 +360,7 @@ export async function hasIndexedChunks(
  * Increment retrieval counts for documents whose chunks were used.
  * Fire-and-forget — does not block the caller.
  */
-export async function incrementRetrievalCounts(
-  db: NodePgDatabase,
-  documentIds: string[],
-): Promise<void> {
+export async function incrementRetrievalCounts(db: NodePgDatabase, documentIds: string[]): Promise<void> {
   if (documentIds.length === 0) return;
   const uniqueIds = Array.from(new Set(documentIds));
   await db.execute(sql`
@@ -379,7 +378,19 @@ export async function getDocumentChunks(
   orgId: string,
   documentId: string,
   options: { limit?: number; offset?: number } = {},
-): Promise<{ chunks: Array<{ id: string; chunkIndex: number; text: string; sectionHeader: string | null; tokenCount: number; charStart: number; charEnd: number; hasEmbedding: boolean }>; total: number }> {
+): Promise<{
+  chunks: Array<{
+    id: string;
+    chunkIndex: number;
+    text: string;
+    sectionHeader: string | null;
+    tokenCount: number;
+    charStart: number;
+    charEnd: number;
+    hasEmbedding: boolean;
+  }>;
+  total: number;
+}> {
   const limit = options.limit ?? 20;
   const offset = options.offset ?? 0;
 
@@ -399,7 +410,7 @@ export async function getDocumentChunks(
   ]);
 
   const total = parseInt((countResult.rows as any[])[0]?.total || "0");
-  const chunks = (rows.rows as any[]).map(r => ({
+  const chunks = (rows.rows as any[]).map((r) => ({
     id: r.id,
     chunkIndex: r.chunk_index,
     text: r.text,
@@ -460,7 +471,7 @@ export async function getKnowledgeBaseAnalytics(
     indexedDocuments: parseInt(stats.indexed || "0"),
     failedDocuments: parseInt(stats.failed || "0"),
     pendingDocuments: parseInt(stats.pending_count || "0"),
-    mostRetrievedDocs: (topDocs.rows as any[]).map(r => ({
+    mostRetrievedDocs: (topDocs.rows as any[]).map((r) => ({
       documentId: r.id,
       name: r.name,
       category: r.category,
@@ -514,37 +525,65 @@ function bm25Score(
 }
 
 const MEDICAL_SHORT_TOKENS = new Set([
-  'iv', 'o2', 'bp', 'hr', 'rr', 'rx', 'dx', 'tx', 'hx', 'sx',
-  'im', 'sc', 'po', 'bid', 'tid', 'qd', 'prn', 'ct', 'mr', 'us',
-  'mg', 'ml', 'kg', 'cm', 'mm', 'cc',
+  "iv",
+  "o2",
+  "bp",
+  "hr",
+  "rr",
+  "rx",
+  "dx",
+  "tx",
+  "hx",
+  "sx",
+  "im",
+  "sc",
+  "po",
+  "bid",
+  "tid",
+  "qd",
+  "prn",
+  "ct",
+  "mr",
+  "us",
+  "mg",
+  "ml",
+  "kg",
+  "cm",
+  "mm",
+  "cc",
 ]);
 
 function tokenize(text: string): string[] {
   const codePattern = /[A-Z]\d{2,4}\.?\d{0,2}|D\d{4}|E\d{4}|\d{5}/gi;
-  const codes = (text.match(codePattern) || []).map(c => c.toLowerCase());
-  const hyphenated = (text.match(/[a-zA-Z]+-[a-zA-Z]+/g) || []).map(h => h.toLowerCase());
+  const codes = (text.match(codePattern) || []).map((c) => c.toLowerCase());
+  const hyphenated = (text.match(/[a-zA-Z]+-[a-zA-Z]+/g) || []).map((h) => h.toLowerCase());
   const standard = text
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, " ")
     .split(/\s+/)
-    .filter(t => t.length > 2 || MEDICAL_SHORT_TOKENS.has(t));
+    .filter((t) => t.length > 2 || MEDICAL_SHORT_TOKENS.has(t));
   return Array.from(new Set([...standard, ...codes, ...hyphenated]));
 }
 
-export function computeConfidence(chunks: RetrievedChunk[]): { score: number; level: 'high' | 'partial' | 'low' | 'none' } {
-  if (chunks.length === 0) return { score: 0, level: 'none' };
+export function computeConfidence(chunks: RetrievedChunk[]): {
+  score: number;
+  level: "high" | "partial" | "low" | "none";
+} {
+  if (chunks.length === 0) return { score: 0, level: "none" };
   const topScore = chunks[0].score;
   const avgScore = chunks.reduce((sum, c) => sum + c.score, 0) / chunks.length;
   const blended = 0.6 * topScore + 0.4 * avgScore;
-  let level: 'high' | 'partial' | 'low' | 'none';
-  if (blended >= 0.7) level = 'high';
-  else if (blended >= 0.45) level = 'partial';
-  else if (blended >= 0.3) level = 'low';
-  else level = 'none';
+  let level: "high" | "partial" | "low" | "none";
+  if (blended >= 0.7) level = "high";
+  else if (blended >= 0.45) level = "partial";
+  else if (blended >= 0.3) level = "low";
+  else level = "none";
   return { score: Math.round(blended * 100) / 100, level };
 }
 
-export function validateConversationHistory(history: Array<{ role: string; content: string }>): Array<{ role: string; content: string }> {
+export function validateConversationHistory(
+  history: Array<{ role: string; content: string }>,
+): Array<{ role: string; content: string }> {
   const MAX_TURNS = 20;
   const MAX_TOTAL_CHARS = 50_000;
   let trimmed = history.slice(-MAX_TURNS);

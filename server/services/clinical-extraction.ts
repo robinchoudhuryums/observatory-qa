@@ -143,8 +143,8 @@ function extractMedications(text: string): ExtractedMedication[] | undefined {
   if (medSectionMatch) {
     const medLines = medSectionMatch[1]
       .split("\n")
-      .map(l => l.trim())
-      .filter(l => l.length > 2);
+      .map((l) => l.trim())
+      .filter((l) => l.length > 2);
 
     for (const line of medLines) {
       // Skip obvious non-medication lines
@@ -198,8 +198,8 @@ function extractAllergies(text: string): ExtractedAllergy[] | undefined {
   if (allergySectionMatch) {
     const allergyLines = allergySectionMatch[1]
       .split("\n")
-      .map(l => l.trim())
-      .filter(l => l.length > 2);
+      .map((l) => l.trim())
+      .filter((l) => l.length > 2);
 
     for (const line of allergyLines) {
       if (/^[-*•]?\s*(none|nkda|nka|no\s+known|n\/a)/i.test(line)) continue;
@@ -264,9 +264,7 @@ export function extractStructuredDataFromSections(sections: {
   const objectiveData = sections.objective ? extractStructuredData(sections.objective) : {};
 
   // Combine plan array to string for searching
-  const planText = Array.isArray(sections.plan)
-    ? sections.plan.join("\n")
-    : (sections.plan || "");
+  const planText = Array.isArray(sections.plan) ? sections.plan.join("\n") : sections.plan || "";
 
   const subjPlanText = [sections.subjective || "", planText].join("\n\n");
   const subjPlanData = subjPlanText.trim() ? extractStructuredData(subjPlanText) : {};

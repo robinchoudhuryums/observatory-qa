@@ -12,7 +12,18 @@ import { apiRequest } from "@/lib/queryClient";
 import { ConfirmDialog } from "@/components/lib/confirm-dialog";
 import { CALL_CATEGORIES } from "@shared/schema";
 import type { PromptTemplate } from "@shared/schema";
-import {  RiAddLine, RiPencilLine, RiDeleteBinLine, RiFileTextLine, RiScales3Line, RiShieldCheckLine, RiMessage2Line, RiSaveLine, RiCloseLine, RiInformationLine  } from "@remixicon/react";
+import {
+  RiAddLine,
+  RiPencilLine,
+  RiDeleteBinLine,
+  RiFileTextLine,
+  RiScales3Line,
+  RiShieldCheckLine,
+  RiMessage2Line,
+  RiSaveLine,
+  RiCloseLine,
+  RiInformationLine,
+} from "@remixicon/react";
 
 interface PhraseEntry {
   phrase: string;
@@ -85,18 +96,23 @@ export default function PromptTemplatesPage() {
   };
 
   // Categories that don't have templates yet
-  const usedCategories = new Set((templates || []).map(t => t.callCategory));
+  const usedCategories = new Set((templates || []).map((t) => t.callCategory));
 
   return (
     <div className="min-h-screen" data-testid="prompt-templates-page">
       <ConfirmDialog
         open={deleteConfirmId !== null}
-        onOpenChange={(open) => { if (!open) setDeleteConfirmId(null); }}
+        onOpenChange={(open) => {
+          if (!open) setDeleteConfirmId(null);
+        }}
         title="Delete prompt template?"
         description="This will permanently remove this prompt template. New calls with this category will use the default evaluation criteria."
         confirmLabel="Delete"
         variant="destructive"
-        onConfirm={() => { if (deleteConfirmId) deleteMutation.mutate(deleteConfirmId); setDeleteConfirmId(null); }}
+        onConfirm={() => {
+          if (deleteConfirmId) deleteMutation.mutate(deleteConfirmId);
+          setDeleteConfirmId(null);
+        }}
       />
       <header className="bg-card border-b border-border px-6 py-4">
         <div className="flex items-center justify-between">
@@ -105,7 +121,9 @@ export default function PromptTemplatesPage() {
               Prompt Templates & Scoring Rubrics
               <HelpTip text="Templates customize how the AI evaluates calls for each category. Set scoring weights (must total 100%), add required phrases agents must say, and provide evaluation criteria. Templates apply automatically to new calls matching the category." />
             </h2>
-            <p className="text-muted-foreground">Configure AI analysis criteria per call category for tailored evaluation</p>
+            <p className="text-muted-foreground">
+              Configure AI analysis criteria per call category for tailored evaluation
+            </p>
           </div>
           <Button onClick={() => setShowNewForm(true)} disabled={showNewForm}>
             <RiAddLine className="w-4 h-4 mr-2" />
@@ -119,9 +137,9 @@ export default function PromptTemplatesPage() {
         <Card className="border-dashed bg-muted/30">
           <CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">
-              Templates customize how the AI evaluates calls for each category. Set weighted scoring criteria,
-              required disclaimers/phrases that agents must say, and additional evaluation instructions.
-              Templates apply automatically to new calls matching the configured category.
+              Templates customize how the AI evaluates calls for each category. Set weighted scoring criteria, required
+              disclaimers/phrases that agents must say, and additional evaluation instructions. Templates apply
+              automatically to new calls matching the configured category.
             </p>
           </CardContent>
         </Card>
@@ -140,12 +158,16 @@ export default function PromptTemplatesPage() {
         {isLoading ? (
           <div className="space-y-4">
             {Array.from({ length: 2 }).map((_, i) => (
-              <Card key={i}><CardContent className="pt-6"><Skeleton className="h-32 w-full" /></CardContent></Card>
+              <Card key={i}>
+                <CardContent className="pt-6">
+                  <Skeleton className="h-32 w-full" />
+                </CardContent>
+              </Card>
             ))}
           </div>
         ) : templates && templates.length > 0 ? (
           <div className="space-y-4">
-            {templates.map((tmpl) => (
+            {templates.map((tmpl) =>
               editingId === tmpl.id ? (
                 <TemplateForm
                   key={tmpl.id}
@@ -162,8 +184,8 @@ export default function PromptTemplatesPage() {
                   onEdit={() => setEditingId(tmpl.id)}
                   onDelete={() => handleDelete(tmpl.id)}
                 />
-              )
-            ))}
+              ),
+            )}
           </div>
         ) : !showNewForm ? (
           <div className="text-center py-16">
@@ -172,8 +194,8 @@ export default function PromptTemplatesPage() {
             </div>
             <h4 className="font-semibold text-foreground mb-1">No prompt templates configured</h4>
             <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">
-              Create templates to customize how the AI evaluates calls for each category.
-              Without templates, the default evaluation criteria will be used.
+              Create templates to customize how the AI evaluates calls for each category. Without templates, the default
+              evaluation criteria will be used.
             </p>
             <Button onClick={() => setShowNewForm(true)}>
               <RiAddLine className="w-4 h-4 mr-2" />
@@ -186,8 +208,16 @@ export default function PromptTemplatesPage() {
   );
 }
 
-function TemplateCard({ template, onEdit, onDelete }: { template: PromptTemplate; onEdit: () => void; onDelete: () => void }) {
-  const category = CALL_CATEGORIES.find(c => c.value === template.callCategory);
+function TemplateCard({
+  template,
+  onEdit,
+  onDelete,
+}: {
+  template: PromptTemplate;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const category = CALL_CATEGORIES.find((c) => c.value === template.callCategory);
   const weights = template.scoringWeights as any;
   const phrases = (template.requiredPhrases as PhraseEntry[]) || [];
 
@@ -232,7 +262,9 @@ function TemplateCard({ template, onEdit, onDelete }: { template: PromptTemplate
               {Object.entries(weights).map(([key, val]) => (
                 <div key={key} className="text-center p-2 bg-muted rounded-md">
                   <p className="text-lg font-bold text-foreground">{val as number}%</p>
-                  <p className="text-[10px] text-muted-foreground capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</p>
+                  <p className="text-[10px] text-muted-foreground capitalize">
+                    {key.replace(/([A-Z])/g, " $1").trim()}
+                  </p>
                 </div>
               ))}
             </div>
@@ -300,27 +332,23 @@ function TemplateForm({
   const [evaluationCriteria, setEvaluationCriteria] = useState(initial?.evaluationCriteria || "");
   const [additionalInstructions, setAdditionalInstructions] = useState(initial?.additionalInstructions || "");
   const [isActive, setIsActive] = useState(initial?.isActive !== false);
-  const [weights, setWeights] = useState<ScoringWeights>(
-    (initial?.scoringWeights as any) || { ...DEFAULT_WEIGHTS }
-  );
-  const [phrases, setPhrases] = useState<PhraseEntry[]>(
-    (initial?.requiredPhrases as PhraseEntry[]) || []
-  );
+  const [weights, setWeights] = useState<ScoringWeights>((initial?.scoringWeights as any) || { ...DEFAULT_WEIGHTS });
+  const [phrases, setPhrases] = useState<PhraseEntry[]>((initial?.requiredPhrases as PhraseEntry[]) || []);
 
   const updateWeight = (key: keyof ScoringWeights, value: number) => {
-    setWeights(prev => ({ ...prev, [key]: value }));
+    setWeights((prev) => ({ ...prev, [key]: value }));
   };
 
   const addPhrase = () => {
-    setPhrases(prev => [...prev, { phrase: "", label: "", severity: "required" }]);
+    setPhrases((prev) => [...prev, { phrase: "", label: "", severity: "required" }]);
   };
 
   const updatePhrase = (index: number, updates: Partial<PhraseEntry>) => {
-    setPhrases(prev => prev.map((p, i) => i === index ? { ...p, ...updates } : p));
+    setPhrases((prev) => prev.map((p, i) => (i === index ? { ...p, ...updates } : p)));
   };
 
   const removePhrase = (index: number) => {
-    setPhrases(prev => prev.filter((_, i) => i !== index));
+    setPhrases((prev) => prev.filter((_, i) => i !== index));
   };
 
   const totalWeight = weights.compliance + weights.customerExperience + weights.communication + weights.resolution;
@@ -334,7 +362,7 @@ function TemplateForm({
       additionalInstructions: additionalInstructions || undefined,
       isActive,
       scoringWeights: weights,
-      requiredPhrases: phrases.filter(p => p.phrase.trim()),
+      requiredPhrases: phrases.filter((p) => p.phrase.trim()),
     });
   };
 
@@ -349,20 +377,28 @@ function TemplateForm({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-sm font-medium">Template Name</label>
-              <Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Medicare Compliance Rubric" required />
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Medicare Compliance Rubric"
+                required
+              />
             </div>
             <div>
               <label className="text-sm font-medium">Call Category</label>
               <Select value={callCategory} onValueChange={setCallCategory} required>
-                <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select category" />
+                </SelectTrigger>
                 <SelectContent>
-                  {CALL_CATEGORIES.map(cat => (
+                  {CALL_CATEGORIES.map((cat) => (
                     <SelectItem
                       key={cat.value}
                       value={cat.value}
                       disabled={usedCategories.has(cat.value) && initial?.callCategory !== cat.value}
                     >
-                      {cat.label} {usedCategories.has(cat.value) && initial?.callCategory !== cat.value ? "(has template)" : ""}
+                      {cat.label}{" "}
+                      {usedCategories.has(cat.value) && initial?.callCategory !== cat.value ? "(has template)" : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -372,11 +408,13 @@ function TemplateForm({
 
           <div>
             <label className="text-sm font-medium">Evaluation Criteria</label>
-            <p className="text-xs text-muted-foreground mb-1">What should the AI evaluate the agent on? Be specific about your company's standards.</p>
+            <p className="text-xs text-muted-foreground mb-1">
+              What should the AI evaluate the agent on? Be specific about your company's standards.
+            </p>
             <textarea
               className="w-full border border-border rounded-md p-3 text-sm bg-background min-h-[120px] resize-y"
               value={evaluationCriteria}
-              onChange={e => setEvaluationCriteria(e.target.value)}
+              onChange={(e) => setEvaluationCriteria(e.target.value)}
               placeholder={`Example:\n- Compliance with Medicare regulations and required disclosures (40%)\n- Customer empathy and satisfaction (25%)\n- Accuracy of information provided (20%)\n- Call efficiency and resolution (15%)\n- De-escalation effectiveness when customer is frustrated`}
               required
             />
@@ -389,7 +427,10 @@ function TemplateForm({
               <HelpTip text="Set how much each area contributes to the overall score. Values must total 100%. For example: 40% compliance, 25% customer experience, 20% communication, 15% resolution." />
             </div>
             <p className="text-xs text-muted-foreground mb-2">
-              Total: <span className={totalWeight === 100 ? "text-green-600 font-medium" : "text-red-500 font-medium"}>{totalWeight}%</span>
+              Total:{" "}
+              <span className={totalWeight === 100 ? "text-green-600 font-medium" : "text-red-500 font-medium"}>
+                {totalWeight}%
+              </span>
               {totalWeight !== 100 && <span className="text-red-500 ml-1">(must be 100%)</span>}
               {totalWeight === 100 && <span className="text-green-600 ml-1">— balanced</span>}
             </p>
@@ -400,7 +441,12 @@ function TemplateForm({
                 const colors = ["bg-blue-500", "bg-green-500", "bg-amber-500", "bg-purple-500"];
                 const pct = totalWeight > 0 ? (weights[key] / totalWeight) * 100 : 25;
                 return (
-                  <div key={key} className={`${colors[i]} transition-all duration-300`} style={{ width: `${pct}%` }} title={`${key.replace(/([A-Z])/g, ' $1').trim()}: ${weights[key]}%`} />
+                  <div
+                    key={key}
+                    className={`${colors[i]} transition-all duration-300`}
+                    style={{ width: `${pct}%` }}
+                    title={`${key.replace(/([A-Z])/g, " $1").trim()}: ${weights[key]}%`}
+                  />
                 );
               })}
             </div>
@@ -413,14 +459,14 @@ function TemplateForm({
                   <div key={key}>
                     <label className={`text-xs font-medium capitalize flex items-center gap-1 ${colors[i]}`}>
                       <span className={`w-2 h-2 rounded-full ${dotColors[i]}`} />
-                      {key.replace(/([A-Z])/g, ' $1').trim()}
+                      {key.replace(/([A-Z])/g, " $1").trim()}
                     </label>
                     <Input
                       type="number"
                       min={0}
                       max={100}
                       value={weights[key]}
-                      onChange={e => updateWeight(key, parseInt(e.target.value) || 0)}
+                      onChange={(e) => updateWeight(key, parseInt(e.target.value) || 0)}
                       className="h-8 text-sm"
                     />
                   </div>
@@ -431,15 +477,33 @@ function TemplateForm({
             <div className="mt-3">
               <span className="text-xs text-muted-foreground block mb-2">Quick presets:</span>
               <div className="grid grid-cols-3 gap-2">
-                <button type="button" className="text-xs text-left px-3 py-2 rounded-lg border border-border bg-muted/30 hover:bg-primary/10 hover:border-primary/30 transition-colors" onClick={() => setWeights({ compliance: 25, customerExperience: 25, communication: 25, resolution: 25 })}>
+                <button
+                  type="button"
+                  className="text-xs text-left px-3 py-2 rounded-lg border border-border bg-muted/30 hover:bg-primary/10 hover:border-primary/30 transition-colors"
+                  onClick={() =>
+                    setWeights({ compliance: 25, customerExperience: 25, communication: 25, resolution: 25 })
+                  }
+                >
                   <span className="font-medium text-foreground block">Equal</span>
                   <span className="text-muted-foreground">25 / 25 / 25 / 25</span>
                 </button>
-                <button type="button" className="text-xs text-left px-3 py-2 rounded-lg border border-border bg-muted/30 hover:bg-primary/10 hover:border-primary/30 transition-colors" onClick={() => setWeights({ compliance: 40, customerExperience: 25, communication: 20, resolution: 15 })}>
+                <button
+                  type="button"
+                  className="text-xs text-left px-3 py-2 rounded-lg border border-border bg-muted/30 hover:bg-primary/10 hover:border-primary/30 transition-colors"
+                  onClick={() =>
+                    setWeights({ compliance: 40, customerExperience: 25, communication: 20, resolution: 15 })
+                  }
+                >
                   <span className="font-medium text-foreground block">Compliance-heavy</span>
                   <span className="text-muted-foreground">40 / 25 / 20 / 15</span>
                 </button>
-                <button type="button" className="text-xs text-left px-3 py-2 rounded-lg border border-border bg-muted/30 hover:bg-primary/10 hover:border-primary/30 transition-colors" onClick={() => setWeights({ compliance: 15, customerExperience: 40, communication: 25, resolution: 20 })}>
+                <button
+                  type="button"
+                  className="text-xs text-left px-3 py-2 rounded-lg border border-border bg-muted/30 hover:bg-primary/10 hover:border-primary/30 transition-colors"
+                  onClick={() =>
+                    setWeights({ compliance: 15, customerExperience: 40, communication: 25, resolution: 20 })
+                  }
+                >
                   <span className="font-medium text-foreground block">CX-focused</span>
                   <span className="text-muted-foreground">15 / 40 / 25 / 20</span>
                 </button>
@@ -455,7 +519,9 @@ function TemplateForm({
                   <label className="text-sm font-medium">Required / Recommended Phrases</label>
                   <HelpTip text="'Required' phrases trigger a flag if the agent doesn't say them. 'Recommended' phrases are noted but don't flag the call. Use these for compliance disclosures, greetings, or legal disclaimers." />
                 </div>
-                <p className="text-xs text-muted-foreground">Phrases agents must say. AI flags calls missing required phrases.</p>
+                <p className="text-xs text-muted-foreground">
+                  Phrases agents must say. AI flags calls missing required phrases.
+                </p>
               </div>
               <Button type="button" size="sm" variant="outline" onClick={addPhrase}>
                 <RiAddLine className="w-3 h-3 mr-1" /> Add Phrase
@@ -465,8 +531,10 @@ function TemplateForm({
               <div className="space-y-2">
                 {phrases.map((p, i) => (
                   <div key={i} className="flex items-center gap-2">
-                    <Select value={p.severity} onValueChange={v => updatePhrase(i, { severity: v as any })}>
-                      <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <Select value={p.severity} onValueChange={(v) => updatePhrase(i, { severity: v as any })}>
+                      <SelectTrigger className="w-32 h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="required">Required</SelectItem>
                         <SelectItem value="recommended">Recommended</SelectItem>
@@ -475,13 +543,13 @@ function TemplateForm({
                     <Input
                       placeholder="Phrase (e.g. 'calling on a recorded line')"
                       value={p.phrase}
-                      onChange={e => updatePhrase(i, { phrase: e.target.value })}
+                      onChange={(e) => updatePhrase(i, { phrase: e.target.value })}
                       className="flex-1 h-8 text-sm"
                     />
                     <Input
                       placeholder="Label"
                       value={p.label}
-                      onChange={e => updatePhrase(i, { label: e.target.value })}
+                      onChange={(e) => updatePhrase(i, { label: e.target.value })}
                       className="w-40 h-8 text-sm"
                     />
                     <Button type="button" size="sm" variant="ghost" onClick={() => removePhrase(i)}>
@@ -499,18 +567,25 @@ function TemplateForm({
             <textarea
               className="w-full border border-border rounded-md p-3 text-sm bg-background min-h-[80px] resize-y"
               value={additionalInstructions}
-              onChange={e => setAdditionalInstructions(e.target.value)}
+              onChange={(e) => setAdditionalInstructions(e.target.value)}
               placeholder="Any other instructions for the AI when analyzing this type of call..."
             />
           </div>
 
           <div className="flex items-center justify-between pt-2 border-t border-border">
             <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={isActive} onChange={e => setIsActive(e.target.checked)} className="rounded" />
+              <input
+                type="checkbox"
+                checked={isActive}
+                onChange={(e) => setIsActive(e.target.checked)}
+                className="rounded"
+              />
               Active (template applies to new calls)
             </label>
             <div className="flex gap-2">
-              <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
+              <Button type="button" variant="outline" onClick={onCancel}>
+                Cancel
+              </Button>
               <Button type="submit" disabled={isPending || !name || !callCategory || !evaluationCriteria}>
                 <RiSaveLine className="w-4 h-4 mr-2" />
                 {initial ? "Update" : "Create"} Template

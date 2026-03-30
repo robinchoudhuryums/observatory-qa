@@ -36,7 +36,7 @@ export class EaglesoftAdapter implements IEhrAdapter {
   private buildHeaders(config: EhrConnectionConfig): Record<string, string> {
     return {
       "Content-Type": "application/json",
-      "Accept": "application/json",
+      Accept: "application/json",
       "X-API-Key": config.apiKey || "",
       ...(config.options?.practiceId ? { "X-Practice-ID": config.options.practiceId } : {}),
     };
@@ -45,7 +45,9 @@ export class EaglesoftAdapter implements IEhrAdapter {
   private async request<T>(config: EhrConnectionConfig, method: string, path: string, body?: unknown): Promise<T> {
     const url = `${config.baseUrl.replace(/\/$/, "")}${path}`;
     return ehrRequest<T>({
-      method, url, body,
+      method,
+      url,
+      body,
       headers: this.buildHeaders(config),
       systemLabel: "Eaglesoft",
     });
@@ -53,9 +55,7 @@ export class EaglesoftAdapter implements IEhrAdapter {
 
   async testConnection(config: EhrConnectionConfig): Promise<{ connected: boolean; version?: string; error?: string }> {
     try {
-      const result = await this.request<{ version?: string; status?: string }>(
-        config, "GET", "/status"
-      );
+      const result = await this.request<{ version?: string; status?: string }>(config, "GET", "/status");
       return { connected: true, version: result?.version || "unknown" };
     } catch (err) {
       return {
@@ -67,7 +67,7 @@ export class EaglesoftAdapter implements IEhrAdapter {
 
   async searchPatients(
     config: EhrConnectionConfig,
-    query: { name?: string; dob?: string; phone?: string }
+    query: { name?: string; dob?: string; phone?: string },
   ): Promise<EhrPatient[]> {
     const params = new URLSearchParams();
     if (query.name) params.set("search", query.name);
@@ -76,17 +76,17 @@ export class EaglesoftAdapter implements IEhrAdapter {
     params.set("limit", "20");
 
     const response = await this.request<{ patients: EaglesoftPatient[] }>(
-      config, "GET", `/patients?${params.toString()}`
+      config,
+      "GET",
+      `/patients?${params.toString()}`,
     );
 
-    return (response.patients || []).map(p => this.mapPatient(p));
+    return (response.patients || []).map((p) => this.mapPatient(p));
   }
 
   async getPatient(config: EhrConnectionConfig, ehrPatientId: string): Promise<EhrPatient | null> {
     try {
-      const patient = await this.request<EaglesoftPatient>(
-        config, "GET", `/patients/${ehrPatientId}`
-      );
+      const patient = await this.request<EaglesoftPatient>(config, "GET", `/patients/${ehrPatientId}`);
       return this.mapPatient(patient);
     } catch {
       return null;
@@ -95,7 +95,7 @@ export class EaglesoftAdapter implements IEhrAdapter {
 
   async getAppointments(
     config: EhrConnectionConfig,
-    params: { startDate: string; endDate: string; providerId?: string }
+    params: { startDate: string; endDate: string; providerId?: string },
   ): Promise<EhrAppointment[]> {
     const queryParams = new URLSearchParams({
       startDate: params.startDate,
@@ -104,10 +104,12 @@ export class EaglesoftAdapter implements IEhrAdapter {
     if (params.providerId) queryParams.set("providerId", params.providerId);
 
     const response = await this.request<{ appointments: EaglesoftAppointment[] }>(
-      config, "GET", `/appointments?${queryParams.toString()}`
+      config,
+      "GET",
+      `/appointments?${queryParams.toString()}`,
     );
 
-    return (response.appointments || []).map(a => this.mapAppointment(a));
+    return (response.appointments || []).map((a) => this.mapAppointment(a));
   }
 
   async getTodayAppointments(config: EhrConnectionConfig, providerId?: string): Promise<EhrAppointment[]> {
@@ -120,17 +122,15 @@ export class EaglesoftAdapter implements IEhrAdapter {
     // or /patient-notes on older installations. The Smart Doc integration is required
     // for structured note formats; plain text works on both.
     try {
-      const result = await this.request<{ noteId?: string; id?: string }>(
-        config, "POST", "/clinical-notes", {
-          patientId: note.patientId,
-          providerId: note.providerId,
-          date: note.date,
-          type: note.noteType,
-          content: note.content,
-          procedureCodes: note.procedureCodes?.map(c => c.code),
-          diagnosisCodes: note.diagnosisCodes?.map(c => c.code),
-        }
-      );
+      const result = await this.request<{ noteId?: string; id?: string }>(config, "POST", "/clinical-notes", {
+        patientId: note.patientId,
+        providerId: note.providerId,
+        date: note.date,
+        type: note.noteType,
+        content: note.content,
+        procedureCodes: note.procedureCodes?.map((c) => c.code),
+        diagnosisCodes: note.diagnosisCodes?.map((c) => c.code),
+      });
 
       return {
         success: true,
@@ -143,15 +143,13 @@ export class EaglesoftAdapter implements IEhrAdapter {
       // Fall back to /patient-notes endpoint (legacy eDex installations)
       if (message.includes("404") || message.includes("405")) {
         try {
-          const fallback = await this.request<{ noteId?: string; id?: string }>(
-            config, "POST", "/patient-notes", {
-              patientId: note.patientId,
-              providerId: note.providerId,
-              date: note.date,
-              noteType: note.noteType,
-              noteText: note.content,
-            }
-          );
+          const fallback = await this.request<{ noteId?: string; id?: string }>(config, "POST", "/patient-notes", {
+            patientId: note.patientId,
+            providerId: note.providerId,
+            date: note.date,
+            noteType: note.noteType,
+            noteText: note.content,
+          });
           return {
             success: true,
             ehrRecordId: fallback?.noteId || fallback?.id || "",
@@ -162,7 +160,8 @@ export class EaglesoftAdapter implements IEhrAdapter {
           if (fallbackMsg.includes("403") || fallbackMsg.includes("405")) {
             return {
               success: false,
-              error: "Clinical note push not available — Eaglesoft eDex requires Smart Doc integration for write access. Contact Patterson Dental for API write permissions.",
+              error:
+                "Clinical note push not available — Eaglesoft eDex requires Smart Doc integration for write access. Contact Patterson Dental for API write permissions.",
               timestamp: new Date().toISOString(),
             };
           }
@@ -180,17 +179,15 @@ export class EaglesoftAdapter implements IEhrAdapter {
 
   async createAppointment(config: EhrConnectionConfig, apt: EhrAppointmentCreate): Promise<EhrSyncResult> {
     try {
-      const result = await this.request<{ appointmentId?: string; id?: string }>(
-        config, "POST", "/appointments", {
-          patientId: apt.patientId,
-          providerId: apt.providerId,
-          date: apt.date,
-          startTime: apt.startTime,
-          duration: apt.duration,
-          procedures: apt.procedures,
-          notes: apt.notes,
-        }
-      );
+      const result = await this.request<{ appointmentId?: string; id?: string }>(config, "POST", "/appointments", {
+        patientId: apt.patientId,
+        providerId: apt.providerId,
+        date: apt.date,
+        startTime: apt.startTime,
+        duration: apt.duration,
+        procedures: apt.procedures,
+        notes: apt.notes,
+      });
 
       return {
         success: true,
@@ -203,7 +200,8 @@ export class EaglesoftAdapter implements IEhrAdapter {
       if (message.includes("403") || message.includes("405")) {
         return {
           success: false,
-          error: "Appointment creation not available — Eaglesoft eDex write access required. Contact Patterson Dental to enable appointment write permissions.",
+          error:
+            "Appointment creation not available — Eaglesoft eDex write access required. Contact Patterson Dental to enable appointment write permissions.",
           timestamp: new Date().toISOString(),
         };
       }
@@ -223,9 +221,7 @@ export class EaglesoftAdapter implements IEhrAdapter {
       if (update.notes) body.notes = update.notes;
       if (update.phaseUpdates) body.phaseUpdates = update.phaseUpdates;
 
-      await this.request<{ id?: string }>(
-        config, "PATCH", `/treatment-plans/${planId}`, body
-      );
+      await this.request<{ id?: string }>(config, "PATCH", `/treatment-plans/${planId}`, body);
 
       return {
         success: true,
@@ -250,10 +246,12 @@ export class EaglesoftAdapter implements IEhrAdapter {
   async getPatientTreatmentPlans(config: EhrConnectionConfig, patientId: string): Promise<EhrTreatmentPlan[]> {
     try {
       const response = await this.request<{ treatmentPlans: EaglesoftTreatmentPlan[] }>(
-        config, "GET", `/patients/${patientId}/treatment-plans`
+        config,
+        "GET",
+        `/patients/${patientId}/treatment-plans`,
       );
 
-      return (response.treatmentPlans || []).map(plan => ({
+      return (response.treatmentPlans || []).map((plan) => ({
         ehrPlanId: plan.id,
         patientId,
         providerId: plan.providerId || "",
@@ -261,7 +259,7 @@ export class EaglesoftAdapter implements IEhrAdapter {
         phases: (plan.phases || []).map((phase, i) => ({
           phase: i + 1,
           description: phase.description || `Phase ${i + 1}`,
-          procedures: (phase.procedures || []).map(p => ({
+          procedures: (phase.procedures || []).map((p) => ({
             code: p.code,
             description: p.description,
             toothNumber: p.toothNumber,
@@ -291,12 +289,14 @@ export class EaglesoftAdapter implements IEhrAdapter {
       dateOfBirth: p.dateOfBirth || "",
       phone: p.homePhone || p.cellPhone || undefined,
       email: p.email || undefined,
-      insurance: p.primaryInsurance ? {
-        carrier: p.primaryInsurance.carrierName || "",
-        groupNumber: p.primaryInsurance.groupNumber || undefined,
-        subscriberId: p.primaryInsurance.subscriberId || undefined,
-        planType: p.primaryInsurance.planType || undefined,
-      } : undefined,
+      insurance: p.primaryInsurance
+        ? {
+            carrier: p.primaryInsurance.carrierName || "",
+            groupNumber: p.primaryInsurance.groupNumber || undefined,
+            subscriberId: p.primaryInsurance.subscriberId || undefined,
+            planType: p.primaryInsurance.planType || undefined,
+          }
+        : undefined,
       allergies: p.allergies || undefined,
       medications: p.medications || undefined,
       medicalAlerts: p.alerts ? [p.alerts] : undefined,
@@ -315,32 +315,56 @@ export class EaglesoftAdapter implements IEhrAdapter {
       startTime: a.startTime || "",
       duration: a.duration || 30,
       status: this.mapAptStatus(a.status),
-      procedures: a.procedures?.map(p => ({ code: p.code, description: p.description })),
+      procedures: a.procedures?.map((p) => ({ code: p.code, description: p.description })),
       notes: a.notes || undefined,
     };
   }
 
   private mapAptStatus(status: string | undefined): EhrAppointment["status"] {
     switch (status?.toLowerCase()) {
-      case "scheduled": return "scheduled";
-      case "confirmed": return "confirmed";
-      case "checked_in": case "seated": return "checked_in";
-      case "in_progress": case "in_chair": return "in_progress";
-      case "completed": case "complete": return "completed";
-      case "cancelled": case "canceled": return "cancelled";
-      case "no_show": case "noshow": return "no_show";
-      default: return "scheduled";
+      case "scheduled":
+        return "scheduled";
+      case "confirmed":
+        return "confirmed";
+      case "checked_in":
+      case "seated":
+        return "checked_in";
+      case "in_progress":
+      case "in_chair":
+        return "in_progress";
+      case "completed":
+      case "complete":
+        return "completed";
+      case "cancelled":
+      case "canceled":
+        return "cancelled";
+      case "no_show":
+      case "noshow":
+        return "no_show";
+      default:
+        return "scheduled";
     }
   }
 
   private mapPlanStatus(status: string | undefined): EhrTreatmentPlan["status"] {
     switch (status?.toLowerCase()) {
-      case "proposed": case "pending": return "proposed";
-      case "accepted": case "approved": return "accepted";
-      case "in_progress": case "active": return "in_progress";
-      case "completed": case "done": return "completed";
-      case "declined": case "rejected": return "declined";
-      default: return "proposed";
+      case "proposed":
+      case "pending":
+        return "proposed";
+      case "accepted":
+      case "approved":
+        return "accepted";
+      case "in_progress":
+      case "active":
+        return "in_progress";
+      case "completed":
+      case "done":
+        return "completed";
+      case "declined":
+      case "rejected":
+        return "declined";
+      default:
+        return "proposed";
     }
   }
 }

@@ -14,11 +14,7 @@ import type { CallSummary, Employee } from "@shared/schema";
  * Auto-check coaching recommendations after a call completes analysis.
  * Non-blocking — failures are logged but never throw.
  */
-export async function onCallAnalysisComplete(
-  orgId: string,
-  callId: string,
-  employeeId?: string,
-): Promise<void> {
+export async function onCallAnalysisComplete(orgId: string, callId: string, employeeId?: string): Promise<void> {
   if (!employeeId) return;
 
   try {
@@ -32,7 +28,7 @@ export async function onCallAnalysisComplete(
         );
 
         // Send Slack/Teams notification for high-severity recommendations
-        const highSeverity = recs.filter(r => r.severity === "high");
+        const highSeverity = recs.filter((r) => r.severity === "high");
         if (highSeverity.length > 0) {
           const employee = await storage.getEmployee(orgId, employeeId);
           sendCoachingAlert(orgId, employee, highSeverity).catch((err) => {
@@ -46,7 +42,7 @@ export async function onCallAnalysisComplete(
   }
 
   // Run automation rules for this employee (non-blocking)
-  runAutomationRules(orgId, employeeId).catch(err =>
+  runAutomationRules(orgId, employeeId).catch((err) =>
     logger.warn({ err, orgId, employeeId }, "Automation rules failed (non-blocking)"),
   );
 }
@@ -54,9 +50,7 @@ export async function onCallAnalysisComplete(
 /**
  * Generate a manager review queue — agents prioritized by who needs attention most.
  */
-export async function getManagerReviewQueue(
-  orgId: string,
-): Promise<AgentPriority[]> {
+export async function getManagerReviewQueue(orgId: string): Promise<AgentPriority[]> {
   const employees = await storage.getAllEmployees(orgId);
   const activeEmployees = employees.filter((e: Employee) => e.status === "Active");
 
@@ -65,13 +59,13 @@ export async function getManagerReviewQueue(
   for (const emp of activeEmployees) {
     const calls = await storage.getCallSummaries(orgId, { employee: emp.id, status: "completed" });
     const scored = calls
-      .filter(c => c.analysis?.performanceScore != null)
+      .filter((c) => c.analysis?.performanceScore != null)
       .sort((a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime());
 
     if (scored.length === 0) continue;
 
     const recent = scored.slice(0, 10);
-    const scores = recent.map(c => Number(c.analysis?.performanceScore) || 0);
+    const scores = recent.map((c) => Number(c.analysis?.performanceScore) || 0);
     const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
 
     // Calculate trend (slope of last N scores)
@@ -88,8 +82,9 @@ export async function getManagerReviewQueue(
 
     // Days since last coaching
     const coachingSessions = await storage.getCoachingSessionsByEmployee(orgId, emp.id);
-    const lastCoaching = coachingSessions
-      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())[0];
+    const lastCoaching = coachingSessions.sort(
+      (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
+    )[0];
     const daysSinceCoaching = lastCoaching?.createdAt
       ? Math.floor((Date.now() - new Date(lastCoaching.createdAt).getTime()) / (1000 * 60 * 60 * 24))
       : null;
@@ -119,16 +114,17 @@ export async function generateWeeklyDigest(orgId: string): Promise<WeeklyDigest>
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
   const allCalls = await storage.getCallSummaries(orgId, { status: "completed" });
-  const thisWeek = allCalls.filter(c => c.uploadedAt && new Date(c.uploadedAt) >= weekAgo);
-  const scored = thisWeek.filter(c => c.analysis?.performanceScore != null);
+  const thisWeek = allCalls.filter((c) => c.uploadedAt && new Date(c.uploadedAt) >= weekAgo);
+  const scored = thisWeek.filter((c) => c.analysis?.performanceScore != null);
 
   const totalCalls = thisWeek.length;
-  const avgScore = scored.length > 0
-    ? scored.reduce((sum, c) => sum + (Number(c.analysis?.performanceScore) || 0), 0) / scored.length
-    : 0;
+  const avgScore =
+    scored.length > 0
+      ? scored.reduce((sum, c) => sum + (Number(c.analysis?.performanceScore) || 0), 0) / scored.length
+      : 0;
 
   // Flagged calls
-  const flagged = thisWeek.filter(c => {
+  const flagged = thisWeek.filter((c) => {
     const flags = c.analysis?.flags;
     return Array.isArray(flags) && flags.length > 0;
   });
@@ -163,7 +159,7 @@ export async function generateWeeklyDigest(orgId: string): Promise<WeeklyDigest>
 
   // Review queue
   const reviewQueue = await getManagerReviewQueue(orgId);
-  const needsAttention = reviewQueue.filter(a => a.needsAttention);
+  const needsAttention = reviewQueue.filter((a) => a.needsAttention);
 
   return {
     period: { from: weekAgo.toISOString(), to: now.toISOString() },
@@ -173,7 +169,7 @@ export async function generateWeeklyDigest(orgId: string): Promise<WeeklyDigest>
     sentiment: sentiments,
     topPerformers: employeeAvgs.slice(0, 3),
     bottomPerformers: employeeAvgs.slice(-3).reverse(),
-    agentsNeedingAttention: needsAttention.slice(0, 5).map(a => ({
+    agentsNeedingAttention: needsAttention.slice(0, 5).map((a) => ({
       name: a.employeeName,
       avgScore: a.avgScore,
       trend: a.trendLabel,
@@ -188,7 +184,10 @@ function calculateTrend(scores: number[]): number {
   // Simple linear regression slope (normalized)
   const n = scores.length;
   if (n < 2) return 0;
-  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+  let sumX = 0,
+    sumY = 0,
+    sumXY = 0,
+    sumX2 = 0;
   for (let i = 0; i < n; i++) {
     sumX += i;
     sumY += scores[i];
@@ -219,15 +218,13 @@ async function sendCoachingAlert(
           text: `*${employee?.name || "Agent"}* has ${recommendations.length} new high-priority coaching recommendation(s):`,
         },
       },
-      ...recommendations.slice(0, 5).map(r => ({
+      ...recommendations.slice(0, 5).map((r) => ({
         type: "section" as const,
         text: { type: "mrkdwn" as const, text: `• *${r.title}*` },
       })),
       {
         type: "context",
-        elements: [
-          { type: "mrkdwn", text: `Organization: ${orgId} | Generated: ${new Date().toLocaleString()}` },
-        ],
+        elements: [{ type: "mrkdwn", text: `Organization: ${orgId} | Generated: ${new Date().toLocaleString()}` }],
       },
     ],
   };

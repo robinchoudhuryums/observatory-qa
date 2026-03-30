@@ -7,7 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { FEEDBACK_TYPES, FEEDBACK_CONTEXTS } from "@shared/schema";
-import {  RiChatNewLine, RiStarLine, RiInputMethodLine  } from "@remixicon/react";
+import { RiChatNewLine, RiStarLine, RiInputMethodLine } from "@remixicon/react";
 
 /**
  * Floating feedback widget accessible from any page.
@@ -64,11 +64,7 @@ export function FeedbackWidget() {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button
-          size="sm"
-          variant="outline"
-          className="fixed bottom-4 right-4 z-50 rounded-full shadow-lg gap-1.5"
-        >
+        <Button size="sm" variant="outline" className="fixed bottom-4 right-4 z-50 rounded-full shadow-lg gap-1.5">
           <RiChatNewLine className="w-4 h-4" />
           Feedback
         </Button>
@@ -96,7 +92,7 @@ export function FeedbackWidget() {
                 {type === "nps" ? "How likely are you to recommend Observatory? (0-10)" : "Rate this feature (1-10)"}
               </p>
               <div className="flex gap-1">
-                {Array.from({ length: 10 }, (_, i) => i + 1).map(n => (
+                {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
                   <button
                     key={n}
                     onClick={() => setRating(n)}
@@ -113,7 +109,7 @@ export function FeedbackWidget() {
 
           <Textarea
             value={comment}
-            onChange={e => setComment(e.target.value)}
+            onChange={(e) => setComment(e.target.value)}
             placeholder={type === "bug_report" ? "Describe the issue..." : "Your thoughts..."}
             rows={3}
             className="text-sm"

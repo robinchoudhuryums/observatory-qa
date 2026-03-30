@@ -9,15 +9,12 @@ import { logPhiAccess, auditContext } from "../services/audit-log";
 const MAX_ANALYTICS_CALLS = 10_000;
 
 export function registerInsightRoutes(app: Express): void {
-
   // ==================== COMPANY INSIGHTS API ====================
 
   app.get("/api/insights", requireAuth, injectOrgContext, async (req, res) => {
     try {
       const allCalls = await storage.getCallSummaries(req.orgId!);
-      const completed = allCalls
-        .filter(c => c.status === "completed" && c.analysis)
-        .slice(-MAX_ANALYTICS_CALLS); // Limit to most recent N calls for analytics
+      const completed = allCalls.filter((c) => c.status === "completed" && c.analysis).slice(-MAX_ANALYTICS_CALLS); // Limit to most recent N calls for analytics
 
       // Aggregate topic frequency across all calls
       const topicCounts = new Map<string, number>();
@@ -94,11 +91,11 @@ export function registerInsightRoutes(app: Express): void {
 
       // Low-confidence calls
       const lowConfidenceCalls = completed
-        .filter(c => {
+        .filter((c) => {
           const conf = safeFloat(c.analysis?.confidenceScore, 1);
           return conf < 0.7;
         })
-        .map(c => ({
+        .map((c) => ({
           callId: c.id,
           date: c.uploadedAt || "",
           confidence: safeFloat(c.analysis?.confidenceScore),
@@ -120,15 +117,15 @@ export function registerInsightRoutes(app: Express): void {
         weeklyTrend,
         lowConfidenceCalls: lowConfidenceCalls.slice(0, 20),
         summary: {
-          avgScore: completed.length > 0
-            ? completed.reduce((sum, c) => sum + safeFloat(c.analysis?.performanceScore), 0) / completed.length
-            : 0,
-          negativeCallRate: completed.length > 0
-            ? completed.filter(c => c.sentiment?.overallSentiment === "negative").length / completed.length
-            : 0,
-          escalationRate: completed.length > 0
-            ? escalationPatterns.length / completed.length
-            : 0,
+          avgScore:
+            completed.length > 0
+              ? completed.reduce((sum, c) => sum + safeFloat(c.analysis?.performanceScore), 0) / completed.length
+              : 0,
+          negativeCallRate:
+            completed.length > 0
+              ? completed.filter((c) => c.sentiment?.overallSentiment === "negative").length / completed.length
+              : 0,
+          escalationRate: completed.length > 0 ? escalationPatterns.length / completed.length : 0,
         },
       });
     } catch (error) {
@@ -152,16 +149,19 @@ export function registerInsightRoutes(app: Express): void {
       // Limit to most recent N calls for analytics
       const calls = allCalls.slice(-MAX_ANALYTICS_CALLS);
 
-      const empMap = new Map(employees.map(e => [e.id, e]));
+      const empMap = new Map(employees.map((e) => [e.id, e]));
 
       // Per-employee stats
-      const empStats = new Map<string, {
-        scores: number[];
-        sentiments: { positive: number; neutral: number; negative: number };
-        flaggedCount: number;
-        callCount: number;
-        complianceScores: number[];
-      }>();
+      const empStats = new Map<
+        string,
+        {
+          scores: number[];
+          sentiments: { positive: number; neutral: number; negative: number };
+          flaggedCount: number;
+          callCount: number;
+          complianceScores: number[];
+        }
+      >();
 
       for (const call of calls) {
         if (!call.employeeId || !call.analysis) continue;
@@ -191,31 +191,30 @@ export function registerInsightRoutes(app: Express): void {
       }
 
       // Build per-employee summary
-      const avg = (arr: number[]) => arr.length > 0
-        ? Math.round((arr.reduce((a, b) => a + b, 0) / arr.length) * 100) / 100
-        : null;
+      const avg = (arr: number[]) =>
+        arr.length > 0 ? Math.round((arr.reduce((a, b) => a + b, 0) / arr.length) * 100) / 100 : null;
 
-      const teamScores = Array.from(empStats.values()).flatMap(s => s.scores);
+      const teamScores = Array.from(empStats.values()).flatMap((s) => s.scores);
       const teamAvg = avg(teamScores);
 
-      const agentBreakdown = Array.from(empStats.entries()).map(([empId, stats]) => {
-        const emp = empMap.get(empId);
-        const agentAvg = avg(stats.scores);
-        return {
-          employeeId: empId,
-          name: emp?.name || "Unknown",
-          role: emp?.role || "",
-          subTeam: emp?.subTeam || "",
-          callCount: stats.callCount,
-          avgScore: agentAvg,
-          avgCompliance: avg(stats.complianceScores),
-          sentiments: stats.sentiments,
-          flaggedCount: stats.flaggedCount,
-          vsTeamAvg: agentAvg != null && teamAvg != null
-            ? Math.round((agentAvg - teamAvg) * 100) / 100
-            : null,
-        };
-      }).sort((a, b) => (b.avgScore || 0) - (a.avgScore || 0));
+      const agentBreakdown = Array.from(empStats.entries())
+        .map(([empId, stats]) => {
+          const emp = empMap.get(empId);
+          const agentAvg = avg(stats.scores);
+          return {
+            employeeId: empId,
+            name: emp?.name || "Unknown",
+            role: emp?.role || "",
+            subTeam: emp?.subTeam || "",
+            callCount: stats.callCount,
+            avgScore: agentAvg,
+            avgCompliance: avg(stats.complianceScores),
+            sentiments: stats.sentiments,
+            flaggedCount: stats.flaggedCount,
+            vsTeamAvg: agentAvg != null && teamAvg != null ? Math.round((agentAvg - teamAvg) * 100) / 100 : null,
+          };
+        })
+        .sort((a, b) => (b.avgScore || 0) - (a.avgScore || 0));
 
       // Per-department/subTeam aggregation
       const deptStats = new Map<string, { scores: number[]; callCount: number; flagged: number }>();
@@ -273,27 +272,30 @@ export function registerInsightRoutes(app: Express): void {
       let filtered = calls;
       if (from) {
         const fromDate = new Date(from as string);
-        filtered = filtered.filter(c => new Date(c.uploadedAt || 0) >= fromDate);
+        filtered = filtered.filter((c) => new Date(c.uploadedAt || 0) >= fromDate);
       }
       if (to) {
         const toDate = new Date(to as string);
         toDate.setHours(23, 59, 59, 999);
-        filtered = filtered.filter(c => new Date(c.uploadedAt || 0) <= toDate);
+        filtered = filtered.filter((c) => new Date(c.uploadedAt || 0) <= toDate);
       }
 
       // Group by time bucket (day or week)
       const useWeekly = granularity === "week";
-      const buckets = new Map<string, {
-        calls: number;
-        totalScore: number;
-        scored: number;
-        compliance: number;
-        complianceCount: number;
-        positive: number;
-        neutral: number;
-        negative: number;
-        flagged: number;
-      }>();
+      const buckets = new Map<
+        string,
+        {
+          calls: number;
+          totalScore: number;
+          scored: number;
+          compliance: number;
+          complianceCount: number;
+          positive: number;
+          neutral: number;
+          negative: number;
+          flagged: number;
+        }
+      >();
 
       for (const call of filtered) {
         if (!call.uploadedAt) continue;
@@ -308,9 +310,15 @@ export function registerInsightRoutes(app: Express): void {
         }
 
         const entry = buckets.get(bucketKey) || {
-          calls: 0, totalScore: 0, scored: 0,
-          compliance: 0, complianceCount: 0,
-          positive: 0, neutral: 0, negative: 0, flagged: 0,
+          calls: 0,
+          totalScore: 0,
+          scored: 0,
+          compliance: 0,
+          complianceCount: 0,
+          positive: 0,
+          neutral: 0,
+          negative: 0,
+          flagged: 0,
         };
         entry.calls++;
 
@@ -364,24 +372,30 @@ export function registerInsightRoutes(app: Express): void {
       const calls = await storage.getCallSummaries(req.orgId!, { status: "completed" });
 
       // Per-category sub-score aggregation
-      const categoryStats = new Map<string, {
-        callCount: number;
-        compliance: number[];
-        customerExperience: number[];
-        communication: number[];
-        resolution: number[];
-        flaggedCount: number;
-        flags: Map<string, number>;
-      }>();
+      const categoryStats = new Map<
+        string,
+        {
+          callCount: number;
+          compliance: number[];
+          customerExperience: number[];
+          communication: number[];
+          resolution: number[];
+          flaggedCount: number;
+          flags: Map<string, number>;
+        }
+      >();
 
       for (const call of calls) {
         if (!call.analysis) continue;
         const category = call.callCategory || "uncategorized";
         const stats = categoryStats.get(category) || {
           callCount: 0,
-          compliance: [] as number[], customerExperience: [] as number[],
-          communication: [] as number[], resolution: [] as number[],
-          flaggedCount: 0, flags: new Map<string, number>(),
+          compliance: [] as number[],
+          customerExperience: [] as number[],
+          communication: [] as number[],
+          resolution: [] as number[],
+          flaggedCount: 0,
+          flags: new Map<string, number>(),
         };
         stats.callCount++;
 
@@ -393,7 +407,7 @@ export function registerInsightRoutes(app: Express): void {
           if (ss.resolution != null) stats.resolution.push(ss.resolution);
         }
 
-        const callFlags = Array.isArray(call.analysis.flags) ? call.analysis.flags as string[] : [];
+        const callFlags = Array.isArray(call.analysis.flags) ? (call.analysis.flags as string[]) : [];
         if (callFlags.length > 0) {
           stats.flaggedCount++;
           for (const f of callFlags) {
@@ -404,9 +418,8 @@ export function registerInsightRoutes(app: Express): void {
         categoryStats.set(category, stats);
       }
 
-      const avg = (arr: number[]) => arr.length > 0
-        ? Math.round((arr.reduce((a, b) => a + b, 0) / arr.length) * 100) / 100
-        : null;
+      const avg = (arr: number[]) =>
+        arr.length > 0 ? Math.round((arr.reduce((a, b) => a + b, 0) / arr.length) * 100) / 100 : null;
 
       const categories = Array.from(categoryStats.entries())
         .map(([cat, stats]) => ({
@@ -418,9 +431,7 @@ export function registerInsightRoutes(app: Express): void {
             communication: avg(stats.communication),
             resolution: avg(stats.resolution),
           },
-          flaggedRate: stats.callCount > 0
-            ? Math.round((stats.flaggedCount / stats.callCount) * 100) / 100
-            : 0,
+          flaggedRate: stats.callCount > 0 ? Math.round((stats.flaggedCount / stats.callCount) * 100) / 100 : 0,
           topFlags: Array.from(stats.flags.entries())
             .sort(([, a], [, b]) => b - a)
             .slice(0, 5)
@@ -430,10 +441,15 @@ export function registerInsightRoutes(app: Express): void {
 
       // Overall compliance score
       const allCompliance = calls
-        .map(c => (c.analysis as any)?.subScores?.compliance)
+        .map((c) => (c.analysis as any)?.subScores?.compliance)
         .filter((v): v is number => v != null);
 
-      logPhiAccess({ ...auditContext(req), event: "view_compliance_insights", resourceType: "insights", detail: `${calls.length} calls analyzed` });
+      logPhiAccess({
+        ...auditContext(req),
+        event: "view_compliance_insights",
+        resourceType: "insights",
+        detail: `${calls.length} calls analyzed`,
+      });
       res.json({
         overallCompliance: avg(allCompliance),
         totalAnalyzed: calls.length,

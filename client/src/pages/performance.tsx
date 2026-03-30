@@ -8,7 +8,18 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import type { Employee, CallWithDetails } from "@shared/schema";
-import {  RiStarLine, RiArrowRightUpLine, RiUserFollowLine, RiCalendarLine, RiExpandUpDownLine, RiArrowUpLine, RiArrowDownLine, RiFileDownloadLine, RiVoiceprintLine, RiFilterLine  } from "@remixicon/react";
+import {
+  RiStarLine,
+  RiArrowRightUpLine,
+  RiUserFollowLine,
+  RiCalendarLine,
+  RiExpandUpDownLine,
+  RiArrowUpLine,
+  RiArrowDownLine,
+  RiFileDownloadLine,
+  RiVoiceprintLine,
+  RiFilterLine,
+} from "@remixicon/react";
 
 interface Performer extends Employee {
   avgPerformanceScore: number;
@@ -47,7 +58,7 @@ export default function PerformancePage() {
     let filtered = [...performers];
 
     if (deptFilter !== "all") {
-      filtered = filtered.filter(p => p.role === deptFilter);
+      filtered = filtered.filter((p) => p.role === deptFilter);
     }
 
     filtered.sort((a, b) => {
@@ -71,7 +82,7 @@ export default function PerformancePage() {
 
   // Chart data: top 10 by score
   const chartData = useMemo(() => {
-    return filteredPerformers.slice(0, 10).map(p => ({
+    return filteredPerformers.slice(0, 10).map((p) => ({
       name: p.name?.split(" ")[0] || "?",
       score: p.avgPerformanceScore ? Number(p.avgPerformanceScore.toFixed(1)) : 0,
       calls: p.totalCalls,
@@ -79,13 +90,20 @@ export default function PerformancePage() {
   }, [filteredPerformers]);
 
   const toggleSort = (key: SortKey) => {
-    if (sortBy === key) setSortDir(d => d === "asc" ? "desc" : "asc");
-    else { setSortBy(key); setSortDir("desc"); }
+    if (sortBy === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortBy(key);
+      setSortDir("desc");
+    }
   };
 
   const SortIcon = ({ field }: { field: SortKey }) => {
     if (sortBy !== field) return <RiExpandUpDownLine className="w-3 h-3 ml-1 opacity-40" />;
-    return sortDir === "asc" ? <RiArrowUpLine className="w-3 h-3 ml-1" /> : <RiArrowDownLine className="w-3 h-3 ml-1" />;
+    return sortDir === "asc" ? (
+      <RiArrowUpLine className="w-3 h-3 ml-1" />
+    ) : (
+      <RiArrowDownLine className="w-3 h-3 ml-1" />
+    );
   };
 
   if (isLoading) {
@@ -135,8 +153,10 @@ export default function PerformancePage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Departments</SelectItem>
-                {departments.map(d => (
-                  <SelectItem key={d} value={d}>{d}</SelectItem>
+                {departments.map((d) => (
+                  <SelectItem key={d} value={d}>
+                    {d}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -156,8 +176,20 @@ export default function PerformancePage() {
               <BarChart data={chartData} layout="vertical" margin={{ left: 60 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis type="number" domain={[0, 10]} tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" width={60} />
-                <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 12 }} />
+                <YAxis
+                  type="category"
+                  dataKey="name"
+                  tick={{ fontSize: 12 }}
+                  stroke="hsl(var(--muted-foreground))"
+                  width={60}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "hsl(var(--card))",
+                    border: "1px solid hsl(var(--border))",
+                    fontSize: 12,
+                  }}
+                />
                 <Bar dataKey="score" name="Avg Score" radius={[0, 4, 4, 0]}>
                   {chartData.map((entry, i) => (
                     <Cell key={i} fill={getScoreColor(entry.score)} />
@@ -179,7 +211,9 @@ export default function PerformancePage() {
                     Employee <SortIcon field="name" />
                   </button>
                 </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground hidden sm:table-cell">Department</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground hidden sm:table-cell">
+                  Department
+                </th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">
                   <button className="flex items-center hover:text-foreground" onClick={() => toggleSort("score")}>
                     Avg Score <SortIcon field="score" />
@@ -190,7 +224,9 @@ export default function PerformancePage() {
                     Calls <SortIcon field="calls" />
                   </button>
                 </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground hidden md:table-cell">Score Bar</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground hidden md:table-cell">
+                  Score Bar
+                </th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground"></th>
               </tr>
             </thead>
@@ -210,7 +246,9 @@ export default function PerformancePage() {
                         <span className="font-medium text-sm">{employee.name}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground hidden sm:table-cell">{employee.role || "—"}</td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground hidden sm:table-cell">
+                      {employee.role || "—"}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
                         <RiStarLine className="w-4 h-4 fill-current" style={{ color: getScoreColor(score) }} />
@@ -231,7 +269,9 @@ export default function PerformancePage() {
                     </td>
                     <td className="px-4 py-3">
                       <Link href={`/reports?employee=${employee.id}`}>
-                        <Button size="sm" variant="ghost" className="text-xs">Profile</Button>
+                        <Button size="sm" variant="ghost" className="text-xs">
+                          Profile
+                        </Button>
                       </Link>
                     </td>
                   </tr>

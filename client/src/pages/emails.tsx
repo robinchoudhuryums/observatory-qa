@@ -13,9 +13,24 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { CALL_CATEGORIES, type CallWithDetails } from "@shared/schema";
 import { toDisplayString } from "@/lib/display-utils";
-import {  RiMailLine, RiBarChartBoxLine, RiMessage2Line, RiTimeLine, RiArrowRightUpLine, RiErrorWarningLine, RiCheckboxCircleLine, RiLoader4Line, RiArrowRightSLine, RiStarLine, RiTeamLine, RiSendPlaneLine, RiInboxLine, RiInputMethodLine  } from "@remixicon/react";
+import {
+  RiMailLine,
+  RiBarChartBoxLine,
+  RiMessage2Line,
+  RiTimeLine,
+  RiArrowRightUpLine,
+  RiErrorWarningLine,
+  RiCheckboxCircleLine,
+  RiLoader4Line,
+  RiArrowRightSLine,
+  RiStarLine,
+  RiTeamLine,
+  RiSendPlaneLine,
+  RiInboxLine,
+  RiInputMethodLine,
+} from "@remixicon/react";
 
-const EMAIL_CATEGORIES = CALL_CATEGORIES.filter(c => c.value.startsWith("email_"));
+const EMAIL_CATEGORIES = CALL_CATEGORIES.filter((c) => c.value.startsWith("email_"));
 
 function sentimentColor(sentiment?: string) {
   if (sentiment === "positive") return "text-green-600 bg-green-100";
@@ -57,7 +72,7 @@ function EmailCard({ email }: { email: CallWithDetails }) {
             <div className="flex items-center gap-2 mt-2 flex-wrap">
               {email.callCategory && (
                 <Badge variant="outline" className="text-xs">
-                  {EMAIL_CATEGORIES.find(c => c.value === email.callCategory)?.label || email.callCategory}
+                  {EMAIL_CATEGORIES.find((c) => c.value === email.callCategory)?.label || email.callCategory}
                 </Badge>
               )}
               {sentiment && (
@@ -66,24 +81,25 @@ function EmailCard({ email }: { email: CallWithDetails }) {
                 </Badge>
               )}
               {email.analysis?.flags?.includes("urgent") && (
-                <Badge variant="destructive" className="text-xs">Urgent</Badge>
+                <Badge variant="destructive" className="text-xs">
+                  Urgent
+                </Badge>
               )}
               {email.analysis?.flags?.includes("escalation_needed") && (
-                <Badge variant="destructive" className="text-xs">Escalation</Badge>
+                <Badge variant="destructive" className="text-xs">
+                  Escalation
+                </Badge>
               )}
               {email.employee && (
                 <Badge variant="secondary" className="text-xs">
-                  <RiTeamLine className="w-3 h-3 mr-1" />{email.employee.name}
+                  <RiTeamLine className="w-3 h-3 mr-1" />
+                  {email.employee.name}
                 </Badge>
               )}
             </div>
           </div>
           <div className="text-right flex-shrink-0">
-            {score > 0 && (
-              <div className={`text-lg font-bold ${scoreColor(score)}`}>
-                {score.toFixed(1)}
-              </div>
-            )}
+            {score > 0 && <div className={`text-lg font-bold ${scoreColor(score)}`}>{score.toFixed(1)}</div>}
             <div className="text-xs text-muted-foreground mt-1">
               {email.uploadedAt ? new Date(email.uploadedAt).toLocaleDateString() : ""}
             </div>
@@ -144,25 +160,29 @@ function SubmitEmailForm({ onSuccess }: { onSuccess: () => void }) {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <Label>From</Label>
-            <Input placeholder="sender@example.com" value={from} onChange={e => setFrom(e.target.value)} />
+            <Input placeholder="sender@example.com" value={from} onChange={(e) => setFrom(e.target.value)} />
           </div>
           <div>
             <Label>To</Label>
-            <Input placeholder="recipient@example.com" value={to} onChange={e => setTo(e.target.value)} />
+            <Input placeholder="recipient@example.com" value={to} onChange={(e) => setTo(e.target.value)} />
           </div>
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <Label>Subject *</Label>
-            <Input placeholder="Email subject line" value={subject} onChange={e => setSubject(e.target.value)} />
+            <Input placeholder="Email subject line" value={subject} onChange={(e) => setSubject(e.target.value)} />
           </div>
           <div>
             <Label>Category</Label>
             <Select value={category} onValueChange={setCategory}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
-                {EMAIL_CATEGORIES.map(c => (
-                  <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                {EMAIL_CATEGORIES.map((c) => (
+                  <SelectItem key={c.value} value={c.value}>
+                    {c.label}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -173,7 +193,7 @@ function SubmitEmailForm({ onSuccess }: { onSuccess: () => void }) {
           <Textarea
             placeholder="Paste the email content here..."
             value={body}
-            onChange={e => setBody(e.target.value)}
+            onChange={(e) => setBody(e.target.value)}
             rows={8}
             className="font-mono text-sm"
           />
@@ -185,9 +205,13 @@ function SubmitEmailForm({ onSuccess }: { onSuccess: () => void }) {
           className="w-full"
         >
           {submitMutation.isPending ? (
-            <><RiLoader4Line className="w-4 h-4 mr-2 animate-spin" /> Analyzing...</>
+            <>
+              <RiLoader4Line className="w-4 h-4 mr-2 animate-spin" /> Analyzing...
+            </>
           ) : (
-            <><RiMailLine className="w-4 h-4 mr-2" /> Submit for Analysis</>
+            <>
+              <RiMailLine className="w-4 h-4 mr-2" /> Submit for Analysis
+            </>
           )}
         </Button>
       </CardContent>
@@ -321,7 +345,7 @@ export default function EmailsPage() {
             </Card>
           ) : (
             <div className="space-y-3">
-              {emails.map(email => (
+              {emails.map((email) => (
                 <EmailCard key={email.id} email={email} />
               ))}
             </div>

@@ -75,7 +75,9 @@ export function initEmail(): boolean {
   }
 
   // Option 3: No config — console fallback
-  logger.warn("No email transport configured — emails will be logged to console only. Set EMAIL_PROVIDER=ses or SMTP_HOST/USER/PASS");
+  logger.warn(
+    "No email transport configured — emails will be logged to console only. Set EMAIL_PROVIDER=ses or SMTP_HOST/USER/PASS",
+  );
   return false;
 }
 
@@ -86,14 +88,11 @@ export function initEmail(): boolean {
  */
 export async function sendEmail(options: EmailOptions): Promise<boolean> {
   const { to, text, html } = options;
-  const subject = options.subject.replace(/[\r\n]/g, '');
+  const subject = options.subject.replace(/[\r\n]/g, "");
 
   if (!transporter) {
     // Dev fallback: log the email content
-    logger.info(
-      { to, subject, textLength: text.length },
-      `[EMAIL-DEV] Would send email: "${subject}" to ${to}`,
-    );
+    logger.info({ to, subject, textLength: text.length }, `[EMAIL-DEV] Would send email: "${subject}" to ${to}`);
     return true;
   }
 
@@ -164,11 +163,7 @@ function wrapWithDarkMode(innerHtml: string): string {
 
 // --- Email templates ---
 
-export function buildPasswordResetEmail(
-  resetUrl: string,
-  userName: string,
-  orgName: string,
-): EmailOptions {
+export function buildPasswordResetEmail(resetUrl: string, userName: string, orgName: string): EmailOptions {
   const subject = `Password Reset — ${orgName}`;
   const text = [
     `Hi ${userName},`,
@@ -240,13 +235,14 @@ export function buildFlaggedCallEmail(
   orgName: string,
   dashboardUrl: string,
 ): EmailOptions {
-  const flagLabels = flags.map(f => {
+  const flagLabels = flags.map((f) => {
     if (f === "low_score") return "Low Score";
     if (f === "exceptional_call") return "Exceptional Call";
     if (f.startsWith("agent_misconduct")) return `Misconduct: ${f.split(":")[1] || "unspecified"}`;
     return f;
   });
-  const isGood = flags.includes("exceptional_call") && !flags.some(f => f === "low_score" || f.startsWith("agent_misconduct"));
+  const isGood =
+    flags.includes("exceptional_call") && !flags.some((f) => f === "low_score" || f.startsWith("agent_misconduct"));
   const scoreText = performanceScore != null ? `${performanceScore.toFixed(1)}/10` : "N/A";
   const emoji = isGood ? "Star" : "Alert";
 
@@ -296,13 +292,13 @@ export function buildQuotaAlertEmail(
   dashboardUrl: string,
 ): EmailOptions {
   const severity = isExhausted ? "Limit Reached" : "Approaching Limit";
-  const subject = `[${orgName}] Plan ${severity}: ${warnings.map(w => `${w.label} ${w.pct}%`).join(", ")}`;
+  const subject = `[${orgName}] Plan ${severity}: ${warnings.map((w) => `${w.label} ${w.pct}%`).join(", ")}`;
   const settingsUrl = `${dashboardUrl}/admin/settings?tab=billing`;
 
   const text = [
     `${orgName} — Plan ${severity}`,
     "",
-    ...warnings.map(w => `${w.label}: ${w.used}/${w.limit} (${w.pct}%)`),
+    ...warnings.map((w) => `${w.label}: ${w.used}/${w.limit} (${w.pct}%)`),
     "",
     isExhausted
       ? "Your organization has hit its plan limit. New uploads and analyses are blocked until the next billing cycle or you upgrade."
@@ -314,7 +310,9 @@ export function buildQuotaAlertEmail(
   ].join("\n");
 
   const barColor = isExhausted ? "#ef4444" : "#f59e0b";
-  const warningRows = warnings.map(w => `
+  const warningRows = warnings
+    .map(
+      (w) => `
     <tr>
       <td class="email-text" style="padding: 8px 12px; font-weight: 600; color: #333;">${escapeHtml(w.label)}</td>
       <td class="email-text" style="padding: 8px 12px; color: #333;">${w.used} / ${w.limit}</td>
@@ -323,9 +321,11 @@ export function buildQuotaAlertEmail(
           <div style="width: ${Math.min(w.pct, 100)}%; height: 100%; background: ${barColor}; border-radius: 4px;"></div>
         </div>
       </td>
-      <td style="padding: 8px 12px; font-weight: 600; color: ${w.pct >= 100 ? '#ef4444' : '#f59e0b'};">${w.pct}%</td>
+      <td style="padding: 8px 12px; font-weight: 600; color: ${w.pct >= 100 ? "#ef4444" : "#f59e0b"};">${w.pct}%</td>
     </tr>
-  `).join("");
+  `,
+    )
+    .join("");
 
   const html = wrapWithDarkMode(`
       <div style="border-left: 4px solid ${barColor}; padding-left: 16px; margin-bottom: 16px;">
@@ -344,9 +344,11 @@ export function buildQuotaAlertEmail(
         <tbody>${warningRows}</tbody>
       </table>
       <p class="email-text" style="font-size: 14px; color: #333; margin-top: 16px;">
-        ${isExhausted
-          ? "New uploads and analyses are <strong>blocked</strong> until the next billing cycle or you upgrade."
-          : "Consider upgrading before you hit your limit."}
+        ${
+          isExhausted
+            ? "New uploads and analyses are <strong>blocked</strong> until the next billing cycle or you upgrade."
+            : "Consider upgrading before you hit your limit."
+        }
       </p>
       <p style="margin: 20px 0;">
         <a href="${escapeHtml(settingsUrl)}" style="background: ${barColor}; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; display: inline-block;">
@@ -358,10 +360,7 @@ export function buildQuotaAlertEmail(
   return { to: "", subject, text, html };
 }
 
-export function buildTrialDowngradeEmail(
-  orgName: string,
-  dashboardUrl: string,
-): EmailOptions {
+export function buildTrialDowngradeEmail(orgName: string, dashboardUrl: string): EmailOptions {
   const subject = `[${orgName}] Trial Expired — Downgraded to Free Plan`;
   const settingsUrl = `${dashboardUrl}/admin/settings?tab=billing`;
 
@@ -412,11 +411,7 @@ export function buildTrialDowngradeEmail(
  * Payment failed / dunning email.
  * Sent on invoice.payment_failed webhook. Includes grace period info and portal link.
  */
-export function buildPaymentFailedEmail(
-  orgName: string,
-  gracePeriodDays: number,
-  dashboardUrl: string,
-): EmailOptions {
+export function buildPaymentFailedEmail(orgName: string, gracePeriodDays: number, dashboardUrl: string): EmailOptions {
   const subject = `[${orgName}] Action Required: Payment Failed`;
   const settingsUrl = `${dashboardUrl}/settings?tab=billing`;
 
@@ -459,11 +454,7 @@ export function buildPaymentFailedEmail(
 /**
  * Trial ending soon reminder (3 days before).
  */
-export function buildTrialEndingEmail(
-  orgName: string,
-  trialEndDate: Date,
-  dashboardUrl: string,
-): EmailOptions {
+export function buildTrialEndingEmail(orgName: string, trialEndDate: Date, dashboardUrl: string): EmailOptions {
   const daysLeft = Math.ceil((trialEndDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
   const subject = `[${orgName}] Your free trial ends in ${daysLeft} day${daysLeft !== 1 ? "s" : ""}`;
   const settingsUrl = `${dashboardUrl}/settings?tab=billing`;
@@ -501,9 +492,5 @@ export function buildTrialEndingEmail(
 }
 
 function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }

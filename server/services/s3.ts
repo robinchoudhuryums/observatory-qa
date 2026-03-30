@@ -138,7 +138,7 @@ export class S3Client {
           } catch {
             return undefined;
           }
-        })
+        }),
       );
       for (const result of batchResults) {
         if (result) results.push(result);

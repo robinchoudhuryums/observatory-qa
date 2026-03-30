@@ -51,13 +51,14 @@ async function fetchSecret(secretArn: string, region: string): Promise<string | 
   const dateStamp = now.toISOString().slice(0, 10).replace(/-/g, "");
   const amzDate = now.toISOString().replace(/[-:]/g, "").slice(0, 15) + "Z";
 
-  const canonicalHeaders = [
-    `content-type:application/x-amz-json-1.1`,
-    `host:secretsmanager.${region}.amazonaws.com`,
-    `x-amz-date:${amzDate}`,
-    ...(creds.sessionToken ? [`x-amz-security-token:${creds.sessionToken}`] : []),
-    "x-amz-target:secretsmanager.GetSecretValue",
-  ].join("\n") + "\n";
+  const canonicalHeaders =
+    [
+      `content-type:application/x-amz-json-1.1`,
+      `host:secretsmanager.${region}.amazonaws.com`,
+      `x-amz-date:${amzDate}`,
+      ...(creds.sessionToken ? [`x-amz-security-token:${creds.sessionToken}`] : []),
+      "x-amz-target:secretsmanager.GetSecretValue",
+    ].join("\n") + "\n";
 
   const signedHeaders = [
     "content-type",
@@ -70,22 +71,10 @@ async function fetchSecret(secretArn: string, region: string): Promise<string | 
   // SHA-256 of payload
   const payloadHash = await sha256Hex(payload);
 
-  const canonicalRequest = [
-    "POST",
-    "/",
-    "",
-    canonicalHeaders,
-    signedHeaders,
-    payloadHash,
-  ].join("\n");
+  const canonicalRequest = ["POST", "/", "", canonicalHeaders, signedHeaders, payloadHash].join("\n");
 
   const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
-  const stringToSign = [
-    "AWS4-HMAC-SHA256",
-    amzDate,
-    credentialScope,
-    await sha256Hex(canonicalRequest),
-  ].join("\n");
+  const stringToSign = ["AWS4-HMAC-SHA256", amzDate, credentialScope, await sha256Hex(canonicalRequest)].join("\n");
 
   const signingKey = await getSigningKey(creds.secretAccessKey, dateStamp, region, service);
   const signature = hmacHex(signingKey, stringToSign);
@@ -100,7 +89,7 @@ async function fetchSecret(secretArn: string, region: string): Promise<string | 
     "Content-Type": "application/x-amz-json-1.1",
     "X-Amz-Date": amzDate,
     "X-Amz-Target": "secretsmanager.GetSecretValue",
-    "Authorization": authorization,
+    Authorization: authorization,
   };
   if (creds.sessionToken) {
     headers["X-Amz-Security-Token"] = creds.sessionToken;
@@ -124,7 +113,7 @@ async function fetchSecret(secretArn: string, region: string): Promise<string | 
       return null;
     }
 
-    const data = await response.json() as { SecretString?: string; SecretBinary?: string };
+    const data = (await response.json()) as { SecretString?: string; SecretBinary?: string };
     return data.SecretString || null;
   } catch (err) {
     logger.warn({ err, secretArn }, "Failed to fetch secret from Secrets Manager");
@@ -187,10 +176,7 @@ export async function resolveEhrCredentials(
 }
 
 /** Merge secret JSON fields into the EHR config */
-function mergeSecretIntoConfig(
-  config: EhrConnectionConfig,
-  secret: Record<string, string>,
-): EhrConnectionConfig {
+function mergeSecretIntoConfig(config: EhrConnectionConfig, secret: Record<string, string>): EhrConnectionConfig {
   return {
     ...config,
     apiKey: secret.apiKey || secret.api_key || secret.token || config.apiKey,
@@ -216,14 +202,14 @@ export function invalidateSecretCache(secretArn: string): void {
 async function sha256Hex(data: string): Promise<string> {
   const encoder = new TextEncoder();
   const buf = await crypto.subtle.digest("SHA-256", encoder.encode(data));
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 async function hmacSha256(key: Uint8Array | string, data: string): Promise<Uint8Array> {
   const keyBytes = typeof key === "string" ? new TextEncoder().encode(key) : key;
-  const cryptoKey = await crypto.subtle.importKey(
-    "raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
-  );
+  const cryptoKey = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const sig = await crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(data));
   return new Uint8Array(sig);
 }

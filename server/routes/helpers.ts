@@ -21,7 +21,7 @@ export function safeInt(val: unknown, fallback = 0): number {
  */
 export async function withRetry<T>(
   fn: () => Promise<T>,
-  opts: { retries?: number; baseDelay?: number; label?: string } = {}
+  opts: { retries?: number; baseDelay?: number; label?: string } = {},
 ): Promise<T> {
   const { retries = 2, baseDelay = 1000, label = "operation" } = opts;
   let lastError: Error | undefined;
@@ -32,8 +32,11 @@ export async function withRetry<T>(
       lastError = error as Error;
       if (attempt < retries) {
         const delay = baseDelay * Math.pow(2, attempt);
-        logger.warn({ label, attempt: attempt + 1, maxAttempts: retries + 1, delayMs: delay, err: lastError }, "Retrying failed operation");
-        await new Promise(resolve => setTimeout(resolve, delay));
+        logger.warn(
+          { label, attempt: attempt + 1, maxAttempts: retries + 1, delayMs: delay, err: lastError },
+          "Retrying failed operation",
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
   }
@@ -74,7 +77,10 @@ export function parseDateParam(val: unknown): Date | undefined {
  * Extract pagination params from query string with safe defaults.
  * Returns { limit, offset } clamped to reasonable bounds.
  */
-export function parsePagination(query: Record<string, unknown>, defaults: { limit?: number; maxLimit?: number } = {}): { limit: number; offset: number } {
+export function parsePagination(
+  query: Record<string, unknown>,
+  defaults: { limit?: number; maxLimit?: number } = {},
+): { limit: number; offset: number } {
   const maxLimit = defaults.maxLimit ?? 500;
   const defaultLimit = defaults.limit ?? 100;
   const limit = Math.min(Math.max(safeInt(query.limit, defaultLimit), 1), maxLimit);
@@ -85,7 +91,11 @@ export function parsePagination(query: Record<string, unknown>, defaults: { limi
 /**
  * Apply pagination to an in-memory array and return paginated response shape.
  */
-export function paginateArray<T>(items: T[], limit: number, offset: number): { data: T[]; total: number; limit: number; offset: number; hasMore: boolean } {
+export function paginateArray<T>(
+  items: T[],
+  limit: number,
+  offset: number,
+): { data: T[]; total: number; limit: number; offset: number; hasMore: boolean } {
   const total = items.length;
   const data = items.slice(offset, offset + limit);
   return { data, total, limit, offset, hasMore: offset + limit < total };
@@ -118,26 +128,33 @@ export function releaseUploadSlot(orgId: string): void {
 const ORPHAN_FILE_AGE_MS = 60 * 60 * 1000; // 1 hour
 
 export function startUploadCleanup(): void {
-  const interval = setInterval(async () => {
-    try {
-      const files = await fs.promises.readdir(uploadsDir);
-      const now = Date.now();
-      for (const file of files) {
-        const filePath = path.join(uploadsDir, file);
-        try {
-          const stats = await fs.promises.stat(filePath);
-          if (now - stats.mtimeMs > ORPHAN_FILE_AGE_MS) {
-            await fs.promises.unlink(filePath);
+  const interval = setInterval(
+    async () => {
+      try {
+        const files = await fs.promises.readdir(uploadsDir);
+        const now = Date.now();
+        for (const file of files) {
+          const filePath = path.join(uploadsDir, file);
+          try {
+            const stats = await fs.promises.stat(filePath);
+            if (now - stats.mtimeMs > ORPHAN_FILE_AGE_MS) {
+              await fs.promises.unlink(filePath);
+            }
+          } catch {
+            /* file may have been removed between readdir and stat */
           }
-        } catch { /* file may have been removed between readdir and stat */ }
+        }
+      } catch {
+        /* uploads dir may not exist */
       }
-    } catch { /* uploads dir may not exist */ }
-  }, 30 * 60 * 1000); // Every 30 minutes
+    },
+    30 * 60 * 1000,
+  ); // Every 30 minutes
   interval.unref();
 }
 
 // Ensure uploads directory exists
-const uploadsDir = 'uploads';
+const uploadsDir = "uploads";
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
@@ -150,18 +167,29 @@ export const upload = multer({
   },
   fileFilter: (req, file, cb) => {
     // Validate both file extension and MIME type
-    const allowedTypes = ['.mp3', '.wav', '.m4a', '.mp4', '.flac', '.ogg'];
+    const allowedTypes = [".mp3", ".wav", ".m4a", ".mp4", ".flac", ".ogg"];
     const allowedMimeTypes = [
-      'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/wave', 'audio/x-wav',
-      'audio/mp4', 'audio/x-m4a', 'audio/m4a', 'audio/flac', 'audio/x-flac',
-      'audio/ogg', 'audio/vorbis', 'video/mp4', 'application/octet-stream',
+      "audio/mpeg",
+      "audio/mp3",
+      "audio/wav",
+      "audio/wave",
+      "audio/x-wav",
+      "audio/mp4",
+      "audio/x-m4a",
+      "audio/m4a",
+      "audio/flac",
+      "audio/x-flac",
+      "audio/ogg",
+      "audio/vorbis",
+      "video/mp4",
+      "application/octet-stream",
     ];
     const ext = path.extname(file.originalname).toLowerCase();
     const mimeOk = allowedMimeTypes.includes(file.mimetype);
     if (allowedTypes.includes(ext) && mimeOk) {
       cb(null, true);
     } else {
-      cb(new Error('Invalid file type. Only audio files (MP3, WAV, M4A, MP4, FLAC, OGG) are allowed.'), false);
+      cb(new Error("Invalid file type. Only audio files (MP3, WAV, M4A, MP4, FLAC, OGG) are allowed."), false);
     }
-  }
+  },
 });

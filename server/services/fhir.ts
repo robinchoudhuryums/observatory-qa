@@ -127,14 +127,20 @@ export function buildFhirComposition(params: {
   // ICD-10 codes → FHIR diagnosis section
   const icd10Codes = note.icd10Codes as Array<{ code: string; description: string }> | undefined;
   if (icd10Codes && icd10Codes.length > 0) {
-    const diagText = icd10Codes.map(c => `${c.code}: ${c.description}`).join("\n");
+    const diagText = icd10Codes.map((c) => `${c.code}: ${c.description}`).join("\n");
     sections.push(buildSection("Diagnoses", diagText, "29548-5"));
   }
 
   // Prescriptions section
-  const prescriptions = note.prescriptions as Array<{ medication: string; dosage?: string; instructions?: string }> | undefined;
+  const prescriptions = note.prescriptions as
+    | Array<{ medication: string; dosage?: string; instructions?: string }>
+    | undefined;
   if (prescriptions && prescriptions.length > 0) {
-    const rxText = prescriptions.map(rx => `${rx.medication}${rx.dosage ? ` ${rx.dosage}` : ""}${rx.instructions ? ` — ${rx.instructions}` : ""}`).join("\n");
+    const rxText = prescriptions
+      .map(
+        (rx) => `${rx.medication}${rx.dosage ? ` ${rx.dosage}` : ""}${rx.instructions ? ` — ${rx.instructions}` : ""}`,
+      )
+      .join("\n");
     sections.push(buildSection("Medications / Prescriptions", rxText, "10160-0"));
   }
 

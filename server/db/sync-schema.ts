@@ -22,7 +22,8 @@ async function addRlsPolicy(db: Database, table: string): Promise<void> {
   const safeTable = `"${table.replace(/"/g, '""')}"`;
   await db.execute(sql.raw(`ALTER TABLE ${safeTable} ENABLE ROW LEVEL SECURITY`));
   await db.execute(sql.raw(`ALTER TABLE ${safeTable} FORCE ROW LEVEL SECURITY`));
-  await db.execute(sql.raw(`
+  await db.execute(
+    sql.raw(`
     DO $$ BEGIN
       CREATE POLICY org_isolation ON ${safeTable}
         USING (
@@ -31,7 +32,8 @@ async function addRlsPolicy(db: Database, table: string): Promise<void> {
         );
     EXCEPTION WHEN duplicate_object THEN NULL;
     END $$;
-  `));
+  `),
+  );
 }
 
 export async function syncSchema(db: Database): Promise<void> {
@@ -46,15 +48,20 @@ export async function syncSchema(db: Database): Promise<void> {
 
     // Check if Drizzle migrations have been applied.
     // If so, the migration system owns the schema — skip idempotent DDL.
-    const hasMigrations = await db.execute(sql`
+    const hasMigrations = await db
+      .execute(
+        sql`
       SELECT EXISTS (
         SELECT 1 FROM information_schema.tables
         WHERE table_schema = 'drizzle' AND table_name = '__drizzle_migrations'
       ) AS has_migrations
-    `).then((result) => {
-      const rows = result.rows as Array<{ has_migrations: boolean }>;
-      return rows[0]?.has_migrations === true;
-    }).catch(() => false);
+    `,
+      )
+      .then((result) => {
+        const rows = result.rows as Array<{ has_migrations: boolean }>;
+        return rows[0]?.has_migrations === true;
+      })
+      .catch(() => false);
 
     if (hasMigrations) {
       logger.info("Drizzle migrations detected — skipping sync-schema DDL");
@@ -109,7 +116,7 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`DROP INDEX IF EXISTS users_username_idx`);
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS users_org_username_idx ON users (org_id, username)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS users_org_id_idx ON users (org_id)`);
-    await addRlsPolicy(db, "users").catch(e => logger.warn({ err: e }, "RLS setup skipped for users"));
+    await addRlsPolicy(db, "users").catch((e) => logger.warn({ err: e }, "RLS setup skipped for users"));
 
     // --- Employees ---
     await db.execute(sql`
@@ -127,7 +134,7 @@ export async function syncSchema(db: Database): Promise<void> {
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS employees_org_id_idx ON employees (org_id)`);
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS employees_org_email_idx ON employees (org_id, email)`);
-    await addRlsPolicy(db, "employees").catch(e => logger.warn({ err: e }, "RLS setup skipped for employees"));
+    await addRlsPolicy(db, "employees").catch((e) => logger.warn({ err: e }, "RLS setup skipped for employees"));
 
     // --- Calls ---
     await db.execute(sql`
@@ -155,10 +162,14 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS calls_uploaded_at_idx ON calls (uploaded_at)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS calls_org_file_hash_idx ON calls (org_id, file_hash)`);
     // Composite index for time-scoped filtered reports (org + status + date)
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS calls_org_status_uploaded_idx ON calls (org_id, status, uploaded_at DESC)`);
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS calls_org_status_uploaded_idx ON calls (org_id, status, uploaded_at DESC)`,
+    );
     // Composite index for employee + status queries (coaching, gamification)
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS calls_org_employee_status_idx ON calls (org_id, employee_id, status)`);
-    await addRlsPolicy(db, "calls").catch(e => logger.warn({ err: e }, "RLS setup skipped for calls"));
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS calls_org_employee_status_idx ON calls (org_id, employee_id, status)`,
+    );
+    await addRlsPolicy(db, "calls").catch((e) => logger.warn({ err: e }, "RLS setup skipped for calls"));
 
     // Multi-channel support columns
     await addColumnIfNotExists(db, "calls", "channel", "VARCHAR(20) NOT NULL DEFAULT 'voice'");
@@ -193,10 +204,14 @@ export async function syncSchema(db: Database): Promise<void> {
     await addColumnIfNotExists(db, "transcripts", "corrections", "JSONB");
     await addColumnIfNotExists(db, "transcripts", "corrected_text", "TEXT");
     // Full-text search index for transcript search (GIN tsvector)
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS transcripts_text_search_idx ON transcripts USING GIN (to_tsvector('english', coalesce(text, '')))`).catch(() => {
-      logger.warn("Failed to create transcript full-text search index (may already exist or text is encrypted)");
-    });
-    await addRlsPolicy(db, "transcripts").catch(e => logger.warn({ err: e }, "RLS setup skipped for transcripts"));
+    await db
+      .execute(
+        sql`CREATE INDEX IF NOT EXISTS transcripts_text_search_idx ON transcripts USING GIN (to_tsvector('english', coalesce(text, '')))`,
+      )
+      .catch(() => {
+        logger.warn("Failed to create transcript full-text search index (may already exist or text is encrypted)");
+      });
+    await addRlsPolicy(db, "transcripts").catch((e) => logger.warn({ err: e }, "RLS setup skipped for transcripts"));
 
     // --- Sentiment Analyses ---
     await db.execute(sql`
@@ -213,8 +228,12 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS sentiments_call_id_idx ON sentiment_analyses (call_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS sentiments_org_id_idx ON sentiment_analyses (org_id)`);
     // Index for sentiment filtering in insights/reports
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS sentiments_org_sentiment_idx ON sentiment_analyses (org_id, overall_sentiment)`);
-    await addRlsPolicy(db, "sentiment_analyses").catch(e => logger.warn({ err: e }, "RLS setup skipped for sentiment_analyses"));
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS sentiments_org_sentiment_idx ON sentiment_analyses (org_id, overall_sentiment)`,
+    );
+    await addRlsPolicy(db, "sentiment_analyses").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for sentiment_analyses"),
+    );
 
     // --- Call Analyses ---
     await db.execute(sql`
@@ -256,16 +275,28 @@ export async function syncSchema(db: Database): Promise<void> {
     await addColumnIfNotExists(db, "call_analyses", "suggested_billing_codes", "JSONB");
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS analyses_call_id_idx ON call_analyses (call_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS analyses_org_id_idx ON call_analyses (org_id)`);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS analyses_performance_idx ON call_analyses (org_id, performance_score)`);
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS analyses_performance_idx ON call_analyses (org_id, performance_score)`,
+    );
     // Full-text search index for analysis summaries
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS analyses_summary_search_idx ON call_analyses USING GIN (to_tsvector('english', coalesce(summary, '')))`).catch(() => {
-      logger.warn("Failed to create analysis summary full-text search index");
-    });
+    await db
+      .execute(
+        sql`CREATE INDEX IF NOT EXISTS analyses_summary_search_idx ON call_analyses USING GIN (to_tsvector('english', coalesce(summary, '')))`,
+      )
+      .catch(() => {
+        logger.warn("Failed to create analysis summary full-text search index");
+      });
     // GIN index for JSONB topics search
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS analyses_topics_gin_idx ON call_analyses USING GIN (topics jsonb_path_ops)`).catch(() => {
-      logger.warn("Failed to create topics GIN index");
-    });
-    await addRlsPolicy(db, "call_analyses").catch(e => logger.warn({ err: e }, "RLS setup skipped for call_analyses"));
+    await db
+      .execute(
+        sql`CREATE INDEX IF NOT EXISTS analyses_topics_gin_idx ON call_analyses USING GIN (topics jsonb_path_ops)`,
+      )
+      .catch(() => {
+        logger.warn("Failed to create topics GIN index");
+      });
+    await addRlsPolicy(db, "call_analyses").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for call_analyses"),
+    );
 
     // --- Access Requests ---
     await db.execute(sql`
@@ -284,7 +315,9 @@ export async function syncSchema(db: Database): Promise<void> {
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS access_requests_org_id_idx ON access_requests (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS access_requests_status_idx ON access_requests (org_id, status)`);
-    await addRlsPolicy(db, "access_requests").catch(e => logger.warn({ err: e }, "RLS setup skipped for access_requests"));
+    await addRlsPolicy(db, "access_requests").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for access_requests"),
+    );
 
     // --- Prompt Templates ---
     await db.execute(sql`
@@ -303,8 +336,12 @@ export async function syncSchema(db: Database): Promise<void> {
       )
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS prompt_templates_org_id_idx ON prompt_templates (org_id)`);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS prompt_templates_org_category_idx ON prompt_templates (org_id, call_category)`);
-    await addRlsPolicy(db, "prompt_templates").catch(e => logger.warn({ err: e }, "RLS setup skipped for prompt_templates"));
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS prompt_templates_org_category_idx ON prompt_templates (org_id, call_category)`,
+    );
+    await addRlsPolicy(db, "prompt_templates").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for prompt_templates"),
+    );
 
     // --- Coaching Sessions ---
     await db.execute(sql`
@@ -327,7 +364,9 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS coaching_org_id_idx ON coaching_sessions (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS coaching_employee_id_idx ON coaching_sessions (employee_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS coaching_status_idx ON coaching_sessions (org_id, status)`);
-    await addRlsPolicy(db, "coaching_sessions").catch(e => logger.warn({ err: e }, "RLS setup skipped for coaching_sessions"));
+    await addRlsPolicy(db, "coaching_sessions").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for coaching_sessions"),
+    );
 
     // --- Coaching Recommendations ---
     await db.execute(sql`
@@ -348,9 +387,15 @@ export async function syncSchema(db: Database): Promise<void> {
       )
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS coaching_rec_org_id_idx ON coaching_recommendations (org_id)`);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS coaching_rec_employee_idx ON coaching_recommendations (org_id, employee_id)`);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS coaching_rec_status_idx ON coaching_recommendations (org_id, status)`);
-    await addRlsPolicy(db, "coaching_recommendations").catch(e => logger.warn({ err: e }, "RLS setup skipped for coaching_recommendations"));
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS coaching_rec_employee_idx ON coaching_recommendations (org_id, employee_id)`,
+    );
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS coaching_rec_status_idx ON coaching_recommendations (org_id, status)`,
+    );
+    await addRlsPolicy(db, "coaching_recommendations").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for coaching_recommendations"),
+    );
 
     // --- Coaching Sessions: new columns ---
     await addColumnIfNotExists(db, "coaching_sessions", "automated_trigger", "TEXT");
@@ -379,8 +424,12 @@ export async function syncSchema(db: Database): Promise<void> {
       )
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS coaching_templates_org_idx ON coaching_templates (org_id)`);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS coaching_templates_org_category_idx ON coaching_templates (org_id, category)`);
-    await addRlsPolicy(db, "coaching_templates").catch(e => logger.warn({ err: e }, "RLS setup skipped for coaching_templates"));
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS coaching_templates_org_category_idx ON coaching_templates (org_id, category)`,
+    );
+    await addRlsPolicy(db, "coaching_templates").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for coaching_templates"),
+    );
 
     // --- Automation Rules ---
     await db.execute(sql`
@@ -400,8 +449,12 @@ export async function syncSchema(db: Database): Promise<void> {
       )
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS automation_rules_org_idx ON automation_rules (org_id)`);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS automation_rules_org_enabled_idx ON automation_rules (org_id, is_enabled)`);
-    await addRlsPolicy(db, "automation_rules").catch(e => logger.warn({ err: e }, "RLS setup skipped for automation_rules"));
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS automation_rules_org_enabled_idx ON automation_rules (org_id, is_enabled)`,
+    );
+    await addRlsPolicy(db, "automation_rules").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for automation_rules"),
+    );
 
     // --- API Keys ---
     await db.execute(sql`
@@ -421,7 +474,7 @@ export async function syncSchema(db: Database): Promise<void> {
     `);
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS api_keys_hash_idx ON api_keys (key_hash)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS api_keys_org_id_idx ON api_keys (org_id)`);
-    await addRlsPolicy(db, "api_keys").catch(e => logger.warn({ err: e }, "RLS setup skipped for api_keys"));
+    await addRlsPolicy(db, "api_keys").catch((e) => logger.warn({ err: e }, "RLS setup skipped for api_keys"));
 
     // --- Invitations ---
     await db.execute(sql`
@@ -441,7 +494,7 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS invitations_token_idx ON invitations (token)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS invitations_org_id_idx ON invitations (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS invitations_email_idx ON invitations (org_id, email)`);
-    await addRlsPolicy(db, "invitations").catch(e => logger.warn({ err: e }, "RLS setup skipped for invitations"));
+    await addRlsPolicy(db, "invitations").catch((e) => logger.warn({ err: e }, "RLS setup skipped for invitations"));
 
     // --- Subscriptions ---
     await db.execute(sql`
@@ -462,12 +515,18 @@ export async function syncSchema(db: Database): Promise<void> {
       )
     `);
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS subscriptions_org_id_idx ON subscriptions (org_id)`);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS subscriptions_stripe_customer_idx ON subscriptions (stripe_customer_id)`);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS subscriptions_stripe_sub_idx ON subscriptions (stripe_subscription_id)`);
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS subscriptions_stripe_customer_idx ON subscriptions (stripe_customer_id)`,
+    );
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS subscriptions_stripe_sub_idx ON subscriptions (stripe_subscription_id)`,
+    );
     await db.execute(sql`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS stripe_seats_item_id VARCHAR(255)`);
     await db.execute(sql`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS stripe_overage_item_id VARCHAR(255)`);
     await db.execute(sql`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS past_due_at TIMESTAMP`);
-    await addRlsPolicy(db, "subscriptions").catch(e => logger.warn({ err: e }, "RLS setup skipped for subscriptions"));
+    await addRlsPolicy(db, "subscriptions").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for subscriptions"),
+    );
 
     // --- Reference Documents ---
     await db.execute(sql`
@@ -498,10 +557,14 @@ export async function syncSchema(db: Database): Promise<void> {
     await addColumnIfNotExists(db, "reference_documents", "content_hash", "VARCHAR(64)");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS ref_docs_org_id_idx ON reference_documents (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS ref_docs_category_idx ON reference_documents (org_id, category)`);
-    await addRlsPolicy(db, "reference_documents").catch(e => logger.warn({ err: e }, "RLS setup skipped for reference_documents"));
+    await addRlsPolicy(db, "reference_documents").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for reference_documents"),
+    );
 
     // --- Document Chunks (pgvector) ---
-    await db.execute(sql`
+    await db
+      .execute(
+        sql`
       CREATE TABLE IF NOT EXISTS document_chunks (
         id TEXT PRIMARY KEY,
         org_id TEXT NOT NULL REFERENCES organizations(id),
@@ -515,13 +578,17 @@ export async function syncSchema(db: Database): Promise<void> {
         embedding vector(1024),
         created_at TIMESTAMP DEFAULT NOW()
       )
-    `).catch(() => {
-      // If pgvector is not available, create without the vector column
-      logger.warn("Creating document_chunks without vector column (pgvector not available)");
-    });
+    `,
+      )
+      .catch(() => {
+        // If pgvector is not available, create without the vector column
+        logger.warn("Creating document_chunks without vector column (pgvector not available)");
+      });
     await db.execute(sql`CREATE INDEX IF NOT EXISTS doc_chunks_org_id_idx ON document_chunks (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS doc_chunks_document_id_idx ON document_chunks (document_id)`);
-    await addRlsPolicy(db, "document_chunks").catch(e => logger.warn({ err: e }, "RLS setup skipped for document_chunks"));
+    await addRlsPolicy(db, "document_chunks").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for document_chunks"),
+    );
 
     // --- Password Reset Tokens ---
     await db.execute(sql`
@@ -535,7 +602,9 @@ export async function syncSchema(db: Database): Promise<void> {
       )
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS password_reset_user_idx ON password_reset_tokens (user_id)`);
-    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS password_reset_token_hash_idx ON password_reset_tokens (token_hash)`);
+    await db.execute(
+      sql`CREATE UNIQUE INDEX IF NOT EXISTS password_reset_token_hash_idx ON password_reset_tokens (token_hash)`,
+    );
 
     // --- MFA Recovery Requests ---
     // Emergency bypass when user loses TOTP device and has no backup codes.
@@ -558,7 +627,9 @@ export async function syncSchema(db: Database): Promise<void> {
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS mfa_recovery_org_idx ON mfa_recovery_requests (org_id, status)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS mfa_recovery_user_idx ON mfa_recovery_requests (user_id)`);
-    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS mfa_recovery_token_hash_idx ON mfa_recovery_requests (token_hash)`);
+    await db.execute(
+      sql`CREATE UNIQUE INDEX IF NOT EXISTS mfa_recovery_token_hash_idx ON mfa_recovery_requests (token_hash)`,
+    );
 
     // --- Usage Events ---
     await db.execute(sql`
@@ -573,7 +644,7 @@ export async function syncSchema(db: Database): Promise<void> {
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS usage_org_type_idx ON usage_events (org_id, event_type)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS usage_created_at_idx ON usage_events (created_at)`);
-    await addRlsPolicy(db, "usage_events").catch(e => logger.warn({ err: e }, "RLS setup skipped for usage_events"));
+    await addRlsPolicy(db, "usage_events").catch((e) => logger.warn({ err: e }, "RLS setup skipped for usage_events"));
 
     // --- A/B Tests ---
     await db.execute(sql`
@@ -598,8 +669,10 @@ export async function syncSchema(db: Database): Promise<void> {
     await addColumnIfNotExists(db, "ab_tests", "batch_id", "TEXT");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS ab_tests_org_id_idx ON ab_tests (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS ab_tests_status_idx ON ab_tests (org_id, status)`);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS ab_tests_batch_id_idx ON ab_tests (org_id, batch_id)`).catch(() => {});
-    await addRlsPolicy(db, "ab_tests").catch(e => logger.warn({ err: e }, "RLS setup skipped for ab_tests"));
+    await db
+      .execute(sql`CREATE INDEX IF NOT EXISTS ab_tests_batch_id_idx ON ab_tests (org_id, batch_id)`)
+      .catch(() => {});
+    await addRlsPolicy(db, "ab_tests").catch((e) => logger.warn({ err: e }, "RLS setup skipped for ab_tests"));
 
     // --- Spend Records ---
     await db.execute(sql`
@@ -616,7 +689,9 @@ export async function syncSchema(db: Database): Promise<void> {
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS spend_records_org_id_idx ON spend_records (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS spend_records_timestamp_idx ON spend_records (org_id, timestamp)`);
-    await addRlsPolicy(db, "spend_records").catch(e => logger.warn({ err: e }, "RLS setup skipped for spend_records"));
+    await addRlsPolicy(db, "spend_records").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for spend_records"),
+    );
 
     // --- Live Sessions (real-time clinical recording) ---
     await db.execute(sql`
@@ -639,8 +714,12 @@ export async function syncSchema(db: Database): Promise<void> {
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS live_sessions_org_id_idx ON live_sessions (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS live_sessions_status_idx ON live_sessions (org_id, status)`);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS live_sessions_created_by_idx ON live_sessions (org_id, created_by)`);
-    await addRlsPolicy(db, "live_sessions").catch(e => logger.warn({ err: e }, "RLS setup skipped for live_sessions"));
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS live_sessions_created_by_idx ON live_sessions (org_id, created_by)`,
+    );
+    await addRlsPolicy(db, "live_sessions").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for live_sessions"),
+    );
 
     // --- User Feedback ---
     await db.execute(sql`
@@ -660,7 +739,7 @@ export async function syncSchema(db: Database): Promise<void> {
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS feedbacks_org_id_idx ON feedbacks (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS feedbacks_type_idx ON feedbacks (org_id, type)`);
-    await addRlsPolicy(db, "feedbacks").catch(e => logger.warn({ err: e }, "RLS setup skipped for feedbacks"));
+    await addRlsPolicy(db, "feedbacks").catch((e) => logger.warn({ err: e }, "RLS setup skipped for feedbacks"));
 
     // --- Employee Badges (Gamification) ---
     await db.execute(sql`
@@ -677,8 +756,12 @@ export async function syncSchema(db: Database): Promise<void> {
     await addColumnIfNotExists(db, "employee_badges", "awarded_by", "TEXT");
     await addColumnIfNotExists(db, "employee_badges", "custom_message", "TEXT");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS employee_badges_org_idx ON employee_badges (org_id)`);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS employee_badges_employee_idx ON employee_badges (org_id, employee_id)`);
-    await addRlsPolicy(db, "employee_badges").catch(e => logger.warn({ err: e }, "RLS setup skipped for employee_badges"));
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS employee_badges_employee_idx ON employee_badges (org_id, employee_id)`,
+    );
+    await addRlsPolicy(db, "employee_badges").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for employee_badges"),
+    );
 
     // --- Gamification Profiles ---
     await db.execute(sql`
@@ -693,8 +776,12 @@ export async function syncSchema(db: Database): Promise<void> {
         UNIQUE(org_id, employee_id)
       )
     `);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS gamification_profiles_points_idx ON gamification_profiles (org_id, total_points)`);
-    await addRlsPolicy(db, "gamification_profiles").catch(e => logger.warn({ err: e }, "RLS setup skipped for gamification_profiles"));
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS gamification_profiles_points_idx ON gamification_profiles (org_id, total_points)`,
+    );
+    await addRlsPolicy(db, "gamification_profiles").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for gamification_profiles"),
+    );
 
     // --- Insurance Narratives ---
     await db.execute(sql`
@@ -729,10 +816,16 @@ export async function syncSchema(db: Database): Promise<void> {
     await addColumnIfNotExists(db, "insurance_narratives", "payer_template", "VARCHAR(50)");
     await addColumnIfNotExists(db, "insurance_narratives", "supporting_documents", "JSONB");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS insurance_narratives_org_idx ON insurance_narratives (org_id)`);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS insurance_narratives_status_idx ON insurance_narratives (org_id, status)`);
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS insurance_narratives_status_idx ON insurance_narratives (org_id, status)`,
+    );
     // Index for call-linked narrative lookups (matches schema.ts definition)
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS insurance_narratives_call_idx ON insurance_narratives (org_id, call_id)`);
-    await addRlsPolicy(db, "insurance_narratives").catch(e => logger.warn({ err: e }, "RLS setup skipped for insurance_narratives"));
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS insurance_narratives_call_idx ON insurance_narratives (org_id, call_id)`,
+    );
+    await addRlsPolicy(db, "insurance_narratives").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for insurance_narratives"),
+    );
 
     // --- Call Revenue Tracking ---
     await db.execute(sql`
@@ -764,8 +857,12 @@ export async function syncSchema(db: Database): Promise<void> {
     await addColumnIfNotExists(db, "call_revenues", "patient_amount", "REAL");
     await addColumnIfNotExists(db, "call_revenues", "ehr_synced_at", "TIMESTAMP");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS call_revenues_org_idx ON call_revenues (org_id)`);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS call_revenues_conversion_idx ON call_revenues (org_id, conversion_status)`);
-    await addRlsPolicy(db, "call_revenues").catch(e => logger.warn({ err: e }, "RLS setup skipped for call_revenues"));
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS call_revenues_conversion_idx ON call_revenues (org_id, conversion_status)`,
+    );
+    await addRlsPolicy(db, "call_revenues").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for call_revenues"),
+    );
 
     // --- Calibration Sessions ---
     await db.execute(sql`
@@ -786,8 +883,12 @@ export async function syncSchema(db: Database): Promise<void> {
     `);
     await addColumnIfNotExists(db, "calibration_sessions", "blind_mode", "BOOLEAN NOT NULL DEFAULT false");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS calibration_sessions_org_idx ON calibration_sessions (org_id)`);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS calibration_sessions_status_idx ON calibration_sessions (org_id, status)`);
-    await addRlsPolicy(db, "calibration_sessions").catch(e => logger.warn({ err: e }, "RLS setup skipped for calibration_sessions"));
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS calibration_sessions_status_idx ON calibration_sessions (org_id, status)`,
+    );
+    await addRlsPolicy(db, "calibration_sessions").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for calibration_sessions"),
+    );
 
     // --- Calibration Evaluations ---
     await db.execute(sql`
@@ -803,8 +904,12 @@ export async function syncSchema(db: Database): Promise<void> {
         UNIQUE(session_id, evaluator_id)
       )
     `);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS calibration_evals_session_idx ON calibration_evaluations (session_id)`);
-    await addRlsPolicy(db, "calibration_evaluations").catch(e => logger.warn({ err: e }, "RLS setup skipped for calibration_evaluations"));
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS calibration_evals_session_idx ON calibration_evaluations (session_id)`,
+    );
+    await addRlsPolicy(db, "calibration_evaluations").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for calibration_evaluations"),
+    );
 
     // --- LMS: Learning Modules ---
     await db.execute(sql`
@@ -832,7 +937,9 @@ export async function syncSchema(db: Database): Promise<void> {
     await addColumnIfNotExists(db, "learning_modules", "prerequisite_module_ids", "JSONB");
     await addColumnIfNotExists(db, "learning_modules", "passing_score", "INTEGER");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS learning_modules_org_idx ON learning_modules (org_id)`);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS learning_modules_category_idx ON learning_modules (org_id, category)`);
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS learning_modules_category_idx ON learning_modules (org_id, category)`,
+    );
 
     // --- LMS: Learning Paths ---
     await db.execute(sql`
@@ -874,7 +981,9 @@ export async function syncSchema(db: Database): Promise<void> {
       )
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS learning_progress_org_idx ON learning_progress (org_id)`);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS learning_progress_employee_idx ON learning_progress (org_id, employee_id)`);
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS learning_progress_employee_idx ON learning_progress (org_id, employee_id)`,
+    );
 
     // --- Marketing Campaigns ---
     await db.execute(sql`
@@ -896,7 +1005,9 @@ export async function syncSchema(db: Database): Promise<void> {
       )
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS marketing_campaigns_org_idx ON marketing_campaigns (org_id)`);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS marketing_campaigns_source_idx ON marketing_campaigns (org_id, source)`);
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS marketing_campaigns_source_idx ON marketing_campaigns (org_id, source)`,
+    );
 
     // --- Call Attribution ---
     await db.execute(sql`
@@ -917,10 +1028,16 @@ export async function syncSchema(db: Database): Promise<void> {
       )
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS call_attributions_org_idx ON call_attributions (org_id)`);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS call_attributions_source_idx ON call_attributions (org_id, source)`);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS call_attributions_campaign_idx ON call_attributions (org_id, campaign_id)`);
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS call_attributions_source_idx ON call_attributions (org_id, source)`,
+    );
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS call_attributions_campaign_idx ON call_attributions (org_id, campaign_id)`,
+    );
     // UNIQUE: one attribution per call per org (matches schema.ts definition)
-    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS call_attributions_call_idx ON call_attributions (org_id, call_id)`);
+    await db.execute(
+      sql`CREATE UNIQUE INDEX IF NOT EXISTS call_attributions_call_idx ON call_attributions (org_id, call_id)`,
+    );
 
     // --- Audit Logs (tamper-evident) ---
     await db.execute(sql`
@@ -951,10 +1068,12 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS audit_logs_user_idx ON audit_logs (org_id, user_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS audit_logs_sequence_idx ON audit_logs (org_id, sequence_num)`);
     // BRIN index on created_at for efficient time-range archival queries (audit logs grow fast)
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS audit_logs_created_at_brin_idx ON audit_logs USING BRIN (created_at)`).catch(() => {
-      logger.warn("Failed to create audit_logs BRIN index");
-    });
-    await addRlsPolicy(db, "audit_logs").catch(e => logger.warn({ err: e }, "RLS setup skipped for audit_logs"));
+    await db
+      .execute(sql`CREATE INDEX IF NOT EXISTS audit_logs_created_at_brin_idx ON audit_logs USING BRIN (created_at)`)
+      .catch(() => {
+        logger.warn("Failed to create audit_logs BRIN index");
+      });
+    await addRlsPolicy(db, "audit_logs").catch((e) => logger.warn({ err: e }, "RLS setup skipped for audit_logs"));
 
     // --- Provider Templates (custom clinical note templates per provider) ---
     await db.execute(sql`
@@ -975,9 +1094,15 @@ export async function syncSchema(db: Database): Promise<void> {
         updated_at TIMESTAMP DEFAULT NOW()
       )
     `);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS provider_templates_org_user_idx ON provider_templates (org_id, user_id)`);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS provider_templates_org_specialty_idx ON provider_templates (org_id, specialty)`);
-    await addRlsPolicy(db, "provider_templates").catch(e => logger.warn({ err: e }, "RLS setup skipped for provider_templates"));
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS provider_templates_org_user_idx ON provider_templates (org_id, user_id)`,
+    );
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS provider_templates_org_specialty_idx ON provider_templates (org_id, specialty)`,
+    );
+    await addRlsPolicy(db, "provider_templates").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for provider_templates"),
+    );
 
     // --- Call Shares (resource-level sharing with external reviewers) ---
     await db.execute(sql`
@@ -996,7 +1121,7 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS call_shares_token_hash_idx ON call_shares (token_hash)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS call_shares_org_idx ON call_shares (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS call_shares_call_idx ON call_shares (org_id, call_id)`);
-    await addRlsPolicy(db, "call_shares").catch(e => logger.warn({ err: e }, "RLS setup skipped for call_shares"));
+    await addRlsPolicy(db, "call_shares").catch((e) => logger.warn({ err: e }, "RLS setup skipped for call_shares"));
 
     // ── One-time data migrations ─────────────────────────────────────────────
     // These use runOnceMigration() to ensure they execute exactly once even
@@ -1022,22 +1147,19 @@ export async function syncSchema(db: Database): Promise<void> {
  * Add a column to a table if it doesn't already exist.
  * Uses DO $$ block for idempotent ALTER TABLE.
  */
-async function addColumnIfNotExists(
-  db: Database,
-  table: string,
-  column: string,
-  definition: string,
-): Promise<void> {
+async function addColumnIfNotExists(db: Database, table: string, column: string, definition: string): Promise<void> {
   // Quote identifiers to prevent SQL injection
   const safeTable = `"${table.replace(/"/g, '""')}"`;
   const safeColumn = `"${column.replace(/"/g, '""')}"`;
-  await db.execute(sql.raw(`
+  await db.execute(
+    sql.raw(`
     DO $$ BEGIN
       ALTER TABLE ${safeTable} ADD COLUMN IF NOT EXISTS ${safeColumn} ${definition};
     EXCEPTION
       WHEN duplicate_column THEN NULL;
     END $$;
-  `));
+  `),
+  );
 }
 
 /**
@@ -1048,18 +1170,14 @@ async function addColumnIfNotExists(
  * Usage:
  *   await renameColumnIfExists(db, "calls", "assembly_ai_id", "transcription_job_id");
  */
-async function renameColumnIfExists(
-  db: Database,
-  table: string,
-  oldColumn: string,
-  newColumn: string,
-): Promise<void> {
+async function renameColumnIfExists(db: Database, table: string, oldColumn: string, newColumn: string): Promise<void> {
   const safeTable = `"${table.replace(/"/g, '""')}"`;
   const safeOld = `"${oldColumn.replace(/"/g, '""')}"`;
   const safeNew = `"${newColumn.replace(/"/g, '""')}"`;
   // Check: old column exists AND new column does not. If both exist, the rename
   // was only partially applied — log a warning but do not error.
-  await db.execute(sql.raw(`
+  await db.execute(
+    sql.raw(`
     DO $$ BEGIN
       IF EXISTS (
         SELECT 1 FROM information_schema.columns
@@ -1071,7 +1189,8 @@ async function renameColumnIfExists(
         ALTER TABLE ${safeTable} RENAME COLUMN ${safeOld} TO ${safeNew};
       END IF;
     END $$;
-  `));
+  `),
+  );
 }
 
 /**
@@ -1085,14 +1204,11 @@ async function renameColumnIfExists(
  * Usage:
  *   await dropColumnIfExists(db, "call_analyses", "lemur_response");
  */
-async function dropColumnIfExists(
-  db: Database,
-  table: string,
-  column: string,
-): Promise<void> {
+async function dropColumnIfExists(db: Database, table: string, column: string): Promise<void> {
   const safeTable = `"${table.replace(/"/g, '""')}"`;
   const safeColumn = `"${column.replace(/"/g, '""')}"`;
-  await db.execute(sql.raw(`
+  await db.execute(
+    sql.raw(`
     DO $$ BEGIN
       IF EXISTS (
         SELECT 1 FROM information_schema.columns
@@ -1101,7 +1217,8 @@ async function dropColumnIfExists(
         ALTER TABLE ${safeTable} DROP COLUMN ${safeColumn};
       END IF;
     END $$;
-  `));
+  `),
+  );
 }
 
 /**
@@ -1141,16 +1258,12 @@ async function ensureMigrationsTable(db: Database): Promise<void> {
  *     await dropColumnIfExists(db, "call_analyses", "lemur_response");
  *   });
  */
-async function runOnceMigration(
-  db: Database,
-  key: string,
-  fn: () => Promise<void>,
-): Promise<void> {
+async function runOnceMigration(db: Database, key: string, fn: () => Promise<void>): Promise<void> {
   await ensureMigrationsTable(db);
 
   // Check if already applied
   const result = await db.execute(
-    sql.raw(`SELECT key FROM schema_migrations WHERE key = '${key.replace(/'/g, "''")}'`)
+    sql.raw(`SELECT key FROM schema_migrations WHERE key = '${key.replace(/'/g, "''")}'`),
   );
   const rows = result.rows as Array<{ key: string }>;
   if (rows.length > 0) {
@@ -1165,7 +1278,7 @@ async function runOnceMigration(
       sql.raw(`
         INSERT INTO schema_migrations (key, applied_at, duration_ms)
         VALUES ('${key.replace(/'/g, "''")}', NOW(), ${durationMs})
-      `)
+      `),
     );
     logger.info({ migrationKey: key, durationMs }, "One-time migration applied");
   } catch (error) {

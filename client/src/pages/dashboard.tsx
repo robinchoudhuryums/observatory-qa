@@ -16,7 +16,16 @@ import { PLAN_DEFINITIONS } from "@shared/schema";
 import { getQueryFn } from "@/lib/queryClient";
 import OnboardingTour from "@/components/onboarding-tour";
 import OnboardingChecklist from "@/components/onboarding-checklist";
-import {  RiSearchLine, RiAddLine, RiAlertLine, RiAwardLine, RiArrowRightUpLine, RiFlashlightLine, RiUploadLine, RiArrowDownSLine  } from "@remixicon/react";
+import {
+  RiSearchLine,
+  RiAddLine,
+  RiAlertLine,
+  RiAwardLine,
+  RiArrowRightUpLine,
+  RiFlashlightLine,
+  RiUploadLine,
+  RiArrowDownSLine,
+} from "@remixicon/react";
 
 export default function Dashboard() {
   const [, navigate] = useLocation();
@@ -25,7 +34,11 @@ export default function Dashboard() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   // Fetch recent calls to extract flagged ones for the dashboard alert panel
-  const { data: calls, error: callsError, isLoading: callsLoading } = useQuery<CallWithDetails[]>({
+  const {
+    data: calls,
+    error: callsError,
+    isLoading: callsLoading,
+  } = useQuery<CallWithDetails[]>({
     queryKey: ["/api/calls", { status: "", sentiment: "", employee: "" }],
   });
 
@@ -64,20 +77,22 @@ export default function Dashboard() {
     return warnings;
   }, [billing]);
 
-  const flaggedCalls = (calls || []).filter(c => {
+  const flaggedCalls = (calls || []).filter((c) => {
     const flags = c.analysis?.flags;
-    return Array.isArray(flags) && flags.length > 0 && flags.some(f =>
-      f === "low_score" || f.startsWith("agent_misconduct") || f === "exceptional_call"
+    return (
+      Array.isArray(flags) &&
+      flags.length > 0 &&
+      flags.some((f) => f === "low_score" || f.startsWith("agent_misconduct") || f === "exceptional_call")
     );
   });
 
-  const badCalls = flaggedCalls.filter(c => {
+  const badCalls = flaggedCalls.filter((c) => {
     const flags = c.analysis?.flags;
-    return Array.isArray(flags) && flags.some(f => f === "low_score" || f.startsWith("agent_misconduct"));
+    return Array.isArray(flags) && flags.some((f) => f === "low_score" || f.startsWith("agent_misconduct"));
   });
-  const goodCalls = flaggedCalls.filter(c => {
+  const goodCalls = flaggedCalls.filter((c) => {
     const flags = c.analysis?.flags;
-    return Array.isArray(flags) && flags.some(f => f === "exceptional_call");
+    return Array.isArray(flags) && flags.some((f) => f === "exceptional_call");
   });
 
   // Track last data update time
@@ -97,7 +112,10 @@ export default function Dashboard() {
     const thirtyDaysAgo = new Date(now);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const dayMap = new Map<string, { calls: number; positive: number; neutral: number; negative: number; totalScore: number; scored: number }>();
+    const dayMap = new Map<
+      string,
+      { calls: number; positive: number; neutral: number; negative: number; totalScore: number; scored: number }
+    >();
 
     // Initialize last 30 days
     for (let i = 29; i >= 0; i--) {
@@ -154,7 +172,9 @@ export default function Dashboard() {
           <div>
             <h2 className="text-2xl font-bold text-foreground tracking-tight">Call Analysis Dashboard</h2>
             <div className="flex items-center gap-3 mt-0.5">
-              <p className="text-sm text-muted-foreground">Monitor performance and sentiment across all customer interactions</p>
+              <p className="text-sm text-muted-foreground">
+                Monitor performance and sentiment across all customer interactions
+              </p>
               {lastUpdated && (
                 <span className="text-xs text-muted-foreground/60 whitespace-nowrap hidden sm:inline">
                   Updated {lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -187,65 +207,76 @@ export default function Dashboard() {
 
       <div className="p-6 space-y-6">
         {/* Usage Quota Warning Banner */}
-        {quotaWarnings.length > 0 && (() => {
-          const anyExhausted = quotaWarnings.some(w => w.pct >= 100);
-          const bgClass = anyExhausted
-            ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900"
-            : "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-900";
-          const iconColor = anyExhausted ? "text-red-500" : "text-amber-500";
-          const titleColor = anyExhausted ? "text-red-700 dark:text-red-400" : "text-amber-700 dark:text-amber-400";
-          const labelColor = anyExhausted ? "text-red-700 dark:text-red-300" : "text-amber-700 dark:text-amber-300";
-          const footerColor = anyExhausted ? "text-red-600/80 dark:text-red-400/60" : "text-amber-600/80 dark:text-amber-400/60";
+        {quotaWarnings.length > 0 &&
+          (() => {
+            const anyExhausted = quotaWarnings.some((w) => w.pct >= 100);
+            const bgClass = anyExhausted
+              ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900"
+              : "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-900";
+            const iconColor = anyExhausted ? "text-red-500" : "text-amber-500";
+            const titleColor = anyExhausted ? "text-red-700 dark:text-red-400" : "text-amber-700 dark:text-amber-400";
+            const labelColor = anyExhausted ? "text-red-700 dark:text-red-300" : "text-amber-700 dark:text-amber-300";
+            const footerColor = anyExhausted
+              ? "text-red-600/80 dark:text-red-400/60"
+              : "text-amber-600/80 dark:text-amber-400/60";
 
-          return (
-            <div className={`rounded-lg border p-4 ${bgClass}`}>
-              <div className="flex items-center gap-2 mb-2">
-                {anyExhausted ? <RiAlertLine className={`w-5 h-5 ${iconColor}`} /> : <RiFlashlightLine className={`w-5 h-5 ${iconColor}`} />}
-                <h3 className={`font-semibold ${titleColor}`}>
-                  {anyExhausted ? "Plan Limit Reached" : "Approaching Plan Limits"}
-                </h3>
-                <Badge variant="outline" className="text-xs ml-auto">
-                  {billing?.plan?.name || "Free"} Plan
-                </Badge>
-              </div>
-              <div className="space-y-2">
-                {quotaWarnings.map(w => (
-                  <div key={w.label} className="flex items-center gap-3">
-                    <span className={`text-sm ${labelColor} min-w-[120px]`}>
-                      {w.label}: {w.used}/{w.limit}
-                    </span>
-                    <div className="flex-1 h-2 bg-amber-200 dark:bg-amber-900 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${w.pct >= 100 ? "bg-red-500" : "bg-amber-500"}`}
-                        style={{ width: `${Math.min(w.pct, 100)}%` }}
-                      />
+            return (
+              <div className={`rounded-lg border p-4 ${bgClass}`}>
+                <div className="flex items-center gap-2 mb-2">
+                  {anyExhausted ? (
+                    <RiAlertLine className={`w-5 h-5 ${iconColor}`} />
+                  ) : (
+                    <RiFlashlightLine className={`w-5 h-5 ${iconColor}`} />
+                  )}
+                  <h3 className={`font-semibold ${titleColor}`}>
+                    {anyExhausted ? "Plan Limit Reached" : "Approaching Plan Limits"}
+                  </h3>
+                  <Badge variant="outline" className="text-xs ml-auto">
+                    {billing?.plan?.name || "Free"} Plan
+                  </Badge>
+                </div>
+                <div className="space-y-2">
+                  {quotaWarnings.map((w) => (
+                    <div key={w.label} className="flex items-center gap-3">
+                      <span className={`text-sm ${labelColor} min-w-[120px]`}>
+                        {w.label}: {w.used}/{w.limit}
+                      </span>
+                      <div className="flex-1 h-2 bg-amber-200 dark:bg-amber-900 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${w.pct >= 100 ? "bg-red-500" : "bg-amber-500"}`}
+                          style={{ width: `${Math.min(w.pct, 100)}%` }}
+                        />
+                      </div>
+                      <span
+                        className={`text-xs font-semibold ${w.pct >= 100 ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}
+                      >
+                        {w.pct}%
+                      </span>
                     </div>
-                    <span className={`text-xs font-semibold ${w.pct >= 100 ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>
-                      {w.pct}%
-                    </span>
-                  </div>
-                ))}
+                  ))}
+                </div>
+                <div
+                  className={`flex items-center justify-between mt-3 ${anyExhausted ? "pt-3 border-t border-red-200 dark:border-red-900" : ""}`}
+                >
+                  <p className={`text-xs ${footerColor}`}>
+                    {anyExhausted
+                      ? "You've hit your plan limit. Uploads and analyses are blocked until you upgrade or the next billing cycle."
+                      : "You're approaching your plan limits for this billing period."}
+                  </p>
+                  <Link href="/admin/settings?tab=billing">
+                    <Button
+                      size="sm"
+                      variant={anyExhausted ? "default" : "outline"}
+                      className={anyExhausted ? "bg-red-600 hover:bg-red-700 text-white" : ""}
+                    >
+                      <RiFlashlightLine className="w-3.5 h-3.5 mr-1.5" />
+                      Upgrade Plan
+                    </Button>
+                  </Link>
+                </div>
               </div>
-              <div className={`flex items-center justify-between mt-3 ${anyExhausted ? "pt-3 border-t border-red-200 dark:border-red-900" : ""}`}>
-                <p className={`text-xs ${footerColor}`}>
-                  {anyExhausted
-                    ? "You've hit your plan limit. Uploads and analyses are blocked until you upgrade or the next billing cycle."
-                    : "You're approaching your plan limits for this billing period."}
-                </p>
-                <Link href="/admin/settings?tab=billing">
-                  <Button
-                    size="sm"
-                    variant={anyExhausted ? "default" : "outline"}
-                    className={anyExhausted ? "bg-red-600 hover:bg-red-700 text-white" : ""}
-                  >
-                    <RiFlashlightLine className="w-3.5 h-3.5 mr-1.5" />
-                    Upgrade Plan
-                  </Button>
-                </Link>
-              </div>
-            </div>
-          );
-        })()}
+            );
+          })()}
 
         {/* Flagged Calls Alert — Compact Expandable */}
         {flaggedCalls.length > 0 && (
@@ -256,14 +287,15 @@ export default function Dashboard() {
             >
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 {badCalls.length > 0 && (
-                  <span className="inline-flex items-center gap-1.5 text-sm font-medium text-red-600 dark:text-red-400" aria-label={`${badCalls.length} calls need attention`}>
+                  <span
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-red-600 dark:text-red-400"
+                    aria-label={`${badCalls.length} calls need attention`}
+                  >
                     <RiAlertLine className="w-4 h-4 flex-shrink-0" />
                     {badCalls.length} need attention
                   </span>
                 )}
-                {badCalls.length > 0 && goodCalls.length > 0 && (
-                  <span className="text-muted-foreground">|</span>
-                )}
+                {badCalls.length > 0 && goodCalls.length > 0 && <span className="text-muted-foreground">|</span>}
                 {goodCalls.length > 0 && (
                   <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400">
                     <RiAwardLine className="w-4 h-4 flex-shrink-0" />
@@ -271,13 +303,15 @@ export default function Dashboard() {
                   </span>
                 )}
               </div>
-              <RiArrowDownSLine className={`w-4 h-4 text-muted-foreground transition-transform ${flagsExpanded ? "rotate-180" : ""}`} />
+              <RiArrowDownSLine
+                className={`w-4 h-4 text-muted-foreground transition-transform ${flagsExpanded ? "rotate-180" : ""}`}
+              />
             </button>
             {flagsExpanded && (
               <div className="px-4 pb-3 pt-0 grid grid-cols-1 md:grid-cols-2 gap-3">
                 {badCalls.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
-                    {badCalls.slice(0, 5).map(c => (
+                    {badCalls.slice(0, 5).map((c) => (
                       <Link key={c.id} href={`/transcripts/${c.id}`}>
                         <Badge className="bg-red-200 text-red-900 text-xs cursor-pointer hover:bg-red-300">
                           {c.employee?.name || "Unassigned"} — {Number(c.analysis?.performanceScore || 0).toFixed(1)}
@@ -286,14 +320,16 @@ export default function Dashboard() {
                     ))}
                     {badCalls.length > 5 && (
                       <Link href="/reports">
-                        <Badge variant="outline" className="text-xs cursor-pointer">+{badCalls.length - 5} more</Badge>
+                        <Badge variant="outline" className="text-xs cursor-pointer">
+                          +{badCalls.length - 5} more
+                        </Badge>
                       </Link>
                     )}
                   </div>
                 )}
                 {goodCalls.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
-                    {goodCalls.slice(0, 5).map(c => (
+                    {goodCalls.slice(0, 5).map((c) => (
                       <Link key={c.id} href={`/transcripts/${c.id}`}>
                         <Badge className="bg-emerald-200 text-emerald-900 text-xs cursor-pointer hover:bg-emerald-300">
                           <RiAwardLine className="w-3 h-3 mr-1" />
@@ -303,7 +339,9 @@ export default function Dashboard() {
                     ))}
                     {goodCalls.length > 5 && (
                       <Link href="/reports">
-                        <Badge variant="outline" className="text-xs cursor-pointer">+{goodCalls.length - 5} more</Badge>
+                        <Badge variant="outline" className="text-xs cursor-pointer">
+                          +{goodCalls.length - 5} more
+                        </Badge>
                       </Link>
                     )}
                   </div>
@@ -314,10 +352,7 @@ export default function Dashboard() {
         )}
 
         {/* Onboarding Checklist — shown until dismissed */}
-        <OnboardingChecklist
-          hasCallsData={(calls?.length ?? 0) > 0}
-          hasEmployeesData={(employees?.length ?? 0) > 0}
-        />
+        <OnboardingChecklist hasCallsData={(calls?.length ?? 0) > 0} hasEmployeesData={(employees?.length ?? 0) > 0} />
 
         {/* Metrics Overview */}
         <MetricsOverview />
@@ -335,7 +370,7 @@ export default function Dashboard() {
             <div className="h-64 bg-muted rounded" />
           </div>
         )}
-        {trendData.length > 0 && trendData.some(d => d.calls > 0) && (
+        {trendData.length > 0 && trendData.some((d) => d.calls > 0) && (
           <div className="modern-card rounded-xl p-6">
             <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
               <RiArrowRightUpLine className="w-5 h-5 mr-2" style={{ color: "hsl(var(--brand-from))" }} />
@@ -358,13 +393,53 @@ export default function Dashboard() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="day" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" interval="preserveStartEnd" />
+                <XAxis
+                  dataKey="day"
+                  tick={{ fontSize: 10 }}
+                  stroke="hsl(var(--muted-foreground))"
+                  interval="preserveStartEnd"
+                />
                 <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 12 }} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "hsl(var(--card))",
+                    border: "1px solid hsl(var(--border))",
+                    fontSize: 12,
+                  }}
+                />
                 <Legend />
-                <Area type="monotone" dataKey="positive" name="Positive" stackId="sentiment" stroke="#22c55e" fill="url(#greenGrad)" animationDuration={1200} animationEasing="ease-out" />
-                <Area type="monotone" dataKey="neutral" name="Neutral" stackId="sentiment" stroke="#94a3b8" fill="url(#grayGrad)" animationDuration={1200} animationEasing="ease-out" animationBegin={150} />
-                <Area type="monotone" dataKey="negative" name="Negative" stackId="sentiment" stroke="#ef4444" fill="url(#redGrad)" animationDuration={1200} animationEasing="ease-out" animationBegin={300} />
+                <Area
+                  type="monotone"
+                  dataKey="positive"
+                  name="Positive"
+                  stackId="sentiment"
+                  stroke="#22c55e"
+                  fill="url(#greenGrad)"
+                  animationDuration={1200}
+                  animationEasing="ease-out"
+                />
+                <Area
+                  type="monotone"
+                  dataKey="neutral"
+                  name="Neutral"
+                  stackId="sentiment"
+                  stroke="#94a3b8"
+                  fill="url(#grayGrad)"
+                  animationDuration={1200}
+                  animationEasing="ease-out"
+                  animationBegin={150}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="negative"
+                  name="Negative"
+                  stackId="sentiment"
+                  stroke="#ef4444"
+                  fill="url(#redGrad)"
+                  animationDuration={1200}
+                  animationEasing="ease-out"
+                  animationBegin={300}
+                />
               </AreaChart>
             </ResponsiveContainer>
           </div>

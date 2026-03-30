@@ -33,7 +33,10 @@ function isRetryable(status: number): boolean {
 
 export async function ehrRequest<T>(opts: EhrRequestOptions): Promise<T> {
   const {
-    method, url, headers, body,
+    method,
+    url,
+    headers,
+    body,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     retries = DEFAULT_RETRIES,
     systemLabel = "EHR",
@@ -45,7 +48,7 @@ export async function ehrRequest<T>(opts: EhrRequestOptions): Promise<T> {
     if (attempt > 0) {
       const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
       logger.warn({ systemLabel, attempt, delay, url }, `${systemLabel}: Retrying after ${delay}ms`);
-      await new Promise(resolve => setTimeout(resolve, delay));
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
 
     const controller = new AbortController();

@@ -9,7 +9,15 @@ import { apiRequest } from "@/lib/queryClient";
 import { USER_ROLES, INDUSTRY_TYPES } from "@shared/schema";
 import { useAppName } from "@/hooks/use-organization";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import {  RiLoginBoxLine, RiUserAddLine, RiShieldLine, RiEyeLine, RiSettings3Line, RiLoader4Line, RiArrowLeftLine  } from "@remixicon/react";
+import {
+  RiLoginBoxLine,
+  RiUserAddLine,
+  RiShieldLine,
+  RiEyeLine,
+  RiSettings3Line,
+  RiLoader4Line,
+  RiArrowLeftLine,
+} from "@remixicon/react";
 import { cn } from "@/lib/utils";
 
 interface AuthPageProps {
@@ -51,9 +59,7 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
       await apiRequest("POST", "/api/auth/login", { username, password });
       onLogin();
     } catch (error: any) {
-      const message = error.message?.includes(":")
-        ? error.message.split(": ").slice(1).join(": ")
-        : error.message;
+      const message = error.message?.includes(":") ? error.message.split(": ").slice(1).join(": ") : error.message;
       toast({
         title: "Login Failed",
         description: message,
@@ -152,7 +158,9 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
             <div className="flex rounded-lg bg-muted p-1 mb-6">
               <button
                 className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
-                  view === "login" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                  view === "login"
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
                 onClick={() => setView("login")}
               >
@@ -161,7 +169,9 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
               </button>
               <button
                 className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
-                  view === "register" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                  view === "register"
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
                 onClick={() => setView("register")}
               >
@@ -219,7 +229,9 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
             {/* REGISTER FORM */}
             {view === "register" && (
               <form onSubmit={handleRegister} className="space-y-4">
-                <div className="text-xs uppercase font-semibold text-muted-foreground tracking-wide mb-3">Organization Details</div>
+                <div className="text-xs uppercase font-semibold text-muted-foreground tracking-wide mb-3">
+                  Organization Details
+                </div>
                 <div>
                   <label className="text-sm font-medium text-foreground">Organization Name</label>
                   <Input
@@ -227,7 +239,12 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                     onChange={(e) => {
                       setRegOrgName(e.target.value);
                       // Auto-generate slug from name
-                      setRegOrgSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""));
+                      setRegOrgSlug(
+                        e.target.value
+                          .toLowerCase()
+                          .replace(/[^a-z0-9]+/g, "-")
+                          .replace(/^-|-$/g, ""),
+                      );
                     }}
                     placeholder="Acme Healthcare"
                     required
@@ -243,7 +260,10 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                     pattern="^[a-z0-9-]+$"
                   />
                   <p className="text-xs text-muted-foreground mt-1">URL-safe identifier (lowercase, hyphens)</p>
-                  <p className="text-xs text-muted-foreground mt-1">Your URL: <span className="font-mono text-foreground/70">{regOrgSlug || "your-org"}</span>.observatory-qa.com</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Your URL: <span className="font-mono text-foreground/70">{regOrgSlug || "your-org"}</span>
+                    .observatory-qa.com
+                  </p>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-foreground">Industry</label>
@@ -253,24 +273,38 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                     </SelectTrigger>
                     <SelectContent>
                       {INDUSTRY_TYPES.map((ind) => (
-                        <SelectItem key={ind.value} value={ind.value}>{ind.label}</SelectItem>
+                        <SelectItem key={ind.value} value={ind.value}>
+                          {ind.label}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-muted-foreground mt-1">We'll set up default templates and categories for your industry</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    We'll set up default templates and categories for your industry
+                  </p>
                 </div>
-                <div className="text-xs uppercase font-semibold text-muted-foreground tracking-wide mb-3 mt-5">Your Account</div>
+                <div className="text-xs uppercase font-semibold text-muted-foreground tracking-wide mb-3 mt-5">
+                  Your Account
+                </div>
                 <div>
                   <label className="text-sm font-medium text-foreground">Your Full Name</label>
                   <Input value={regName} onChange={(e) => setRegName(e.target.value)} placeholder="Jane Doe" required />
                 </div>
                 <div>
                   <label className="text-sm font-medium text-foreground">Username</label>
-                  <Input value={regUsername} onChange={(e) => setRegUsername(e.target.value)} placeholder="jdoe" required autoComplete="username" />
+                  <Input
+                    value={regUsername}
+                    onChange={(e) => setRegUsername(e.target.value)}
+                    placeholder="jdoe"
+                    required
+                    autoComplete="username"
+                  />
                 </div>
                 <div>
                   <label className="text-sm font-medium text-foreground">Password</label>
-                  <p className="text-xs text-muted-foreground mb-1.5">Minimum 8 characters. Use a mix of letters, numbers, and symbols for a strong password.</p>
+                  <p className="text-xs text-muted-foreground mb-1.5">
+                    Minimum 8 characters. Use a mix of letters, numbers, and symbols for a strong password.
+                  </p>
                   <Input
                     type="password"
                     value={regPassword}
@@ -284,18 +318,26 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                     <div className="flex items-center gap-2 mt-1.5">
                       <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
                         <div
-                          className={cn("h-full rounded-full transition-all duration-300",
-                            regPassword.length >= 12 ? "bg-emerald-500 w-full" :
-                            regPassword.length >= 8 ? "bg-amber-500 w-2/3" :
-                            "bg-red-500 w-1/3"
+                          className={cn(
+                            "h-full rounded-full transition-all duration-300",
+                            regPassword.length >= 12
+                              ? "bg-emerald-500 w-full"
+                              : regPassword.length >= 8
+                                ? "bg-amber-500 w-2/3"
+                                : "bg-red-500 w-1/3",
                           )}
                         />
                       </div>
-                      <span className={cn("text-[10px] font-medium",
-                        regPassword.length >= 12 ? "text-emerald-600" :
-                        regPassword.length >= 8 ? "text-amber-600" :
-                        "text-red-500"
-                      )}>
+                      <span
+                        className={cn(
+                          "text-[10px] font-medium",
+                          regPassword.length >= 12
+                            ? "text-emerald-600"
+                            : regPassword.length >= 8
+                              ? "text-amber-600"
+                              : "text-red-500",
+                        )}
+                      >
                         {regPassword.length >= 12 ? "Strong" : regPassword.length >= 8 ? "Good" : "Too short"}
                       </span>
                     </div>
@@ -392,9 +434,16 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                 </div>
                 <h3 className="font-semibold text-foreground mb-1">Request Submitted</h3>
                 <p className="text-sm text-muted-foreground mb-4">
-                  An administrator will review your request and set up your account. You'll be notified at <strong>{requestEmail}</strong>.
+                  An administrator will review your request and set up your account. You'll be notified at{" "}
+                  <strong>{requestEmail}</strong>.
                 </p>
-                <Button variant="outline" onClick={() => { setView("login"); setRequestSubmitted(false); }}>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setView("login");
+                    setRequestSubmitted(false);
+                  }}
+                >
                   Back to Sign In
                 </Button>
               </div>
@@ -447,13 +496,27 @@ function GoogleLoginButton() {
         type="button"
         variant="outline"
         className="w-full"
-        onClick={() => { window.location.href = "/api/auth/google"; }}
+        onClick={() => {
+          window.location.href = "/api/auth/google";
+        }}
       >
         <svg className="w-4 h-4 mr-2" viewBox="0 0 24 24">
-          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" />
-          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+          <path
+            fill="#4285F4"
+            d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"
+          />
+          <path
+            fill="#34A853"
+            d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+          />
+          <path
+            fill="#FBBC05"
+            d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+          />
+          <path
+            fill="#EA4335"
+            d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+          />
         </svg>
         Sign in with Google
       </Button>
@@ -506,8 +569,16 @@ function SsoLoginSection() {
           type="text"
           placeholder="Organization slug (e.g. acme-healthcare)"
           value={orgSlug}
-          onChange={(e) => { setOrgSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "")); setError(null); }}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSsoLogin(); } }}
+          onChange={(e) => {
+            setOrgSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""));
+            setError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              handleSsoLogin();
+            }
+          }}
         />
         {error && (
           <p className="text-sm text-destructive flex items-center gap-1.5">

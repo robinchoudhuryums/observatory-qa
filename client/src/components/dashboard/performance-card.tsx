@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Employee } from "@shared/schema";
 import { motion } from "framer-motion";
 import { Link } from "wouter";
-import {  RiAlertLine, RiRefreshLine  } from "@remixicon/react";
+import { RiAlertLine, RiRefreshLine } from "@remixicon/react";
 
 // Define a more robust type for a performer
 type TopPerformer = Partial<Employee> & {
@@ -13,7 +13,11 @@ type TopPerformer = Partial<Employee> & {
 
 export default function PerformanceCard() {
   const queryClient = useQueryClient();
-  const { data: performers, isLoading, error } = useQuery<TopPerformer[]>({
+  const {
+    data: performers,
+    isLoading,
+    error,
+  } = useQuery<TopPerformer[]>({
     queryKey: ["/api/dashboard/performers"],
   });
 
@@ -44,10 +48,10 @@ export default function PerformanceCard() {
   // A safer way to get the color for initials
   const getInitialsColor = (initials?: string | null) => {
     const colors = [
-      'bg-teal-100 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400',
-      'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400',
-      'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400',
-      'bg-cyan-100 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-400',
+      "bg-teal-100 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400",
+      "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
+      "bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400",
+      "bg-cyan-100 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-400",
     ];
     // Safety check: if initials are missing, return a default color
     if (!initials) {
@@ -66,40 +70,49 @@ export default function PerformanceCard() {
     >
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-foreground">Top Performers</h3>
-        <Link href="/performance" className="text-sm font-medium hover:underline" style={{ color: "hsl(var(--brand-from))" }} data-testid="view-all-performers">
+        <Link
+          href="/performance"
+          className="text-sm font-medium hover:underline"
+          style={{ color: "hsl(var(--brand-from))" }}
+          data-testid="view-all-performers"
+        >
           View All
         </Link>
       </div>
-      
+
       <div className="space-y-4">
         {/* Add a filter to remove any invalid performer data before rendering */}
-        {performers?.filter(p => p && p.id && p.name).map((employee, index) => (
-          <motion.div
-            key={employee.id}
-            initial={{ opacity: 0, x: -10 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: index * 0.06, duration: 0.3, ease: "easeOut" }}
-            className="flex items-center justify-between p-3 bg-muted/50 rounded-xl transition-colors hover:bg-muted"
-          >
-            <div className="flex items-center space-x-3">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${getInitialsColor(employee.initials)}`}>
-                <span className="font-semibold text-sm">{employee.initials ?? 'N/A'}</span>
+        {performers
+          ?.filter((p) => p && p.id && p.name)
+          .map((employee, index) => (
+            <motion.div
+              key={employee.id}
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: index * 0.06, duration: 0.3, ease: "easeOut" }}
+              className="flex items-center justify-between p-3 bg-muted/50 rounded-xl transition-colors hover:bg-muted"
+            >
+              <div className="flex items-center space-x-3">
+                <div
+                  className={`w-10 h-10 rounded-full flex items-center justify-center ${getInitialsColor(employee.initials)}`}
+                >
+                  <span className="font-semibold text-sm">{employee.initials ?? "N/A"}</span>
+                </div>
+                <div>
+                  <p className="font-medium text-foreground" data-testid={`performer-name-${index}`}>
+                    {employee.name ?? "Unknown Employee"}
+                  </p>
+                  <p className="text-sm text-muted-foreground">{employee.role ?? "No role"}</p>
+                </div>
               </div>
-              <div>
-                <p className="font-medium text-foreground" data-testid={`performer-name-${index}`}>
-                  {employee.name ?? 'Unknown Employee'}
+              <div className="text-right">
+                <p className="font-bold text-green-600" data-testid={`performer-score-${index}`}>
+                  {Number(employee.score ?? employee.avgPerformanceScore ?? 0).toFixed(1) || "N/A"}
                 </p>
-                <p className="text-sm text-muted-foreground">{employee.role ?? 'No role'}</p>
+                <p className="text-xs text-muted-foreground">Score</p>
               </div>
-            </div>
-            <div className="text-right">
-              <p className="font-bold text-green-600" data-testid={`performer-score-${index}`}>
-                {Number(employee.score ?? employee.avgPerformanceScore ?? 0).toFixed(1) || 'N/A'}
-              </p>
-              <p className="text-xs text-muted-foreground">Score</p>
-            </div>
-          </motion.div>
-        ))}
+            </motion.div>
+          ))}
 
         {!performers?.length && (
           <div className="text-center py-8">

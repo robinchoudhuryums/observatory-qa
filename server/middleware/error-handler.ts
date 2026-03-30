@@ -38,9 +38,7 @@ export class AppError extends Error {
  *
  * Eliminates the need for try/catch in every route handler.
  */
-export function asyncHandler(
-  fn: (req: Request, res: Response, next: NextFunction) => Promise<void>,
-) {
+export function asyncHandler(fn: (req: Request, res: Response, next: NextFunction) => Promise<void>) {
   return (req: Request, res: Response, next: NextFunction): void => {
     fn(req, res, next).catch(next);
   };
@@ -52,12 +50,7 @@ export function asyncHandler(
  * Handles AppError (structured) and unknown errors (500).
  * Never leaks stack traces or internal details to clients (HIPAA).
  */
-export function globalErrorHandler(
-  err: Error,
-  _req: Request,
-  res: Response,
-  _next: NextFunction,
-): void {
+export function globalErrorHandler(err: Error, _req: Request, res: Response, _next: NextFunction): void {
   if (err instanceof AppError) {
     res.status(err.statusCode).json({
       message: err.message,

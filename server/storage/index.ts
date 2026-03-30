@@ -5,7 +5,14 @@ import type { IStorage, ObjectStorageClient } from "./types";
 import { logger } from "../services/logger";
 
 // Re-export types and utilities so consumers can import from "./storage" or "../storage"
-export { type IStorage, type ObjectStorageClient, type UsageSummary, normalizeAnalysis, applyCallFilters, mapConcurrent } from "./types";
+export {
+  type IStorage,
+  type ObjectStorageClient,
+  type UsageSummary,
+  normalizeAnalysis,
+  applyCallFilters,
+  mapConcurrent,
+} from "./types";
 export { MemStorage } from "./memory";
 export { CloudStorage } from "./cloud";
 
@@ -47,7 +54,9 @@ function createStorage(): IStorage {
 
   // PRODUCTION SAFETY: Warn loudly if no persistent backend is configured
   if (process.env.NODE_ENV === "production") {
-    logger.error("No persistent storage backend configured in production. Set STORAGE_BACKEND=postgres with DATABASE_URL, or configure S3. Data WILL BE LOST on restart with in-memory storage.");
+    logger.error(
+      "No persistent storage backend configured in production. Set STORAGE_BACKEND=postgres with DATABASE_URL, or configure S3. Data WILL BE LOST on restart with in-memory storage.",
+    );
   }
 
   logger.info("No cloud credentials — using in-memory storage (data will not persist across restarts)");

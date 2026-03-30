@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import {  RiMoneyDollarCircleLine, RiArrowRightUpLine, RiTeamLine, RiSubtractLine  } from "@remixicon/react";
+import { RiMoneyDollarCircleLine, RiArrowRightUpLine, RiTeamLine, RiSubtractLine } from "@remixicon/react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 type RevenueMetrics = {
@@ -92,7 +92,13 @@ export default function RevenuePage() {
           <CardHeader className="pb-2">
             <CardDescription>Estimated Revenue</CardDescription>
             <CardTitle className="text-2xl text-green-600">
-              {metricsLoading ? <Skeleton className="h-8 w-24" /> : metrics ? formatCurrency(metrics.totalEstimated) : "$0"}
+              {metricsLoading ? (
+                <Skeleton className="h-8 w-24" />
+              ) : metrics ? (
+                formatCurrency(metrics.totalEstimated)
+              ) : (
+                "$0"
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -103,7 +109,13 @@ export default function RevenuePage() {
           <CardHeader className="pb-2">
             <CardDescription>Actual Revenue</CardDescription>
             <CardTitle className="text-2xl">
-              {metricsLoading ? <Skeleton className="h-8 w-24" /> : metrics ? formatCurrency(metrics.totalActual) : "$0"}
+              {metricsLoading ? (
+                <Skeleton className="h-8 w-24" />
+              ) : metrics ? (
+                formatCurrency(metrics.totalActual)
+              ) : (
+                "$0"
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -114,7 +126,13 @@ export default function RevenuePage() {
           <CardHeader className="pb-2">
             <CardDescription>Conversion Rate</CardDescription>
             <CardTitle className="text-2xl">
-              {metricsLoading ? <Skeleton className="h-8 w-20" /> : metrics ? `${(metrics.conversionRate * 100).toFixed(1)}%` : "—"}
+              {metricsLoading ? (
+                <Skeleton className="h-8 w-20" />
+              ) : metrics ? (
+                `${(metrics.conversionRate * 100).toFixed(1)}%`
+              ) : (
+                "—"
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -125,7 +143,13 @@ export default function RevenuePage() {
           <CardHeader className="pb-2">
             <CardDescription>Avg Deal Value</CardDescription>
             <CardTitle className="text-2xl">
-              {metricsLoading ? <Skeleton className="h-8 w-24" /> : metrics ? formatCurrency(metrics.avgDealValue) : "$0"}
+              {metricsLoading ? (
+                <Skeleton className="h-8 w-24" />
+              ) : metrics ? (
+                formatCurrency(metrics.avgDealValue)
+              ) : (
+                "$0"
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -135,7 +159,7 @@ export default function RevenuePage() {
       </div>
 
       {/* Revenue Trend Chart */}
-      {trend.some(w => w.count > 0) && (
+      {trend.some((w) => w.count > 0) && (
         <Card>
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
@@ -145,19 +169,36 @@ export default function RevenuePage() {
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={trend.map(w => ({
-                ...w,
-                label: new Date(w.weekStart).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-              }))}>
+              <BarChart
+                data={trend.map((w) => ({
+                  ...w,
+                  label: new Date(w.weekStart).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+                }))}
+              >
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" tickFormatter={v => `$${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} />
+                <YAxis
+                  tick={{ fontSize: 11 }}
+                  stroke="hsl(var(--muted-foreground))"
+                  tickFormatter={(v) => `$${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`}
+                />
                 <Tooltip
-                  contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 12, borderRadius: 8 }}
+                  contentStyle={{
+                    backgroundColor: "hsl(var(--card))",
+                    border: "1px solid hsl(var(--border))",
+                    fontSize: 12,
+                    borderRadius: 8,
+                  }}
                   formatter={(value: number, name: string) => [formatCurrency(value), name]}
                 />
                 <Legend />
-                <Bar dataKey="estimated" name="Estimated" fill="hsl(var(--brand-from))" opacity={0.4} radius={[4, 4, 0, 0]} />
+                <Bar
+                  dataKey="estimated"
+                  name="Estimated"
+                  fill="hsl(var(--brand-from))"
+                  opacity={0.4}
+                  radius={[4, 4, 0, 0]}
+                />
                 <Bar dataKey="actual" name="Actual" fill="#22c55e" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -194,14 +235,20 @@ export default function RevenuePage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {records.map(r => (
+                      {records.map((r) => (
                         <tr key={r.id} className="border-b last:border-0">
                           <td className="py-2">{r.callFileName || r.callId.slice(0, 8)}</td>
                           <td className="py-2">{r.employeeName || "—"}</td>
-                          <td className="py-2">{r.estimatedRevenue != null ? formatCurrency(r.estimatedRevenue) : "—"}</td>
-                          <td className="py-2 font-medium">{r.actualRevenue != null ? formatCurrency(r.actualRevenue) : "—"}</td>
                           <td className="py-2">
-                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${conversionColors[r.conversionStatus]}`}>
+                            {r.estimatedRevenue != null ? formatCurrency(r.estimatedRevenue) : "—"}
+                          </td>
+                          <td className="py-2 font-medium">
+                            {r.actualRevenue != null ? formatCurrency(r.actualRevenue) : "—"}
+                          </td>
+                          <td className="py-2">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-xs font-medium ${conversionColors[r.conversionStatus]}`}
+                            >
                               {r.conversionStatus}
                             </span>
                           </td>
@@ -229,7 +276,7 @@ export default function RevenuePage() {
             <Card>
               <CardContent className="pt-4">
                 <div className="space-y-3">
-                  {byEmployee.map(emp => (
+                  {byEmployee.map((emp) => (
                     <div key={emp.employeeId} className="flex items-center gap-4 p-3 rounded-lg border">
                       <div className="flex-1">
                         <p className="font-medium">{emp.employeeName}</p>
@@ -243,9 +290,7 @@ export default function RevenuePage() {
                       </div>
                       <div className="text-right">
                         <p className="text-lg font-bold text-green-600">{formatCurrency(emp.totalActual)}</p>
-                        <p className="text-xs text-muted-foreground">
-                          Est. {formatCurrency(emp.totalEstimated)}
-                        </p>
+                        <p className="text-xs text-muted-foreground">Est. {formatCurrency(emp.totalEstimated)}</p>
                       </div>
                     </div>
                   ))}

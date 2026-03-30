@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import { useCountUp } from "@/hooks/use-count-up";
 import { HelpTip } from "@/components/ui/help-tip";
 import type { DashboardMetrics } from "@shared/schema";
-import {  RiPhoneLine, RiHeartLine, RiTimeLine, RiStarLine, RiAlertLine, RiUploadLine  } from "@remixicon/react";
+import { RiPhoneLine, RiHeartLine, RiTimeLine, RiStarLine, RiAlertLine, RiUploadLine } from "@remixicon/react";
 
 const cardVariants = {
   hidden: { opacity: 0, y: 16 },
@@ -19,11 +19,20 @@ const cardVariants = {
 
 function CountUpValue({ value, decimals = 1, suffix = "" }: { value: number; decimals?: number; suffix?: string }) {
   const animated = useCountUp(value, 900);
-  return <>{animated.toFixed(decimals)}{suffix}</>;
+  return (
+    <>
+      {animated.toFixed(decimals)}
+      {suffix}
+    </>
+  );
 }
 
 export default function MetricsOverview() {
-  const { data: metrics, isLoading, error } = useQuery<DashboardMetrics>({
+  const {
+    data: metrics,
+    isLoading,
+    error,
+  } = useQuery<DashboardMetrics>({
     queryKey: ["/api/dashboard/metrics"],
   });
 
@@ -34,7 +43,9 @@ export default function MetricsOverview() {
           <RiPhoneLine className="w-7 h-7 text-primary/60" />
         </div>
         <h3 className="text-lg font-semibold text-foreground mb-1">No calls analyzed yet</h3>
-        <p className="text-sm text-muted-foreground max-w-md mx-auto">Upload your first call recording to see performance metrics here.</p>
+        <p className="text-sm text-muted-foreground max-w-md mx-auto">
+          Upload your first call recording to see performance metrics here.
+        </p>
         <Link href="/upload">
           <Button variant="outline" className="mt-4">
             <RiUploadLine className="w-4 h-4 mr-2" /> Upload a Call
@@ -76,7 +87,8 @@ export default function MetricsOverview() {
         </div>
         <h3 className="text-lg font-semibold text-foreground mb-1">No calls analyzed yet</h3>
         <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">
-          Upload your first call recording to see performance metrics, sentiment analysis, and AI-powered coaching insights.
+          Upload your first call recording to see performance metrics, sentiment analysis, and AI-powered coaching
+          insights.
         </p>
         <Link href="/upload">
           <Button>
@@ -102,7 +114,12 @@ export default function MetricsOverview() {
     {
       title: "Avg Sentiment",
       help: "Average customer sentiment score (0-10) across all analyzed calls. Higher is more positive.",
-      renderValue: () => <><CountUpValue value={avgSentiment} />/10</>,
+      renderValue: () => (
+        <>
+          <CountUpValue value={avgSentiment} />
+          /10
+        </>
+      ),
       change: "Avg across calls",
       icon: RiHeartLine,
       iconStyle: { background: "linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(34, 197, 94, 0.1))" },
@@ -112,7 +129,12 @@ export default function MetricsOverview() {
     {
       title: "Transcription Time",
       help: "Average time to transcribe and analyze each call recording.",
-      renderValue: () => <><CountUpValue value={avgTranscription} decimals={0} />min</>,
+      renderValue: () => (
+        <>
+          <CountUpValue value={avgTranscription} decimals={0} />
+          min
+        </>
+      ),
       change: "Avg per call",
       icon: RiTimeLine,
       iconStyle: { background: "linear-gradient(135deg, hsla(var(--brand-to), 0.2), hsla(var(--brand-to), 0.1))" },
@@ -122,7 +144,12 @@ export default function MetricsOverview() {
     {
       title: "Team Score",
       help: "Average AI-generated performance score (0-10) across all agents. Based on compliance, communication, and resolution.",
-      renderValue: () => <><CountUpValue value={avgPerformance} />/10</>,
+      renderValue: () => (
+        <>
+          <CountUpValue value={avgPerformance} />
+          /10
+        </>
+      ),
       change: "Avg performance",
       icon: RiStarLine,
       iconStyle: { background: "linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(236, 72, 153, 0.1))" },
@@ -150,12 +177,13 @@ export default function MetricsOverview() {
                   {metric.title}
                   <HelpTip text={metric.help} />
                 </p>
-                <p className="text-3xl font-bold text-foreground mt-1" data-testid={`metric-${metric.title.toLowerCase().replace(/\s+/g, '-')}`}>
+                <p
+                  className="text-3xl font-bold text-foreground mt-1"
+                  data-testid={`metric-${metric.title.toLowerCase().replace(/\s+/g, "-")}`}
+                >
                   {metric.renderValue()}
                 </p>
-                <p className="text-xs mt-1.5 text-muted-foreground">
-                  {metric.change}
-                </p>
+                <p className="text-xs mt-1.5 text-muted-foreground">{metric.change}</p>
               </div>
               <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={metric.iconStyle}>
                 <Icon className="w-5 h-5" style={metric.iconColorStyle} />

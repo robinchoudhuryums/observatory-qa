@@ -8,7 +8,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { FEEDBACK_TYPES, FEEDBACK_CONTEXTS, type Feedback } from "@shared/schema";
-import {  RiMessage2Line, RiStarLine, RiBarChartBoxLine, RiArrowRightUpLine, RiUserLine, RiInputMethodLine, RiBugLine, RiLightbulbLine  } from "@remixicon/react";
+import {
+  RiMessage2Line,
+  RiStarLine,
+  RiBarChartBoxLine,
+  RiArrowRightUpLine,
+  RiUserLine,
+  RiInputMethodLine,
+  RiBugLine,
+  RiLightbulbLine,
+} from "@remixicon/react";
 
 type FeedbackSummary = {
   totalFeedback: number;
@@ -85,10 +94,20 @@ export default function FeedbackPage() {
             <CardDescription>NPS Score</CardDescription>
             <CardTitle className="text-3xl">
               {summary?.npsScore != null ? (
-                <span className={summary.npsScore >= 50 ? "text-green-600" : summary.npsScore >= 0 ? "text-yellow-600" : "text-red-600"}>
+                <span
+                  className={
+                    summary.npsScore >= 50
+                      ? "text-green-600"
+                      : summary.npsScore >= 0
+                        ? "text-yellow-600"
+                        : "text-red-600"
+                  }
+                >
                   {summary.npsScore}
                 </span>
-              ) : "—"}
+              ) : (
+                "—"
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -107,7 +126,7 @@ export default function FeedbackPage() {
           <CardHeader className="pb-2">
             <CardDescription>Needs Review</CardDescription>
             <CardTitle className="text-3xl text-blue-600">
-              {allFeedback.filter(f => f.status === "new").length}
+              {allFeedback.filter((f) => f.status === "new").length}
             </CardTitle>
           </CardHeader>
         </Card>
@@ -126,9 +145,7 @@ export default function FeedbackPage() {
                 .map(([ctx, data]) => (
                   <div key={ctx} className="p-3 rounded-lg border">
                     <p className="text-sm font-medium capitalize">{ctx.replace(/_/g, " ")}</p>
-                    <p className="text-2xl font-bold">
-                      {data.avgRating != null ? data.avgRating.toFixed(1) : "—"}
-                    </p>
+                    <p className="text-2xl font-bold">{data.avgRating != null ? data.avgRating.toFixed(1) : "—"}</p>
                     <p className="text-xs text-muted-foreground">{data.count} responses</p>
                   </div>
                 ))}
@@ -141,21 +158,23 @@ export default function FeedbackPage() {
       <Tabs defaultValue="all">
         <TabsList>
           <TabsTrigger value="all">All ({allFeedback.length})</TabsTrigger>
-          <TabsTrigger value="new">New ({allFeedback.filter(f => f.status === "new").length})</TabsTrigger>
-          <TabsTrigger value="bugs">Bugs ({allFeedback.filter(f => f.type === "bug_report").length})</TabsTrigger>
-          <TabsTrigger value="suggestions">Suggestions ({allFeedback.filter(f => f.type === "suggestion").length})</TabsTrigger>
+          <TabsTrigger value="new">New ({allFeedback.filter((f) => f.status === "new").length})</TabsTrigger>
+          <TabsTrigger value="bugs">Bugs ({allFeedback.filter((f) => f.type === "bug_report").length})</TabsTrigger>
+          <TabsTrigger value="suggestions">
+            Suggestions ({allFeedback.filter((f) => f.type === "suggestion").length})
+          </TabsTrigger>
         </TabsList>
 
-        {["all", "new", "bugs", "suggestions"].map(tab => (
+        {["all", "new", "bugs", "suggestions"].map((tab) => (
           <TabsContent key={tab} value={tab} className="space-y-3">
             {allFeedback
-              .filter(f => {
+              .filter((f) => {
                 if (tab === "new") return f.status === "new";
                 if (tab === "bugs") return f.type === "bug_report";
                 if (tab === "suggestions") return f.type === "suggestion";
                 return true;
               })
-              .map(f => {
+              .map((f) => {
                 const Icon = typeIcons[f.type] || RiMessage2Line;
                 return (
                   <Card key={f.id}>
@@ -165,14 +184,20 @@ export default function FeedbackPage() {
                           <Icon className="w-5 h-5 mt-0.5 text-muted-foreground" />
                           <div className="flex-1">
                             <div className="flex items-center gap-2 mb-1">
-                              <Badge variant="outline" className="capitalize">{f.type.replace(/_/g, " ")}</Badge>
-                              {f.context && <Badge variant="secondary" className="capitalize">{f.context.replace(/_/g, " ")}</Badge>}
-                              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[f.status || "new"]}`}>
+                              <Badge variant="outline" className="capitalize">
+                                {f.type.replace(/_/g, " ")}
+                              </Badge>
+                              {f.context && (
+                                <Badge variant="secondary" className="capitalize">
+                                  {f.context.replace(/_/g, " ")}
+                                </Badge>
+                              )}
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[f.status || "new"]}`}
+                              >
                                 {f.status}
                               </span>
-                              {f.rating != null && (
-                                <span className="text-sm font-medium">{f.rating}/10</span>
-                              )}
+                              {f.rating != null && <span className="text-sm font-medium">{f.rating}/10</span>}
                             </div>
                             {f.comment && <p className="text-sm mt-1">{f.comment}</p>}
                             <p className="text-xs text-muted-foreground mt-1">
@@ -183,16 +208,28 @@ export default function FeedbackPage() {
                         <div className="flex gap-1">
                           {f.status === "new" && (
                             <>
-                              <Button size="sm" variant="outline" onClick={() => updateMutation.mutate({ id: f.id, status: "reviewed" })}>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => updateMutation.mutate({ id: f.id, status: "reviewed" })}
+                              >
                                 Review
                               </Button>
-                              <Button size="sm" variant="outline" onClick={() => updateMutation.mutate({ id: f.id, status: "actioned" })}>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => updateMutation.mutate({ id: f.id, status: "actioned" })}
+                              >
                                 Action
                               </Button>
                             </>
                           )}
                           {f.status !== "dismissed" && (
-                            <Button size="sm" variant="ghost" onClick={() => updateMutation.mutate({ id: f.id, status: "dismissed" })}>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => updateMutation.mutate({ id: f.id, status: "dismissed" })}
+                            >
                               Dismiss
                             </Button>
                           )}

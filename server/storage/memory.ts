@@ -112,7 +112,7 @@ export class MemStorage implements IStorage {
     return this.organizations.get(orgId);
   }
   async getOrganizationBySlug(slug: string): Promise<Organization | undefined> {
-    return Array.from(this.organizations.values()).find(o => o.slug === slug);
+    return Array.from(this.organizations.values()).find((o) => o.slug === slug);
   }
   async createOrganization(org: InsertOrganization): Promise<Organization> {
     const id = randomUUID();
@@ -138,9 +138,7 @@ export class MemStorage implements IStorage {
     return this.users.get(id);
   }
   async getUserByUsername(username: string, orgId?: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(u =>
-      u.username === username && (!orgId || u.orgId === orgId)
-    );
+    return Array.from(this.users.values()).find((u) => u.username === username && (!orgId || u.orgId === orgId));
   }
   async createUser(user: InsertUser): Promise<User> {
     const id = randomUUID();
@@ -149,7 +147,7 @@ export class MemStorage implements IStorage {
     return newUser;
   }
   async listUsersByOrg(orgId: string): Promise<User[]> {
-    return Array.from(this.users.values()).filter(u => u.orgId === orgId);
+    return Array.from(this.users.values()).filter((u) => u.orgId === orgId);
   }
   async updateUser(orgId: string, id: string, updates: Partial<User>): Promise<User | undefined> {
     const user = this.users.get(id);
@@ -169,7 +167,7 @@ export class MemStorage implements IStorage {
     return emp?.orgId === orgId ? emp : undefined;
   }
   async getEmployeeByEmail(orgId: string, email: string): Promise<Employee | undefined> {
-    return Array.from(this.employees.values()).find(e => e.orgId === orgId && e.email === email);
+    return Array.from(this.employees.values()).find((e) => e.orgId === orgId && e.email === email);
   }
   async createEmployee(orgId: string, employee: InsertEmployee): Promise<Employee> {
     const id = randomUUID();
@@ -185,23 +183,25 @@ export class MemStorage implements IStorage {
     return updated;
   }
   async getAllEmployees(orgId: string): Promise<Employee[]> {
-    return Array.from(this.employees.values()).filter(e => e.orgId === orgId);
+    return Array.from(this.employees.values()).filter((e) => e.orgId === orgId);
   }
 
   // --- Count operations (in-memory fallback) ---
   async countUsersByOrg(orgId: string): Promise<number> {
-    return Array.from(this.users.values()).filter(u => u.orgId === orgId).length;
+    return Array.from(this.users.values()).filter((u) => u.orgId === orgId).length;
   }
   async countCallsByOrg(orgId: string): Promise<number> {
-    return Array.from(this.calls.values()).filter(c => c.orgId === orgId).length;
+    return Array.from(this.calls.values()).filter((c) => c.orgId === orgId).length;
   }
-  async countCallsByOrgAndStatus(orgId: string): Promise<{ pending: number; processing: number; completed: number; failed: number }> {
-    const calls = Array.from(this.calls.values()).filter(c => c.orgId === orgId);
+  async countCallsByOrgAndStatus(
+    orgId: string,
+  ): Promise<{ pending: number; processing: number; completed: number; failed: number }> {
+    const calls = Array.from(this.calls.values()).filter((c) => c.orgId === orgId);
     return {
-      pending: calls.filter(c => c.status === "pending").length,
-      processing: calls.filter(c => c.status === "processing").length,
-      completed: calls.filter(c => c.status === "completed").length,
-      failed: calls.filter(c => c.status === "failed").length,
+      pending: calls.filter((c) => c.status === "pending").length,
+      processing: calls.filter((c) => c.status === "processing").length,
+      completed: calls.filter((c) => c.status === "completed").length,
+      failed: calls.filter((c) => c.status === "failed").length,
     };
   }
 
@@ -235,10 +235,12 @@ export class MemStorage implements IStorage {
     }
   }
   async getCallByFileHash(orgId: string, fileHash: string): Promise<Call | undefined> {
-    return Array.from(this.calls.values()).find(c => c.orgId === orgId && c.fileHash === fileHash && c.status !== "failed");
+    return Array.from(this.calls.values()).find(
+      (c) => c.orgId === orgId && c.fileHash === fileHash && c.status !== "failed",
+    );
   }
   async getCallByAssemblyAiId(transcriptId: string): Promise<Call | null> {
-    return Array.from(this.calls.values()).find(c => c.assemblyAiId === transcriptId) || null;
+    return Array.from(this.calls.values()).find((c) => c.assemblyAiId === transcriptId) || null;
   }
   async getAllCalls(orgId: string): Promise<Call[]> {
     // Hard cap to prevent OOM on orgs with extremely large call volumes.
@@ -246,13 +248,13 @@ export class MemStorage implements IStorage {
     // storage methods with SQL-level aggregation instead.
     const HARD_CAP = 5000;
     return Array.from(this.calls.values())
-      .filter(c => c.orgId === orgId)
+      .filter((c) => c.orgId === orgId)
       .sort((a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime())
       .slice(0, HARD_CAP);
   }
   async getCallsWithDetails(
     orgId: string,
-    filters: { status?: string; sentiment?: string; employee?: string } = {}
+    filters: { status?: string; sentiment?: string; employee?: string } = {},
   ): Promise<CallWithDetails[]> {
     const calls = await this.getAllCalls(orgId);
     const results: CallWithDetails[] = await Promise.all(
@@ -264,14 +266,14 @@ export class MemStorage implements IStorage {
           this.getCallAnalysis(orgId, call.id),
         ]);
         return { ...call, employee, transcript, sentiment, analysis } as CallWithDetails;
-      })
+      }),
     );
     return applyCallFilters(results, filters);
   }
 
   async getCallSummaries(
     orgId: string,
-    filters: { status?: string; sentiment?: string; employee?: string } = {}
+    filters: { status?: string; sentiment?: string; employee?: string } = {},
   ): Promise<CallSummary[]> {
     const calls = await this.getAllCalls(orgId);
     const results: CallSummary[] = await Promise.all(
@@ -282,7 +284,7 @@ export class MemStorage implements IStorage {
           this.getCallAnalysis(orgId, call.id),
         ]);
         return { ...call, employee, sentiment, analysis } as CallSummary;
-      })
+      }),
     );
     return applyCallFilters(results, filters);
   }
@@ -298,9 +300,7 @@ export class MemStorage implements IStorage {
     return Array.from(this.callShares.values()).find((s) => s.tokenHash === tokenHash);
   }
   async listCallShares(orgId: string, callId: string): Promise<CallShare[]> {
-    return Array.from(this.callShares.values()).filter(
-      (s) => s.orgId === orgId && s.callId === callId,
-    );
+    return Array.from(this.callShares.values()).filter((s) => s.orgId === orgId && s.callId === callId);
   }
   async deleteCallShare(orgId: string, id: string): Promise<void> {
     const s = this.callShares.get(id);
@@ -324,7 +324,11 @@ export class MemStorage implements IStorage {
     this.transcripts.set(transcript.callId, newTranscript);
     return newTranscript;
   }
-  async updateTranscript(orgId: string, callId: string, updates: { text?: string; corrections?: any[]; correctedText?: string }): Promise<Transcript | undefined> {
+  async updateTranscript(
+    orgId: string,
+    callId: string,
+    updates: { text?: string; corrections?: any[]; correctedText?: string },
+  ): Promise<Transcript | undefined> {
     const t = this.transcripts.get(callId);
     if (!t || t.orgId !== orgId) return undefined;
     const updated = {
@@ -360,7 +364,11 @@ export class MemStorage implements IStorage {
     this.analyses.set(analysis.callId, newAnalysis);
     return newAnalysis;
   }
-  async updateCallAnalysis(orgId: string, callId: string, updates: Partial<InsertCallAnalysis>): Promise<CallAnalysis | undefined> {
+  async updateCallAnalysis(
+    orgId: string,
+    callId: string,
+    updates: Partial<InsertCallAnalysis>,
+  ): Promise<CallAnalysis | undefined> {
     const existing = this.analyses.get(callId);
     if (!existing || existing.orgId !== orgId) return undefined;
     const updated: CallAnalysis = { ...existing, ...updates, id: existing.id, orgId, callId };
@@ -369,11 +377,17 @@ export class MemStorage implements IStorage {
   }
 
   // --- Audio operations (org-scoped) ---
-  async uploadAudio(orgId: string, callId: string, fileName: string, buffer: Buffer, _contentType: string): Promise<void> {
+  async uploadAudio(
+    orgId: string,
+    callId: string,
+    fileName: string,
+    buffer: Buffer,
+    _contentType: string,
+  ): Promise<void> {
     this.audioFiles.set(`${orgId}/audio/${callId}/${fileName}`, buffer);
   }
   async getAudioFiles(orgId: string, callId: string): Promise<string[]> {
-    return Array.from(this.audioFiles.keys()).filter(k => k.startsWith(`${orgId}/audio/${callId}/`));
+    return Array.from(this.audioFiles.keys()).filter((k) => k.startsWith(`${orgId}/audio/${callId}/`));
   }
   async downloadAudio(orgId: string, objectName: string): Promise<Buffer | undefined> {
     // objectName may already include the org prefix or be a relative path
@@ -382,16 +396,18 @@ export class MemStorage implements IStorage {
 
   // --- Dashboard metrics (org-scoped) ---
   async getDashboardMetrics(orgId: string): Promise<DashboardMetrics> {
-    const orgCalls = Array.from(this.calls.values()).filter(c => c.orgId === orgId);
-    const orgCallIds = new Set(orgCalls.map(c => c.id));
-    const sentiments = Array.from(this.sentiments.values()).filter(s => orgCallIds.has(s.callId));
-    const analyses = Array.from(this.analyses.values()).filter(a => orgCallIds.has(a.callId));
-    const avgSentiment = sentiments.length > 0
-      ? (sentiments.reduce((sum, s) => sum + parseFloat(s.overallScore || "0"), 0) / sentiments.length) * 10
-      : 0;
-    const avgPerformanceScore = analyses.length > 0
-      ? analyses.reduce((sum, a) => sum + parseFloat(a.performanceScore || "0"), 0) / analyses.length
-      : 0;
+    const orgCalls = Array.from(this.calls.values()).filter((c) => c.orgId === orgId);
+    const orgCallIds = new Set(orgCalls.map((c) => c.id));
+    const sentiments = Array.from(this.sentiments.values()).filter((s) => orgCallIds.has(s.callId));
+    const analyses = Array.from(this.analyses.values()).filter((a) => orgCallIds.has(a.callId));
+    const avgSentiment =
+      sentiments.length > 0
+        ? (sentiments.reduce((sum, s) => sum + parseFloat(s.overallScore || "0"), 0) / sentiments.length) * 10
+        : 0;
+    const avgPerformanceScore =
+      analyses.length > 0
+        ? analyses.reduce((sum, a) => sum + parseFloat(a.performanceScore || "0"), 0) / analyses.length
+        : 0;
     return {
       totalCalls: orgCalls.length,
       avgSentiment: Math.round(avgSentiment * 100) / 100,
@@ -402,7 +418,11 @@ export class MemStorage implements IStorage {
 
   async getSentimentDistribution(orgId: string): Promise<SentimentDistribution> {
     const distribution: SentimentDistribution = { positive: 0, neutral: 0, negative: 0 };
-    const orgCallIds = new Set(Array.from(this.calls.values()).filter(c => c.orgId === orgId).map(c => c.id));
+    const orgCallIds = new Set(
+      Array.from(this.calls.values())
+        .filter((c) => c.orgId === orgId)
+        .map((c) => c.id),
+    );
     for (const s of Array.from(this.sentiments.values())) {
       if (!orgCallIds.has(s.callId)) continue;
       const key = s.overallSentiment as keyof SentimentDistribution;
@@ -412,7 +432,7 @@ export class MemStorage implements IStorage {
   }
 
   async getTopPerformers(orgId: string, limit = 3): Promise<TopPerformer[]> {
-    const orgCalls = Array.from(this.calls.values()).filter(c => c.orgId === orgId);
+    const orgCalls = Array.from(this.calls.values()).filter((c) => c.orgId === orgId);
     const employeeStats = new Map<string, { totalScore: number; callCount: number }>();
     for (const call of orgCalls) {
       if (!call.employeeId) continue;
@@ -422,13 +442,16 @@ export class MemStorage implements IStorage {
       if (analysis?.performanceScore) stats.totalScore += parseFloat(analysis.performanceScore);
       employeeStats.set(call.employeeId, stats);
     }
-    const orgEmployees = Array.from(this.employees.values()).filter(e => e.orgId === orgId);
+    const orgEmployees = Array.from(this.employees.values()).filter((e) => e.orgId === orgId);
     return orgEmployees
       .map((emp) => {
         const stats = employeeStats.get(emp.id) || { totalScore: 0, callCount: 0 };
         return {
-          id: emp.id, name: emp.name, role: emp.role,
-          avgPerformanceScore: stats.callCount > 0 ? Math.round((stats.totalScore / stats.callCount) * 100) / 100 : null,
+          id: emp.id,
+          name: emp.name,
+          role: emp.role,
+          avgPerformanceScore:
+            stats.callCount > 0 ? Math.round((stats.totalScore / stats.callCount) * 100) / 100 : null,
           totalCalls: stats.callCount,
         };
       })
@@ -452,14 +475,18 @@ export class MemStorage implements IStorage {
   }
   async getAllAccessRequests(orgId: string): Promise<AccessRequest[]> {
     return Array.from(this.accessRequests.values())
-      .filter(r => r.orgId === orgId)
+      .filter((r) => r.orgId === orgId)
       .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
   }
   async getAccessRequest(orgId: string, id: string): Promise<AccessRequest | undefined> {
     const req = this.accessRequests.get(id);
     return req?.orgId === orgId ? req : undefined;
   }
-  async updateAccessRequest(orgId: string, id: string, updates: Partial<AccessRequest>): Promise<AccessRequest | undefined> {
+  async updateAccessRequest(
+    orgId: string,
+    id: string,
+    updates: Partial<AccessRequest>,
+  ): Promise<AccessRequest | undefined> {
     const req = await this.getAccessRequest(orgId, id);
     if (!req) return undefined;
     const updated = { ...req, ...updates, orgId };
@@ -474,11 +501,11 @@ export class MemStorage implements IStorage {
   }
   async getPromptTemplateByCategory(orgId: string, callCategory: string): Promise<PromptTemplate | undefined> {
     return Array.from(this.promptTemplates.values()).find(
-      t => t.orgId === orgId && t.callCategory === callCategory && t.isActive
+      (t) => t.orgId === orgId && t.callCategory === callCategory && t.isActive,
     );
   }
   async getAllPromptTemplates(orgId: string): Promise<PromptTemplate[]> {
-    return Array.from(this.promptTemplates.values()).filter(t => t.orgId === orgId);
+    return Array.from(this.promptTemplates.values()).filter((t) => t.orgId === orgId);
   }
   async createPromptTemplate(orgId: string, template: InsertPromptTemplate): Promise<PromptTemplate> {
     const id = randomUUID();
@@ -486,7 +513,11 @@ export class MemStorage implements IStorage {
     this.promptTemplates.set(id, newTemplate);
     return newTemplate;
   }
-  async updatePromptTemplate(orgId: string, id: string, updates: Partial<PromptTemplate>): Promise<PromptTemplate | undefined> {
+  async updatePromptTemplate(
+    orgId: string,
+    id: string,
+    updates: Partial<PromptTemplate>,
+  ): Promise<PromptTemplate | undefined> {
     const tmpl = await this.getPromptTemplate(orgId, id);
     if (!tmpl) return undefined;
     const updated = { ...tmpl, ...updates, orgId, updatedAt: new Date().toISOString() };
@@ -510,14 +541,16 @@ export class MemStorage implements IStorage {
     return s?.orgId === orgId ? s : undefined;
   }
   async getAllCoachingSessions(orgId: string): Promise<CoachingSession[]> {
-    return Array.from(this.coachingSessions.values()).filter(s => s.orgId === orgId);
+    return Array.from(this.coachingSessions.values()).filter((s) => s.orgId === orgId);
   }
   async getCoachingSessionsByEmployee(orgId: string, employeeId: string): Promise<CoachingSession[]> {
-    return Array.from(this.coachingSessions.values()).filter(
-      s => s.orgId === orgId && s.employeeId === employeeId
-    );
+    return Array.from(this.coachingSessions.values()).filter((s) => s.orgId === orgId && s.employeeId === employeeId);
   }
-  async updateCoachingSession(orgId: string, id: string, updates: Partial<CoachingSession>): Promise<CoachingSession | undefined> {
+  async updateCoachingSession(
+    orgId: string,
+    id: string,
+    updates: Partial<CoachingSession>,
+  ): Promise<CoachingSession | undefined> {
     const session = await this.getCoachingSession(orgId, id);
     if (!session) return undefined;
     const updated = { ...session, ...updates, orgId };
@@ -525,24 +558,31 @@ export class MemStorage implements IStorage {
     return updated;
   }
 
-  async getCoachingAnalytics(orgId: string, from?: Date, to?: Date): Promise<import("@shared/schema").CoachingAnalytics> {
-    const sessions = (await this.getAllCoachingSessions(orgId)).filter(s => {
+  async getCoachingAnalytics(
+    orgId: string,
+    from?: Date,
+    to?: Date,
+  ): Promise<import("@shared/schema").CoachingAnalytics> {
+    const sessions = (await this.getAllCoachingSessions(orgId)).filter((s) => {
       const t = new Date(s.createdAt || 0).getTime();
       return (!from || t >= from.getTime()) && (!to || t <= to.getTime());
     });
-    const completed = sessions.filter(s => s.status === "completed");
-    const dismissed = sessions.filter(s => s.status === "dismissed");
-    const pending = sessions.filter(s => s.status === "pending" || s.status === "in_progress");
+    const completed = sessions.filter((s) => s.status === "completed");
+    const dismissed = sessions.filter((s) => s.status === "dismissed");
+    const pending = sessions.filter((s) => s.status === "pending" || s.status === "in_progress");
     const now = Date.now();
-    const overdue = sessions.filter(s => s.dueDate && new Date(s.dueDate).getTime() < now && s.status !== "completed" && s.status !== "dismissed");
-    const automated = sessions.filter(s => (s as any).automatedTrigger);
+    const overdue = sessions.filter(
+      (s) => s.dueDate && new Date(s.dueDate).getTime() < now && s.status !== "completed" && s.status !== "dismissed",
+    );
+    const automated = sessions.filter((s) => (s as any).automatedTrigger);
 
-    const avgClose = completed.length > 0
-      ? completed.reduce((sum, s) => {
-          if (!s.completedAt || !s.createdAt) return sum;
-          return sum + (new Date(s.completedAt).getTime() - new Date(s.createdAt).getTime()) / 3600000;
-        }, 0) / completed.length
-      : null;
+    const avgClose =
+      completed.length > 0
+        ? completed.reduce((sum, s) => {
+            if (!s.completedAt || !s.createdAt) return sum;
+            return sum + (new Date(s.completedAt).getTime() - new Date(s.createdAt).getTime()) / 3600000;
+          }, 0) / completed.length
+        : null;
 
     const byCategory: Record<string, number> = {};
     const byManager: Record<string, { total: number; completed: number; rate: number }> = {};
@@ -578,9 +618,19 @@ export class MemStorage implements IStorage {
   // --- Coaching templates (in-memory) ---
   private coachingTemplates = new Map<string, import("@shared/schema").CoachingTemplate>();
 
-  async createCoachingTemplate(orgId: string, template: import("@shared/schema").InsertCoachingTemplate): Promise<import("@shared/schema").CoachingTemplate> {
+  async createCoachingTemplate(
+    orgId: string,
+    template: import("@shared/schema").InsertCoachingTemplate,
+  ): Promise<import("@shared/schema").CoachingTemplate> {
     const id = randomUUID();
-    const t: import("@shared/schema").CoachingTemplate = { ...template, id, orgId, usageCount: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const t: import("@shared/schema").CoachingTemplate = {
+      ...template,
+      id,
+      orgId,
+      usageCount: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
     this.coachingTemplates.set(id, t);
     return t;
   }
@@ -590,10 +640,14 @@ export class MemStorage implements IStorage {
   }
   async listCoachingTemplates(orgId: string, category?: string): Promise<import("@shared/schema").CoachingTemplate[]> {
     return Array.from(this.coachingTemplates.values()).filter(
-      t => t.orgId === orgId && (!category || t.category === category)
+      (t) => t.orgId === orgId && (!category || t.category === category),
     );
   }
-  async updateCoachingTemplate(orgId: string, id: string, updates: Partial<import("@shared/schema").CoachingTemplate>): Promise<import("@shared/schema").CoachingTemplate | undefined> {
+  async updateCoachingTemplate(
+    orgId: string,
+    id: string,
+    updates: Partial<import("@shared/schema").CoachingTemplate>,
+  ): Promise<import("@shared/schema").CoachingTemplate | undefined> {
     const t = await this.getCoachingTemplate(orgId, id);
     if (!t) return undefined;
     const updated = { ...t, ...updates, orgId, updatedAt: new Date().toISOString() };
@@ -612,9 +666,19 @@ export class MemStorage implements IStorage {
   // --- Automation rules (in-memory) ---
   private automationRules = new Map<string, import("@shared/schema").AutomationRule>();
 
-  async createAutomationRule(orgId: string, rule: import("@shared/schema").InsertAutomationRule): Promise<import("@shared/schema").AutomationRule> {
+  async createAutomationRule(
+    orgId: string,
+    rule: import("@shared/schema").InsertAutomationRule,
+  ): Promise<import("@shared/schema").AutomationRule> {
     const id = randomUUID();
-    const r: import("@shared/schema").AutomationRule = { ...rule, id, orgId, triggerCount: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const r: import("@shared/schema").AutomationRule = {
+      ...rule,
+      id,
+      orgId,
+      triggerCount: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
     this.automationRules.set(id, r);
     return r;
   }
@@ -623,9 +687,13 @@ export class MemStorage implements IStorage {
     return r?.orgId === orgId ? r : undefined;
   }
   async listAutomationRules(orgId: string): Promise<import("@shared/schema").AutomationRule[]> {
-    return Array.from(this.automationRules.values()).filter(r => r.orgId === orgId);
+    return Array.from(this.automationRules.values()).filter((r) => r.orgId === orgId);
   }
-  async updateAutomationRule(orgId: string, id: string, updates: Partial<import("@shared/schema").AutomationRule>): Promise<import("@shared/schema").AutomationRule | undefined> {
+  async updateAutomationRule(
+    orgId: string,
+    id: string,
+    updates: Partial<import("@shared/schema").AutomationRule>,
+  ): Promise<import("@shared/schema").AutomationRule | undefined> {
     const r = await this.getAutomationRule(orgId, id);
     if (!r) return undefined;
     const updated = { ...r, ...updates, orgId, updatedAt: new Date().toISOString() };
@@ -637,17 +705,28 @@ export class MemStorage implements IStorage {
     if (r?.orgId === orgId) this.automationRules.delete(id);
   }
 
-  private usageEvents: Array<{ orgId: string; eventType: string; quantity: number; metadata?: Record<string, unknown>; createdAt: Date }> = [];
+  private usageEvents: Array<{
+    orgId: string;
+    eventType: string;
+    quantity: number;
+    metadata?: Record<string, unknown>;
+    createdAt: Date;
+  }> = [];
 
   // --- Usage tracking ---
-  async recordUsageEvent(event: { orgId: string; eventType: string; quantity: number; metadata?: Record<string, unknown> }): Promise<void> {
+  async recordUsageEvent(event: {
+    orgId: string;
+    eventType: string;
+    quantity: number;
+    metadata?: Record<string, unknown>;
+  }): Promise<void> {
     this.usageEvents.push({ ...event, createdAt: new Date() });
   }
 
   async getUsageSummary(orgId: string, startDate?: Date, endDate?: Date): Promise<import("./types").UsageSummary[]> {
-    let filtered = this.usageEvents.filter(e => e.orgId === orgId);
-    if (startDate) filtered = filtered.filter(e => e.createdAt >= startDate);
-    if (endDate) filtered = filtered.filter(e => e.createdAt <= endDate);
+    let filtered = this.usageEvents.filter((e) => e.orgId === orgId);
+    if (startDate) filtered = filtered.filter((e) => e.createdAt >= startDate);
+    if (endDate) filtered = filtered.filter((e) => e.createdAt <= endDate);
 
     const byType = new Map<string, { totalQuantity: number; eventCount: number }>();
     for (const event of filtered) {
@@ -685,12 +764,12 @@ export class MemStorage implements IStorage {
   }
 
   async getInvitationByToken(token: string): Promise<Invitation | undefined> {
-    return Array.from(this.invitations.values()).find(i => i.token === token);
+    return Array.from(this.invitations.values()).find((i) => i.token === token);
   }
 
   async listInvitations(orgId: string): Promise<Invitation[]> {
     return Array.from(this.invitations.values())
-      .filter(i => i.orgId === orgId)
+      .filter((i) => i.orgId === orgId)
       .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   }
 
@@ -724,12 +803,12 @@ export class MemStorage implements IStorage {
   }
 
   async getApiKeyByHash(keyHash: string): Promise<ApiKey | undefined> {
-    return Array.from(this.apiKeys.values()).find(k => k.keyHash === keyHash && k.status === "active");
+    return Array.from(this.apiKeys.values()).find((k) => k.keyHash === keyHash && k.status === "active");
   }
 
   async listApiKeys(orgId: string): Promise<ApiKey[]> {
     return Array.from(this.apiKeys.values())
-      .filter(k => k.orgId === orgId)
+      .filter((k) => k.orgId === orgId)
       .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   }
 
@@ -750,15 +829,15 @@ export class MemStorage implements IStorage {
   private subscriptions = new Map<string, Subscription>();
 
   async getSubscription(orgId: string): Promise<Subscription | undefined> {
-    return Array.from(this.subscriptions.values()).find(s => s.orgId === orgId);
+    return Array.from(this.subscriptions.values()).find((s) => s.orgId === orgId);
   }
 
   async getSubscriptionByStripeCustomerId(stripeCustomerId: string): Promise<Subscription | undefined> {
-    return Array.from(this.subscriptions.values()).find(s => s.stripeCustomerId === stripeCustomerId);
+    return Array.from(this.subscriptions.values()).find((s) => s.stripeCustomerId === stripeCustomerId);
   }
 
   async getSubscriptionByStripeSubId(stripeSubscriptionId: string): Promise<Subscription | undefined> {
-    return Array.from(this.subscriptions.values()).find(s => s.stripeSubscriptionId === stripeSubscriptionId);
+    return Array.from(this.subscriptions.values()).find((s) => s.stripeSubscriptionId === stripeSubscriptionId);
   }
 
   async upsertSubscription(orgId: string, sub: InsertSubscription): Promise<Subscription> {
@@ -791,7 +870,9 @@ export class MemStorage implements IStorage {
   async createReferenceDocument(orgId: string, doc: InsertReferenceDocument): Promise<ReferenceDocument> {
     const id = randomUUID();
     const record: ReferenceDocument = {
-      ...doc, id, orgId,
+      ...doc,
+      id,
+      orgId,
       isActive: doc.isActive ?? true,
       version: doc.version ?? 1,
       indexingStatus: doc.indexingStatus || "pending",
@@ -809,17 +890,23 @@ export class MemStorage implements IStorage {
   }
 
   async listReferenceDocuments(orgId: string): Promise<ReferenceDocument[]> {
-    return Array.from(this.referenceDocuments.values()).filter(d => d.orgId === orgId);
+    return Array.from(this.referenceDocuments.values()).filter((d) => d.orgId === orgId);
   }
 
   async getReferenceDocumentsForCategory(orgId: string, callCategory: string): Promise<ReferenceDocument[]> {
-    return Array.from(this.referenceDocuments.values()).filter(d =>
-      d.orgId === orgId && d.isActive &&
-      (!d.appliesTo || d.appliesTo.length === 0 || d.appliesTo.includes(callCategory))
+    return Array.from(this.referenceDocuments.values()).filter(
+      (d) =>
+        d.orgId === orgId &&
+        d.isActive &&
+        (!d.appliesTo || d.appliesTo.length === 0 || d.appliesTo.includes(callCategory)),
     );
   }
 
-  async updateReferenceDocument(orgId: string, id: string, updates: Partial<ReferenceDocument>): Promise<ReferenceDocument | undefined> {
+  async updateReferenceDocument(
+    orgId: string,
+    id: string,
+    updates: Partial<ReferenceDocument>,
+  ): Promise<ReferenceDocument | undefined> {
     const existing = await this.getReferenceDocument(orgId, id);
     if (!existing) return undefined;
     const updated = { ...existing, ...updates, id, orgId };
@@ -849,7 +936,7 @@ export class MemStorage implements IStorage {
 
   async getAllABTests(orgId: string): Promise<ABTest[]> {
     return Array.from(this.abTests.values())
-      .filter(t => t.orgId === orgId)
+      .filter((t) => t.orgId === orgId)
       .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   }
 
@@ -874,9 +961,7 @@ export class MemStorage implements IStorage {
   }
 
   async getUsageRecords(orgId: string): Promise<UsageRecord[]> {
-    return this.usageRecords
-      .filter(r => r.orgId === orgId)
-      .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+    return this.usageRecords.filter((r) => r.orgId === orgId).sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   }
 
   // --- Live sessions (real-time clinical recording) ---
@@ -903,12 +988,12 @@ export class MemStorage implements IStorage {
   }
 
   async getActiveLiveSessions(orgId: string): Promise<LiveSession[]> {
-    return Array.from(this.liveSessions.values()).filter(s => s.orgId === orgId && s.status === "active");
+    return Array.from(this.liveSessions.values()).filter((s) => s.orgId === orgId && s.status === "active");
   }
 
   async getLiveSessionsByUser(orgId: string, userId: string): Promise<LiveSession[]> {
     return Array.from(this.liveSessions.values())
-      .filter(s => s.orgId === orgId && s.createdBy === userId)
+      .filter((s) => s.orgId === orgId && s.createdBy === userId)
       .sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || ""));
   }
 
@@ -928,9 +1013,9 @@ export class MemStorage implements IStorage {
   }
 
   async listFeedback(orgId: string, filters?: { type?: string; status?: string }): Promise<Feedback[]> {
-    let results = Array.from(this.feedbacks.values()).filter(f => f.orgId === orgId);
-    if (filters?.type) results = results.filter(f => f.type === filters.type);
-    if (filters?.status) results = results.filter(f => f.status === filters.status);
+    let results = Array.from(this.feedbacks.values()).filter((f) => f.orgId === orgId);
+    if (filters?.type) results = results.filter((f) => f.type === filters.type);
+    if (filters?.status) results = results.filter((f) => f.status === filters.status);
     return results.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   }
 
@@ -944,15 +1029,20 @@ export class MemStorage implements IStorage {
 
   // --- Gamification operations ---
   private employeeBadgesStore = new Map<string, EmployeeBadge>();
-  private gamificationProfilesStore = new Map<string, { totalPoints: number; currentStreak: number; longestStreak: number; lastActivityDate?: string }>();
+  private gamificationProfilesStore = new Map<
+    string,
+    { totalPoints: number; currentStreak: number; longestStreak: number; lastActivityDate?: string }
+  >();
 
   async getEmployeeBadges(orgId: string, employeeId: string): Promise<EmployeeBadge[]> {
-    return Array.from(this.employeeBadgesStore.values()).filter(b => b.orgId === orgId && b.employeeId === employeeId);
+    return Array.from(this.employeeBadgesStore.values()).filter(
+      (b) => b.orgId === orgId && b.employeeId === employeeId,
+    );
   }
 
   async awardBadge(orgId: string, badge: Omit<EmployeeBadge, "id">): Promise<EmployeeBadge> {
     const existing = Array.from(this.employeeBadgesStore.values()).find(
-      b => b.orgId === orgId && b.employeeId === badge.employeeId && b.badgeId === badge.badgeId
+      (b) => b.orgId === orgId && b.employeeId === badge.employeeId && b.badgeId === badge.badgeId,
     );
     if (existing) return existing;
     const id = randomUUID();
@@ -966,7 +1056,11 @@ export class MemStorage implements IStorage {
     return this.gamificationProfilesStore.get(key) || { totalPoints: 0, currentStreak: 0, longestStreak: 0 };
   }
 
-  async updateGamificationProfile(orgId: string, employeeId: string, updates: { totalPoints?: number; currentStreak?: number; longestStreak?: number; lastActivityDate?: string }) {
+  async updateGamificationProfile(
+    orgId: string,
+    employeeId: string,
+    updates: { totalPoints?: number; currentStreak?: number; longestStreak?: number; lastActivityDate?: string },
+  ) {
     const key = `${orgId}:${employeeId}`;
     const existing = this.gamificationProfilesStore.get(key) || { totalPoints: 0, currentStreak: 0, longestStreak: 0 };
     this.gamificationProfilesStore.set(key, { ...existing, ...updates });
@@ -979,7 +1073,9 @@ export class MemStorage implements IStorage {
         employeeId: key.split(":")[1],
         totalPoints: profile.totalPoints,
         currentStreak: profile.currentStreak,
-        badgeCount: Array.from(this.employeeBadgesStore.values()).filter(b => b.orgId === orgId && b.employeeId === key.split(":")[1]).length,
+        badgeCount: Array.from(this.employeeBadgesStore.values()).filter(
+          (b) => b.orgId === orgId && b.employeeId === key.split(":")[1],
+        ).length,
       }))
       .sort((a, b) => b.totalPoints - a.totalPoints)
       .slice(0, limit);
@@ -1001,14 +1097,21 @@ export class MemStorage implements IStorage {
     return n?.orgId === orgId ? n : undefined;
   }
 
-  async listInsuranceNarratives(orgId: string, filters?: { callId?: string; status?: string }): Promise<InsuranceNarrative[]> {
-    let results = Array.from(this.insuranceNarrativesStore.values()).filter(n => n.orgId === orgId);
-    if (filters?.callId) results = results.filter(n => n.callId === filters.callId);
-    if (filters?.status) results = results.filter(n => n.status === filters.status);
+  async listInsuranceNarratives(
+    orgId: string,
+    filters?: { callId?: string; status?: string },
+  ): Promise<InsuranceNarrative[]> {
+    let results = Array.from(this.insuranceNarrativesStore.values()).filter((n) => n.orgId === orgId);
+    if (filters?.callId) results = results.filter((n) => n.callId === filters.callId);
+    if (filters?.status) results = results.filter((n) => n.status === filters.status);
     return results.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   }
 
-  async updateInsuranceNarrative(orgId: string, id: string, updates: Partial<InsuranceNarrative>): Promise<InsuranceNarrative | undefined> {
+  async updateInsuranceNarrative(
+    orgId: string,
+    id: string,
+    updates: Partial<InsuranceNarrative>,
+  ): Promise<InsuranceNarrative | undefined> {
     const n = this.insuranceNarrativesStore.get(id);
     if (!n || n.orgId !== orgId) return undefined;
     const updated = { ...n, ...updates, updatedAt: new Date().toISOString() };
@@ -1036,12 +1139,16 @@ export class MemStorage implements IStorage {
   }
 
   async listCallRevenues(orgId: string, filters?: { conversionStatus?: string }): Promise<CallRevenue[]> {
-    let results = Array.from(this.callRevenuesStore.values()).filter(r => r.orgId === orgId);
-    if (filters?.conversionStatus) results = results.filter(r => r.conversionStatus === filters.conversionStatus);
+    let results = Array.from(this.callRevenuesStore.values()).filter((r) => r.orgId === orgId);
+    if (filters?.conversionStatus) results = results.filter((r) => r.conversionStatus === filters.conversionStatus);
     return results.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   }
 
-  async updateCallRevenue(orgId: string, callId: string, updates: Partial<CallRevenue>): Promise<CallRevenue | undefined> {
+  async updateCallRevenue(
+    orgId: string,
+    callId: string,
+    updates: Partial<CallRevenue>,
+  ): Promise<CallRevenue | undefined> {
     const key = `${orgId}:${callId}`;
     const r = this.callRevenuesStore.get(key);
     if (!r) return undefined;
@@ -1051,11 +1158,11 @@ export class MemStorage implements IStorage {
   }
 
   async getRevenueMetrics(orgId: string) {
-    const revenues = Array.from(this.callRevenuesStore.values()).filter(r => r.orgId === orgId);
+    const revenues = Array.from(this.callRevenuesStore.values()).filter((r) => r.orgId === orgId);
     const totalEstimated = revenues.reduce((sum, r) => sum + (r.estimatedRevenue || 0), 0);
     const totalActual = revenues.reduce((sum, r) => sum + (r.actualRevenue || 0), 0);
-    const convertedRevs = revenues.filter(r => r.conversionStatus === "converted");
-    const total = revenues.filter(r => r.conversionStatus !== "unknown").length;
+    const convertedRevs = revenues.filter((r) => r.conversionStatus === "converted");
+    const total = revenues.filter((r) => r.conversionStatus !== "unknown").length;
     const conversionRate = total > 0 ? convertedRevs.length / total : 0;
     // Only sum actualRevenue from converted calls for accurate avg deal value
     const convertedActual = convertedRevs.reduce((sum, r) => sum + (r.actualRevenue || 0), 0);
@@ -1069,7 +1176,13 @@ export class MemStorage implements IStorage {
 
   async createCalibrationSession(orgId: string, session: InsertCalibrationSession): Promise<CalibrationSession> {
     const id = randomUUID();
-    const s: CalibrationSession = { ...session, id, orgId, blindMode: session.blindMode ?? false, createdAt: new Date().toISOString() };
+    const s: CalibrationSession = {
+      ...session,
+      id,
+      orgId,
+      blindMode: session.blindMode ?? false,
+      createdAt: new Date().toISOString(),
+    };
     this.calibrationSessionsStore.set(id, s);
     return s;
   }
@@ -1080,12 +1193,16 @@ export class MemStorage implements IStorage {
   }
 
   async listCalibrationSessions(orgId: string, filters?: { status?: string }): Promise<CalibrationSession[]> {
-    let results = Array.from(this.calibrationSessionsStore.values()).filter(s => s.orgId === orgId);
-    if (filters?.status) results = results.filter(s => s.status === filters.status);
+    let results = Array.from(this.calibrationSessionsStore.values()).filter((s) => s.orgId === orgId);
+    if (filters?.status) results = results.filter((s) => s.status === filters.status);
     return results.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   }
 
-  async updateCalibrationSession(orgId: string, id: string, updates: Partial<CalibrationSession>): Promise<CalibrationSession | undefined> {
+  async updateCalibrationSession(
+    orgId: string,
+    id: string,
+    updates: Partial<CalibrationSession>,
+  ): Promise<CalibrationSession | undefined> {
     const s = this.calibrationSessionsStore.get(id);
     if (!s || s.orgId !== orgId) return undefined;
     const updated = { ...s, ...updates };
@@ -1104,7 +1221,10 @@ export class MemStorage implements IStorage {
     }
   }
 
-  async createCalibrationEvaluation(orgId: string, evaluation: InsertCalibrationEvaluation): Promise<CalibrationEvaluation> {
+  async createCalibrationEvaluation(
+    orgId: string,
+    evaluation: InsertCalibrationEvaluation,
+  ): Promise<CalibrationEvaluation> {
     const id = randomUUID();
     const e: CalibrationEvaluation = { ...evaluation, id, orgId, createdAt: new Date().toISOString() };
     this.calibrationEvaluationsStore.set(id, e);
@@ -1112,11 +1232,16 @@ export class MemStorage implements IStorage {
   }
 
   async getCalibrationEvaluations(orgId: string, sessionId: string): Promise<CalibrationEvaluation[]> {
-    return Array.from(this.calibrationEvaluationsStore.values())
-      .filter(e => e.orgId === orgId && e.sessionId === sessionId);
+    return Array.from(this.calibrationEvaluationsStore.values()).filter(
+      (e) => e.orgId === orgId && e.sessionId === sessionId,
+    );
   }
 
-  async updateCalibrationEvaluation(orgId: string, id: string, updates: Partial<CalibrationEvaluation>): Promise<CalibrationEvaluation | undefined> {
+  async updateCalibrationEvaluation(
+    orgId: string,
+    id: string,
+    updates: Partial<CalibrationEvaluation>,
+  ): Promise<CalibrationEvaluation | undefined> {
     const e = this.calibrationEvaluationsStore.get(id);
     if (!e || e.orgId !== orgId) return undefined;
     const updated = { ...e, ...updates };
@@ -1130,7 +1255,13 @@ export class MemStorage implements IStorage {
 
   async createMarketingCampaign(orgId: string, campaign: InsertMarketingCampaign): Promise<MarketingCampaign> {
     const id = randomUUID();
-    const c: MarketingCampaign = { ...campaign, id, orgId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const c: MarketingCampaign = {
+      ...campaign,
+      id,
+      orgId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
     this.marketingCampaignsStore.set(id, c);
     return c;
   }
@@ -1138,13 +1269,20 @@ export class MemStorage implements IStorage {
     const c = this.marketingCampaignsStore.get(id);
     return c?.orgId === orgId ? c : undefined;
   }
-  async listMarketingCampaigns(orgId: string, filters?: { source?: string; isActive?: boolean }): Promise<MarketingCampaign[]> {
-    let results = Array.from(this.marketingCampaignsStore.values()).filter(c => c.orgId === orgId);
-    if (filters?.source) results = results.filter(c => c.source === filters.source);
-    if (filters?.isActive !== undefined) results = results.filter(c => c.isActive === filters.isActive);
+  async listMarketingCampaigns(
+    orgId: string,
+    filters?: { source?: string; isActive?: boolean },
+  ): Promise<MarketingCampaign[]> {
+    let results = Array.from(this.marketingCampaignsStore.values()).filter((c) => c.orgId === orgId);
+    if (filters?.source) results = results.filter((c) => c.source === filters.source);
+    if (filters?.isActive !== undefined) results = results.filter((c) => c.isActive === filters.isActive);
     return results;
   }
-  async updateMarketingCampaign(orgId: string, id: string, updates: Partial<MarketingCampaign>): Promise<MarketingCampaign | undefined> {
+  async updateMarketingCampaign(
+    orgId: string,
+    id: string,
+    updates: Partial<MarketingCampaign>,
+  ): Promise<MarketingCampaign | undefined> {
     const c = this.marketingCampaignsStore.get(id);
     if (!c || c.orgId !== orgId) return undefined;
     const updated = { ...c, ...updates, updatedAt: new Date().toISOString() };
@@ -1166,13 +1304,20 @@ export class MemStorage implements IStorage {
     const a = this.callAttributionsStore.get(callId);
     return a?.orgId === orgId ? a : undefined;
   }
-  async listCallAttributions(orgId: string, filters?: { source?: string; campaignId?: string }): Promise<CallAttribution[]> {
-    let results = Array.from(this.callAttributionsStore.values()).filter(a => a.orgId === orgId);
-    if (filters?.source) results = results.filter(a => a.source === filters.source);
-    if (filters?.campaignId) results = results.filter(a => a.campaignId === filters.campaignId);
+  async listCallAttributions(
+    orgId: string,
+    filters?: { source?: string; campaignId?: string },
+  ): Promise<CallAttribution[]> {
+    let results = Array.from(this.callAttributionsStore.values()).filter((a) => a.orgId === orgId);
+    if (filters?.source) results = results.filter((a) => a.source === filters.source);
+    if (filters?.campaignId) results = results.filter((a) => a.campaignId === filters.campaignId);
     return results;
   }
-  async updateCallAttribution(orgId: string, callId: string, updates: Partial<CallAttribution>): Promise<CallAttribution | undefined> {
+  async updateCallAttribution(
+    orgId: string,
+    callId: string,
+    updates: Partial<CallAttribution>,
+  ): Promise<CallAttribution | undefined> {
     const a = this.callAttributionsStore.get(callId);
     if (!a || a.orgId !== orgId) return undefined;
     const updated = { ...a, ...updates };
@@ -1191,7 +1336,13 @@ export class MemStorage implements IStorage {
 
   async createLearningModule(orgId: string, module: InsertLearningModule): Promise<LearningModule> {
     const id = randomUUID();
-    const m: LearningModule = { ...module, id, orgId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const m: LearningModule = {
+      ...module,
+      id,
+      orgId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
     this.learningModulesStore.set(id, m);
     return m;
   }
@@ -1199,14 +1350,21 @@ export class MemStorage implements IStorage {
     const m = this.learningModulesStore.get(id);
     return m?.orgId === orgId ? m : undefined;
   }
-  async listLearningModules(orgId: string, filters?: { category?: string; contentType?: string; isPublished?: boolean }): Promise<LearningModule[]> {
-    let results = Array.from(this.learningModulesStore.values()).filter(m => m.orgId === orgId);
-    if (filters?.category) results = results.filter(m => m.category === filters.category);
-    if (filters?.contentType) results = results.filter(m => m.contentType === filters.contentType);
-    if (filters?.isPublished !== undefined) results = results.filter(m => m.isPublished === filters.isPublished);
+  async listLearningModules(
+    orgId: string,
+    filters?: { category?: string; contentType?: string; isPublished?: boolean },
+  ): Promise<LearningModule[]> {
+    let results = Array.from(this.learningModulesStore.values()).filter((m) => m.orgId === orgId);
+    if (filters?.category) results = results.filter((m) => m.category === filters.category);
+    if (filters?.contentType) results = results.filter((m) => m.contentType === filters.contentType);
+    if (filters?.isPublished !== undefined) results = results.filter((m) => m.isPublished === filters.isPublished);
     return results.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
   }
-  async updateLearningModule(orgId: string, id: string, updates: Partial<LearningModule>): Promise<LearningModule | undefined> {
+  async updateLearningModule(
+    orgId: string,
+    id: string,
+    updates: Partial<LearningModule>,
+  ): Promise<LearningModule | undefined> {
     const m = this.learningModulesStore.get(id);
     if (!m || m.orgId !== orgId) return undefined;
     const updated = { ...m, ...updates, updatedAt: new Date().toISOString() };
@@ -1220,7 +1378,13 @@ export class MemStorage implements IStorage {
 
   async createLearningPath(orgId: string, path: InsertLearningPath): Promise<LearningPath> {
     const id = randomUUID();
-    const p: LearningPath = { ...path, id, orgId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const p: LearningPath = {
+      ...path,
+      id,
+      orgId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
     this.learningPathsStore.set(id, p);
     return p;
   }
@@ -1229,9 +1393,13 @@ export class MemStorage implements IStorage {
     return p?.orgId === orgId ? p : undefined;
   }
   async listLearningPaths(orgId: string): Promise<LearningPath[]> {
-    return Array.from(this.learningPathsStore.values()).filter(p => p.orgId === orgId);
+    return Array.from(this.learningPathsStore.values()).filter((p) => p.orgId === orgId);
   }
-  async updateLearningPath(orgId: string, id: string, updates: Partial<LearningPath>): Promise<LearningPath | undefined> {
+  async updateLearningPath(
+    orgId: string,
+    id: string,
+    updates: Partial<LearningPath>,
+  ): Promise<LearningPath | undefined> {
     const p = this.learningPathsStore.get(id);
     if (!p || p.orgId !== orgId) return undefined;
     const updated = { ...p, ...updates, updatedAt: new Date().toISOString() };
@@ -1246,7 +1414,7 @@ export class MemStorage implements IStorage {
   async upsertLearningProgress(orgId: string, progress: InsertLearningProgress): Promise<LearningProgress> {
     const key = `${orgId}:${progress.employeeId}:${progress.moduleId}`;
     const existing = Array.from(this.learningProgressStore.values()).find(
-      p => p.orgId === orgId && p.employeeId === progress.employeeId && p.moduleId === progress.moduleId
+      (p) => p.orgId === orgId && p.employeeId === progress.employeeId && p.moduleId === progress.moduleId,
     );
     if (existing) {
       const updated: LearningProgress = { ...existing, ...progress, updatedAt: new Date().toISOString() };
@@ -1254,42 +1422,53 @@ export class MemStorage implements IStorage {
       return updated;
     }
     const id = randomUUID();
-    const p: LearningProgress = { ...progress, id, orgId, startedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const p: LearningProgress = {
+      ...progress,
+      id,
+      orgId,
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
     this.learningProgressStore.set(id, p);
     return p;
   }
-  async getLearningProgress(orgId: string, employeeId: string, moduleId: string): Promise<LearningProgress | undefined> {
+  async getLearningProgress(
+    orgId: string,
+    employeeId: string,
+    moduleId: string,
+  ): Promise<LearningProgress | undefined> {
     return Array.from(this.learningProgressStore.values()).find(
-      p => p.orgId === orgId && p.employeeId === employeeId && p.moduleId === moduleId
+      (p) => p.orgId === orgId && p.employeeId === employeeId && p.moduleId === moduleId,
     );
   }
   async getEmployeeLearningProgress(orgId: string, employeeId: string): Promise<LearningProgress[]> {
     return Array.from(this.learningProgressStore.values()).filter(
-      p => p.orgId === orgId && p.employeeId === employeeId
+      (p) => p.orgId === orgId && p.employeeId === employeeId,
     );
   }
-  async getModuleCompletionStats(orgId: string, moduleId: string): Promise<{ total: number; completed: number; inProgress: number; avgScore: number }> {
+  async getModuleCompletionStats(
+    orgId: string,
+    moduleId: string,
+  ): Promise<{ total: number; completed: number; inProgress: number; avgScore: number }> {
     const progress = Array.from(this.learningProgressStore.values()).filter(
-      p => p.orgId === orgId && p.moduleId === moduleId
+      (p) => p.orgId === orgId && p.moduleId === moduleId,
     );
-    const completed = progress.filter(p => p.status === "completed");
-    const scores = completed.filter(p => p.quizScore !== undefined && p.quizScore !== null).map(p => p.quizScore!);
+    const completed = progress.filter((p) => p.status === "completed");
+    const scores = completed.filter((p) => p.quizScore !== undefined && p.quizScore !== null).map((p) => p.quizScore!);
     return {
       total: progress.length,
       completed: completed.length,
-      inProgress: progress.filter(p => p.status === "in_progress").length,
+      inProgress: progress.filter((p) => p.status === "in_progress").length,
       avgScore: scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0,
     };
   }
 
   // --- Provider templates (org-scoped) ---
   async getProviderTemplates(orgId: string, userId: string): Promise<any[]> {
-    return Array.from(this.providerTemplatesStore.values()).filter(
-      t => t.orgId === orgId && t.userId === userId,
-    );
+    return Array.from(this.providerTemplatesStore.values()).filter((t) => t.orgId === orgId && t.userId === userId);
   }
   async getAllProviderTemplates(orgId: string): Promise<any[]> {
-    return Array.from(this.providerTemplatesStore.values()).filter(t => t.orgId === orgId);
+    return Array.from(this.providerTemplatesStore.values()).filter((t) => t.orgId === orgId);
   }
   async createProviderTemplate(orgId: string, template: any): Promise<any> {
     const id = randomUUID();
@@ -1313,13 +1492,15 @@ export class MemStorage implements IStorage {
   }
 
   // --- GDPR/CCPA: bulk org data deletion ---
-  async deleteOrgData(orgId: string): Promise<{ employeesDeleted: number; callsDeleted: number; usersDeleted: number }> {
+  async deleteOrgData(
+    orgId: string,
+  ): Promise<{ employeesDeleted: number; callsDeleted: number; usersDeleted: number }> {
     // Delete coaching sessions for org
     for (const [id, s] of Array.from(this.coachingSessions.entries())) {
       if (s.orgId === orgId) this.coachingSessions.delete(id);
     }
     // Delete calls (cascades transcript/analysis/sentiment in memory)
-    const orgCalls = Array.from(this.calls.values()).filter(c => c.orgId === orgId);
+    const orgCalls = Array.from(this.calls.values()).filter((c) => c.orgId === orgId);
     let callsDeleted = 0;
     for (const call of orgCalls) {
       this.transcripts.delete(call.id);
@@ -1329,14 +1510,14 @@ export class MemStorage implements IStorage {
       callsDeleted++;
     }
     // Delete employees
-    const orgEmployees = Array.from(this.employees.values()).filter(e => e.orgId === orgId);
+    const orgEmployees = Array.from(this.employees.values()).filter((e) => e.orgId === orgId);
     let employeesDeleted = 0;
     for (const emp of orgEmployees) {
       this.employees.delete(emp.id);
       employeesDeleted++;
     }
     // Delete users
-    const orgUsers = Array.from(this.users.values()).filter(u => u.orgId === orgId);
+    const orgUsers = Array.from(this.users.values()).filter((u) => u.orgId === orgId);
     let usersDeleted = 0;
     for (const user of orgUsers) {
       this.users.delete(user.id);
@@ -1373,10 +1554,10 @@ export class MemStorage implements IStorage {
     totalEstimatedCostUsd: number;
     employeeCount: number;
   }> {
-    const calls = Array.from(this.calls.values()).filter(c => c.orgId === orgId);
-    const completedCalls = calls.filter(c => c.status === "completed");
+    const calls = Array.from(this.calls.values()).filter((c) => c.orgId === orgId);
+    const completedCalls = calls.filter((c) => c.status === "completed");
     const totalDurationSeconds = completedCalls.reduce((sum, c) => sum + (c.duration || 0), 0);
-    const employees = Array.from(this.employees.values()).filter(e => e.orgId === orgId);
+    const employees = Array.from(this.employees.values()).filter((e) => e.orgId === orgId);
     // Cost data not tracked in memory backend — return 0
     return {
       totalCalls: calls.length,
@@ -1392,7 +1573,7 @@ export class MemStorage implements IStorage {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - retentionDays);
     let purged = 0;
-    const orgCalls = Array.from(this.calls.values()).filter(c => c.orgId === orgId);
+    const orgCalls = Array.from(this.calls.values()).filter((c) => c.orgId === orgId);
     for (const call of orgCalls) {
       if (new Date(call.uploadedAt || 0) < cutoff) {
         await this.deleteCall(orgId, call.id);

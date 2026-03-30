@@ -84,9 +84,7 @@ function ioredisAdapter(client: Redis) {
           return {
             async next() {
               if (done) return { done: true, value: undefined };
-              const [nextCursor, keys] = await client.scan(
-                cursor, "MATCH", opts.MATCH, "COUNT", opts.COUNT,
-              );
+              const [nextCursor, keys] = await client.scan(cursor, "MATCH", opts.MATCH, "COUNT", opts.COUNT);
               cursor = nextCursor;
               if (cursor === "0") done = true;
               return { done: false, value: keys };

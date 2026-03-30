@@ -24,7 +24,7 @@ const WEBHOOK_DIGEST_URL = process.env.WEBHOOK_DIGEST_URL || ENV_WEBHOOK_URL;
 const ENV_WEBHOOK_PLATFORM = (process.env.WEBHOOK_PLATFORM || "slack") as "slack" | "teams";
 const ENV_WEBHOOK_EVENTS = (process.env.WEBHOOK_EVENTS || "low_score,agent_misconduct,exceptional_call")
   .split(",")
-  .map(s => s.trim())
+  .map((s) => s.trim())
   .filter(Boolean);
 
 // Keep backwards compat aliases
@@ -45,7 +45,7 @@ async function resolveOrgWebhookConfig(orgId?: string): Promise<{
     return {
       url: s?.webhookUrl || WEBHOOK_URL,
       platform: s?.webhookPlatform || WEBHOOK_PLATFORM,
-      events: (s?.webhookEvents && s.webhookEvents.length > 0) ? s.webhookEvents : WEBHOOK_EVENTS,
+      events: s?.webhookEvents && s.webhookEvents.length > 0 ? s.webhookEvents : WEBHOOK_EVENTS,
     };
   } catch (err) {
     logger.warn({ err, orgId }, "Failed to resolve org webhook config, using defaults");
@@ -96,7 +96,10 @@ async function sendWebhook(url: string, payload: Record<string, unknown>): Promi
       // 4xx errors are permanent failures (bad URL, auth) — don't retry.
       // 5xx / network errors are transient and should be retried.
       if (response.status >= 400 && response.status < 500) {
-        logger.warn({ statusCode: response.status, responseBody: body }, "Webhook returned client error (not retrying)");
+        logger.warn(
+          { statusCode: response.status, responseBody: body },
+          "Webhook returned client error (not retrying)",
+        );
         return false;
       }
       throw new Error(`Webhook HTTP ${response.status}: ${body.slice(0, 200)}`);
@@ -129,9 +132,7 @@ function getChannelUrl(channel?: string): string | undefined {
  */
 function shouldNotify(flags: string[]): boolean {
   if (!WEBHOOK_URL || flags.length === 0) return false;
-  return flags.some(flag =>
-    WEBHOOK_EVENTS.some(event => flag === event || flag.startsWith(`${event}:`))
-  );
+  return flags.some((flag) => WEBHOOK_EVENTS.some((event) => flag === event || flag.startsWith(`${event}:`)));
 }
 
 /**
@@ -143,13 +144,12 @@ export async function notifyFlaggedCall(notification: CallNotification): Promise
   try {
     const config = await resolveOrgWebhookConfig(notification.orgId);
     if (config.url && notification.flags.length > 0) {
-      const matched = notification.flags.some(flag =>
-        config.events.some(event => flag === event || flag.startsWith(`${event}:`))
+      const matched = notification.flags.some((flag) =>
+        config.events.some((event) => flag === event || flag.startsWith(`${event}:`)),
       );
       if (matched) {
-        const payload = config.platform === "teams"
-          ? buildTeamsCallPayload(notification)
-          : buildSlackCallPayload(notification);
+        const payload =
+          config.platform === "teams" ? buildTeamsCallPayload(notification) : buildSlackCallPayload(notification);
 
         const sent = await sendWebhook(config.url, payload);
         if (sent) {
@@ -177,35 +177,32 @@ async function sendFlaggedCallEmails(notification: CallNotification): Promise<vo
   const { orgId, callId, flags, performanceScore, agentName, fileName, summary } = notification;
 
   // Get org info and admin/manager users
-  const [org, users] = await Promise.all([
-    storage.getOrganization(orgId),
-    storage.listUsersByOrg(orgId),
-  ]);
+  const [org, users] = await Promise.all([storage.getOrganization(orgId), storage.listUsersByOrg(orgId)]);
   if (!org) return;
 
   const orgName = org.name || org.slug || "Observatory QA";
   // Determine the base URL from org settings or default
   const dashboardUrl = process.env.APP_URL || "https://app.observatory-qa.com";
 
-  const emailRecipients = users.filter(u =>
-    (u.role === "admin" || u.role === "manager") && u.username?.includes("@")
+  const emailRecipients = users.filter(
+    (u) => (u.role === "admin" || u.role === "manager") && u.username?.includes("@"),
   );
   if (emailRecipients.length === 0) return;
 
   const emailTemplate = buildFlaggedCallEmail(
-    callId, flags, performanceScore, agentName, fileName, summary, orgName, dashboardUrl,
+    callId,
+    flags,
+    performanceScore,
+    agentName,
+    fileName,
+    summary,
+    orgName,
+    dashboardUrl,
   );
 
-  await Promise.allSettled(
-    emailRecipients.map(user =>
-      sendEmail({ ...emailTemplate, to: user.username })
-    )
-  );
+  await Promise.allSettled(emailRecipients.map((user) => sendEmail({ ...emailTemplate, to: user.username })));
 
-  logger.info(
-    { callId, recipientCount: emailRecipients.length },
-    "Flagged call email notifications sent",
-  );
+  logger.info({ callId, recipientCount: emailRecipients.length }, "Flagged call email notifications sent");
 }
 
 /**
@@ -214,7 +211,7 @@ async function sendFlaggedCallEmails(notification: CallNotification): Promise<vo
  */
 export async function sendSlackNotification(payload: SlackNotificationPayload, orgId?: string): Promise<boolean> {
   const config = await resolveOrgWebhookConfig(orgId);
-  const url = config.url ? (getChannelUrl(payload.channel) || config.url) : undefined;
+  const url = config.url ? getChannelUrl(payload.channel) || config.url : undefined;
   if (!url) {
     logger.debug("No webhook URL configured for channel, skipping notification");
     return false;
@@ -276,10 +273,14 @@ function buildSlackCallPayload(notification: CallNotification): Record<string, u
           ...(fileName ? [{ type: "mrkdwn", text: `*File:*\n${fileName}` }] : []),
         ],
       },
-      ...(summary ? [{
-        type: "section",
-        text: { type: "mrkdwn", text: `*Summary:*\n${summary.slice(0, 500)}` },
-      }] : []),
+      ...(summary
+        ? [
+            {
+              type: "section",
+              text: { type: "mrkdwn", text: `*Summary:*\n${summary.slice(0, 500)}` },
+            },
+          ]
+        : []),
     ],
   };
 }
@@ -296,13 +297,14 @@ function buildSlackDigest(
   fromDate: string,
   toDate: string,
 ): Record<string, unknown> {
-  const topList = digest.topPerformers
-    .map((p, i) => `${i + 1}. ${p.name} — ${p.avgScore.toFixed(1)}/10 (${p.callCount} calls)`)
-    .join("\n") || "No data";
+  const topList =
+    digest.topPerformers
+      .map((p, i) => `${i + 1}. ${p.name} — ${p.avgScore.toFixed(1)}/10 (${p.callCount} calls)`)
+      .join("\n") || "No data";
 
-  const attentionList = digest.agentsNeedingAttention
-    .map(a => `• ${a.name} — ${a.avgScore.toFixed(1)}/10 (${a.reason})`)
-    .join("\n") || "None";
+  const attentionList =
+    digest.agentsNeedingAttention.map((a) => `• ${a.name} — ${a.avgScore.toFixed(1)}/10 (${a.reason})`).join("\n") ||
+    "None";
 
   return {
     text: `Weekly QA Digest (${fromDate} – ${toDate}): ${digest.totalCalls} calls, avg score ${digest.avgScore.toFixed(1)}/10`,
@@ -321,7 +323,10 @@ function buildSlackDigest(
           { type: "mrkdwn", text: `*Total Calls:*\n${digest.totalCalls}` },
           { type: "mrkdwn", text: `*Avg Score:*\n${digest.avgScore.toFixed(1)}/10` },
           { type: "mrkdwn", text: `*Flagged:*\n${digest.flaggedCalls}` },
-          { type: "mrkdwn", text: `*Sentiment:*\n:thumbsup: ${digest.sentiment.positive} :neutral_face: ${digest.sentiment.neutral} :thumbsdown: ${digest.sentiment.negative}` },
+          {
+            type: "mrkdwn",
+            text: `*Sentiment:*\n:thumbsup: ${digest.sentiment.positive} :neutral_face: ${digest.sentiment.neutral} :thumbsdown: ${digest.sentiment.negative}`,
+          },
         ],
       },
       { type: "divider" },
@@ -376,13 +381,15 @@ function buildTeamsDigest(
   fromDate: string,
   toDate: string,
 ): Record<string, unknown> {
-  const topList = digest.topPerformers
-    .map((p, i) => `${i + 1}. **${p.name}** — ${p.avgScore.toFixed(1)}/10 (${p.callCount} calls)`)
-    .join("<br>") || "No data";
+  const topList =
+    digest.topPerformers
+      .map((p, i) => `${i + 1}. **${p.name}** — ${p.avgScore.toFixed(1)}/10 (${p.callCount} calls)`)
+      .join("<br>") || "No data";
 
-  const attentionList = digest.agentsNeedingAttention
-    .map(a => `- **${a.name}** — ${a.avgScore.toFixed(1)}/10 (${a.reason})`)
-    .join("<br>") || "None";
+  const attentionList =
+    digest.agentsNeedingAttention
+      .map((a) => `- **${a.name}** — ${a.avgScore.toFixed(1)}/10 (${a.reason})`)
+      .join("<br>") || "None";
 
   return {
     "@type": "MessageCard",
@@ -396,7 +403,10 @@ function buildTeamsDigest(
           { name: "Total Calls", value: String(digest.totalCalls) },
           { name: "Avg Score", value: `${digest.avgScore.toFixed(1)}/10` },
           { name: "Flagged", value: String(digest.flaggedCalls) },
-          { name: "Sentiment", value: `+${digest.sentiment.positive} / =${digest.sentiment.neutral} / -${digest.sentiment.negative}` },
+          {
+            name: "Sentiment",
+            value: `+${digest.sentiment.positive} / =${digest.sentiment.neutral} / -${digest.sentiment.negative}`,
+          },
         ],
       },
       {
@@ -423,10 +433,11 @@ function convertToTeamsFormat(payload: SlackNotificationPayload): Record<string,
     sections: [
       {
         activityTitle: payload.text,
-        text: payload.blocks
-          ?.filter(b => b.type === "section" && b.text)
-          .map(b => b.text!.text)
-          .join("\n\n") || "",
+        text:
+          payload.blocks
+            ?.filter((b) => b.type === "section" && b.text)
+            .map((b) => b.text!.text)
+            .join("\n\n") || "",
       },
     ],
   };
@@ -435,7 +446,7 @@ function convertToTeamsFormat(payload: SlackNotificationPayload): Record<string,
 // --- Helpers ---
 
 function formatFlagLabels(flags: string[]): string[] {
-  return flags.map(f => {
+  return flags.map((f) => {
     if (f === "low_score") return "Low Score";
     if (f === "exceptional_call") return "Exceptional Call";
     if (f.startsWith("agent_misconduct")) return `Misconduct: ${f.split(":")[1] || "unspecified"}`;

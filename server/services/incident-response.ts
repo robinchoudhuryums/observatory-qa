@@ -22,7 +22,12 @@ import { logger } from "./logger";
 
 export type IncidentSeverity = "critical" | "high" | "medium" | "low";
 export type IncidentPhase = "detection" | "containment" | "eradication" | "recovery" | "post_incident" | "closed";
-export type BreachNotificationStatus = "not_required" | "pending" | "individuals_notified" | "hhs_notified" | "complete";
+export type BreachNotificationStatus =
+  | "not_required"
+  | "pending"
+  | "individuals_notified"
+  | "hhs_notified"
+  | "complete";
 
 export interface TimelineEntry {
   id: string;
@@ -85,20 +90,23 @@ export interface BreachReport {
 }
 
 // --- In-memory storage (org-scoped) ---
-const incidents = new Map<string, SecurityIncident>();    // id → incident
-const breachReports = new Map<string, BreachReport>();    // id → report
+const incidents = new Map<string, SecurityIncident>(); // id → incident
+const breachReports = new Map<string, BreachReport>(); // id → report
 
 // --- Incident management ---
 
-export function declareIncident(orgId: string, data: {
-  title: string;
-  description: string;
-  severity: IncidentSeverity;
-  declaredBy: string;
-  affectedSystems?: string[];
-  estimatedAffectedRecords?: number;
-  phiInvolved?: boolean;
-}): SecurityIncident {
+export function declareIncident(
+  orgId: string,
+  data: {
+    title: string;
+    description: string;
+    severity: IncidentSeverity;
+    declaredBy: string;
+    affectedSystems?: string[];
+    estimatedAffectedRecords?: number;
+    phiInvolved?: boolean;
+  },
+): SecurityIncident {
   const id = randomUUID();
   const now = new Date().toISOString();
 
@@ -118,19 +126,24 @@ export function declareIncident(orgId: string, data: {
     affectedSystems: data.affectedSystems || [],
     estimatedAffectedRecords: data.estimatedAffectedRecords || 0,
     phiInvolved: data.phiInvolved || false,
-    timeline: [{
-      id: randomUUID(),
-      timestamp: now,
-      description: `Incident declared by ${data.declaredBy}. Severity: ${data.severity}`,
-      addedBy: data.declaredBy,
-    }],
+    timeline: [
+      {
+        id: randomUUID(),
+        timestamp: now,
+        description: `Incident declared by ${data.declaredBy}. Severity: ${data.severity}`,
+        addedBy: data.declaredBy,
+      },
+    ],
     actionItems: [],
     breachNotification: data.phiInvolved ? "pending" : "not_required",
     breachNotificationDeadline: data.phiInvolved ? deadline.toISOString() : undefined,
   };
 
   incidents.set(id, incident);
-  logger.warn({ orgId, incidentId: id, severity: data.severity, phiInvolved: data.phiInvolved }, "Security incident declared");
+  logger.warn(
+    { orgId, incidentId: id, severity: data.severity, phiInvolved: data.phiInvolved },
+    "Security incident declared",
+  );
   return incident;
 }
 
@@ -138,7 +151,14 @@ export function advanceIncidentPhase(orgId: string, incidentId: string, advanced
   const incident = incidents.get(incidentId);
   if (!incident || incident.orgId !== orgId) return null;
 
-  const phaseOrder: IncidentPhase[] = ["detection", "containment", "eradication", "recovery", "post_incident", "closed"];
+  const phaseOrder: IncidentPhase[] = [
+    "detection",
+    "containment",
+    "eradication",
+    "recovery",
+    "post_incident",
+    "closed",
+  ];
   const currentIdx = phaseOrder.indexOf(incident.phase);
   if (currentIdx >= phaseOrder.length - 1) return incident; // Already closed
 
@@ -164,7 +184,12 @@ export function advanceIncidentPhase(orgId: string, incidentId: string, advanced
   return incident;
 }
 
-export function addTimelineEntry(orgId: string, incidentId: string, description: string, addedBy: string): SecurityIncident | null {
+export function addTimelineEntry(
+  orgId: string,
+  incidentId: string,
+  description: string,
+  addedBy: string,
+): SecurityIncident | null {
   const incident = incidents.get(incidentId);
   if (!incident || incident.orgId !== orgId) return null;
 
@@ -177,11 +202,15 @@ export function addTimelineEntry(orgId: string, incidentId: string, description:
   return incident;
 }
 
-export function addActionItem(orgId: string, incidentId: string, item: {
-  description: string;
-  assignedTo?: string;
-  dueDate?: string;
-}): SecurityIncident | null {
+export function addActionItem(
+  orgId: string,
+  incidentId: string,
+  item: {
+    description: string;
+    assignedTo?: string;
+    dueDate?: string;
+  },
+): SecurityIncident | null {
   const incident = incidents.get(incidentId);
   if (!incident || incident.orgId !== orgId) return null;
 
@@ -195,11 +224,16 @@ export function addActionItem(orgId: string, incidentId: string, item: {
   return incident;
 }
 
-export function updateActionItem(orgId: string, incidentId: string, itemId: string, status: "open" | "in_progress" | "completed"): SecurityIncident | null {
+export function updateActionItem(
+  orgId: string,
+  incidentId: string,
+  itemId: string,
+  status: "open" | "in_progress" | "completed",
+): SecurityIncident | null {
   const incident = incidents.get(incidentId);
   if (!incident || incident.orgId !== orgId) return null;
 
-  const item = incident.actionItems.find(a => a.id === itemId);
+  const item = incident.actionItems.find((a) => a.id === itemId);
   if (!item) return null;
 
   item.status = status;
@@ -207,7 +241,16 @@ export function updateActionItem(orgId: string, incidentId: string, itemId: stri
   return incident;
 }
 
-export function updateIncident(orgId: string, incidentId: string, updates: Partial<Pick<SecurityIncident, "title" | "description" | "severity" | "rootCause" | "lessonsLearned" | "estimatedAffectedRecords">>): SecurityIncident | null {
+export function updateIncident(
+  orgId: string,
+  incidentId: string,
+  updates: Partial<
+    Pick<
+      SecurityIncident,
+      "title" | "description" | "severity" | "rootCause" | "lessonsLearned" | "estimatedAffectedRecords"
+    >
+  >,
+): SecurityIncident | null {
   const incident = incidents.get(incidentId);
   if (!incident || incident.orgId !== orgId) return null;
 
@@ -223,21 +266,24 @@ export function getIncident(orgId: string, incidentId: string): SecurityIncident
 
 export function listIncidents(orgId: string): SecurityIncident[] {
   return Array.from(incidents.values())
-    .filter(i => i.orgId === orgId)
+    .filter((i) => i.orgId === orgId)
     .sort((a, b) => b.declaredAt.localeCompare(a.declaredAt));
 }
 
 // --- Breach reporting ---
 
-export function createBreachReport(orgId: string, data: {
-  title: string;
-  description: string;
-  reportedBy: string;
-  incidentId?: string;
-  affectedIndividuals: number;
-  phiTypes: string[];
-  correctiveActions?: string[];
-}): BreachReport {
+export function createBreachReport(
+  orgId: string,
+  data: {
+    title: string;
+    description: string;
+    reportedBy: string;
+    incidentId?: string;
+    affectedIndividuals: number;
+    phiTypes: string[];
+    correctiveActions?: string[];
+  },
+): BreachReport {
   const id = randomUUID();
   const now = new Date().toISOString();
 
@@ -267,7 +313,16 @@ export function createBreachReport(orgId: string, data: {
   return report;
 }
 
-export function updateBreachReport(orgId: string, reportId: string, updates: Partial<Pick<BreachReport, "notificationStatus" | "individualsNotifiedAt" | "hhsNotifiedAt" | "mediaNotifiedAt" | "correctiveActions">>): BreachReport | null {
+export function updateBreachReport(
+  orgId: string,
+  reportId: string,
+  updates: Partial<
+    Pick<
+      BreachReport,
+      "notificationStatus" | "individualsNotifiedAt" | "hhsNotifiedAt" | "mediaNotifiedAt" | "correctiveActions"
+    >
+  >,
+): BreachReport | null {
   const report = breachReports.get(reportId);
   if (!report || report.orgId !== orgId) return null;
 
@@ -288,7 +343,7 @@ export function updateBreachReport(orgId: string, reportId: string, updates: Par
 
 export function listBreachReports(orgId: string): BreachReport[] {
   return Array.from(breachReports.values())
-    .filter(r => r.orgId === orgId)
+    .filter((r) => r.orgId === orgId)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 

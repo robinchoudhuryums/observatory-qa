@@ -89,7 +89,7 @@ export function recordFaqQuery(
       count: 1,
       avgConfidence: confidenceScore,
       totalConfidence: confidenceScore,
-      lowConfidenceCount: (confidenceLevel === "low" || confidenceLevel === "none") ? 1 : 0,
+      lowConfidenceCount: confidenceLevel === "low" || confidenceLevel === "none" ? 1 : 0,
       lastSeen: new Date().toISOString(),
     });
   }

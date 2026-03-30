@@ -12,7 +12,20 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { BEDROCK_MODEL_PRESETS, CALL_CATEGORIES, type ABTest } from "@shared/schema";
 import { toDisplayString } from "@/lib/display-utils";
-import {  RiFlaskLine, RiUploadLine, RiDeleteBinLine, RiTimeLine, RiArrowRightUpLine, RiArrowRightDownLine, RiSubtractLine, RiErrorWarningLine, RiCheckboxCircleLine, RiLoader4Line, RiFileMusicLine, RiDownload2Line  } from "@remixicon/react";
+import {
+  RiFlaskLine,
+  RiUploadLine,
+  RiDeleteBinLine,
+  RiTimeLine,
+  RiArrowRightUpLine,
+  RiArrowRightDownLine,
+  RiSubtractLine,
+  RiErrorWarningLine,
+  RiCheckboxCircleLine,
+  RiLoader4Line,
+  RiFileMusicLine,
+  RiDownload2Line,
+} from "@remixicon/react";
 
 function ScoreComparison({ label, baseline, test }: { label: string; baseline?: number; test?: number }) {
   const diff = (test ?? 0) - (baseline ?? 0);
@@ -28,14 +41,20 @@ function ScoreComparison({ label, baseline, test }: { label: string; baseline?: 
         <span className="text-sm font-medium w-12">{test?.toFixed(1) ?? "\u2014"}</span>
         <span className={`flex items-center gap-0.5 text-xs w-16 ${diffColor}`}>
           <DiffIcon className="w-3 h-3" />
-          {diff > 0 ? "+" : ""}{diff.toFixed(1)}
+          {diff > 0 ? "+" : ""}
+          {diff.toFixed(1)}
         </span>
       </div>
     </div>
   );
 }
 
-function AnalysisPanel({ title, model, analysis, latencyMs }: {
+function AnalysisPanel({
+  title,
+  model,
+  analysis,
+  latencyMs,
+}: {
   title: string;
   model: string;
   analysis: any;
@@ -74,7 +93,10 @@ function AnalysisPanel({ title, model, analysis, latencyMs }: {
             <CardDescription className="font-mono text-xs">{model}</CardDescription>
           </div>
           <div className="text-right">
-            <div className="text-2xl font-bold">{analysis.performance_score?.toFixed(1) ?? "\u2014"}<span className="text-sm text-muted-foreground">/10</span></div>
+            <div className="text-2xl font-bold">
+              {analysis.performance_score?.toFixed(1) ?? "\u2014"}
+              <span className="text-sm text-muted-foreground">/10</span>
+            </div>
             {latencyMs && (
               <div className="flex items-center gap-1 text-xs text-muted-foreground">
                 <RiTimeLine className="w-3 h-3" />
@@ -86,10 +108,20 @@ function AnalysisPanel({ title, model, analysis, latencyMs }: {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex items-center gap-2">
-          <Badge variant={analysis.sentiment === "positive" ? "default" : analysis.sentiment === "negative" ? "destructive" : "secondary"}>
+          <Badge
+            variant={
+              analysis.sentiment === "positive"
+                ? "default"
+                : analysis.sentiment === "negative"
+                  ? "destructive"
+                  : "secondary"
+            }
+          >
             {analysis.sentiment || "unknown"}
           </Badge>
-          <span className="text-xs text-muted-foreground">Score: {analysis.sentiment_score?.toFixed(2) ?? "\u2014"}</span>
+          <span className="text-xs text-muted-foreground">
+            Score: {analysis.sentiment_score?.toFixed(2) ?? "\u2014"}
+          </span>
         </div>
 
         <div>
@@ -116,7 +148,9 @@ function AnalysisPanel({ title, model, analysis, latencyMs }: {
             <h4 className="text-sm font-medium mb-1">Topics</h4>
             <div className="flex flex-wrap gap-1">
               {topics.map((t: any, i: number) => (
-                <Badge key={i} variant="outline" className="text-xs">{toDisplayString(t)}</Badge>
+                <Badge key={i} variant="outline" className="text-xs">
+                  {toDisplayString(t)}
+                </Badge>
               ))}
             </div>
           </div>
@@ -149,7 +183,9 @@ function AnalysisPanel({ title, model, analysis, latencyMs }: {
             <h4 className="text-sm font-medium mb-1">Action Items</h4>
             <ul className="text-sm text-muted-foreground space-y-0.5">
               {actionItems.map((a: any, i: number) => (
-                <li key={i}>{i + 1}. {toDisplayString(a)}</li>
+                <li key={i}>
+                  {i + 1}. {toDisplayString(a)}
+                </li>
               ))}
             </ul>
           </div>
@@ -160,7 +196,9 @@ function AnalysisPanel({ title, model, analysis, latencyMs }: {
             <h4 className="text-sm font-medium mb-1">Flags</h4>
             <div className="flex flex-wrap gap-1">
               {flags.map((f: any, i: number) => (
-                <Badge key={i} variant="destructive" className="text-xs">{toDisplayString(f)}</Badge>
+                <Badge key={i} variant="destructive" className="text-xs">
+                  {toDisplayString(f)}
+                </Badge>
               ))}
             </div>
           </div>
@@ -171,8 +209,8 @@ function AnalysisPanel({ title, model, analysis, latencyMs }: {
 }
 
 function TestResultView({ test }: { test: ABTest }) {
-  const baselineLabel = BEDROCK_MODEL_PRESETS.find(m => m.value === test.baselineModel)?.label || test.baselineModel;
-  const testLabel = BEDROCK_MODEL_PRESETS.find(m => m.value === test.testModel)?.label || test.testModel;
+  const baselineLabel = BEDROCK_MODEL_PRESETS.find((m) => m.value === test.baselineModel)?.label || test.baselineModel;
+  const testLabel = BEDROCK_MODEL_PRESETS.find((m) => m.value === test.testModel)?.label || test.testModel;
 
   const baseline = test.baselineAnalysis as any;
   const testAnalysis = test.testAnalysis as any;
@@ -184,10 +222,21 @@ function TestResultView({ test }: { test: ABTest }) {
         <div>
           <h3 className="font-medium">{test.fileName}</h3>
           <p className="text-xs text-muted-foreground">
-            {test.callCategory || "Uncategorized"} &middot; {new Date(test.createdAt || "").toLocaleString()} &middot; by {test.createdBy}
+            {test.callCategory || "Uncategorized"} &middot; {new Date(test.createdAt || "").toLocaleString()} &middot;
+            by {test.createdBy}
           </p>
         </div>
-        <Badge variant={test.status === "completed" ? "default" : test.status === "failed" ? "destructive" : test.status === "partial" ? "secondary" : "secondary"}>
+        <Badge
+          variant={
+            test.status === "completed"
+              ? "default"
+              : test.status === "failed"
+                ? "destructive"
+                : test.status === "partial"
+                  ? "secondary"
+                  : "secondary"
+          }
+        >
           {test.status === "partial" ? "partial (one model failed)" : test.status}
         </Badge>
       </div>
@@ -202,22 +251,52 @@ function TestResultView({ test }: { test: ABTest }) {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <ScoreComparison label="Overall" baseline={baseline?.performance_score} test={testAnalysis?.performance_score} />
+            <ScoreComparison
+              label="Overall"
+              baseline={baseline?.performance_score}
+              test={testAnalysis?.performance_score}
+            />
             <Separator className="my-1" />
-            <ScoreComparison label="Compliance" baseline={baseline?.sub_scores?.compliance} test={testAnalysis?.sub_scores?.compliance} />
-            <ScoreComparison label="Customer Exp." baseline={baseline?.sub_scores?.customer_experience} test={testAnalysis?.sub_scores?.customer_experience} />
-            <ScoreComparison label="Communication" baseline={baseline?.sub_scores?.communication} test={testAnalysis?.sub_scores?.communication} />
-            <ScoreComparison label="Resolution" baseline={baseline?.sub_scores?.resolution} test={testAnalysis?.sub_scores?.resolution} />
+            <ScoreComparison
+              label="Compliance"
+              baseline={baseline?.sub_scores?.compliance}
+              test={testAnalysis?.sub_scores?.compliance}
+            />
+            <ScoreComparison
+              label="Customer Exp."
+              baseline={baseline?.sub_scores?.customer_experience}
+              test={testAnalysis?.sub_scores?.customer_experience}
+            />
+            <ScoreComparison
+              label="Communication"
+              baseline={baseline?.sub_scores?.communication}
+              test={testAnalysis?.sub_scores?.communication}
+            />
+            <ScoreComparison
+              label="Resolution"
+              baseline={baseline?.sub_scores?.resolution}
+              test={testAnalysis?.sub_scores?.resolution}
+            />
             <Separator className="my-1" />
-            <ScoreComparison label="Sentiment" baseline={baseline?.sentiment_score} test={testAnalysis?.sentiment_score} />
+            <ScoreComparison
+              label="Sentiment"
+              baseline={baseline?.sentiment_score}
+              test={testAnalysis?.sentiment_score}
+            />
             <div className="flex items-center justify-between py-1.5">
               <span className="text-sm text-muted-foreground">Latency</span>
               <div className="flex items-center gap-3">
-                <span className="text-sm font-medium w-12 text-right">{test.baselineLatencyMs ? (test.baselineLatencyMs / 1000).toFixed(1) + "s" : "\u2014"}</span>
+                <span className="text-sm font-medium w-12 text-right">
+                  {test.baselineLatencyMs ? (test.baselineLatencyMs / 1000).toFixed(1) + "s" : "\u2014"}
+                </span>
                 <span className="text-xs text-muted-foreground">vs</span>
-                <span className="text-sm font-medium w-12">{test.testLatencyMs ? (test.testLatencyMs / 1000).toFixed(1) + "s" : "\u2014"}</span>
+                <span className="text-sm font-medium w-12">
+                  {test.testLatencyMs ? (test.testLatencyMs / 1000).toFixed(1) + "s" : "\u2014"}
+                </span>
                 {test.baselineLatencyMs && test.testLatencyMs && (
-                  <span className={`text-xs w-16 ${test.testLatencyMs < test.baselineLatencyMs ? "text-green-600" : "text-red-600"}`}>
+                  <span
+                    className={`text-xs w-16 ${test.testLatencyMs < test.baselineLatencyMs ? "text-green-600" : "text-red-600"}`}
+                  >
                     {((test.testLatencyMs - test.baselineLatencyMs) / 1000).toFixed(1)}s
                   </span>
                 )}
@@ -249,12 +328,12 @@ export default function ABTestingPage() {
     queryKey: ["/api/ab-tests"],
     refetchInterval: (query) => {
       const data = query.state.data as ABTest[] | undefined;
-      const hasProcessing = data?.some(t => t.status === "processing" || t.status === "analyzing");
+      const hasProcessing = data?.some((t) => t.status === "processing" || t.status === "analyzing");
       return hasProcessing ? 5000 : false;
     },
   });
 
-  const selectedTest = tests.find(t => t.id === selectedTestId);
+  const selectedTest = tests.find((t) => t.id === selectedTestId);
 
   const uploadMutation = useMutation({
     mutationFn: async () => {
@@ -279,7 +358,10 @@ export default function ABTestingPage() {
       return res.json();
     },
     onSuccess: (data) => {
-      toast({ title: "A/B test started", description: "Both models are analyzing the call. This may take a few minutes." });
+      toast({
+        title: "A/B test started",
+        description: "Both models are analyzing the call. This may take a few minutes.",
+      });
       setSelectedFile(null);
       setTestModel("");
       setCustomModel("");
@@ -311,9 +393,8 @@ export default function ABTestingPage() {
     if (file) setSelectedFile(file);
   }, []);
 
-  const currentModel = BEDROCK_MODEL_PRESETS.find(
-    m => m.value === "us.anthropic.claude-sonnet-4-6"
-  )?.label || "Claude Sonnet 4.6";
+  const currentModel =
+    BEDROCK_MODEL_PRESETS.find((m) => m.value === "us.anthropic.claude-sonnet-4-6")?.label || "Claude Sonnet 4.6";
 
   return (
     <div className="min-h-screen" data-testid="ab-testing-page">
@@ -322,7 +403,9 @@ export default function ABTestingPage() {
           <RiFlaskLine className="w-6 h-6 text-primary" />
           <div>
             <h2 className="text-2xl font-bold text-foreground">Model A/B Testing</h2>
-            <p className="text-muted-foreground">Compare Bedrock model analysis quality and cost &mdash; test calls are excluded from all metrics</p>
+            <p className="text-muted-foreground">
+              Compare Bedrock model analysis quality and cost &mdash; test calls are excluded from all metrics
+            </p>
           </div>
         </div>
       </header>
@@ -332,7 +415,12 @@ export default function ABTestingPage() {
           <TabsList>
             <TabsTrigger value="new">New Test</TabsTrigger>
             <TabsTrigger value="results">
-              Past Tests {tests.length > 0 && <Badge variant="secondary" className="ml-1.5 text-xs">{tests.length}</Badge>}
+              Past Tests{" "}
+              {tests.length > 0 && (
+                <Badge variant="secondary" className="ml-1.5 text-xs">
+                  {tests.length}
+                </Badge>
+              )}
             </TabsTrigger>
           </TabsList>
 
@@ -361,7 +449,9 @@ export default function ABTestingPage() {
                       <div className="flex items-center justify-center gap-2">
                         <RiFileMusicLine className="w-5 h-5 text-primary" />
                         <span className="text-sm font-medium">{selectedFile.name}</span>
-                        <span className="text-xs text-muted-foreground">({(selectedFile.size / 1024 / 1024).toFixed(1)} MB)</span>
+                        <span className="text-xs text-muted-foreground">
+                          ({(selectedFile.size / 1024 / 1024).toFixed(1)} MB)
+                        </span>
                       </div>
                     ) : (
                       <div>
@@ -380,7 +470,9 @@ export default function ABTestingPage() {
                       </SelectTrigger>
                       <SelectContent>
                         {CALL_CATEGORIES.map((cat) => (
-                          <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+                          <SelectItem key={cat.value} value={cat.value}>
+                            {cat.label}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -391,7 +483,9 @@ export default function ABTestingPage() {
               <Card>
                 <CardHeader>
                   <CardTitle>Model Selection</CardTitle>
-                  <CardDescription>Baseline: <span className="font-mono text-xs">{currentModel}</span> (your current production model)</CardDescription>
+                  <CardDescription>
+                    Baseline: <span className="font-mono text-xs">{currentModel}</span> (your current production model)
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div>
@@ -428,14 +522,19 @@ export default function ABTestingPage() {
 
                   <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg">
                     <p className="text-xs text-amber-800 dark:text-amber-300">
-                      <strong>Cost note:</strong> Each test uses 1 AssemblyAI transcription + 2 Bedrock API calls (one per model).
-                      Haiku models are significantly cheaper than Sonnet.
+                      <strong>Cost note:</strong> Each test uses 1 AssemblyAI transcription + 2 Bedrock API calls (one
+                      per model). Haiku models are significantly cheaper than Sonnet.
                     </p>
                   </div>
 
                   <Button
                     className="w-full"
-                    disabled={!selectedFile || !testModel || (testModel === "custom" && !customModel) || uploadMutation.isPending}
+                    disabled={
+                      !selectedFile ||
+                      !testModel ||
+                      (testModel === "custom" && !customModel) ||
+                      uploadMutation.isPending
+                    }
                     onClick={() => uploadMutation.mutate()}
                   >
                     {uploadMutation.isPending ? (
@@ -472,7 +571,8 @@ export default function ABTestingPage() {
                 <div className="space-y-2">
                   <h3 className="text-sm font-medium text-muted-foreground px-1">All Tests</h3>
                   {tests.map((test) => {
-                    const testModelLabel = BEDROCK_MODEL_PRESETS.find(m => m.value === test.testModel)?.label || test.testModel;
+                    const testModelLabel =
+                      BEDROCK_MODEL_PRESETS.find((m) => m.value === test.testModel)?.label || test.testModel;
                     const isSelected = selectedTestId === test.id;
                     return (
                       <Card
@@ -500,11 +600,16 @@ export default function ABTestingPage() {
                             <span className="text-xs text-muted-foreground">
                               {new Date(test.createdAt || "").toLocaleDateString()}
                             </span>
-                            {test.status === "completed" && test.baselineAnalysis && test.testAnalysis && !(test.baselineAnalysis as any).error && !(test.testAnalysis as any).error && (
-                              <span className="text-xs font-medium">
-                                {(test.baselineAnalysis as any).performance_score?.toFixed(1)} vs {(test.testAnalysis as any).performance_score?.toFixed(1)}
-                              </span>
-                            )}
+                            {test.status === "completed" &&
+                              test.baselineAnalysis &&
+                              test.testAnalysis &&
+                              !(test.baselineAnalysis as any).error &&
+                              !(test.testAnalysis as any).error && (
+                                <span className="text-xs font-medium">
+                                  {(test.baselineAnalysis as any).performance_score?.toFixed(1)} vs{" "}
+                                  {(test.testAnalysis as any).performance_score?.toFixed(1)}
+                                </span>
+                              )}
                           </div>
                         </CardContent>
                       </Card>
@@ -534,7 +639,10 @@ export default function ABTestingPage() {
                             <Button
                               variant="destructive"
                               size="sm"
-                              onClick={() => { deleteMutation.mutate(selectedTest.id); setDeleteConfirmId(null); }}
+                              onClick={() => {
+                                deleteMutation.mutate(selectedTest.id);
+                                setDeleteConfirmId(null);
+                              }}
                               disabled={deleteMutation.isPending}
                             >
                               Confirm
@@ -556,12 +664,14 @@ export default function ABTestingPage() {
                           </Button>
                         )}
                       </div>
-                      {(selectedTest.status === "processing" || selectedTest.status === "analyzing") ? (
+                      {selectedTest.status === "processing" || selectedTest.status === "analyzing" ? (
                         <Card>
                           <CardContent className="py-12 text-center">
                             <RiLoader4Line className="w-8 h-8 animate-spin text-primary mx-auto mb-3" />
                             <p className="text-muted-foreground">
-                              {selectedTest.status === "processing" ? "Transcribing audio..." : "Running analysis with both models..."}
+                              {selectedTest.status === "processing"
+                                ? "Transcribing audio..."
+                                : "Running analysis with both models..."}
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">This typically takes 2-4 minutes</p>
                           </CardContent>

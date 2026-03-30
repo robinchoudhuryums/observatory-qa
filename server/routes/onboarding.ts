@@ -14,7 +14,14 @@ import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { REFERENCE_DOC_CATEGORIES, PLAN_DEFINITIONS, type PlanTier } from "@shared/schema";
 import { enqueueDocumentIndexing } from "../services/queue";
-import { removeDocumentChunks, searchRelevantChunks, formatRetrievedContext, hasIndexedChunks, getDocumentChunks, getKnowledgeBaseAnalytics } from "../services/rag";
+import {
+  removeDocumentChunks,
+  searchRelevantChunks,
+  formatRetrievedContext,
+  hasIndexedChunks,
+  getDocumentChunks,
+  getKnowledgeBaseAnalytics,
+} from "../services/rag";
 import { isEmbeddingAvailable } from "../services/embeddings";
 import { invalidateRefDocCache } from "./calls";
 import { validateUrl } from "../utils/url-validation";
@@ -61,7 +68,9 @@ const docUpload = multer({
 async function cleanupFile(filePath: string) {
   try {
     await fs.promises.unlink(filePath);
-  } catch (err) { logger.debug({ err }, "Failed to clean up temporary file"); }
+  } catch (err) {
+    logger.debug({ err }, "Failed to clean up temporary file");
+  }
 }
 
 /**
@@ -74,7 +83,7 @@ function extractColorsFromImage(buffer: Buffer, mimeType: string): { primary: st
   if (mimeType === "image/svg+xml") {
     const svgText = buffer.toString("utf-8");
     const hexColors = svgText.match(/#[0-9a-fA-F]{6}/g) || [];
-    const filtered = hexColors.filter(c => {
+    const filtered = hexColors.filter((c) => {
       const upper = c.toUpperCase();
       return upper !== "#FFFFFF" && upper !== "#000000" && upper !== "#FFFFF" && upper !== "#00000";
     });
@@ -116,15 +125,16 @@ function extractColorsFromImage(buffer: Buffer, mimeType: string): { primary: st
     // Sort by frequency
     const sorted = Array.from(colorCounts.entries()).sort((a, b) => b[1] - a[1]);
     const primary = sorted[0][0].split(",").map(Number);
-    const primaryHex = `#${primary.map(v => v.toString(16).padStart(2, "0")).join("")}`;
+    const primaryHex = `#${primary.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
 
     // Find a secondary color that's visually distinct from primary
     let secondaryHex = darkenHex(primaryHex);
     for (let i = 1; i < sorted.length; i++) {
       const c = sorted[i][0].split(",").map(Number);
       const dist = Math.abs(c[0] - primary[0]) + Math.abs(c[1] - primary[1]) + Math.abs(c[2] - primary[2]);
-      if (dist > 80) { // Sufficiently different
-        secondaryHex = `#${c.map(v => v.toString(16).padStart(2, "0")).join("")}`;
+      if (dist > 80) {
+        // Sufficiently different
+        secondaryHex = `#${c.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
         break;
       }
     }
@@ -215,9 +225,12 @@ function extractPdfFallback(buffer: Buffer): string {
 }
 
 export function registerOnboardingRoutes(app: Express): void {
-
   // --- Upload logo ---
-  app.post("/api/onboarding/logo", requireAuth, requireRole("admin"), injectOrgContext,
+  app.post(
+    "/api/onboarding/logo",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
     logoUpload.single("logo"),
     async (req, res) => {
       if (!req.file) {
@@ -323,7 +336,11 @@ export function registerOnboardingRoutes(app: Express): void {
   });
 
   // --- Upload reference document ---
-  app.post("/api/reference-documents", requireAuth, requireRole("admin"), injectOrgContext,
+  app.post(
+    "/api/reference-documents",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
     docUpload.single("document"),
     async (req, res) => {
       if (!req.file) {
@@ -422,10 +439,12 @@ export function registerOnboardingRoutes(app: Express): void {
     try {
       const docs = await storage.listReferenceDocuments(req.orgId!);
       // Don't send extractedText in list response (can be large)
-      res.json(docs.map(d => ({
-        ...d,
-        extractedText: d.extractedText ? `[${d.extractedText.length} chars]` : undefined,
-      })));
+      res.json(
+        docs.map((d) => ({
+          ...d,
+          extractedText: d.extractedText ? `[${d.extractedText.length} chars]` : undefined,
+        })),
+      );
     } catch (error) {
       res.status(500).json({ message: "Failed to list documents" });
     }
@@ -471,7 +490,9 @@ export function registerOnboardingRoutes(app: Express): void {
       if (objectStorage && doc.storagePath) {
         try {
           await objectStorage.deleteObject(doc.storagePath);
-        } catch (err) { logger.warn({ err, storagePath: doc.storagePath }, "Failed to delete reference doc from object storage"); }
+        } catch (err) {
+          logger.warn({ err, storagePath: doc.storagePath }, "Failed to delete reference doc from object storage");
+        }
       }
 
       // Remove RAG chunks if database is available
@@ -482,7 +503,9 @@ export function registerOnboardingRoutes(app: Express): void {
           if (db) {
             await removeDocumentChunks(db as any, req.params.id);
           }
-        } catch (err) { logger.warn({ err, documentId: req.params.id }, "Failed to remove RAG chunks for deleted document"); }
+        } catch (err) {
+          logger.warn({ err, documentId: req.params.id }, "Failed to remove RAG chunks for deleted document");
+        }
       }
 
       await storage.deleteReferenceDocument(req.orgId!, req.params.id);
@@ -531,7 +554,9 @@ export function registerOnboardingRoutes(app: Express): void {
               return acc;
             }, {});
           }
-        } catch (err) { logger.warn({ err }, "Failed to fetch RAG chunk counts"); }
+        } catch (err) {
+          logger.warn({ err }, "Failed to fetch RAG chunk counts");
+        }
       }
 
       res.json(result);
@@ -541,30 +566,36 @@ export function registerOnboardingRoutes(app: Express): void {
   });
 
   // --- RAG: Re-index a specific document ---
-  app.post("/api/reference-documents/:id/reindex", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
-      const orgId = req.orgId!;
-      const doc = await storage.getReferenceDocument(orgId, req.params.id);
-      if (!doc) return res.status(404).json({ message: "Document not found" });
+  app.post(
+    "/api/reference-documents/:id/reindex",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    async (req, res) => {
+      try {
+        const orgId = req.orgId!;
+        const doc = await storage.getReferenceDocument(orgId, req.params.id);
+        if (!doc) return res.status(404).json({ message: "Document not found" });
 
-      if (!doc.extractedText || doc.extractedText.length === 0) {
-        return res.status(400).json({ message: "Document has no extracted text to index" });
+        if (!doc.extractedText || doc.extractedText.length === 0) {
+          return res.status(400).json({ message: "Document has no extracted text to index" });
+        }
+
+        // Reset indexing status
+        await storage.updateReferenceDocument(orgId, doc.id, { indexingStatus: "pending", indexingError: undefined });
+
+        await enqueueDocumentIndexing({
+          orgId,
+          documentId: doc.id,
+          extractedText: doc.extractedText,
+        });
+
+        res.json({ message: "Document re-indexing started", documentId: doc.id });
+      } catch (error) {
+        res.status(500).json({ message: "Failed to start re-indexing" });
       }
-
-      // Reset indexing status
-      await storage.updateReferenceDocument(orgId, doc.id, { indexingStatus: "pending", indexingError: undefined });
-
-      await enqueueDocumentIndexing({
-        orgId,
-        documentId: doc.id,
-        extractedText: doc.extractedText,
-      });
-
-      res.json({ message: "Document re-indexing started", documentId: doc.id });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to start re-indexing" });
-    }
-  });
+    },
+  );
 
   // --- RAG: Search knowledge base (preview/test) ---
   app.post("/api/reference-documents/rag/search", requireAuth, injectOrgContext, async (req, res) => {
@@ -588,19 +619,13 @@ export function registerOnboardingRoutes(app: Express): void {
 
       // Get all active document IDs for this org
       const docs = await storage.listReferenceDocuments(orgId);
-      const activeDocIds = docs.filter(d => d.isActive).map(d => d.id);
+      const activeDocIds = docs.filter((d) => d.isActive).map((d) => d.id);
 
       if (activeDocIds.length === 0) {
         return res.json({ chunks: [], formattedContext: "" });
       }
 
-      const chunks = await searchRelevantChunks(
-        db as any,
-        orgId,
-        query,
-        activeDocIds,
-        { topK: topK || 6 },
-      );
+      const chunks = await searchRelevantChunks(db as any, orgId, query, activeDocIds, { topK: topK || 6 });
 
       res.json({
         chunks,
@@ -617,7 +642,11 @@ export function registerOnboardingRoutes(app: Express): void {
   });
 
   // --- Document versioning: create a new version of a document ---
-  app.post("/api/reference-documents/:id/version", requireAuth, requireRole("admin"), injectOrgContext,
+  app.post(
+    "/api/reference-documents/:id/version",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
     docUpload.single("document"),
     async (req, res) => {
       if (!req.file) {
@@ -669,7 +698,10 @@ export function registerOnboardingRoutes(app: Express): void {
           sourceType: previousDoc.sourceType || "upload",
         });
 
-        logger.info({ orgId, docId: newDoc.id, previousId: previousDoc.id, version: newVersion }, "Document version created");
+        logger.info(
+          { orgId, docId: newDoc.id, previousId: previousDoc.id, version: newVersion },
+          "Document version created",
+        );
         invalidateRefDocCache(orgId);
 
         // Purge old version's chunks and enqueue indexing for new version
@@ -680,7 +712,9 @@ export function registerOnboardingRoutes(app: Express): void {
             if (db) {
               await removeDocumentChunks(db as any, previousDoc.id);
             }
-          } catch (err) { logger.warn({ err }, "Failed to remove old version chunks"); }
+          } catch (err) {
+            logger.warn({ err }, "Failed to remove old version chunks");
+          }
         }
 
         if (extractedText && extractedText.length > 0) {
@@ -711,7 +745,16 @@ export function registerOnboardingRoutes(app: Express): void {
       if (!doc) return res.status(404).json({ message: "Document not found" });
 
       // Walk the version chain backwards
-      const versions: Array<{ id: string; version: number; name: string; fileName: string; fileSize: number; createdAt?: string; isActive: boolean; indexingStatus?: string }> = [];
+      const versions: Array<{
+        id: string;
+        version: number;
+        name: string;
+        fileName: string;
+        fileSize: number;
+        createdAt?: string;
+        isActive: boolean;
+        indexingStatus?: string;
+      }> = [];
       const currentDoc = doc;
       versions.push({
         id: currentDoc.id,
@@ -799,24 +842,30 @@ export function registerOnboardingRoutes(app: Express): void {
   });
 
   // --- Knowledge base analytics ---
-  app.get("/api/reference-documents/rag/analytics", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
-      const orgId = req.orgId!;
+  app.get(
+    "/api/reference-documents/rag/analytics",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    async (req, res) => {
+      try {
+        const orgId = req.orgId!;
 
-      if (!process.env.DATABASE_URL) {
-        return res.status(503).json({ message: "Database not configured" });
+        if (!process.env.DATABASE_URL) {
+          return res.status(503).json({ message: "Database not configured" });
+        }
+
+        const { getDatabase } = await import("../db/index");
+        const db = getDatabase();
+        if (!db) return res.status(503).json({ message: "Database not available" });
+
+        const analytics = await getKnowledgeBaseAnalytics(db as any, orgId);
+        res.json(analytics);
+      } catch (error) {
+        res.status(500).json({ message: "Failed to get analytics" });
       }
-
-      const { getDatabase } = await import("../db/index");
-      const db = getDatabase();
-      if (!db) return res.status(503).json({ message: "Database not available" });
-
-      const analytics = await getKnowledgeBaseAnalytics(db as any, orgId);
-      res.json(analytics);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to get analytics" });
-    }
-  });
+    },
+  );
 
   // --- Web URL source: crawl a URL and add as reference document ---
   app.post("/api/reference-documents/url", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
@@ -857,7 +906,11 @@ export function registerOnboardingRoutes(app: Express): void {
           return res.status(400).json({ message: `Failed to fetch URL: HTTP ${response.status}` });
         }
         const contentType = response.headers.get("content-type") || "";
-        if (!contentType.includes("text/html") && !contentType.includes("text/plain") && !contentType.includes("application/json")) {
+        if (
+          !contentType.includes("text/html") &&
+          !contentType.includes("text/plain") &&
+          !contentType.includes("application/json")
+        ) {
           return res.status(400).json({ message: `Unsupported content type: ${contentType}` });
         }
         const html = await response.text();
@@ -899,7 +952,9 @@ export function registerOnboardingRoutes(app: Express): void {
         try {
           const parsed = JSON.parse(typeof appliesTo === "string" ? appliesTo : JSON.stringify(appliesTo));
           if (Array.isArray(parsed)) parsedAppliesTo = parsed;
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }
 
       const docId = randomUUID();

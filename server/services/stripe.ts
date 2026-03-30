@@ -51,12 +51,12 @@ export function isStripeConfigured(): boolean {
 /** Map plan tier + interval to a flat-rate Stripe Price ID */
 export function getPriceId(tier: PlanTier, interval: "monthly" | "yearly"): string | null {
   const priceMap: Record<string, string | undefined> = {
-    "starter_monthly": process.env.STRIPE_PRICE_STARTER_MONTHLY,
-    "starter_yearly": process.env.STRIPE_PRICE_STARTER_YEARLY,
-    "professional_monthly": process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY,
-    "professional_yearly": process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY,
-    "enterprise_monthly": process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY,
-    "enterprise_yearly": process.env.STRIPE_PRICE_ENTERPRISE_YEARLY,
+    starter_monthly: process.env.STRIPE_PRICE_STARTER_MONTHLY,
+    starter_yearly: process.env.STRIPE_PRICE_STARTER_YEARLY,
+    professional_monthly: process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY,
+    professional_yearly: process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY,
+    enterprise_monthly: process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY,
+    enterprise_yearly: process.env.STRIPE_PRICE_ENTERPRISE_YEARLY,
   };
   return priceMap[`${tier}_${interval}`] || null;
 }
@@ -68,8 +68,8 @@ export function getPriceId(tier: PlanTier, interval: "monthly" | "yearly"): stri
  */
 export function getSeatPriceId(tier: PlanTier): string | null {
   const seatPriceMap: Record<string, string | undefined> = {
-    "starter": process.env.STRIPE_PRICE_STARTER_SEATS,
-    "professional": process.env.STRIPE_PRICE_PROFESSIONAL_SEATS,
+    starter: process.env.STRIPE_PRICE_STARTER_SEATS,
+    professional: process.env.STRIPE_PRICE_PROFESSIONAL_SEATS,
   };
   return seatPriceMap[tier] || null;
 }
@@ -80,8 +80,8 @@ export function getSeatPriceId(tier: PlanTier): string | null {
  */
 export function getOveragePriceId(tier: PlanTier): string | null {
   const overagePriceMap: Record<string, string | undefined> = {
-    "starter": process.env.STRIPE_PRICE_STARTER_OVERAGE,
-    "professional": process.env.STRIPE_PRICE_PROFESSIONAL_OVERAGE,
+    starter: process.env.STRIPE_PRICE_STARTER_OVERAGE,
+    professional: process.env.STRIPE_PRICE_PROFESSIONAL_OVERAGE,
   };
   return overagePriceMap[tier] || null;
 }
@@ -91,11 +91,7 @@ export function getOveragePriceId(tier: PlanTier): string | null {
  * Uses action="increment" so each call adds 1 to the running total.
  * @param subscriptionItemId  The Stripe subscription item ID for the overage line
  */
-export async function reportCallOverage(
-  stripe: Stripe,
-  subscriptionItemId: string,
-): Promise<void> {
-   
+export async function reportCallOverage(stripe: Stripe, subscriptionItemId: string): Promise<void> {
   await (stripe.subscriptionItems as any).createUsageRecord(subscriptionItemId, {
     quantity: 1,
     timestamp: Math.floor(Date.now() / 1000),
@@ -114,7 +110,6 @@ export async function reportSeatUsage(
   subscriptionItemId: string,
   additionalSeats: number,
 ): Promise<void> {
-   
   await (stripe.subscriptionItems as any).createUsageRecord(subscriptionItemId, {
     quantity: Math.max(0, additionalSeats),
     timestamp: Math.floor(Date.now() / 1000),
@@ -165,9 +160,7 @@ export async function createCheckoutSession(
   overagePriceId?: string,
   trialDays?: number,
 ): Promise<string> {
-  const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [
-    { price: priceId, quantity: 1 },
-  ];
+  const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [{ price: priceId, quantity: 1 }];
 
   // Metered items — Stripe manages quantity via usage records; no quantity here
   if (seatPriceId) {
@@ -199,11 +192,7 @@ export async function createCheckoutSession(
 }
 
 /** Create a Stripe Customer Portal session for self-service */
-export async function createPortalSession(
-  stripe: Stripe,
-  customerId: string,
-  returnUrl: string,
-): Promise<string> {
+export async function createPortalSession(stripe: Stripe, customerId: string, returnUrl: string): Promise<string> {
   const session = await stripe.billingPortal.sessions.create({
     customer: customerId,
     return_url: returnUrl,
@@ -213,11 +202,7 @@ export async function createPortalSession(
 }
 
 /** Verify and parse a Stripe webhook event */
-export function constructWebhookEvent(
-  stripe: Stripe,
-  body: Buffer,
-  signature: string,
-): Stripe.Event {
+export function constructWebhookEvent(stripe: Stripe, body: Buffer, signature: string): Stripe.Event {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {
     throw new Error("STRIPE_WEBHOOK_SECRET not configured");

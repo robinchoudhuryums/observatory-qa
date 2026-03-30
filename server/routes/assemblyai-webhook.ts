@@ -20,10 +20,7 @@ export function registerAssemblyAIWebhookRoutes(app: Express): void {
     const receivedToken = req.headers["x-assembly-webhook-token"];
 
     if (expectedToken && receivedToken !== expectedToken) {
-      logger.warn(
-        { receivedToken: receivedToken ? "[redacted]" : "missing" },
-        "AssemblyAI webhook: invalid token",
-      );
+      logger.warn({ receivedToken: receivedToken ? "[redacted]" : "missing" }, "AssemblyAI webhook: invalid token");
       res.status(401).json({ error: "Unauthorized" });
       return;
     }
@@ -50,10 +47,7 @@ export function registerAssemblyAIWebhookRoutes(app: Express): void {
     try {
       const call = await storage.getCallByAssemblyAiId(transcriptResponse.id);
       if (!call) {
-        logger.warn(
-          { transcriptId: transcriptResponse.id },
-          "AssemblyAI webhook: call not found for transcript ID",
-        );
+        logger.warn({ transcriptId: transcriptResponse.id }, "AssemblyAI webhook: call not found for transcript ID");
         return;
       }
 

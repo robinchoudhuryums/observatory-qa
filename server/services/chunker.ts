@@ -50,7 +50,7 @@ export function getCharsPerTokenForIndustry(industryType?: string): number {
     case "behavioral_health":
       return 3.8; // Mix of clinical and conversational
     default:
-      return 4;   // General English text
+      return 4; // General English text
   }
 }
 
@@ -91,8 +91,8 @@ function findSectionHeader(text: string, pos: number): string | null {
   const before = text.slice(0, pos);
   // Match markdown headers, all-caps lines, or "Section: ..." patterns
   const headerPatterns = [
-    /^#{1,4}\s+(.+)$/gm,          // Markdown: ## Header
-    /^([A-Z][A-Z\s]{4,60})$/gm,   // ALL CAPS LINE
+    /^#{1,4}\s+(.+)$/gm, // Markdown: ## Header
+    /^([A-Z][A-Z\s]{4,60})$/gm, // ALL CAPS LINE
     /^(?:Section|Chapter|Part)\s*[:.]?\s*(.+)$/gim,
   ];
 
@@ -115,11 +115,7 @@ function findSectionHeader(text: string, pos: number): string | null {
 /**
  * Split a document's extracted text into overlapping chunks for embedding.
  */
-export function chunkDocument(
-  documentId: string,
-  text: string,
-  options: ChunkOptions = {},
-): DocumentChunk[] {
+export function chunkDocument(documentId: string, text: string, options: ChunkOptions = {}): DocumentChunk[] {
   if (!text || text.trim().length === 0) return [];
 
   const chunkSizeTokens = options.chunkSizeTokens ?? 400;

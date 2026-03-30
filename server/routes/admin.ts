@@ -15,9 +15,18 @@ import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import { parsePagination, paginateArray } from "./helpers";
 import { getRedis } from "../services/redis";
 import {
-  declareIncident, advanceIncidentPhase, addTimelineEntry, addActionItem,
-  updateActionItem, updateIncident, getIncident, listIncidents,
-  createBreachReport, updateBreachReport, listBreachReports, getBreachReport,
+  declareIncident,
+  advanceIncidentPhase,
+  addTimelineEntry,
+  addActionItem,
+  updateActionItem,
+  updateIncident,
+  getIncident,
+  listIncidents,
+  createBreachReport,
+  updateBreachReport,
+  listBreachReports,
+  getBreachReport,
 } from "../services/incident-response";
 import { generateScimToken } from "./scim";
 import { parseCertExpiry } from "./sso";
@@ -34,59 +43,73 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/prompt-templates", requireAuth, injectOrgContext, requireRole("admin"), requirePlanFeature("customPromptTemplates", "Custom prompt templates require a Pro or Enterprise plan"), async (req, res) => {
-    try {
-      const parsed = insertPromptTemplateSchema.safeParse(req.body);
-      if (!parsed.success) {
-        res.status(400).json({ message: "Invalid template data", errors: parsed.error.flatten() });
-        return;
+  app.post(
+    "/api/prompt-templates",
+    requireAuth,
+    injectOrgContext,
+    requireRole("admin"),
+    requirePlanFeature("customPromptTemplates", "Custom prompt templates require a Pro or Enterprise plan"),
+    async (req, res) => {
+      try {
+        const parsed = insertPromptTemplateSchema.safeParse(req.body);
+        if (!parsed.success) {
+          res.status(400).json({ message: "Invalid template data", errors: parsed.error.flatten() });
+          return;
+        }
+        const template = await storage.createPromptTemplate(req.orgId!, {
+          ...parsed.data,
+          updatedBy: req.user?.username,
+        });
+        logPhiAccess({
+          ...auditContext(req),
+          event: "prompt_template_created",
+          resourceType: "prompt_template",
+          resourceId: template.id,
+          detail: `Category: ${parsed.data.callCategory || "default"}, Created by: ${req.user?.username}`,
+        });
+        res.status(201).json(template);
+      } catch (error) {
+        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to create prompt template"));
       }
-      const template = await storage.createPromptTemplate(req.orgId!, {
-        ...parsed.data,
-        updatedBy: req.user?.username,
-      });
-      logPhiAccess({
-        ...auditContext(req),
-        event: "prompt_template_created",
-        resourceType: "prompt_template",
-        resourceId: template.id,
-        detail: `Category: ${parsed.data.callCategory || "default"}, Created by: ${req.user?.username}`,
-      });
-      res.status(201).json(template);
-    } catch (error) {
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to create prompt template"));
-    }
-  });
+    },
+  );
 
-  app.patch("/api/prompt-templates/:id", requireAuth, injectOrgContext, requireRole("admin"), requirePlanFeature("customPromptTemplates", "Custom prompt templates require a Pro or Enterprise plan"), async (req, res) => {
-    try {
-      // Validate the update: allow only known template fields
-      const { updatedBy: _ignore, id: _ignoreId, ...bodyWithoutMeta } = req.body;
-      const templateUpdateParsed = insertPromptTemplateSchema.partial().safeParse(bodyWithoutMeta);
-      if (!templateUpdateParsed.success) {
-        res.status(400).json({ message: "Invalid template data", errors: templateUpdateParsed.error.flatten() });
-        return;
+  app.patch(
+    "/api/prompt-templates/:id",
+    requireAuth,
+    injectOrgContext,
+    requireRole("admin"),
+    requirePlanFeature("customPromptTemplates", "Custom prompt templates require a Pro or Enterprise plan"),
+    async (req, res) => {
+      try {
+        // Validate the update: allow only known template fields
+        const { updatedBy: _ignore, id: _ignoreId, ...bodyWithoutMeta } = req.body;
+        const templateUpdateParsed = insertPromptTemplateSchema.partial().safeParse(bodyWithoutMeta);
+        if (!templateUpdateParsed.success) {
+          res.status(400).json({ message: "Invalid template data", errors: templateUpdateParsed.error.flatten() });
+          return;
+        }
+        const updated = await storage.updatePromptTemplate(req.orgId!, req.params.id, {
+          ...templateUpdateParsed.data,
+          updatedBy: req.user?.username,
+        });
+        if (!updated) {
+          res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Template not found"));
+          return;
+        }
+        logPhiAccess({
+          ...auditContext(req),
+          event: "prompt_template_updated",
+          resourceType: "prompt_template",
+          resourceId: req.params.id,
+          detail: `Fields changed: ${Object.keys(templateUpdateParsed.data).join(", ")}, Updated by: ${req.user?.username}`,
+        });
+        res.json(updated);
+      } catch (error) {
+        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update prompt template"));
       }
-      const updated = await storage.updatePromptTemplate(req.orgId!, req.params.id, {
-        ...templateUpdateParsed.data,
-        updatedBy: req.user?.username,
-      });
-      if (!updated) {
-        res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Template not found"));
-        return;
-      }
-      logPhiAccess({
-        ...auditContext(req),
-        event: "prompt_template_updated",
-        resourceType: "prompt_template",
-        resourceId: req.params.id,
-        detail: `Fields changed: ${Object.keys(templateUpdateParsed.data).join(", ")}, Updated by: ${req.user?.username}`,
-      });
-      res.json(updated);
-    } catch (error) {
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update prompt template"));
-    }
-  });
+    },
+  );
 
   app.delete("/api/prompt-templates/:id", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
     try {
@@ -122,7 +145,7 @@ export function registerAdminRoutes(app: Express): void {
 
       // Filter to calls matching the category
       const targetCalls = allCalls
-        .filter(c => c.callCategory === callCategory && c.transcript?.text)
+        .filter((c) => c.callCategory === callCategory && c.transcript?.text)
         .slice(0, reanalysisLimit);
 
       if (targetCalls.length === 0) {
@@ -144,7 +167,7 @@ export function registerAdminRoutes(app: Express): void {
 
       const orgId = req.orgId!;
       const queued = targetCalls.length;
-      const callIds = targetCalls.map(c => c.id);
+      const callIds = targetCalls.map((c) => c.id);
 
       // Try BullMQ queue first; fall back to in-process execution
       const enqueued = await enqueueReanalysis({
@@ -169,14 +192,14 @@ export function registerAdminRoutes(app: Express): void {
             const transcriptText = call.transcript!.text!;
             const aiAnalysis = await withRetry(
               () => aiProvider.analyzeCallTranscript(transcriptText, call.id, callCategory, promptTemplate),
-              { retries: 1, baseDelay: 2000, label: `reanalyze ${call.id}` }
+              { retries: 1, baseDelay: 2000, label: `reanalyze ${call.id}` },
             );
 
             const { analysis } = assemblyAIService.processTranscriptData(
               { id: "", status: "completed", text: transcriptText, words: call.transcript?.words as any },
               aiAnalysis,
               call.id,
-              req.orgId!
+              req.orgId!,
             );
 
             if (aiAnalysis.sub_scores) {
@@ -200,7 +223,7 @@ export function registerAdminRoutes(app: Express): void {
         }
         logger.info({ succeeded, failed, total: queued }, "Reanalysis complete");
         broadcastCallUpdate("bulk", "reanalysis_complete", { succeeded, failed, total: queued }, orgId);
-      })().catch(err => logger.error({ err }, "Bulk re-analysis failed"));
+      })().catch((err) => logger.error({ err }, "Bulk re-analysis failed"));
     } catch (error) {
       logger.error({ err: error }, "Failed to start re-analysis");
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to start re-analysis"));
@@ -217,7 +240,7 @@ export function registerAdminRoutes(app: Express): void {
       const { limit, offset } = parsePagination(req.query);
       const users = await storage.listUsersByOrg(req.orgId!);
       // Return users without password hashes
-      const sanitized = users.map(u => ({
+      const sanitized = users.map((u) => ({
         id: u.id,
         username: u.username,
         name: u.name,
@@ -237,15 +260,21 @@ export function registerAdminRoutes(app: Express): void {
     try {
       const { username, password, name, role } = req.body;
       if (!username || !password || !name) {
-        return res.status(400).json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "username, password, and name are required"));
+        return res
+          .status(400)
+          .json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "username, password, and name are required"));
       }
       // Validate field lengths
       if (username.length > 255 || name.length > 255) {
-        return res.status(400).json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "Field length exceeds maximum allowed"));
+        return res
+          .status(400)
+          .json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "Field length exceeds maximum allowed"));
       }
       // Validate email format for username
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(username)) {
-        return res.status(400).json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "Username must be a valid email address"));
+        return res
+          .status(400)
+          .json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "Username must be a valid email address"));
       }
       if (!["viewer", "manager", "admin"].includes(role || "viewer")) {
         return res.status(400).json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "Invalid role"));
@@ -330,7 +359,9 @@ export function registerAdminRoutes(app: Express): void {
                   if (parsed?.passport?.user === req.params.id) {
                     await redis.del(key);
                   }
-                } catch { /* skip unparseable sessions */ }
+                } catch {
+                  /* skip unparseable sessions */
+                }
               }
             }
             logger.info({ targetUserId: req.params.id }, "Invalidated sessions after password change");
@@ -345,7 +376,9 @@ export function registerAdminRoutes(app: Express): void {
         event: "update_user",
         resourceType: "user",
         resourceId: req.params.id,
-        detail: `Updated fields: ${Object.keys(updates).filter(k => k !== "passwordHash").join(", ")}${password ? " [password changed]" : ""}`,
+        detail: `Updated fields: ${Object.keys(updates)
+          .filter((k) => k !== "passwordHash")
+          .join(", ")}${password ? " [password changed]" : ""}`,
       });
 
       logger.info({ userId: req.params.id, org: req.orgId }, "User updated");
@@ -414,12 +447,22 @@ export function registerAdminRoutes(app: Express): void {
 
       // Gate SSO / SCIM configuration to Enterprise plan
       const ssoFields = [
-        "ssoProvider", "ssoSignOnUrl", "ssoCertificate", "ssoEntityId", "ssoEnforced",
-        "ssoGroupRoleMap", "ssoGroupAttribute", "ssoSessionMaxHours", "ssoLogoutUrl",
-        "ssoNewCertificate", "oidcDiscoveryUrl", "oidcClientId", "oidcClientSecret",
+        "ssoProvider",
+        "ssoSignOnUrl",
+        "ssoCertificate",
+        "ssoEntityId",
+        "ssoEnforced",
+        "ssoGroupRoleMap",
+        "ssoGroupAttribute",
+        "ssoSessionMaxHours",
+        "ssoLogoutUrl",
+        "ssoNewCertificate",
+        "oidcDiscoveryUrl",
+        "oidcClientId",
+        "oidcClientSecret",
         "scimEnabled",
       ] as const;
-      const isSettingSso = ssoFields.some(f => f in parsed.data && (parsed.data as Record<string, unknown>)[f]);
+      const isSettingSso = ssoFields.some((f) => f in parsed.data && (parsed.data as Record<string, unknown>)[f]);
       if (isSettingSso) {
         const sub = await storage.getSubscription(req.orgId!);
         const tier = (sub?.planTier as import("@shared/schema").PlanTier) || "free";
@@ -465,9 +508,12 @@ export function registerAdminRoutes(app: Express): void {
         await Promise.all(
           users
             .filter((u) => !u.mfaEnabled && !(u as any).mfaEnrollmentDeadline)
-            .map((u) => storage.updateUser(req.orgId!, u.id, { mfaEnrollmentDeadline: deadline } as any))
+            .map((u) => storage.updateUser(req.orgId!, u.id, { mfaEnrollmentDeadline: deadline } as any)),
         );
-        logger.info({ orgId: req.orgId, deadline, graceDays }, "MFA enforcement enabled — enrollment deadlines applied");
+        logger.info(
+          { orgId: req.orgId, deadline, graceDays },
+          "MFA enforcement enabled — enrollment deadlines applied",
+        );
       }
 
       const updated = await storage.updateOrganization(req.orgId!, { settings: updatedSettings });
@@ -494,7 +540,11 @@ export function registerAdminRoutes(app: Express): void {
   // ============================================================
 
   // Get SCIM token status (prefix and whether SCIM is enabled)
-  app.get("/api/admin/scim/token", requireAuth, requireRole("admin"), injectOrgContext,
+  app.get(
+    "/api/admin/scim/token",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
     requirePlanFeature("ssoEnabled"),
     async (req, res) => {
       const org = await storage.getOrganization(req.orgId!);
@@ -507,11 +557,15 @@ export function registerAdminRoutes(app: Express): void {
         // Service endpoint for IDP configuration
         scimBaseUrl: `${req.protocol}://${req.headers.host}/api/scim/v2`,
       });
-    }
+    },
   );
 
   // Generate / rotate SCIM bearer token (token shown exactly once)
-  app.post("/api/admin/scim/token/rotate", requireAuth, requireRole("admin"), injectOrgContext,
+  app.post(
+    "/api/admin/scim/token/rotate",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
     requirePlanFeature("ssoEnabled"),
     async (req, res) => {
       const org = await storage.getOrganization(req.orgId!);
@@ -520,7 +574,7 @@ export function registerAdminRoutes(app: Express): void {
       const { token, hash, prefix } = generateScimToken();
 
       const updatedSettings: OrgSettings = {
-        ...(org.settings || {}) as OrgSettings,
+        ...((org.settings || {}) as OrgSettings),
         scimEnabled: true,
         scimTokenHash: hash,
         scimTokenPrefix: prefix,
@@ -544,18 +598,22 @@ export function registerAdminRoutes(app: Express): void {
         message: "Store this token securely — it will not be shown again.",
         scimBaseUrl: `${req.protocol}://${req.headers.host}/api/scim/v2`,
       });
-    }
+    },
   );
 
   // Disable SCIM (revoke token, disable provisioning)
-  app.delete("/api/admin/scim/token", requireAuth, requireRole("admin"), injectOrgContext,
+  app.delete(
+    "/api/admin/scim/token",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
     requirePlanFeature("ssoEnabled"),
     async (req, res) => {
       const org = await storage.getOrganization(req.orgId!);
       if (!org) return res.status(404).json({ message: "Organization not found" });
 
       const updatedSettings: OrgSettings = {
-        ...(org.settings || {}) as OrgSettings,
+        ...((org.settings || {}) as OrgSettings),
         scimEnabled: false,
         scimTokenHash: undefined,
         scimTokenPrefix: undefined,
@@ -571,7 +629,7 @@ export function registerAdminRoutes(app: Express): void {
       });
 
       res.json({ message: "SCIM provisioning disabled and token revoked." });
-    }
+    },
   );
 
   // ============================================================
@@ -638,20 +696,40 @@ export function registerAdminRoutes(app: Express): void {
 
       if (exportFormat === "json") {
         res.setHeader("Content-Type", "application/json");
-        res.setHeader("Content-Disposition", `attachment; filename="audit-logs-${new Date().toISOString().slice(0, 10)}.json"`);
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="audit-logs-${new Date().toISOString().slice(0, 10)}.json"`,
+        );
         return res.json({ exportedAt: new Date().toISOString(), orgId: req.orgId, count: rows.length, entries: rows });
       }
 
       // CSV format
-      const headers = ["timestamp", "event", "username", "role", "resourceType", "resourceId", "ip", "userAgent", "detail"];
-      const csvRows = rows.map(r => headers.map(h => {
-        const val = String((r as unknown as Record<string, unknown>)[h] ?? "");
-        return `"${val.replace(/"/g, '""')}"`;
-      }).join(","));
+      const headers = [
+        "timestamp",
+        "event",
+        "username",
+        "role",
+        "resourceType",
+        "resourceId",
+        "ip",
+        "userAgent",
+        "detail",
+      ];
+      const csvRows = rows.map((r) =>
+        headers
+          .map((h) => {
+            const val = String((r as unknown as Record<string, unknown>)[h] ?? "");
+            return `"${val.replace(/"/g, '""')}"`;
+          })
+          .join(","),
+      );
       const csv = [headers.join(","), ...csvRows].join("\n");
 
       res.setHeader("Content-Type", "text/csv");
-      res.setHeader("Content-Disposition", `attachment; filename="audit-logs-${new Date().toISOString().slice(0, 10)}.csv"`);
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="audit-logs-${new Date().toISOString().slice(0, 10)}.csv"`,
+      );
       res.send(csv);
     } catch (error) {
       logger.error({ err: error }, "Failed to export audit logs");
@@ -709,7 +787,10 @@ export function registerAdminRoutes(app: Express): void {
 
   app.get("/api/admin/incidents/:id", requireAuth, requireRole("admin"), injectOrgContext, (req, res) => {
     const incident = getIncident(req.orgId!, req.params.id);
-    if (!incident) { res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Incident not found")); return; }
+    if (!incident) {
+      res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Incident not found"));
+      return;
+    }
     res.json(incident);
   });
 
@@ -720,48 +801,82 @@ export function registerAdminRoutes(app: Express): void {
       return;
     }
     const incident = declareIncident(req.orgId!, {
-      title, description, severity,
+      title,
+      description,
+      severity,
       declaredBy: req.user!.username,
-      affectedSystems, estimatedAffectedRecords, phiInvolved,
+      affectedSystems,
+      estimatedAffectedRecords,
+      phiInvolved,
     });
     res.status(201).json(incident);
   });
 
   app.post("/api/admin/incidents/:id/advance", requireAuth, requireRole("admin"), injectOrgContext, (req, res) => {
     const incident = advanceIncidentPhase(req.orgId!, req.params.id, req.user!.username);
-    if (!incident) { res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Incident not found")); return; }
+    if (!incident) {
+      res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Incident not found"));
+      return;
+    }
     res.json(incident);
   });
 
   app.post("/api/admin/incidents/:id/timeline", requireAuth, requireRole("admin"), injectOrgContext, (req, res) => {
     const { description } = req.body;
-    if (!description) { res.status(400).json({ message: "description is required" }); return; }
+    if (!description) {
+      res.status(400).json({ message: "description is required" });
+      return;
+    }
     const incident = addTimelineEntry(req.orgId!, req.params.id, description, req.user!.username);
-    if (!incident) { res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Incident not found")); return; }
+    if (!incident) {
+      res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Incident not found"));
+      return;
+    }
     res.json(incident);
   });
 
   app.patch("/api/admin/incidents/:id", requireAuth, requireRole("admin"), injectOrgContext, (req, res) => {
     const incident = updateIncident(req.orgId!, req.params.id, req.body);
-    if (!incident) { res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Incident not found")); return; }
+    if (!incident) {
+      res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Incident not found"));
+      return;
+    }
     res.json(incident);
   });
 
   app.post("/api/admin/incidents/:id/action-items", requireAuth, requireRole("admin"), injectOrgContext, (req, res) => {
     const { description, assignedTo, dueDate } = req.body;
-    if (!description) { res.status(400).json({ message: "description is required" }); return; }
+    if (!description) {
+      res.status(400).json({ message: "description is required" });
+      return;
+    }
     const incident = addActionItem(req.orgId!, req.params.id, { description, assignedTo, dueDate });
-    if (!incident) { res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Incident not found")); return; }
+    if (!incident) {
+      res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Incident not found"));
+      return;
+    }
     res.json(incident);
   });
 
-  app.patch("/api/admin/incidents/:incidentId/action-items/:itemId", requireAuth, requireRole("admin"), injectOrgContext, (req, res) => {
-    const { status } = req.body;
-    if (!status) { res.status(400).json({ message: "status is required" }); return; }
-    const incident = updateActionItem(req.orgId!, req.params.incidentId, req.params.itemId, status);
-    if (!incident) { res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Incident or action item not found")); return; }
-    res.json(incident);
-  });
+  app.patch(
+    "/api/admin/incidents/:incidentId/action-items/:itemId",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    (req, res) => {
+      const { status } = req.body;
+      if (!status) {
+        res.status(400).json({ message: "status is required" });
+        return;
+      }
+      const incident = updateActionItem(req.orgId!, req.params.incidentId, req.params.itemId, status);
+      if (!incident) {
+        res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Incident or action item not found"));
+        return;
+      }
+      res.json(incident);
+    },
+  );
 
   // ==================== BREACH REPORTS ====================
 
@@ -771,7 +886,10 @@ export function registerAdminRoutes(app: Express): void {
 
   app.get("/api/admin/breach-reports/:id", requireAuth, requireRole("admin"), injectOrgContext, (req, res) => {
     const report = getBreachReport(req.orgId!, req.params.id);
-    if (!report) { res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Breach report not found")); return; }
+    if (!report) {
+      res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Breach report not found"));
+      return;
+    }
     res.json(report);
   });
 
@@ -782,30 +900,43 @@ export function registerAdminRoutes(app: Express): void {
       return;
     }
     const report = createBreachReport(req.orgId!, {
-      title, description, incidentId,
+      title,
+      description,
+      incidentId,
       reportedBy: req.user!.username,
-      affectedIndividuals, phiTypes, correctiveActions,
+      affectedIndividuals,
+      phiTypes,
+      correctiveActions,
     });
     res.status(201).json(report);
   });
 
   app.patch("/api/admin/breach-reports/:id", requireAuth, requireRole("admin"), injectOrgContext, (req, res) => {
     const report = updateBreachReport(req.orgId!, req.params.id, req.body);
-    if (!report) { res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Breach report not found")); return; }
+    if (!report) {
+      res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Breach report not found"));
+      return;
+    }
     res.json(report);
   });
 
   // ==================== EDIT PATTERN INSIGHTS ====================
 
-  app.get("/api/admin/edit-insights", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
-    try {
-      const org = await storage.getOrganization(req.orgId!);
-      const insights = (org?.settings as any)?.editPatternInsights || null;
-      res.json({ insights });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch edit insights" });
-    }
-  });
+  app.get(
+    "/api/admin/edit-insights",
+    requireAuth,
+    injectOrgContext,
+    requireRole("manager", "admin"),
+    async (req, res) => {
+      try {
+        const org = await storage.getOrganization(req.orgId!);
+        const insights = (org?.settings as any)?.editPatternInsights || null;
+        res.json({ insights });
+      } catch (error) {
+        res.status(500).json({ message: "Failed to fetch edit insights" });
+      }
+    },
+  );
 
   // ==================== GDPR/CCPA COMPLIANCE ====================
 
@@ -832,20 +963,22 @@ export function registerAdminRoutes(app: Express): void {
       });
 
       // Fetch all org data in parallel (no secrets, no password hashes, no MFA secrets)
-      const [users, employees, calls, coaching, promptTemplates, apiKeysList, invitesList, subscription] = await Promise.all([
-        storage.listUsersByOrg(orgId),
-        storage.getAllEmployees(orgId),
-        storage.getAllCalls(orgId),
-        storage.getAllCoachingSessions(orgId),
-        storage.getAllPromptTemplates(orgId),
-        storage.listApiKeys(orgId),
-        storage.listInvitations(orgId),
-        storage.getSubscription(orgId),
-      ]);
+      const [users, employees, calls, coaching, promptTemplates, apiKeysList, invitesList, subscription] =
+        await Promise.all([
+          storage.listUsersByOrg(orgId),
+          storage.getAllEmployees(orgId),
+          storage.getAllCalls(orgId),
+          storage.getAllCoachingSessions(orgId),
+          storage.getAllPromptTemplates(orgId),
+          storage.listApiKeys(orgId),
+          storage.listInvitations(orgId),
+          storage.getSubscription(orgId),
+        ]);
 
       // Fetch transcripts and analyses for calls (best-effort)
       const callDetails = await Promise.all(
-        calls.slice(0, 1000).map(async (call) => { // Cap at 1000 to prevent timeout
+        calls.slice(0, 1000).map(async (call) => {
+          // Cap at 1000 to prevent timeout
           const [transcript, analysis] = await Promise.allSettled([
             storage.getTranscript(orgId, call.id),
             storage.getCallAnalysis(orgId, call.id),
@@ -853,13 +986,18 @@ export function registerAdminRoutes(app: Express): void {
           return {
             ...call,
             transcript: transcript.status === "fulfilled" ? transcript.value?.text : undefined,
-            analysis: analysis.status === "fulfilled" ? analysis.value ? {
-              performanceScore: analysis.value.performanceScore,
-              summary: analysis.value.summary,
-              flags: analysis.value.flags,
-            } : undefined : undefined,
+            analysis:
+              analysis.status === "fulfilled"
+                ? analysis.value
+                  ? {
+                      performanceScore: analysis.value.performanceScore,
+                      summary: analysis.value.summary,
+                      flags: analysis.value.flags,
+                    }
+                  : undefined
+                : undefined,
           };
-        })
+        }),
       );
 
       const exportData = {
@@ -877,7 +1015,7 @@ export function registerAdminRoutes(app: Express): void {
             // Exclude secrets: SSO cert, EHR API keys, encryption keys
           },
         },
-        users: users.map(u => ({
+        users: users.map((u) => ({
           id: u.id,
           username: u.username,
           name: u.name,
@@ -889,7 +1027,7 @@ export function registerAdminRoutes(app: Express): void {
         calls: callDetails,
         coachingSessions: coaching,
         promptTemplates,
-        apiKeys: apiKeysList.map(k => ({
+        apiKeys: apiKeysList.map((k) => ({
           id: k.id,
           name: k.name,
           keyPrefix: k.keyPrefix,
@@ -898,7 +1036,7 @@ export function registerAdminRoutes(app: Express): void {
           createdAt: k.createdAt,
           // Exclude: keyHash
         })),
-        invitations: invitesList.map(i => ({
+        invitations: invitesList.map((i) => ({
           id: i.id,
           email: i.email,
           role: i.role,
@@ -907,13 +1045,15 @@ export function registerAdminRoutes(app: Express): void {
           expiresAt: i.expiresAt,
           // Exclude: token
         })),
-        subscription: subscription ? {
-          planTier: subscription.planTier,
-          status: subscription.status,
-          billingInterval: subscription.billingInterval,
-          currentPeriodEnd: subscription.currentPeriodEnd,
-          // Exclude: stripeCustomerId, stripeSubscriptionId
-        } : null,
+        subscription: subscription
+          ? {
+              planTier: subscription.planTier,
+              status: subscription.status,
+              billingInterval: subscription.billingInterval,
+              currentPeriodEnd: subscription.currentPeriodEnd,
+              // Exclude: stripeCustomerId, stripeSubscriptionId
+            }
+          : null,
       };
 
       const filename = `observatory-export-${org.slug}-${new Date().toISOString().split("T")[0]}.json`;
@@ -979,10 +1119,7 @@ export function registerAdminRoutes(app: Express): void {
       // 2. Bulk delete all org data (transactional in PostgreSQL, best-effort otherwise)
       const deletionResult = await storage.deleteOrgData(orgId);
 
-      logger.info(
-        { orgId, ...deletionResult },
-        "GDPR data purge complete — org record retained for audit trail",
-      );
+      logger.info({ orgId, ...deletionResult }, "GDPR data purge complete — org record retained for audit trail");
 
       res.json({
         success: true,
@@ -1059,7 +1196,13 @@ export function registerAdminRoutes(app: Express): void {
         users: safeUsers,
         employees,
         callCount: calls.length,
-        calls: calls.map((c: any) => ({ id: c.id, fileName: c.fileName, status: c.status, uploadedAt: c.uploadedAt, duration: c.duration })),
+        calls: calls.map((c: any) => ({
+          id: c.id,
+          fileName: c.fileName,
+          status: c.status,
+          uploadedAt: c.uploadedAt,
+          duration: c.duration,
+        })),
       });
     } catch (err) {
       logger.error({ err }, "Org data export failed");
@@ -1123,95 +1266,115 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   // Approve a recovery request — generates a short-lived one-time use token
-  app.post("/api/admin/mfa/recovery/:tokenPrefix/approve", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
-    try {
-      const { tokenPrefix } = req.params;
-      const recoveryStore: Map<string, any> | undefined = (app as any).__mfaRecoveryStore;
-      if (!recoveryStore) return res.status(404).json({ message: "Recovery request not found" });
+  app.post(
+    "/api/admin/mfa/recovery/:tokenPrefix/approve",
+    requireAuth,
+    injectOrgContext,
+    requireRole("admin"),
+    async (req, res) => {
+      try {
+        const { tokenPrefix } = req.params;
+        const recoveryStore: Map<string, any> | undefined = (app as any).__mfaRecoveryStore;
+        if (!recoveryStore) return res.status(404).json({ message: "Recovery request not found" });
 
-      const orgId = req.orgId!;
-      let foundKey: string | undefined;
-      let record: any;
-      for (const [k, v] of Array.from(recoveryStore)) {
-        if (k.startsWith(tokenPrefix) && v.orgId === orgId && (v.status === "pending" || v.status === "email_verified")) {
-          foundKey = k;
-          record = v;
-          break;
+        const orgId = req.orgId!;
+        let foundKey: string | undefined;
+        let record: any;
+        for (const [k, v] of Array.from(recoveryStore)) {
+          if (
+            k.startsWith(tokenPrefix) &&
+            v.orgId === orgId &&
+            (v.status === "pending" || v.status === "email_verified")
+          ) {
+            foundKey = k;
+            record = v;
+            break;
+          }
         }
+
+        if (!foundKey || !record) return res.status(404).json({ message: "Recovery request not found" });
+
+        const { randomBytes, createHash } = await import("crypto");
+        const useToken = randomBytes(32).toString("hex");
+        const useTokenHash = createHash("sha256").update(useToken).digest("hex");
+        record.status = "approved";
+        record.useTokenHash = useTokenHash;
+        record.useTokenExpiresAt = Date.now() + 30 * 60 * 1000; // 30-minute window
+        record.approvedBy = req.user!.id;
+        recoveryStore.set(foundKey, record);
+
+        logPhiAccess({
+          ...auditContext(req),
+          event: "mfa_recovery_approved",
+          resourceType: "auth",
+          detail: `MFA recovery approved for user ${record.userId}`,
+        });
+
+        // Notify the user via email
+        const user = await storage.getUser(record.userId).catch(() => null);
+        if (user?.username?.includes("@")) {
+          const { sendEmail } = await import("../services/email");
+          const loginLink = `${process.env.APP_BASE_URL || ""}/mfa-recovery/complete?useToken=${useToken}`;
+          await sendEmail({
+            to: user.username,
+            subject: "MFA Recovery Approved — Observatory QA",
+            text: `Your MFA recovery request has been approved.\n\nUse this one-time link to log in (expires in 30 minutes):\n${loginLink}\n\nAfter logging in, please re-enroll in MFA immediately.`,
+            html: `<p>Your MFA recovery request has been approved.</p><p><a href="${loginLink}">Click here to log in</a> (expires in 30 minutes).</p><p>After logging in, please re-enroll in MFA immediately.</p>`,
+          }).catch(() => {});
+        }
+
+        res.json({ message: "Recovery request approved. User will be notified via email." });
+      } catch (err) {
+        logger.error({ err }, "Failed to approve MFA recovery request");
+        res.status(500).json({ message: "Failed to approve recovery request" });
       }
-
-      if (!foundKey || !record) return res.status(404).json({ message: "Recovery request not found" });
-
-      const { randomBytes, createHash } = await import("crypto");
-      const useToken = randomBytes(32).toString("hex");
-      const useTokenHash = createHash("sha256").update(useToken).digest("hex");
-      record.status = "approved";
-      record.useTokenHash = useTokenHash;
-      record.useTokenExpiresAt = Date.now() + 30 * 60 * 1000; // 30-minute window
-      record.approvedBy = req.user!.id;
-      recoveryStore.set(foundKey, record);
-
-      logPhiAccess({
-        ...auditContext(req),
-        event: "mfa_recovery_approved",
-        resourceType: "auth",
-        detail: `MFA recovery approved for user ${record.userId}`,
-      });
-
-      // Notify the user via email
-      const user = await storage.getUser(record.userId).catch(() => null);
-      if (user?.username?.includes("@")) {
-        const { sendEmail } = await import("../services/email");
-        const loginLink = `${process.env.APP_BASE_URL || ""}/mfa-recovery/complete?useToken=${useToken}`;
-        await sendEmail({
-          to: user.username,
-          subject: "MFA Recovery Approved — Observatory QA",
-          text: `Your MFA recovery request has been approved.\n\nUse this one-time link to log in (expires in 30 minutes):\n${loginLink}\n\nAfter logging in, please re-enroll in MFA immediately.`,
-          html: `<p>Your MFA recovery request has been approved.</p><p><a href="${loginLink}">Click here to log in</a> (expires in 30 minutes).</p><p>After logging in, please re-enroll in MFA immediately.</p>`,
-        }).catch(() => {});
-      }
-
-      res.json({ message: "Recovery request approved. User will be notified via email." });
-    } catch (err) {
-      logger.error({ err }, "Failed to approve MFA recovery request");
-      res.status(500).json({ message: "Failed to approve recovery request" });
-    }
-  });
+    },
+  );
 
   // Deny a recovery request
-  app.post("/api/admin/mfa/recovery/:tokenPrefix/deny", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
-    try {
-      const { tokenPrefix } = req.params;
-      const recoveryStore: Map<string, any> | undefined = (app as any).__mfaRecoveryStore;
-      if (!recoveryStore) return res.status(404).json({ message: "Recovery request not found" });
+  app.post(
+    "/api/admin/mfa/recovery/:tokenPrefix/deny",
+    requireAuth,
+    injectOrgContext,
+    requireRole("admin"),
+    async (req, res) => {
+      try {
+        const { tokenPrefix } = req.params;
+        const recoveryStore: Map<string, any> | undefined = (app as any).__mfaRecoveryStore;
+        if (!recoveryStore) return res.status(404).json({ message: "Recovery request not found" });
 
-      const orgId = req.orgId!;
-      let foundKey: string | undefined;
-      let record: any;
-      for (const [k, v] of Array.from(recoveryStore)) {
-        if (k.startsWith(tokenPrefix) && v.orgId === orgId && (v.status === "pending" || v.status === "email_verified")) {
-          foundKey = k;
-          record = v;
-          break;
+        const orgId = req.orgId!;
+        let foundKey: string | undefined;
+        let record: any;
+        for (const [k, v] of Array.from(recoveryStore)) {
+          if (
+            k.startsWith(tokenPrefix) &&
+            v.orgId === orgId &&
+            (v.status === "pending" || v.status === "email_verified")
+          ) {
+            foundKey = k;
+            record = v;
+            break;
+          }
         }
+
+        if (!foundKey || !record) return res.status(404).json({ message: "Recovery request not found" });
+
+        record.status = "denied";
+        recoveryStore.set(foundKey, record);
+
+        logPhiAccess({
+          ...auditContext(req),
+          event: "mfa_recovery_denied",
+          resourceType: "auth",
+          detail: `MFA recovery denied for user ${record.userId}`,
+        });
+
+        res.json({ message: "Recovery request denied." });
+      } catch (err) {
+        logger.error({ err }, "Failed to deny MFA recovery request");
+        res.status(500).json({ message: "Failed to deny recovery request" });
       }
-
-      if (!foundKey || !record) return res.status(404).json({ message: "Recovery request not found" });
-
-      record.status = "denied";
-      recoveryStore.set(foundKey, record);
-
-      logPhiAccess({
-        ...auditContext(req),
-        event: "mfa_recovery_denied",
-        resourceType: "auth",
-        detail: `MFA recovery denied for user ${record.userId}`,
-      });
-
-      res.json({ message: "Recovery request denied." });
-    } catch (err) {
-      logger.error({ err }, "Failed to deny MFA recovery request");
-      res.status(500).json({ message: "Failed to deny recovery request" });
-    }
-  });
+    },
+  );
 }

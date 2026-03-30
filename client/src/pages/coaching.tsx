@@ -12,7 +12,19 @@ import { useBeforeUnload } from "@/hooks/use-before-unload";
 import { apiRequest } from "@/lib/queryClient";
 import type { Employee } from "@shared/schema";
 import { COACHING_CATEGORIES } from "@shared/schema";
-import {  RiClipboardLine, RiAddLine, RiUserLine, RiCalendarLine, RiCheckboxCircleLine, RiTimeLine, RiCloseLine, RiEyeLine, RiArrowDownSLine, RiArrowUpSLine, RiFileDownloadLine  } from "@remixicon/react";
+import {
+  RiClipboardLine,
+  RiAddLine,
+  RiUserLine,
+  RiCalendarLine,
+  RiCheckboxCircleLine,
+  RiTimeLine,
+  RiCloseLine,
+  RiEyeLine,
+  RiArrowDownSLine,
+  RiArrowUpSLine,
+  RiFileDownloadLine,
+} from "@remixicon/react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface CoachingSession {
@@ -51,7 +63,11 @@ export default function CoachingPage() {
     }
   }, []);
 
-  const { data: sessions, isLoading, error: sessionsError } = useQuery<CoachingSession[]>({
+  const {
+    data: sessions,
+    isLoading,
+    error: sessionsError,
+  } = useQuery<CoachingSession[]>({
     queryKey: ["/api/coaching"],
   });
 
@@ -70,7 +86,7 @@ export default function CoachingPage() {
     },
   });
 
-  const filtered = (sessions || []).filter(s => {
+  const filtered = (sessions || []).filter((s) => {
     if (statusFilter === "active" && (s.status === "completed" || s.status === "dismissed")) return false;
     if (statusFilter === "completed" && s.status !== "completed") return false;
     if (employeeFilter !== "all" && s.employeeId !== employeeFilter) return false;
@@ -84,7 +100,7 @@ export default function CoachingPage() {
     dismissed: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300",
   };
 
-  const categoryLabel = (cat: string) => COACHING_CATEGORIES.find(c => c.value === cat)?.label || cat;
+  const categoryLabel = (cat: string) => COACHING_CATEGORIES.find((c) => c.value === cat)?.label || cat;
 
   return (
     <div className="min-h-screen" data-testid="coaching-page">
@@ -94,7 +110,9 @@ export default function CoachingPage() {
             <RiClipboardLine className="w-6 h-6" /> Coaching & Action Plans
             <HelpTip text="Create coaching sessions from flagged calls or manually. Each session tracks action items, due dates, and completion status. Sessions auto-generate from AI analysis when calls score below threshold." />
           </h2>
-          <p className="text-muted-foreground">Assign coaching sessions from flagged calls and track agent improvement.</p>
+          <p className="text-muted-foreground">
+            Assign coaching sessions from flagged calls and track agent improvement.
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -147,12 +165,18 @@ export default function CoachingPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Employees</SelectItem>
-            {employees?.filter(e => e.status === "Active").map(emp => (
-              <SelectItem key={emp.id} value={emp.id}>{emp.name}</SelectItem>
-            ))}
+            {employees
+              ?.filter((e) => e.status === "Active")
+              .map((emp) => (
+                <SelectItem key={emp.id} value={emp.id}>
+                  {emp.name}
+                </SelectItem>
+              ))}
           </SelectContent>
         </Select>
-        <span className="text-sm text-muted-foreground ml-auto">{filtered.length} session{filtered.length !== 1 ? "s" : ""}</span>
+        <span className="text-sm text-muted-foreground ml-auto">
+          {filtered.length} session{filtered.length !== 1 ? "s" : ""}
+        </span>
       </div>
 
       <main className="p-6 space-y-3">
@@ -187,21 +211,26 @@ export default function CoachingPage() {
           <div className="text-center py-16">
             <RiClipboardLine className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
             <h4 className="font-semibold text-foreground mb-1">No coaching sessions</h4>
-            <p className="text-sm text-muted-foreground mb-4">Create coaching sessions from flagged calls or add them manually.</p>
+            <p className="text-sm text-muted-foreground mb-4">
+              Create coaching sessions from flagged calls or add them manually.
+            </p>
             <Button onClick={() => setShowForm(true)}>
               <RiAddLine className="w-4 h-4 mr-2" /> Create First Session
             </Button>
           </div>
         )}
 
-        {filtered.map(session => {
+        {filtered.map((session) => {
           const isExpanded = expandedId === session.id;
-          const completedTasks = (session.actionPlan || []).filter(t => t.completed).length;
+          const completedTasks = (session.actionPlan || []).filter((t) => t.completed).length;
           const totalTasks = (session.actionPlan || []).length;
           const isOverdue = session.dueDate && new Date(session.dueDate) < new Date() && session.status !== "completed";
 
           return (
-            <div key={session.id} className={`bg-card rounded-lg border ${isOverdue ? "border-red-300 dark:border-red-800" : "border-border"} overflow-hidden`}>
+            <div
+              key={session.id}
+              className={`bg-card rounded-lg border ${isOverdue ? "border-red-300 dark:border-red-800" : "border-border"} overflow-hidden`}
+            >
               <div
                 className="px-5 py-4 flex items-center gap-4 cursor-pointer hover:bg-muted/30 transition-colors"
                 onClick={() => setExpandedId(isExpanded ? null : session.id)}
@@ -212,25 +241,47 @@ export default function CoachingPage() {
                     <Badge className={`text-xs ${statusColors[session.status]}`}>
                       {session.status.replace("_", " ")}
                     </Badge>
-                    <Badge variant="outline" className="text-xs">{categoryLabel(session.category)}</Badge>
-                    {isOverdue && <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300 text-xs">Overdue</Badge>}
+                    <Badge variant="outline" className="text-xs">
+                      {categoryLabel(session.category)}
+                    </Badge>
+                    {isOverdue && (
+                      <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300 text-xs">
+                        Overdue
+                      </Badge>
+                    )}
                   </div>
                   <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1"><RiUserLine className="w-3 h-3" /> {session.employeeName || "Unknown"}</span>
-                    <span className="flex items-center gap-1"><RiCalendarLine className="w-3 h-3" /> {session.createdAt ? new Date(session.createdAt).toLocaleDateString() : "—"}</span>
+                    <span className="flex items-center gap-1">
+                      <RiUserLine className="w-3 h-3" /> {session.employeeName || "Unknown"}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <RiCalendarLine className="w-3 h-3" />{" "}
+                      {session.createdAt ? new Date(session.createdAt).toLocaleDateString() : "—"}
+                    </span>
                     {session.dueDate && <span>Due: {new Date(session.dueDate).toLocaleDateString()}</span>}
-                    {totalTasks > 0 && <span className="flex items-center gap-1"><RiCheckboxCircleLine className="w-3 h-3" /> {completedTasks}/{totalTasks} tasks</span>}
+                    {totalTasks > 0 && (
+                      <span className="flex items-center gap-1">
+                        <RiCheckboxCircleLine className="w-3 h-3" /> {completedTasks}/{totalTasks} tasks
+                      </span>
+                    )}
                     <span>Assigned by: {session.assignedBy}</span>
                   </div>
                 </div>
                 {totalTasks > 0 && (
                   <div className="w-20">
                     <div className="w-full h-2 bg-muted-foreground/20 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full bg-gradient-to-r from-green-500 to-emerald-400" style={{ width: `${totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0}%` }} />
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-green-500 to-emerald-400"
+                        style={{ width: `${totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0}%` }}
+                      />
                     </div>
                   </div>
                 )}
-                {isExpanded ? <RiArrowUpSLine className="w-4 h-4 text-muted-foreground" /> : <RiArrowDownSLine className="w-4 h-4 text-muted-foreground" />}
+                {isExpanded ? (
+                  <RiArrowUpSLine className="w-4 h-4 text-muted-foreground" />
+                ) : (
+                  <RiArrowDownSLine className="w-4 h-4 text-muted-foreground" />
+                )}
               </div>
 
               {isExpanded && (
@@ -244,7 +295,10 @@ export default function CoachingPage() {
 
                   {session.callId && (
                     <div className="flex flex-wrap gap-2">
-                      <Link href={`/transcripts/${session.callId}`} className="text-xs text-primary hover:underline inline-flex items-center gap-1 px-2 py-1 rounded bg-primary/5 border border-primary/20">
+                      <Link
+                        href={`/transcripts/${session.callId}`}
+                        className="text-xs text-primary hover:underline inline-flex items-center gap-1 px-2 py-1 rounded bg-primary/5 border border-primary/20"
+                      >
                         <RiEyeLine className="w-3 h-3" /> View Referenced Call
                       </Link>
                     </div>
@@ -266,7 +320,9 @@ export default function CoachingPage() {
                               }}
                               className="rounded"
                             />
-                            <span className={task.completed ? "line-through text-muted-foreground" : "text-foreground"}>{task.task}</span>
+                            <span className={task.completed ? "line-through text-muted-foreground" : "text-foreground"}>
+                              {task.task}
+                            </span>
                           </label>
                         ))}
                       </div>
@@ -275,17 +331,29 @@ export default function CoachingPage() {
 
                   <div className="flex gap-2 pt-2">
                     {session.status === "pending" && (
-                      <Button size="sm" variant="outline" onClick={() => updateMutation.mutate({ id: session.id, updates: { status: "in_progress" } })}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => updateMutation.mutate({ id: session.id, updates: { status: "in_progress" } })}
+                      >
                         <RiTimeLine className="w-3 h-3 mr-1" /> Start
                       </Button>
                     )}
                     {(session.status === "pending" || session.status === "in_progress") && (
-                      <Button size="sm" onClick={() => updateMutation.mutate({ id: session.id, updates: { status: "completed" } })}>
+                      <Button
+                        size="sm"
+                        onClick={() => updateMutation.mutate({ id: session.id, updates: { status: "completed" } })}
+                      >
                         <RiCheckboxCircleLine className="w-3 h-3 mr-1" /> Complete
                       </Button>
                     )}
                     {session.status !== "dismissed" && session.status !== "completed" && (
-                      <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => updateMutation.mutate({ id: session.id, updates: { status: "dismissed" } })}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-muted-foreground"
+                        onClick={() => updateMutation.mutate({ id: session.id, updates: { status: "dismissed" } })}
+                      >
                         <RiCloseLine className="w-3 h-3 mr-1" /> Dismiss
                       </Button>
                     )}
@@ -300,7 +368,13 @@ export default function CoachingPage() {
   );
 }
 
-function CoachingForm({ employees, onClose, prefillEmployeeId, prefillCallId, prefillCategory }: {
+function CoachingForm({
+  employees,
+  onClose,
+  prefillEmployeeId,
+  prefillCallId,
+  prefillCategory,
+}: {
   employees: Employee[];
   onClose: () => void;
   prefillEmployeeId?: string;
@@ -320,7 +394,7 @@ function CoachingForm({ employees, onClose, prefillEmployeeId, prefillCallId, pr
   // Warn before navigating away with unsaved form data
   useBeforeUnload(title.trim().length > 0 || notes.trim().length > 0);
 
-  const validCallIds = callIds.filter(id => id.trim());
+  const validCallIds = callIds.filter((id) => id.trim());
 
   const createMutation = useMutation({
     mutationFn: async (data: Record<string, any>) => {
@@ -339,7 +413,7 @@ function CoachingForm({ employees, onClose, prefillEmployeeId, prefillCallId, pr
 
   const handleSubmit = () => {
     if (!employeeId || !title.trim()) return;
-    const actionPlan = tasks.filter(t => t.trim()).map(t => ({ task: t.trim(), completed: false }));
+    const actionPlan = tasks.filter((t) => t.trim()).map((t) => ({ task: t.trim(), completed: false }));
     createMutation.mutate({
       employeeId,
       title: title.trim(),
@@ -360,9 +434,13 @@ function CoachingForm({ employees, onClose, prefillEmployeeId, prefillCallId, pr
             <SelectValue placeholder="Select employee" />
           </SelectTrigger>
           <SelectContent>
-            {employees.filter(e => e.status === "Active").map(emp => (
-              <SelectItem key={emp.id} value={emp.id}>{emp.name}</SelectItem>
-            ))}
+            {employees
+              .filter((e) => e.status === "Active")
+              .map((emp) => (
+                <SelectItem key={emp.id} value={emp.id}>
+                  {emp.name}
+                </SelectItem>
+              ))}
           </SelectContent>
         </Select>
       </div>
@@ -373,19 +451,25 @@ function CoachingForm({ employees, onClose, prefillEmployeeId, prefillCallId, pr
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {COACHING_CATEGORIES.map(c => (
-              <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+            {COACHING_CATEGORIES.map((c) => (
+              <SelectItem key={c.value} value={c.value}>
+                {c.label}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
       <div className="md:col-span-2">
         <Label className="text-xs">Title *</Label>
-        <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g., Improve compliance on outbound calls" />
+        <Input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="e.g., Improve compliance on outbound calls"
+        />
       </div>
       <div>
         <Label className="text-xs">Due Date</Label>
-        <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
+        <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
       </div>
       <div>
         <Label className="text-xs">Referenced Call IDs (optional)</Label>
@@ -394,7 +478,7 @@ function CoachingForm({ employees, onClose, prefillEmployeeId, prefillCallId, pr
             <div key={i} className="flex gap-2">
               <Input
                 value={cid}
-                onChange={e => {
+                onChange={(e) => {
                   const newIds = [...callIds];
                   newIds[i] = e.target.value;
                   setCallIds(newIds);
@@ -418,7 +502,7 @@ function CoachingForm({ employees, onClose, prefillEmployeeId, prefillCallId, pr
         <Label className="text-xs">Notes</Label>
         <textarea
           value={notes}
-          onChange={e => setNotes(e.target.value)}
+          onChange={(e) => setNotes(e.target.value)}
           className="w-full min-h-[60px] rounded-md border border-input bg-background px-3 py-2 text-sm"
           placeholder="Context or instructions for this coaching session..."
         />
@@ -430,7 +514,7 @@ function CoachingForm({ employees, onClose, prefillEmployeeId, prefillCallId, pr
             <div key={i} className="flex gap-2">
               <Input
                 value={task}
-                onChange={e => {
+                onChange={(e) => {
                   const newTasks = [...tasks];
                   newTasks[i] = e.target.value;
                   setTasks(newTasks);
@@ -454,7 +538,9 @@ function CoachingForm({ employees, onClose, prefillEmployeeId, prefillCallId, pr
         <Button onClick={handleSubmit} disabled={!employeeId || !title.trim() || createMutation.isPending}>
           {createMutation.isPending ? "Creating..." : "Create Session"}
         </Button>
-        <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button variant="ghost" onClick={onClose}>
+          Cancel
+        </Button>
       </div>
     </div>
   );

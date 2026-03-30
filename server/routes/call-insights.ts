@@ -18,7 +18,9 @@ function extractJson(text: string): Record<string, unknown> | null {
   try {
     const match = text.match(/\{[\s\S]*\}/);
     if (match) return JSON.parse(match[0]);
-  } catch { /* not valid JSON */ }
+  } catch {
+    /* not valid JSON */
+  }
   return null;
 }
 
@@ -34,7 +36,6 @@ async function generateWithProvider(orgId: string, prompt: string): Promise<stri
 }
 
 export function registerCallInsightRoutes(app: Express): void {
-
   // ==================== SPEECH ANALYTICS ====================
 
   // GET speech metrics for a call (already stored in analysis, but convenient endpoint)
@@ -149,89 +150,100 @@ export function registerCallInsightRoutes(app: Express): void {
   });
 
   // PATCH: Manager resolves a score dispute
-  app.patch("/api/calls/:id/dispute", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
-    try {
-      const resolveSchema = z.object({
-        status: z.enum(["accepted", "rejected"]),
-        resolution: z.string().max(2000).optional(),
-        adjustedScore: z.number().min(0).max(10).optional(),
-      });
-      const parsed = resolveSchema.safeParse(req.body);
-      if (!parsed.success) {
-        res.status(400).json({ message: "Invalid resolution data", errors: parsed.error.flatten() });
-        return;
+  app.patch(
+    "/api/calls/:id/dispute",
+    requireAuth,
+    injectOrgContext,
+    requireRole("manager", "admin"),
+    async (req, res) => {
+      try {
+        const resolveSchema = z.object({
+          status: z.enum(["accepted", "rejected"]),
+          resolution: z.string().max(2000).optional(),
+          adjustedScore: z.number().min(0).max(10).optional(),
+        });
+        const parsed = resolveSchema.safeParse(req.body);
+        if (!parsed.success) {
+          res.status(400).json({ message: "Invalid resolution data", errors: parsed.error.flatten() });
+          return;
+        }
+
+        const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
+        const existingDispute = (analysis as any)?.scoreDispute;
+        if (!existingDispute) {
+          res.status(404).json({ message: "No dispute found for this call" });
+          return;
+        }
+
+        if (existingDispute.status !== "open" && existingDispute.status !== "under_review") {
+          res.status(409).json({ message: "Dispute is already resolved" });
+          return;
+        }
+
+        const updatedDispute = {
+          ...existingDispute,
+          status: parsed.data.status,
+          resolution: parsed.data.resolution || "",
+          resolvedBy: req.user?.id || "unknown",
+          resolvedAt: new Date().toISOString(),
+          adjustedScore: parsed.data.adjustedScore,
+        };
+
+        const updatedAnalysis: Record<string, unknown> = { ...analysis, scoreDispute: updatedDispute };
+
+        // If accepted and adjustedScore provided, update the performance score
+        if (parsed.data.status === "accepted" && parsed.data.adjustedScore !== undefined) {
+          updatedAnalysis.performanceScore = parsed.data.adjustedScore.toString();
+        }
+
+        await storage.createCallAnalysis(req.orgId!, updatedAnalysis as any);
+
+        logPhiAccess({
+          ...auditContext(req),
+          event: "score_dispute_resolved",
+          resourceType: "call_analysis",
+          resourceId: req.params.id,
+          detail: `Dispute ${parsed.data.status}${parsed.data.adjustedScore ? `, adjusted to ${parsed.data.adjustedScore}` : ""}`,
+        });
+
+        res.json({ success: true, scoreDispute: updatedDispute });
+      } catch (error) {
+        logger.error({ err: error }, "Failed to resolve score dispute");
+        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to resolve score dispute"));
       }
-
-      const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
-      const existingDispute = (analysis as any)?.scoreDispute;
-      if (!existingDispute) {
-        res.status(404).json({ message: "No dispute found for this call" });
-        return;
-      }
-
-      if (existingDispute.status !== "open" && existingDispute.status !== "under_review") {
-        res.status(409).json({ message: "Dispute is already resolved" });
-        return;
-      }
-
-      const updatedDispute = {
-        ...existingDispute,
-        status: parsed.data.status,
-        resolution: parsed.data.resolution || "",
-        resolvedBy: req.user?.id || "unknown",
-        resolvedAt: new Date().toISOString(),
-        adjustedScore: parsed.data.adjustedScore,
-      };
-
-      const updatedAnalysis: Record<string, unknown> = { ...analysis, scoreDispute: updatedDispute };
-
-      // If accepted and adjustedScore provided, update the performance score
-      if (parsed.data.status === "accepted" && parsed.data.adjustedScore !== undefined) {
-        updatedAnalysis.performanceScore = parsed.data.adjustedScore.toString();
-      }
-
-      await storage.createCallAnalysis(req.orgId!, updatedAnalysis as any);
-
-      logPhiAccess({
-        ...auditContext(req),
-        event: "score_dispute_resolved",
-        resourceType: "call_analysis",
-        resourceId: req.params.id,
-        detail: `Dispute ${parsed.data.status}${parsed.data.adjustedScore ? `, adjusted to ${parsed.data.adjustedScore}` : ""}`,
-      });
-
-      res.json({ success: true, scoreDispute: updatedDispute });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to resolve score dispute");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to resolve score dispute"));
-    }
-  });
+    },
+  );
 
   // ==================== REFERRAL LETTER GENERATION ====================
 
   // POST: Generate a referral letter from a call's clinical note
-  app.post("/api/calls/:id/referral-letter", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
-    try {
-      const referralSchema = z.object({
-        referToSpecialty: z.string().min(1).max(200),
-        referToProvider: z.string().max(200).optional(),
-        additionalContext: z.string().max(1000).optional(),
-      });
-      const parsed = referralSchema.safeParse(req.body);
-      if (!parsed.success) {
-        res.status(400).json({ message: "Invalid referral letter request", errors: parsed.error.flatten() });
-        return;
-      }
+  app.post(
+    "/api/calls/:id/referral-letter",
+    requireAuth,
+    injectOrgContext,
+    requireRole("manager", "admin"),
+    async (req, res) => {
+      try {
+        const referralSchema = z.object({
+          referToSpecialty: z.string().min(1).max(200),
+          referToProvider: z.string().max(200).optional(),
+          additionalContext: z.string().max(1000).optional(),
+        });
+        const parsed = referralSchema.safeParse(req.body);
+        if (!parsed.success) {
+          res.status(400).json({ message: "Invalid referral letter request", errors: parsed.error.flatten() });
+          return;
+        }
 
-      const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
-      if (!analysis) {
-        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
-        return;
-      }
+        const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
+        if (!analysis) {
+          res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
+          return;
+        }
 
-      const transcript = await storage.getTranscript(req.orgId!, req.params.id);
+        const transcript = await storage.getTranscript(req.orgId!, req.params.id);
 
-      const prompt = `Generate a professional clinical referral letter based on the following encounter information.
+        const prompt = `Generate a professional clinical referral letter based on the following encounter information.
 
 ENCOUNTER SUMMARY:
 ${analysis.summary || "Not available"}
@@ -255,40 +267,46 @@ Generate a formal referral letter that includes:
 
 Return as JSON: { "letter": "full letter text", "urgency": "routine|urgent|emergent" }`;
 
-      const result = await generateWithProvider(req.orgId!, prompt);
-      const jsonResult = extractJson(result);
-      const letter = (jsonResult?.letter as string) || result;
-      const urgency = (jsonResult?.urgency as string) || "routine";
+        const result = await generateWithProvider(req.orgId!, prompt);
+        const jsonResult = extractJson(result);
+        const letter = (jsonResult?.letter as string) || result;
+        const urgency = (jsonResult?.urgency as string) || "routine";
 
-      await storage.createCallAnalysis(req.orgId!, { ...analysis, referralLetter: letter } as any);
+        await storage.createCallAnalysis(req.orgId!, { ...analysis, referralLetter: letter } as any);
 
-      logPhiAccess({
-        ...auditContext(req),
-        event: "referral_letter_generated",
-        resourceType: "call_analysis",
-        resourceId: req.params.id,
-        detail: `Referral to ${parsed.data.referToSpecialty}`,
-      });
+        logPhiAccess({
+          ...auditContext(req),
+          event: "referral_letter_generated",
+          resourceType: "call_analysis",
+          resourceId: req.params.id,
+          detail: `Referral to ${parsed.data.referToSpecialty}`,
+        });
 
-      res.json({ success: true, referralLetter: letter, urgency });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to generate referral letter");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to generate referral letter"));
-    }
-  });
+        res.json({ success: true, referralLetter: letter, urgency });
+      } catch (error) {
+        logger.error({ err: error }, "Failed to generate referral letter");
+        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to generate referral letter"));
+      }
+    },
+  );
 
   // ==================== PATIENT VISIT SUMMARY ====================
 
   // POST: Generate a patient-facing plain-language visit summary
-  app.post("/api/calls/:id/patient-summary", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
-    try {
-      const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
-      if (!analysis) {
-        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
-        return;
-      }
+  app.post(
+    "/api/calls/:id/patient-summary",
+    requireAuth,
+    injectOrgContext,
+    requireRole("manager", "admin"),
+    async (req, res) => {
+      try {
+        const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
+        if (!analysis) {
+          res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
+          return;
+        }
 
-      const prompt = `Generate a patient-friendly visit summary in plain, non-medical language.
+        const prompt = `Generate a patient-friendly visit summary in plain, non-medical language.
 
 ENCOUNTER SUMMARY:
 ${analysis.summary || "Not available"}
@@ -309,42 +327,48 @@ Keep it under 500 words.
 
 Return as JSON: { "summary": "the patient-friendly summary text" }`;
 
-      const result = await generateWithProvider(req.orgId!, prompt);
-      const jsonResult = extractJson(result);
-      const summary = (jsonResult?.summary as string) || result;
+        const result = await generateWithProvider(req.orgId!, prompt);
+        const jsonResult = extractJson(result);
+        const summary = (jsonResult?.summary as string) || result;
 
-      await storage.createCallAnalysis(req.orgId!, { ...analysis, patientSummary: summary } as any);
+        await storage.createCallAnalysis(req.orgId!, { ...analysis, patientSummary: summary } as any);
 
-      logPhiAccess({
-        ...auditContext(req),
-        event: "patient_summary_generated",
-        resourceType: "call_analysis",
-        resourceId: req.params.id,
-      });
+        logPhiAccess({
+          ...auditContext(req),
+          event: "patient_summary_generated",
+          resourceType: "call_analysis",
+          resourceId: req.params.id,
+        });
 
-      res.json({ success: true, patientSummary: summary });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to generate patient summary");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to generate patient summary"));
-    }
-  });
+        res.json({ success: true, patientSummary: summary });
+      } catch (error) {
+        logger.error({ err: error }, "Failed to generate patient summary");
+        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to generate patient summary"));
+      }
+    },
+  );
 
   // ==================== AUTO-SUGGESTED BILLING CODES ====================
 
   // POST: Generate suggested billing codes from transcript/analysis
-  app.post("/api/calls/:id/suggest-billing-codes", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
-    try {
-      const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
-      if (!analysis) {
-        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
-        return;
-      }
+  app.post(
+    "/api/calls/:id/suggest-billing-codes",
+    requireAuth,
+    injectOrgContext,
+    requireRole("manager", "admin"),
+    async (req, res) => {
+      try {
+        const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
+        if (!analysis) {
+          res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
+          return;
+        }
 
-      const transcript = await storage.getTranscript(req.orgId!, req.params.id);
-      const org = await storage.getOrganization(req.orgId!);
-      const isDental = org?.settings?.industryType === "dental" || false;
+        const transcript = await storage.getTranscript(req.orgId!, req.params.id);
+        const org = await storage.getOrganization(req.orgId!);
+        const isDental = org?.settings?.industryType === "dental" || false;
 
-      const prompt = `Analyze this clinical encounter and suggest appropriate billing codes.
+        const prompt = `Analyze this clinical encounter and suggest appropriate billing codes.
 
 ENCOUNTER SUMMARY:
 ${analysis.summary || "Not available"}
@@ -357,8 +381,12 @@ ${transcript?.text?.slice(0, 3000) || "Not available"}
 
 INDUSTRY: ${org?.settings?.industryType || "general"}
 
-${isDental ? `Suggest CDT (dental procedure) codes AND ICD-10 codes where appropriate.
-Common dental CDT categories: D0100-D0999 (diagnostic), D1000-D1999 (preventive), D2000-D2999 (restorative), D4000-D4999 (periodontics), D7000-D7999 (oral surgery).` : `Suggest CPT and ICD-10 codes.`}
+${
+  isDental
+    ? `Suggest CDT (dental procedure) codes AND ICD-10 codes where appropriate.
+Common dental CDT categories: D0100-D0999 (diagnostic), D1000-D1999 (preventive), D2000-D2999 (restorative), D4000-D4999 (periodontics), D7000-D7999 (oral surgery).`
+    : `Suggest CPT and ICD-10 codes.`
+}
 
 For each code, provide:
 - The code number
@@ -374,36 +402,43 @@ Return as JSON:
 
 Only include codes you have reasonable confidence in (>= 0.5). These are suggestions — always require provider review.`;
 
-      const result = await generateWithProvider(req.orgId!, prompt);
-      const suggestedCodes = extractJson(result) || {};
+        const result = await generateWithProvider(req.orgId!, prompt);
+        const suggestedCodes = extractJson(result) || {};
 
-      // Validate and normalize the response
-      const normalized = {
-        cptCodes: Array.isArray(suggestedCodes.cptCodes) ? (suggestedCodes.cptCodes as any[]).filter(
-          (c) => c.code && c.description && typeof c.confidence === "number"
-        ) : [],
-        icd10Codes: Array.isArray(suggestedCodes.icd10Codes) ? (suggestedCodes.icd10Codes as any[]).filter(
-          (c) => c.code && c.description && typeof c.confidence === "number"
-        ) : [],
-        cdtCodes: Array.isArray(suggestedCodes.cdtCodes) ? (suggestedCodes.cdtCodes as any[]).filter(
-          (c) => c.code && c.description && typeof c.confidence === "number"
-        ) : [],
-      };
+        // Validate and normalize the response
+        const normalized = {
+          cptCodes: Array.isArray(suggestedCodes.cptCodes)
+            ? (suggestedCodes.cptCodes as any[]).filter(
+                (c) => c.code && c.description && typeof c.confidence === "number",
+              )
+            : [],
+          icd10Codes: Array.isArray(suggestedCodes.icd10Codes)
+            ? (suggestedCodes.icd10Codes as any[]).filter(
+                (c) => c.code && c.description && typeof c.confidence === "number",
+              )
+            : [],
+          cdtCodes: Array.isArray(suggestedCodes.cdtCodes)
+            ? (suggestedCodes.cdtCodes as any[]).filter(
+                (c) => c.code && c.description && typeof c.confidence === "number",
+              )
+            : [],
+        };
 
-      await storage.createCallAnalysis(req.orgId!, { ...analysis, suggestedBillingCodes: normalized } as any);
+        await storage.createCallAnalysis(req.orgId!, { ...analysis, suggestedBillingCodes: normalized } as any);
 
-      logPhiAccess({
-        ...auditContext(req),
-        event: "billing_codes_suggested",
-        resourceType: "call_analysis",
-        resourceId: req.params.id,
-        detail: `Suggested: ${normalized.cptCodes.length} CPT, ${normalized.icd10Codes.length} ICD-10, ${normalized.cdtCodes.length} CDT`,
-      });
+        logPhiAccess({
+          ...auditContext(req),
+          event: "billing_codes_suggested",
+          resourceType: "call_analysis",
+          resourceId: req.params.id,
+          detail: `Suggested: ${normalized.cptCodes.length} CPT, ${normalized.icd10Codes.length} ICD-10, ${normalized.cdtCodes.length} CDT`,
+        });
 
-      res.json({ success: true, suggestedBillingCodes: normalized });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to suggest billing codes");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to suggest billing codes"));
-    }
-  });
+        res.json({ success: true, suggestedBillingCodes: normalized });
+      } catch (error) {
+        logger.error({ err: error }, "Failed to suggest billing codes");
+        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to suggest billing codes"));
+      }
+    },
+  );
 }

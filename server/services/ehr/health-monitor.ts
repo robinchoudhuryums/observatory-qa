@@ -82,9 +82,7 @@ export async function checkOrgEhrHealth(orgId: string): Promise<EhrHealthStatus 
   }
 
   const now = new Date().toISOString();
-  const consecutiveFailures = connected
-    ? 0
-    : (prevStatus?.consecutiveFailures || 0) + 1;
+  const consecutiveFailures = connected ? 0 : (prevStatus?.consecutiveFailures || 0) + 1;
 
   const newStatus: EhrHealthStatus = {
     orgId,
@@ -93,7 +91,7 @@ export async function checkOrgEhrHealth(orgId: string): Promise<EhrHealthStatus 
     lastChecked: now,
     lastError: connected ? undefined : errorMessage,
     consecutiveFailures,
-    downSince: connected ? undefined : (prevStatus?.downSince || now),
+    downSince: connected ? undefined : prevStatus?.downSince || now,
     lastSuccessAt: connected ? now : prevStatus?.lastSuccessAt,
   };
 
@@ -119,12 +117,15 @@ export async function checkOrgEhrHealth(orgId: string): Promise<EhrHealthStatus 
     await sendEhrAlert(org, "recovered", undefined, downSince);
   }
 
-  logger.info({
-    orgId,
-    system: ehrConfig.system,
-    connected,
-    consecutiveFailures,
-  }, "EHR health check completed");
+  logger.info(
+    {
+      orgId,
+      system: ehrConfig.system,
+      connected,
+      consecutiveFailures,
+    },
+    "EHR health check completed",
+  );
 
   return newStatus;
 }
@@ -137,9 +138,7 @@ export async function runEhrHealthChecks(): Promise<void> {
   let orgs: Awaited<ReturnType<typeof storage.listOrganizations>>;
 
   try {
-    orgs = "listOrganizations" in storage
-      ? await (storage as any).listOrganizations()
-      : [];
+    orgs = "listOrganizations" in storage ? await (storage as any).listOrganizations() : [];
   } catch (err) {
     logger.warn({ err }, "EHR health checks: could not list organizations");
     return;
@@ -165,7 +164,7 @@ export async function runEhrHealthChecks(): Promise<void> {
       logger.warn({ err, orgId: org.id }, "EHR health check failed for org");
     }
     // Small delay between checks to spread load
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
   }
 }
 
@@ -177,12 +176,16 @@ export function startEhrHealthMonitor(): ReturnType<typeof setInterval> {
   logger.info({ intervalMs: EHR_HEALTH_CHECK_INTERVAL_MS }, "EHR health monitor started");
 
   // Run once at startup (after a short delay)
-  setTimeout(() => runEhrHealthChecks().catch(err => {
-    logger.warn({ err }, "Initial EHR health check failed");
-  }), 30_000); // 30s delay at startup
+  setTimeout(
+    () =>
+      runEhrHealthChecks().catch((err) => {
+        logger.warn({ err }, "Initial EHR health check failed");
+      }),
+    30_000,
+  ); // 30s delay at startup
 
   return setInterval(() => {
-    runEhrHealthChecks().catch(err => {
+    runEhrHealthChecks().catch((err) => {
       logger.warn({ err }, "Periodic EHR health check failed");
     });
   }, EHR_HEALTH_CHECK_INTERVAL_MS);
@@ -201,9 +204,7 @@ async function sendEhrAlert(
 
   const isDown = event === "down";
   const emoji = isDown ? ":red_circle:" : ":large_green_circle:";
-  const title = isDown
-    ? `${emoji} EHR Connection Down — ${orgName}`
-    : `${emoji} EHR Connection Restored — ${orgName}`;
+  const title = isDown ? `${emoji} EHR Connection Down — ${orgName}` : `${emoji} EHR Connection Restored — ${orgName}`;
 
   const fields = [
     { type: "mrkdwn" as const, text: `*System:*\n${system}` },
@@ -220,19 +221,22 @@ async function sendEhrAlert(
   }
 
   try {
-    await sendSlackNotification({
-      text: title,
-      blocks: [
-        {
-          type: "header",
-          text: { type: "plain_text", text: title, emoji: true },
-        },
-        {
-          type: "section",
-          fields,
-        },
-      ],
-    }, org.id);
+    await sendSlackNotification(
+      {
+        text: title,
+        blocks: [
+          {
+            type: "header",
+            text: { type: "plain_text", text: title, emoji: true },
+          },
+          {
+            type: "section",
+            fields,
+          },
+        ],
+      },
+      org.id,
+    );
   } catch (err) {
     logger.warn({ err, orgId: org.id }, "Failed to send EHR health alert");
   }

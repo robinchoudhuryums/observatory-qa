@@ -11,9 +11,37 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
-import { LMS_CATEGORIES, LMS_CONTENT_TYPES, type LearningModule, type LearningPath, type ReferenceDocument } from "@shared/schema";
+import {
+  LMS_CATEGORIES,
+  LMS_CONTENT_TYPES,
+  type LearningModule,
+  type LearningPath,
+  type ReferenceDocument,
+} from "@shared/schema";
 import { toDisplayString } from "@/lib/display-utils";
-import { RiGraduationCapLine, RiSearchLine, RiAddLine, RiSparklingLine, RiTimeLine, RiCheckboxCircleLine, RiFileTextLine, RiQuestionLine, RiLoader4Line, RiBarChartBoxLine, RiTeamLine, RiArrowRightLine, RiDeleteBinLine, RiBookOpenLine, RiBookMarkedLine, RiUploadLine, RiInputMethodLine, RiArrowLeftLine, RiCloseLine, RiCheckLine, RiCloseCircleLine } from "@remixicon/react";
+import {
+  RiGraduationCapLine,
+  RiSearchLine,
+  RiAddLine,
+  RiSparklingLine,
+  RiTimeLine,
+  RiCheckboxCircleLine,
+  RiFileTextLine,
+  RiQuestionLine,
+  RiLoader4Line,
+  RiBarChartBoxLine,
+  RiTeamLine,
+  RiArrowRightLine,
+  RiDeleteBinLine,
+  RiBookOpenLine,
+  RiBookMarkedLine,
+  RiUploadLine,
+  RiInputMethodLine,
+  RiArrowLeftLine,
+  RiCloseLine,
+  RiCheckLine,
+  RiCloseCircleLine,
+} from "@remixicon/react";
 
 function difficultyColor(d?: string) {
   if (d === "beginner") return "bg-green-100 text-green-700";
@@ -23,14 +51,26 @@ function difficultyColor(d?: string) {
 
 function contentTypeIcon(type: string) {
   switch (type) {
-    case "article": return <RiFileTextLine className="w-4 h-4" />;
-    case "quiz": return <RiQuestionLine className="w-4 h-4" />;
-    case "ai_generated": return <RiSparklingLine className="w-4 h-4" />;
-    default: return <RiBookOpenLine className="w-4 h-4" />;
+    case "article":
+      return <RiFileTextLine className="w-4 h-4" />;
+    case "quiz":
+      return <RiQuestionLine className="w-4 h-4" />;
+    case "ai_generated":
+      return <RiSparklingLine className="w-4 h-4" />;
+    default:
+      return <RiBookOpenLine className="w-4 h-4" />;
   }
 }
 
-function ModuleCard({ module, onDelete, onView }: { module: LearningModule; onDelete?: () => void; onView?: () => void }) {
+function ModuleCard({
+  module,
+  onDelete,
+  onView,
+}: {
+  module: LearningModule;
+  onDelete?: () => void;
+  onView?: () => void;
+}) {
   return (
     <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={onView}>
       <CardContent className="p-4">
@@ -39,8 +79,16 @@ function ModuleCard({ module, onDelete, onView }: { module: LearningModule; onDe
             <div className="flex items-center gap-2 mb-1">
               {contentTypeIcon(module.contentType)}
               <h3 className="font-medium text-sm">{module.title}</h3>
-              {!module.isPublished && <Badge variant="outline" className="text-xs">Draft</Badge>}
-              {module.isPlatformContent && <Badge variant="secondary" className="text-xs">Platform</Badge>}
+              {!module.isPublished && (
+                <Badge variant="outline" className="text-xs">
+                  Draft
+                </Badge>
+              )}
+              {module.isPlatformContent && (
+                <Badge variant="secondary" className="text-xs">
+                  Platform
+                </Badge>
+              )}
             </div>
             {module.description && (
               <p className="text-xs text-muted-foreground mb-2 line-clamp-2">{toDisplayString(module.description)}</p>
@@ -48,7 +96,7 @@ function ModuleCard({ module, onDelete, onView }: { module: LearningModule; onDe
             <div className="flex items-center gap-2 flex-wrap">
               {module.category && (
                 <Badge variant="outline" className="text-xs">
-                  {LMS_CATEGORIES.find(c => c.value === module.category)?.label || module.category}
+                  {LMS_CATEGORIES.find((c) => c.value === module.category)?.label || module.category}
                 </Badge>
               )}
               {module.difficulty && (
@@ -67,7 +115,14 @@ function ModuleCard({ module, onDelete, onView }: { module: LearningModule; onDe
             </div>
           </div>
           {onDelete && (
-            <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); onDelete(); }}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+            >
               <RiDeleteBinLine className="w-4 h-4 text-muted-foreground" />
             </Button>
           )}
@@ -81,7 +136,9 @@ function ModuleCard({ module, onDelete, onView }: { module: LearningModule; onDe
 function ModuleViewer({ module, onBack }: { module: LearningModule; onBack: () => void }) {
   const [showQuiz, setShowQuiz] = useState(false);
 
-  const quizQuestions = module.quizQuestions as Array<{ question: string; options: string[]; correctIndex: number; explanation?: string }> | undefined;
+  const quizQuestions = module.quizQuestions as
+    | Array<{ question: string; options: string[]; correctIndex: number; explanation?: string }>
+    | undefined;
   const hasQuiz = quizQuestions && quizQuestions.length > 0;
 
   return (
@@ -101,7 +158,7 @@ function ModuleViewer({ module, onBack }: { module: LearningModule; onBack: () =
           <div className="flex items-center gap-3 mt-2">
             {module.category && (
               <Badge variant="outline">
-                {LMS_CATEGORIES.find(c => c.value === module.category)?.label || module.category}
+                {LMS_CATEGORIES.find((c) => c.value === module.category)?.label || module.category}
               </Badge>
             )}
             {module.difficulty && <Badge className={difficultyColor(module.difficulty)}>{module.difficulty}</Badge>}
@@ -114,9 +171,7 @@ function ModuleViewer({ module, onBack }: { module: LearningModule; onBack: () =
         </CardHeader>
         <CardContent>
           {module.content ? (
-            <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap">
-              {module.content}
-            </div>
+            <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap">{module.content}</div>
           ) : (
             <p className="text-muted-foreground text-sm">No content available for this module.</p>
           )}
@@ -146,7 +201,11 @@ function ModuleViewer({ module, onBack }: { module: LearningModule; onBack: () =
 }
 
 /** Interactive quiz component with answer selection and grading */
-function QuizTaker({ moduleId, questions, onClose }: {
+function QuizTaker({
+  moduleId,
+  questions,
+  onClose,
+}: {
   moduleId: string;
   questions: Array<{ question: string; options: string[]; correctIndex: number; explanation?: string }>;
   onClose: () => void;
@@ -168,15 +227,22 @@ function QuizTaker({ moduleId, questions, onClose }: {
     onSuccess: (data) => {
       setResults(data);
       if (data.passed) {
-        toast({ title: "Quiz passed!", description: `Score: ${data.score}% (${data.correctCount}/${data.totalQuestions})` });
+        toast({
+          title: "Quiz passed!",
+          description: `Score: ${data.score}% (${data.correctCount}/${data.totalQuestions})`,
+        });
       } else {
-        toast({ title: "Keep studying", description: `Score: ${data.score}%. You need 70% to pass.`, variant: "destructive" });
+        toast({
+          title: "Keep studying",
+          description: `Score: ${data.score}%. You need 70% to pass.`,
+          variant: "destructive",
+        });
       }
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  const allAnswered = answers.every(a => a !== null);
+  const allAnswered = answers.every((a) => a !== null);
 
   return (
     <Card>
@@ -195,9 +261,13 @@ function QuizTaker({ moduleId, questions, onClose }: {
             <Progress value={results.score} className="h-2" />
             <p className="text-sm mt-1">
               {results.passed ? (
-                <span className="text-green-600 font-medium">Passed! {results.correctCount}/{results.totalQuestions} correct</span>
+                <span className="text-green-600 font-medium">
+                  Passed! {results.correctCount}/{results.totalQuestions} correct
+                </span>
               ) : (
-                <span className="text-red-600 font-medium">Not passed. {results.correctCount}/{results.totalQuestions} correct (need 70%)</span>
+                <span className="text-red-600 font-medium">
+                  Not passed. {results.correctCount}/{results.totalQuestions} correct (need 70%)
+                </span>
               )}
             </p>
           </div>
@@ -210,10 +280,12 @@ function QuizTaker({ moduleId, questions, onClose }: {
             <div key={qi} className="space-y-2">
               <p className="font-medium text-sm">
                 {qi + 1}. {q.question}
-                {result && (result.correct
-                  ? <RiCheckLine className="w-4 h-4 inline ml-2 text-green-600" />
-                  : <RiCloseCircleLine className="w-4 h-4 inline ml-2 text-red-500" />
-                )}
+                {result &&
+                  (result.correct ? (
+                    <RiCheckLine className="w-4 h-4 inline ml-2 text-green-600" />
+                  ) : (
+                    <RiCloseCircleLine className="w-4 h-4 inline ml-2 text-red-500" />
+                  ))}
               </p>
               <div className="space-y-1.5 pl-4">
                 {q.options.map((opt, oi) => {
@@ -255,8 +327,16 @@ function QuizTaker({ moduleId, questions, onClose }: {
         })}
 
         {!results && (
-          <Button onClick={() => submitMutation.mutate()} disabled={!allAnswered || submitMutation.isPending} className="w-full">
-            {submitMutation.isPending ? <RiLoader4Line className="w-4 h-4 mr-2 animate-spin" /> : <RiCheckboxCircleLine className="w-4 h-4 mr-2" />}
+          <Button
+            onClick={() => submitMutation.mutate()}
+            disabled={!allAnswered || submitMutation.isPending}
+            className="w-full"
+          >
+            {submitMutation.isPending ? (
+              <RiLoader4Line className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <RiCheckboxCircleLine className="w-4 h-4 mr-2" />
+            )}
             Submit Quiz
           </Button>
         )}
@@ -280,7 +360,11 @@ function CreateModuleForm({ onSuccess }: { onSuccess: () => void }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title, description, content, category, difficulty,
+          title,
+          description,
+          content,
+          category,
+          difficulty,
           contentType: "article",
           estimatedMinutes: parseInt(estimatedMinutes) || 10,
           isPublished: false,
@@ -291,7 +375,9 @@ function CreateModuleForm({ onSuccess }: { onSuccess: () => void }) {
     },
     onSuccess: () => {
       toast({ title: "Module created", description: "You can now publish it when ready" });
-      setTitle(""); setDescription(""); setContent("");
+      setTitle("");
+      setDescription("");
+      setContent("");
       queryClient.invalidateQueries({ queryKey: ["/api/lms/modules"] });
       onSuccess();
     },
@@ -309,27 +395,35 @@ function CreateModuleForm({ onSuccess }: { onSuccess: () => void }) {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <Label>Title *</Label>
-            <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="Module title" />
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Module title" />
           </div>
           <div>
             <Label>Category</Label>
             <Select value={category} onValueChange={setCategory}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
-                {LMS_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                {LMS_CATEGORIES.map((c) => (
+                  <SelectItem key={c.value} value={c.value}>
+                    {c.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
         </div>
         <div>
           <Label>Description</Label>
-          <Input value={description} onChange={e => setDescription(e.target.value)} placeholder="Brief description" />
+          <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Brief description" />
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <Label>Difficulty</Label>
             <Select value={difficulty} onValueChange={setDifficulty}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="beginner">Beginner</SelectItem>
                 <SelectItem value="intermediate">Intermediate</SelectItem>
@@ -339,15 +433,25 @@ function CreateModuleForm({ onSuccess }: { onSuccess: () => void }) {
           </div>
           <div>
             <Label>Estimated Minutes</Label>
-            <Input type="number" value={estimatedMinutes} onChange={e => setEstimatedMinutes(e.target.value)} />
+            <Input type="number" value={estimatedMinutes} onChange={(e) => setEstimatedMinutes(e.target.value)} />
           </div>
         </div>
         <div>
           <Label>Content (Markdown)</Label>
-          <Textarea value={content} onChange={e => setContent(e.target.value)} rows={10} placeholder="Write your training content in Markdown..." className="font-mono text-sm" />
+          <Textarea
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            rows={10}
+            placeholder="Write your training content in Markdown..."
+            className="font-mono text-sm"
+          />
         </div>
         <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending || !title.trim()}>
-          {createMutation.isPending ? <RiLoader4Line className="w-4 h-4 mr-2 animate-spin" /> : <RiAddLine className="w-4 h-4 mr-2" />}
+          {createMutation.isPending ? (
+            <RiLoader4Line className="w-4 h-4 mr-2 animate-spin" />
+          ) : (
+            <RiAddLine className="w-4 h-4 mr-2" />
+          )}
           Create Module
         </Button>
       </CardContent>
@@ -403,9 +507,11 @@ function AIGenerateModule({ onSuccess }: { onSuccess: () => void }) {
             <div>
               <Label>Source Document *</Label>
               <Select value={selectedDoc} onValueChange={setSelectedDoc}>
-                <SelectTrigger><SelectValue placeholder="Select a document..." /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a document..." />
+                </SelectTrigger>
                 <SelectContent>
-                  {refDocs.map(d => (
+                  {refDocs.map((d) => (
                     <SelectItem key={d.id} value={d.id}>
                       {d.name} ({d.category})
                     </SelectItem>
@@ -417,24 +523,39 @@ function AIGenerateModule({ onSuccess }: { onSuccess: () => void }) {
               <div>
                 <Label>Category</Label>
                 <Select value={category} onValueChange={setCategory}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
-                    {LMS_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                    {LMS_CATEGORIES.map((c) => (
+                      <SelectItem key={c.value} value={c.value}>
+                        {c.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
               <div className="flex items-end">
                 <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={generateQuiz} onChange={e => setGenerateQuiz(e.target.checked)} className="rounded" />
+                  <input
+                    type="checkbox"
+                    checked={generateQuiz}
+                    onChange={(e) => setGenerateQuiz(e.target.checked)}
+                    className="rounded"
+                  />
                   Generate quiz questions
                 </label>
               </div>
             </div>
             <Button onClick={() => generateMutation.mutate()} disabled={generateMutation.isPending || !selectedDoc}>
               {generateMutation.isPending ? (
-                <><RiLoader4Line className="w-4 h-4 mr-2 animate-spin" /> Generating (this may take 30-60s)...</>
+                <>
+                  <RiLoader4Line className="w-4 h-4 mr-2 animate-spin" /> Generating (this may take 30-60s)...
+                </>
               ) : (
-                <><RiSparklingLine className="w-4 h-4 mr-2" /> Generate Training Module</>
+                <>
+                  <RiSparklingLine className="w-4 h-4 mr-2" /> Generate Training Module
+                </>
               )}
             </Button>
           </>
@@ -470,8 +591,8 @@ function KnowledgeSearch() {
           <Input
             placeholder="Search for insurance codes, procedures, policies..."
             value={query}
-            onChange={e => setQuery(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && setSearchQuery(query)}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && setSearchQuery(query)}
           />
           <Button onClick={() => setSearchQuery(query)} disabled={query.length < 3}>
             <RiSearchLine className="w-4 h-4" />
@@ -491,7 +612,9 @@ function KnowledgeSearch() {
                 <h4 className="text-sm font-medium mb-2 flex items-center gap-1">
                   <RiBookOpenLine className="w-3 h-3" /> Training Modules ({results.modules.length})
                 </h4>
-                {results.modules.map(m => <ModuleCard key={m.id} module={m} />)}
+                {results.modules.map((m) => (
+                  <ModuleCard key={m.id} module={m} />
+                ))}
               </div>
             )}
             {results.knowledgeBase.length > 0 && (
@@ -527,7 +650,11 @@ function LearningPathsTab() {
   });
 
   if (isLoading) {
-    return <div className="flex items-center justify-center h-32"><RiLoader4Line className="w-6 h-6 animate-spin" /></div>;
+    return (
+      <div className="flex items-center justify-center h-32">
+        <RiLoader4Line className="w-6 h-6 animate-spin" />
+      </div>
+    );
   }
 
   if (paths.length === 0) {
@@ -546,7 +673,7 @@ function LearningPathsTab() {
 
   return (
     <div className="space-y-3">
-      {paths.map(path => (
+      {paths.map((path) => (
         <Card key={path.id} className="hover:shadow-md transition-shadow">
           <CardContent className="p-4">
             <div className="flex items-start justify-between gap-3">
@@ -554,19 +681,25 @@ function LearningPathsTab() {
                 <div className="flex items-center gap-2 mb-1">
                   <RiBookMarkedLine className="w-4 h-4" />
                   <h3 className="font-medium text-sm">{path.title}</h3>
-                  {path.isRequired && <Badge variant="destructive" className="text-xs">Required</Badge>}
+                  {path.isRequired && (
+                    <Badge variant="destructive" className="text-xs">
+                      Required
+                    </Badge>
+                  )}
                 </div>
                 {path.description && <p className="text-xs text-muted-foreground mb-2">{path.description}</p>}
                 <div className="flex items-center gap-3">
-                  <span className="text-xs text-muted-foreground">
-                    {path.moduleIds.length} modules
-                  </span>
+                  <span className="text-xs text-muted-foreground">{path.moduleIds.length} modules</span>
                   {path.estimatedMinutes && (
                     <span className="text-xs text-muted-foreground flex items-center gap-1">
                       <RiTimeLine className="w-3 h-3" /> {path.estimatedMinutes} min
                     </span>
                   )}
-                  {path.category && <Badge variant="outline" className="text-xs">{path.category}</Badge>}
+                  {path.category && (
+                    <Badge variant="outline" className="text-xs">
+                      {path.category}
+                    </Badge>
+                  )}
                 </div>
               </div>
               <Button variant="outline" size="sm">
@@ -760,10 +893,14 @@ export default function LearningPage() {
               </CardContent>
             </Card>
           ) : (
-            modules.map(m => (
+            modules.map((m) => (
               <div key={m.id} className="flex items-center gap-2">
                 <div className="flex-1">
-                  <ModuleCard module={m} onDelete={() => deleteMutation.mutate(m.id)} onView={() => setViewingModule(m)} />
+                  <ModuleCard
+                    module={m}
+                    onDelete={() => deleteMutation.mutate(m.id)}
+                    onView={() => setViewingModule(m)}
+                  />
                 </div>
                 {!m.isPublished && (
                   <Button size="sm" variant="outline" onClick={() => publishMutation.mutate(m.id)}>

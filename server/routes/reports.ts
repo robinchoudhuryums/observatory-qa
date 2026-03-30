@@ -12,12 +12,15 @@ import { errorResponse, ERROR_CODES } from "../services/error-codes";
 const MAX_REPORT_CALLS = 10_000;
 
 function safeJsonParse<T>(val: unknown, fallback: T): T {
-  if (typeof val !== 'string') return (val as T) ?? fallback;
-  try { return JSON.parse(val); } catch { return fallback; }
+  if (typeof val !== "string") return (val as T) ?? fallback;
+  try {
+    return JSON.parse(val);
+  } catch {
+    return fallback;
+  }
 }
 
 export function registerReportRoutes(app: Express): void {
-
   // Search calls (with optional score/date/category filters)
   app.get("/api/search", requireAuth, injectOrgContext, async (req, res) => {
     try {
@@ -38,13 +41,13 @@ export function registerReportRoutes(app: Express): void {
 
       // Apply server-side filters to search results
       if (minScore !== undefined && !isNaN(minScore)) {
-        results = results.filter(r => {
+        results = results.filter((r) => {
           const score = Number(r.analysis?.performanceScore);
           return !isNaN(score) && score >= minScore;
         });
       }
       if (maxScore !== undefined && !isNaN(maxScore)) {
-        results = results.filter(r => {
+        results = results.filter((r) => {
           const score = Number(r.analysis?.performanceScore);
           return !isNaN(score) && score <= maxScore;
         });
@@ -52,18 +55,18 @@ export function registerReportRoutes(app: Express): void {
       if (from) {
         const fromDate = new Date(from);
         if (!isNaN(fromDate.getTime())) {
-          results = results.filter(r => new Date(r.uploadedAt || 0) >= fromDate);
+          results = results.filter((r) => new Date(r.uploadedAt || 0) >= fromDate);
         }
       }
       if (to) {
         const toDate = new Date(to);
         if (!isNaN(toDate.getTime())) {
           toDate.setHours(23, 59, 59, 999);
-          results = results.filter(r => new Date(r.uploadedAt || 0) <= toDate);
+          results = results.filter((r) => new Date(r.uploadedAt || 0) <= toDate);
         }
       }
       if (category) {
-        results = results.filter(r => r.callCategory === category);
+        results = results.filter((r) => r.callCategory === category);
       }
       logPhiAccess({
         ...auditContext(req),
@@ -132,28 +135,28 @@ export function registerReportRoutes(app: Express): void {
       const employees = await storage.getAllEmployees(req.orgId!);
 
       // Build employee lookup maps
-      const employeeMap = new Map(employees.map(e => [e.id, e]));
+      const employeeMap = new Map(employees.map((e) => [e.id, e]));
 
       // Filter by date range
       let filtered = allCalls;
       if (from) {
         const fromDate = new Date(from as string);
-        filtered = filtered.filter(c => new Date(c.uploadedAt || 0) >= fromDate);
+        filtered = filtered.filter((c) => new Date(c.uploadedAt || 0) >= fromDate);
       }
       if (to) {
         const toDate = new Date(to as string);
         toDate.setHours(23, 59, 59, 999);
-        filtered = filtered.filter(c => new Date(c.uploadedAt || 0) <= toDate);
+        filtered = filtered.filter((c) => new Date(c.uploadedAt || 0) <= toDate);
       }
 
       // Filter by employee
       if (employeeId) {
-        filtered = filtered.filter(c => c.employeeId === employeeId);
+        filtered = filtered.filter((c) => c.employeeId === employeeId);
       }
 
       // Filter by department
       if (department) {
-        filtered = filtered.filter(c => {
+        filtered = filtered.filter((c) => {
           if (!c.employeeId) return false;
           const emp = employeeMap.get(c.employeeId);
           return emp?.role === department;
@@ -162,7 +165,7 @@ export function registerReportRoutes(app: Express): void {
 
       // Filter by call party type
       if (callPartyType) {
-        filtered = filtered.filter(c => {
+        filtered = filtered.filter((c) => {
           const partyType = (c.analysis as any)?.callPartyType;
           return partyType === callPartyType;
         });
@@ -170,15 +173,17 @@ export function registerReportRoutes(app: Express): void {
 
       // Compute metrics from filtered set
       const totalCalls = filtered.length;
-      const sentiments = filtered.map(c => c.sentiment).filter(Boolean);
-      const analyses = filtered.map(c => c.analysis).filter(Boolean);
+      const sentiments = filtered.map((c) => c.sentiment).filter(Boolean);
+      const analyses = filtered.map((c) => c.analysis).filter(Boolean);
 
-      const avgSentiment = sentiments.length > 0
-        ? (sentiments.reduce((sum, s) => sum + safeFloat(s!.overallScore), 0) / sentiments.length) * 10
-        : 0;
-      const avgPerformanceScore = analyses.length > 0
-        ? analyses.reduce((sum, a) => sum + safeFloat(a!.performanceScore), 0) / analyses.length
-        : 0;
+      const avgSentiment =
+        sentiments.length > 0
+          ? (sentiments.reduce((sum, s) => sum + safeFloat(s!.overallScore), 0) / sentiments.length) * 10
+          : 0;
+      const avgPerformanceScore =
+        analyses.length > 0
+          ? analyses.reduce((sum, a) => sum + safeFloat(a!.performanceScore), 0) / analyses.length
+          : 0;
 
       const sentimentDist = { positive: 0, neutral: 0, negative: 0 };
       for (const s of sentiments) {
@@ -205,21 +210,30 @@ export function registerReportRoutes(app: Express): void {
             id: empId,
             name: emp?.name || "Unknown",
             role: emp?.role || "",
-            avgPerformanceScore: stats.callCount > 0
-              ? Math.round((stats.totalScore / stats.callCount) * 100) / 100
-              : null,
+            avgPerformanceScore:
+              stats.callCount > 0 ? Math.round((stats.totalScore / stats.callCount) * 100) / 100 : null,
             totalCalls: stats.callCount,
           };
         })
-        .filter(p => p.totalCalls > 0)
+        .filter((p) => p.totalCalls > 0)
         .sort((a, b) => (b.avgPerformanceScore || 0) - (a.avgPerformanceScore || 0));
 
       // Trend data: group by month
-      const trendMap = new Map<string, { calls: number; totalScore: number; scored: number; positive: number; neutral: number; negative: number }>();
+      const trendMap = new Map<
+        string,
+        { calls: number; totalScore: number; scored: number; positive: number; neutral: number; negative: number }
+      >();
       for (const call of filtered) {
         const date = new Date(call.uploadedAt || 0);
         const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-        const entry = trendMap.get(monthKey) || { calls: 0, totalScore: 0, scored: 0, positive: 0, neutral: 0, negative: 0 };
+        const entry = trendMap.get(monthKey) || {
+          calls: 0,
+          totalScore: 0,
+          scored: 0,
+          positive: 0,
+          neutral: 0,
+          negative: 0,
+        };
         entry.calls++;
         if (call.analysis?.performanceScore) {
           entry.totalScore += safeFloat(call.analysis.performanceScore);
@@ -256,17 +270,25 @@ export function registerReportRoutes(app: Express): void {
         }
       }
 
-      const avgSubScores = subScoreTotals.count > 0 ? {
-        compliance: Math.round((subScoreTotals.compliance / subScoreTotals.count) * 100) / 100,
-        customerExperience: Math.round((subScoreTotals.customerExperience / subScoreTotals.count) * 100) / 100,
-        communication: Math.round((subScoreTotals.communication / subScoreTotals.count) * 100) / 100,
-        resolution: Math.round((subScoreTotals.resolution / subScoreTotals.count) * 100) / 100,
-      } : null;
+      const avgSubScores =
+        subScoreTotals.count > 0
+          ? {
+              compliance: Math.round((subScoreTotals.compliance / subScoreTotals.count) * 100) / 100,
+              customerExperience: Math.round((subScoreTotals.customerExperience / subScoreTotals.count) * 100) / 100,
+              communication: Math.round((subScoreTotals.communication / subScoreTotals.count) * 100) / 100,
+              resolution: Math.round((subScoreTotals.resolution / subScoreTotals.count) * 100) / 100,
+            }
+          : null;
 
       // Count auto-assigned calls
-      const autoAssignedCount = filtered.filter(c => (c.analysis as any)?.detectedAgentName).length;
+      const autoAssignedCount = filtered.filter((c) => (c.analysis as any)?.detectedAgentName).length;
 
-      logPhiAccess({ ...auditContext(req), event: "view_filtered_report", resourceType: "report", detail: `${totalCalls} calls, date range: ${from || "all"} to ${to || "now"}` });
+      logPhiAccess({
+        ...auditContext(req),
+        event: "view_filtered_report",
+        resourceType: "report",
+        detail: `${totalCalls} calls, date range: ${from || "all"} to ${to || "now"}`,
+      });
       res.json({
         metrics: {
           totalCalls,
@@ -301,13 +323,13 @@ export function registerReportRoutes(app: Express): void {
         const toDate = new Date(to);
         toDate.setHours(23, 59, 59, 999);
 
-        const filtered = calls.filter(c => {
+        const filtered = calls.filter((c) => {
           const d = new Date(c.uploadedAt || 0);
           return d >= fromDate && d <= toDate;
         });
 
         const scores = filtered
-          .map(c => c.analysis?.performanceScore ? safeFloat(c.analysis.performanceScore) : null)
+          .map((c) => (c.analysis?.performanceScore ? safeFloat(c.analysis.performanceScore) : null))
           .filter((s): s is number => s !== null);
 
         const sentiments = { positive: 0, neutral: 0, negative: 0 };
@@ -318,11 +340,10 @@ export function registerReportRoutes(app: Express): void {
 
         return {
           totalCalls: filtered.length,
-          avgScore: scores.length > 0
-            ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) / 100
-            : null,
+          avgScore:
+            scores.length > 0 ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) / 100 : null,
           sentiments,
-          flaggedCount: filtered.filter(c => {
+          flaggedCount: filtered.filter((c) => {
             const flags = c.analysis?.flags;
             return Array.isArray(flags) && flags.length > 0;
           }).length,
@@ -335,9 +356,10 @@ export function registerReportRoutes(app: Express): void {
       // Compute deltas
       const delta = {
         totalCalls: current.totalCalls - previous.totalCalls,
-        avgScore: current.avgScore != null && previous.avgScore != null
-          ? Math.round((current.avgScore - previous.avgScore) * 100) / 100
-          : null,
+        avgScore:
+          current.avgScore != null && previous.avgScore != null
+            ? Math.round((current.avgScore - previous.avgScore) * 100) / 100
+            : null,
         flaggedCount: current.flaggedCount - previous.flaggedCount,
       };
 
@@ -345,7 +367,9 @@ export function registerReportRoutes(app: Express): void {
       res.json({ current, previous, delta });
     } catch (error) {
       logger.error({ err: error }, "Failed to generate comparative report");
-      res.status(500).json(errorResponse(ERROR_CODES.REPORT_GENERATION_FAILED, "Failed to generate comparative report"));
+      res
+        .status(500)
+        .json(errorResponse(ERROR_CODES.REPORT_GENERATION_FAILED, "Failed to generate comparative report"));
     }
   });
 
@@ -367,12 +391,12 @@ export function registerReportRoutes(app: Express): void {
       let filtered = allCalls;
       if (from) {
         const fromDate = new Date(from as string);
-        filtered = filtered.filter(c => new Date(c.uploadedAt || 0) >= fromDate);
+        filtered = filtered.filter((c) => new Date(c.uploadedAt || 0) >= fromDate);
       }
       if (to) {
         const toDate = new Date(to as string);
         toDate.setHours(23, 59, 59, 999);
-        filtered = filtered.filter(c => new Date(c.uploadedAt || 0) <= toDate);
+        filtered = filtered.filter((c) => new Date(c.uploadedAt || 0) <= toDate);
       }
 
       // Aggregate all analysis feedback
@@ -421,9 +445,10 @@ export function registerReportRoutes(app: Express): void {
           }
 
           // Collect flagged calls
-          const callFlags = Array.isArray(call.analysis.flags) ? call.analysis.flags as string[] : [];
+          const callFlags = Array.isArray(call.analysis.flags) ? (call.analysis.flags as string[]) : [];
           const isExceptional = callFlags.includes("exceptional_call");
-          const isBad = callFlags.includes("low_score") || callFlags.some((f: string) => f.startsWith("agent_misconduct"));
+          const isBad =
+            callFlags.includes("low_score") || callFlags.some((f: string) => f.startsWith("agent_misconduct"));
           if (isExceptional || isBad) {
             flaggedCalls.push({
               id: call.id,
@@ -466,9 +491,8 @@ export function registerReportRoutes(app: Express): void {
           .map(([text, count]) => ({ text, count }));
       };
 
-      const avgScore = scores.length > 0
-        ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) / 100
-        : null;
+      const avgScore =
+        scores.length > 0 ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) / 100 : null;
       const highScore = scores.length > 0 ? Math.max(...scores) : null;
       const lowScore = scores.length > 0 ? Math.min(...scores) : null;
 
@@ -499,7 +523,9 @@ export function registerReportRoutes(app: Express): void {
         topSuggestions: countFrequency(allSuggestions),
         commonTopics: countFrequency(allTopics),
         scoreTrend,
-        flaggedCalls: flaggedCalls.sort((a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime()),
+        flaggedCalls: flaggedCalls.sort(
+          (a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime(),
+        ),
       });
     } catch (error) {
       logger.error({ err: error }, "Failed to generate agent profile");
@@ -529,12 +555,12 @@ export function registerReportRoutes(app: Express): void {
       let filtered = allCalls;
       if (from) {
         const fromDate = new Date(from);
-        filtered = filtered.filter(c => new Date(c.uploadedAt || 0) >= fromDate);
+        filtered = filtered.filter((c) => new Date(c.uploadedAt || 0) >= fromDate);
       }
       if (to) {
         const toDate = new Date(to);
         toDate.setHours(23, 59, 59, 999);
-        filtered = filtered.filter(c => new Date(c.uploadedAt || 0) <= toDate);
+        filtered = filtered.filter((c) => new Date(c.uploadedAt || 0) <= toDate);
       }
 
       if (filtered.length === 0) {
@@ -588,8 +614,7 @@ export function registerReportRoutes(app: Express): void {
           .map(([text, count]) => ({ text, count }));
       };
 
-      const avgScore = scores.length > 0
-        ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
+      const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
 
       // Sanitize date inputs to prevent prompt injection
       const sanitizeDate = (d: string | undefined): string => {
@@ -635,7 +660,7 @@ export function registerReportRoutes(app: Express): void {
 
       const allCalls = await storage.getCallSummaries(req.orgId!, { status: "completed", employee: employeeId });
       const scores = allCalls
-        .map(c => c.analysis?.performanceScore ? safeFloat(c.analysis.performanceScore) : null)
+        .map((c) => (c.analysis?.performanceScore ? safeFloat(c.analysis.performanceScore) : null))
         .filter((s): s is number => s !== null);
 
       const sentimentCounts = { positive: 0, neutral: 0, negative: 0 };
@@ -644,9 +669,7 @@ export function registerReportRoutes(app: Express): void {
         if (s && s in sentimentCounts) sentimentCounts[s]++;
       }
 
-      const avgScore = scores.length > 0
-        ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)
-        : "N/A";
+      const avgScore = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : "N/A";
 
       const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Agent Report - ${employee.name}</title>
@@ -677,19 +700,27 @@ export function registerReportRoutes(app: Express): void {
 <h2>Sentiment Breakdown</h2>
 <table>
   <tr><th>Sentiment</th><th>Count</th><th>%</th></tr>
-  ${(["positive", "neutral", "negative"] as const).map(s =>
-    `<tr><td>${s}</td><td>${sentimentCounts[s]}</td><td>${allCalls.length > 0 ? ((sentimentCounts[s] / allCalls.length) * 100).toFixed(0) : 0}%</td></tr>`
-  ).join("")}
+  ${(["positive", "neutral", "negative"] as const)
+    .map(
+      (s) =>
+        `<tr><td>${s}</td><td>${sentimentCounts[s]}</td><td>${allCalls.length > 0 ? ((sentimentCounts[s] / allCalls.length) * 100).toFixed(0) : 0}%</td></tr>`,
+    )
+    .join("")}
 </table>
 <h2>Recent Calls</h2>
 <table>
   <tr><th>Date</th><th>File</th><th>Score</th><th>Sentiment</th></tr>
-  ${allCalls.slice(0, 20).map(c => `<tr>
+  ${allCalls
+    .slice(0, 20)
+    .map(
+      (c) => `<tr>
     <td>${c.uploadedAt ? new Date(c.uploadedAt).toLocaleDateString() : "—"}</td>
     <td>${c.fileName || "—"}</td>
     <td>${c.analysis?.performanceScore || "—"}</td>
     <td>${c.sentiment?.overallSentiment || "—"}</td>
-  </tr>`).join("")}
+  </tr>`,
+    )
+    .join("")}
 </table>
 </body></html>`;
 

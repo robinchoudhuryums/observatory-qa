@@ -37,7 +37,7 @@ interface IndustryBenchmark {
 
 function percentile(sorted: number[], p: number): number {
   if (sorted.length === 0) return 0;
-  const idx = Math.ceil(sorted.length * p / 100) - 1;
+  const idx = Math.ceil((sorted.length * p) / 100) - 1;
   return Math.round(sorted[Math.max(0, idx)] * 100) / 100;
 }
 
@@ -53,29 +53,39 @@ async function computeBenchmarks(): Promise<Map<string, IndustryBenchmark>> {
 
   logger.info("Computing cross-org QA benchmarks");
   const orgs = await storage.listOrganizations();
-  const activeOrgs = orgs.filter(o => o.status === "active");
+  const activeOrgs = orgs.filter((o) => o.status === "active");
 
   // Per-industry aggregation
-  const industryData: Record<string, {
-    orgScores: number[];
-    allScores: number[];
-    sentimentPositiveRates: number[];
-    compliance: number[];
-    customerExperience: number[];
-    communication: number[];
-    resolution: number[];
-    callCounts: number[];
-    flagCounts: number[];
-    totalCalls: number;
-  }> = {};
+  const industryData: Record<
+    string,
+    {
+      orgScores: number[];
+      allScores: number[];
+      sentimentPositiveRates: number[];
+      compliance: number[];
+      customerExperience: number[];
+      communication: number[];
+      resolution: number[];
+      callCounts: number[];
+      flagCounts: number[];
+      totalCalls: number;
+    }
+  > = {};
 
   for (const org of activeOrgs) {
     const industry = (org.settings as any)?.industryType || "general";
     if (!industryData[industry]) {
       industryData[industry] = {
-        orgScores: [], allScores: [], sentimentPositiveRates: [],
-        compliance: [], customerExperience: [], communication: [], resolution: [],
-        callCounts: [], flagCounts: [], totalCalls: 0,
+        orgScores: [],
+        allScores: [],
+        sentimentPositiveRates: [],
+        compliance: [],
+        customerExperience: [],
+        communication: [],
+        resolution: [],
+        callCounts: [],
+        flagCounts: [],
+        totalCalls: 0,
       };
     }
     const data = industryData[industry];
@@ -126,11 +136,16 @@ async function computeBenchmarks(): Promise<Map<string, IndustryBenchmark>> {
 
   // Also compute "all" industry aggregate
   const allIndustryData = {
-    orgScores: [] as number[], allScores: [] as number[],
+    orgScores: [] as number[],
+    allScores: [] as number[],
     sentimentPositiveRates: [] as number[],
-    compliance: [] as number[], customerExperience: [] as number[],
-    communication: [] as number[], resolution: [] as number[],
-    callCounts: [] as number[], flagCounts: [] as number[], totalCalls: 0,
+    compliance: [] as number[],
+    customerExperience: [] as number[],
+    communication: [] as number[],
+    resolution: [] as number[],
+    callCounts: [] as number[],
+    flagCounts: [] as number[],
+    totalCalls: 0,
   };
   for (const data of Object.values(industryData)) {
     allIndustryData.orgScores.push(...data.orgScores);
@@ -175,10 +190,30 @@ async function computeBenchmarks(): Promise<Map<string, IndustryBenchmark>> {
         mean: avg(sortedSentiment),
       },
       subScores: {
-        compliance: { p25: percentile(sortedCompliance, 25), p50: percentile(sortedCompliance, 50), p75: percentile(sortedCompliance, 75), mean: avg(sortedCompliance) },
-        customerExperience: { p25: percentile(sortedCX, 25), p50: percentile(sortedCX, 50), p75: percentile(sortedCX, 75), mean: avg(sortedCX) },
-        communication: { p25: percentile(sortedComm, 25), p50: percentile(sortedComm, 50), p75: percentile(sortedComm, 75), mean: avg(sortedComm) },
-        resolution: { p25: percentile(sortedRes, 25), p50: percentile(sortedRes, 50), p75: percentile(sortedRes, 75), mean: avg(sortedRes) },
+        compliance: {
+          p25: percentile(sortedCompliance, 25),
+          p50: percentile(sortedCompliance, 50),
+          p75: percentile(sortedCompliance, 75),
+          mean: avg(sortedCompliance),
+        },
+        customerExperience: {
+          p25: percentile(sortedCX, 25),
+          p50: percentile(sortedCX, 50),
+          p75: percentile(sortedCX, 75),
+          mean: avg(sortedCX),
+        },
+        communication: {
+          p25: percentile(sortedComm, 25),
+          p50: percentile(sortedComm, 50),
+          p75: percentile(sortedComm, 75),
+          mean: avg(sortedComm),
+        },
+        resolution: {
+          p25: percentile(sortedRes, 25),
+          p50: percentile(sortedRes, 50),
+          p75: percentile(sortedRes, 75),
+          mean: avg(sortedRes),
+        },
       },
       avgCallsPerOrg: data.orgScores.length > 0 ? Math.round(data.totalCalls / data.orgScores.length) : 0,
       flagRate: data.totalCalls > 0 ? Math.round((totalFlags / data.totalCalls) * 10000) / 100 : 0,
@@ -186,7 +221,8 @@ async function computeBenchmarks(): Promise<Map<string, IndustryBenchmark>> {
   }
 
   for (const [industry, data] of Object.entries(industryData)) {
-    if (data.orgScores.length >= 3) { // Need 3+ orgs for meaningful benchmarks
+    if (data.orgScores.length >= 3) {
+      // Need 3+ orgs for meaningful benchmarks
       result.set(industry, buildBenchmark(industry, data));
     }
   }
@@ -214,14 +250,19 @@ export function registerBenchmarkRoutes(app: Express) {
       // Compute this org's own scores
       const calls = await storage.getCallSummaries(orgId, { status: "completed", limit: 500 });
       const scores = calls
-        .map(c => c.analysis?.performanceScore ? parseFloat(String(c.analysis.performanceScore)) : null)
+        .map((c) => (c.analysis?.performanceScore ? parseFloat(String(c.analysis.performanceScore)) : null))
         .filter((s): s is number => s !== null && !isNaN(s));
 
       const orgAvgScore = avg(scores);
-      const positiveCount = calls.filter(c => c.sentiment?.overallSentiment === "positive").length;
+      const positiveCount = calls.filter((c) => c.sentiment?.overallSentiment === "positive").length;
       const orgPositiveRate = calls.length > 0 ? Math.round((positiveCount / calls.length) * 100) / 100 : 0;
 
-      const subScoreArrays: Record<string, number[]> = { compliance: [], customerExperience: [], communication: [], resolution: [] };
+      const subScoreArrays: Record<string, number[]> = {
+        compliance: [],
+        customerExperience: [],
+        communication: [],
+        resolution: [],
+      };
       for (const call of calls) {
         const sub = call.analysis?.subScores as any;
         if (!sub) continue;
@@ -248,7 +289,7 @@ export function registerBenchmarkRoutes(app: Express) {
         if (orgValue <= p50) return 25 + Math.round(((orgValue - p25) / (p50 - p25)) * 25);
         if (orgValue <= p75) return 50 + Math.round(((orgValue - p50) / (p75 - p50)) * 25);
         return Math.min(99, 75 + Math.round(((orgValue - p75) / (10 - p75)) * 25));
-      }
+      };
 
       res.json({
         orgMetrics: {
@@ -262,9 +303,10 @@ export function registerBenchmarkRoutes(app: Express) {
         allIndustryBenchmark: allBench || null,
         industry,
         dataAvailable: (industryBench?.orgCount ?? 0) >= 3,
-        message: (industryBench?.orgCount ?? 0) < 3
-          ? `Need 3+ ${industry} organizations for industry-specific benchmarks. Showing all-industry data.`
-          : undefined,
+        message:
+          (industryBench?.orgCount ?? 0) < 3
+            ? `Need 3+ ${industry} organizations for industry-specific benchmarks. Showing all-industry data.`
+            : undefined,
       });
     } catch (error) {
       logger.error({ err: error }, "Failed to get QA benchmarks");

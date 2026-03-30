@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import {  RiTeamLine, RiAddLine, RiDeleteBinLine, RiEditLine, RiUserLine, RiSaveLine  } from "@remixicon/react";
+import { RiTeamLine, RiAddLine, RiDeleteBinLine, RiEditLine, RiUserLine, RiSaveLine } from "@remixicon/react";
 
 interface UserRecord {
   id: string;
@@ -122,7 +122,8 @@ export default function UsersTab() {
               <CardDescription>Create, edit, and manage user accounts for your organization.</CardDescription>
             </div>
             <Button size="sm" onClick={() => setShowCreate(!showCreate)}>
-              <RiAddLine className="w-4 h-4 mr-2" />Add User
+              <RiAddLine className="w-4 h-4 mr-2" />
+              Add User
             </Button>
           </div>
         </CardHeader>
@@ -140,7 +141,12 @@ export default function UsersTab() {
               >
                 <div>
                   <label className="text-xs font-medium text-muted-foreground">Username</label>
-                  <Input value={newUsername} onChange={(e) => setNewUsername(e.target.value)} placeholder="jdoe" required />
+                  <Input
+                    value={newUsername}
+                    onChange={(e) => setNewUsername(e.target.value)}
+                    placeholder="jdoe"
+                    required
+                  />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground">Full Name</label>
@@ -160,7 +166,9 @@ export default function UsersTab() {
                 <div>
                   <label className="text-xs font-medium text-muted-foreground">Role</label>
                   <Select value={newRole} onValueChange={setNewRole}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="viewer">Viewer</SelectItem>
                       <SelectItem value="manager">Manager</SelectItem>
@@ -172,7 +180,9 @@ export default function UsersTab() {
                   <Button type="submit" size="sm" disabled={createMutation.isPending}>
                     {createMutation.isPending ? "Creating..." : "Create User"}
                   </Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setShowCreate(false)}>Cancel</Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setShowCreate(false)}>
+                    Cancel
+                  </Button>
                 </div>
               </form>
             </div>
@@ -199,18 +209,21 @@ export default function UsersTab() {
           ) : (
             <div className="space-y-2">
               {users.map((user) => (
-                <div key={user.id} className="flex items-center gap-4 p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors">
+                <div
+                  key={user.id}
+                  className="flex items-center gap-4 p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors"
+                >
                   <div className="w-10 h-10 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full flex items-center justify-center shrink-0">
-                    <span className="text-sm font-bold text-primary">
-                      {user.name?.charAt(0).toUpperCase() || "U"}
-                    </span>
+                    <span className="text-sm font-bold text-primary">{user.name?.charAt(0).toUpperCase() || "U"}</span>
                   </div>
 
                   {editingId === user.id ? (
                     <div className="flex-1 grid grid-cols-3 gap-3">
                       <Input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Name" />
                       <Select value={editRole} onValueChange={setEditRole}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="viewer">Viewer</SelectItem>
                           <SelectItem value="manager">Manager</SelectItem>
@@ -227,7 +240,9 @@ export default function UsersTab() {
                         <Button size="sm" onClick={() => handleUpdate(user.id)} disabled={updateMutation.isPending}>
                           Save
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Cancel</Button>
+                        <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>
+                          Cancel
+                        </Button>
                       </div>
                     </div>
                   ) : (

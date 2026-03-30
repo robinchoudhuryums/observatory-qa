@@ -46,7 +46,7 @@ export function EmptyState({
       className={cn(
         "flex flex-col items-center justify-center text-center",
         compact ? "py-8 px-4" : "py-16 px-6",
-        className
+        className,
       )}
     >
       {/* Animated icon with aurora glow */}
@@ -56,7 +56,7 @@ export function EmptyState({
         transition={{ delay: 0.1, duration: 0.4, ease: "easeOut" }}
         className={cn(
           "relative flex items-center justify-center rounded-2xl mb-5",
-          compact ? "w-14 h-14" : "w-20 h-20"
+          compact ? "w-14 h-14" : "w-20 h-20",
         )}
         style={{
           background: "linear-gradient(135deg, hsla(var(--brand-from), 0.15), hsla(var(--brand-to), 0.1))",
@@ -69,20 +69,14 @@ export function EmptyState({
             background: "linear-gradient(135deg, hsla(var(--brand-from), 0.2), hsla(var(--brand-to), 0.15))",
           }}
         />
-        <Icon
-          className={cn("relative", compact ? "w-7 h-7" : "w-9 h-9")}
-          style={{ color: "hsl(var(--brand-from))" }}
-        />
+        <Icon className={cn("relative", compact ? "w-7 h-7" : "w-9 h-9")} style={{ color: "hsl(var(--brand-from))" }} />
       </motion.div>
 
       <motion.h3
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.2, duration: 0.3 }}
-        className={cn(
-          "font-semibold text-foreground mb-1.5",
-          compact ? "text-base" : "text-lg"
-        )}
+        className={cn("font-semibold text-foreground mb-1.5", compact ? "text-base" : "text-lg")}
       >
         {title}
       </motion.h3>
@@ -91,10 +85,7 @@ export function EmptyState({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.25, duration: 0.3 }}
-        className={cn(
-          "text-muted-foreground max-w-md",
-          compact ? "text-xs mb-4" : "text-sm mb-6"
-        )}
+        className={cn("text-muted-foreground max-w-md", compact ? "text-xs mb-4" : "text-sm mb-6")}
       >
         {description}
       </motion.p>
@@ -114,16 +105,13 @@ export function EmptyState({
               </Button>
             </Link>
           ) : (
-            <Button
-              className="brand-gradient-btn text-white border-0 shadow-md"
-              onClick={action.onClick}
-            >
+            <Button className="brand-gradient-btn text-white border-0 shadow-md" onClick={action.onClick}>
               {ActionIcon && <ActionIcon className="w-4 h-4 mr-2" />}
               {action.label}
             </Button>
           )}
-          {secondaryAction && (
-            secondaryAction.href ? (
+          {secondaryAction &&
+            (secondaryAction.href ? (
               <Link href={secondaryAction.href}>
                 <Button variant="outline">{secondaryAction.label}</Button>
               </Link>
@@ -131,8 +119,7 @@ export function EmptyState({
               <Button variant="outline" onClick={secondaryAction.onClick}>
                 {secondaryAction.label}
               </Button>
-            )
-          )}
+            ))}
         </motion.div>
       )}
     </motion.div>

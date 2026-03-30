@@ -7,7 +7,20 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ObservatoryLogo } from "@/components/observatory-logo";
 import { motion, useInView } from "framer-motion";
-import {  RiBarChartBoxLine, RiShieldLine, RiTeamLine, RiArrowRightUpLine, RiMicLine, RiFileTextLine, RiFlashlightLine, RiArrowRightLine, RiArrowRightSLine, RiUploadLine, RiBrainLine, RiCheckLine  } from "@remixicon/react";
+import {
+  RiBarChartBoxLine,
+  RiShieldLine,
+  RiTeamLine,
+  RiArrowRightUpLine,
+  RiMicLine,
+  RiFileTextLine,
+  RiFlashlightLine,
+  RiArrowRightLine,
+  RiArrowRightSLine,
+  RiUploadLine,
+  RiBrainLine,
+  RiCheckLine,
+} from "@remixicon/react";
 
 interface LandingPageProps {
   onNavigate: (view: "login" | "register") => void;
@@ -36,10 +49,22 @@ function WaveBackground() {
         <linearGradient id={gradId} x1="0" y1="0" x2="1" y2="0">
           <stop offset="0%" stopColor={color} stopOpacity={opacity * 0.6} />
           <stop offset="0%" stopColor={brightColor} stopOpacity={Math.min(opacity + 0.5, 1)}>
-            <animate attributeName="offset" values="-0.15;1.15" dur={`${sparkDuration}s`} begin={`${sparkDelay}s`} repeatCount="indefinite" />
+            <animate
+              attributeName="offset"
+              values="-0.15;1.15"
+              dur={`${sparkDuration}s`}
+              begin={`${sparkDelay}s`}
+              repeatCount="indefinite"
+            />
           </stop>
           <stop offset="0%" stopColor={color} stopOpacity={opacity * 0.6}>
-            <animate attributeName="offset" values="-0.05;1.25" dur={`${sparkDuration}s`} begin={`${sparkDelay}s`} repeatCount="indefinite" />
+            <animate
+              attributeName="offset"
+              values="-0.05;1.25"
+              dur={`${sparkDuration}s`}
+              begin={`${sparkDelay}s`}
+              repeatCount="indefinite"
+            />
           </stop>
           <stop offset="100%" stopColor={color} stopOpacity={opacity * 0.6} />
         </linearGradient>
@@ -75,11 +100,7 @@ function WaveBackground() {
 
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none">
-      <svg
-        viewBox="0 0 1200 600"
-        preserveAspectRatio="xMidYMid slice"
-        className="absolute inset-0 w-full h-full"
-      >
+      <svg viewBox="0 0 1200 600" preserveAspectRatio="xMidYMid slice" className="absolute inset-0 w-full h-full">
         <defs>
           <filter id="wave-blur">
             <feGaussianBlur stdDeviation="5" />
@@ -93,11 +114,7 @@ function WaveBackground() {
 
 /** Glowing gradient orb for ambient lighting */
 function GlowOrb({ className }: { className?: string }) {
-  return (
-    <div
-      className={`absolute rounded-full blur-3xl pointer-events-none ${className}`}
-    />
-  );
+  return <div className={`absolute rounded-full blur-3xl pointer-events-none ${className}`} />;
 }
 
 const FEATURES = [
@@ -142,9 +159,30 @@ const STEPS = [
 
 const PLANS = [
   { name: "Free", price: "$0", period: "/mo", calls: "50 calls/mo · 2 seats", highlight: false, contactSales: false },
-  { name: "Starter", price: "$79", period: "/mo", calls: "300 calls/mo · 5 seats · +$49/mo for Clinical Docs", highlight: false, contactSales: false },
-  { name: "Professional", price: "$199", period: "/mo", calls: "1,000 calls/mo · 10 seats · Clinical docs included", highlight: true, contactSales: false },
-  { name: "Enterprise", price: "Custom", period: "", calls: "High-volume calls · SSO · SCIM · Clinical docs · Dedicated support", highlight: false, contactSales: true },
+  {
+    name: "Starter",
+    price: "$79",
+    period: "/mo",
+    calls: "300 calls/mo · 5 seats · +$49/mo for Clinical Docs",
+    highlight: false,
+    contactSales: false,
+  },
+  {
+    name: "Professional",
+    price: "$199",
+    period: "/mo",
+    calls: "1,000 calls/mo · 10 seats · Clinical docs included",
+    highlight: true,
+    contactSales: false,
+  },
+  {
+    name: "Enterprise",
+    price: "Custom",
+    period: "",
+    calls: "High-volume calls · SSO · SCIM · Clinical docs · Dedicated support",
+    highlight: false,
+    contactSales: true,
+  },
 ];
 
 /** Fade-up animation wrapper — triggers when element enters viewport */
@@ -181,29 +219,29 @@ function EnterpriseContactForm({ open, onOpenChange }: { open: boolean; onOpenCh
     const subject = encodeURIComponent(`Enterprise Inquiry — ${data.company}`);
     const body = encodeURIComponent(
       `Enterprise Plan Inquiry\n` +
-      `────────────────────────\n` +
-      `Name: ${data.name}\n` +
-      `Email: ${data.email}\n` +
-      `Company: ${data.company}\n` +
-      `Role: ${data.role}\n` +
-      `\n` +
-      `Expected Usage\n` +
-      `────────────────────────\n` +
-      `Monthly call volume: ${data.callVolume}\n` +
-      `Team size (seats): ${data.teamSize}\n` +
-      `Industry: ${data.industry}\n` +
-      `\n` +
-      `Requirements\n` +
-      `────────────────────────\n` +
-      `Primary use case: ${data.useCase}\n` +
-      `Needs SSO/SCIM: ${data.needsSso}\n` +
-      `Needs Clinical Docs: ${data.needsClinical}\n` +
-      `Current QA tool: ${data.currentTool || "None"}\n` +
-      `\n` +
-      `Additional Details\n` +
-      `────────────────────────\n` +
-      `How they heard about us: ${data.referralSource || "Not specified"}\n` +
-      `${data.details || "(none)"}\n`
+        `────────────────────────\n` +
+        `Name: ${data.name}\n` +
+        `Email: ${data.email}\n` +
+        `Company: ${data.company}\n` +
+        `Role: ${data.role}\n` +
+        `\n` +
+        `Expected Usage\n` +
+        `────────────────────────\n` +
+        `Monthly call volume: ${data.callVolume}\n` +
+        `Team size (seats): ${data.teamSize}\n` +
+        `Industry: ${data.industry}\n` +
+        `\n` +
+        `Requirements\n` +
+        `────────────────────────\n` +
+        `Primary use case: ${data.useCase}\n` +
+        `Needs SSO/SCIM: ${data.needsSso}\n` +
+        `Needs Clinical Docs: ${data.needsClinical}\n` +
+        `Current QA tool: ${data.currentTool || "None"}\n` +
+        `\n` +
+        `Additional Details\n` +
+        `────────────────────────\n` +
+        `How they heard about us: ${data.referralSource || "Not specified"}\n` +
+        `${data.details || "(none)"}\n`,
     );
 
     // Open the user's email client with pre-filled content
@@ -229,19 +267,22 @@ function EnterpriseContactForm({ open, onOpenChange }: { open: boolean; onOpenCh
             <DialogHeader>
               <DialogTitle className="text-center">Thank you!</DialogTitle>
               <DialogDescription className="text-center">
-                Your email client should open with your inquiry details. If it didn&apos;t,
-                email us directly at <strong>sales@observatory-qa.com</strong> with your requirements.
-                We typically respond within 1 business day.
+                Your email client should open with your inquiry details. If it didn&apos;t, email us directly at{" "}
+                <strong>sales@observatory-qa.com</strong> with your requirements. We typically respond within 1 business
+                day.
               </DialogDescription>
             </DialogHeader>
-            <Button className="mt-6" variant="outline" onClick={() => handleClose(false)}>Close</Button>
+            <Button className="mt-6" variant="outline" onClick={() => handleClose(false)}>
+              Close
+            </Button>
           </div>
         ) : (
           <>
             <DialogHeader>
               <DialogTitle>Enterprise Plan Inquiry</DialogTitle>
               <DialogDescription>
-                Tell us about your needs and we&apos;ll put together a custom plan. We typically respond within 1 business day.
+                Tell us about your needs and we&apos;ll put together a custom plan. We typically respond within 1
+                business day.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4 mt-2">
@@ -272,7 +313,9 @@ function EnterpriseContactForm({ open, onOpenChange }: { open: boolean; onOpenCh
                 <div>
                   <Label htmlFor="ent-calls">Expected monthly call volume *</Label>
                   <Select name="callVolume" required>
-                    <SelectTrigger id="ent-calls"><SelectValue placeholder="Select range" /></SelectTrigger>
+                    <SelectTrigger id="ent-calls">
+                      <SelectValue placeholder="Select range" />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Under 500">Under 500</SelectItem>
                       <SelectItem value="500-1,000">500 – 1,000</SelectItem>
@@ -285,7 +328,9 @@ function EnterpriseContactForm({ open, onOpenChange }: { open: boolean; onOpenCh
                 <div>
                   <Label htmlFor="ent-seats">Team size (users who need access) *</Label>
                   <Select name="teamSize" required>
-                    <SelectTrigger id="ent-seats"><SelectValue placeholder="Select range" /></SelectTrigger>
+                    <SelectTrigger id="ent-seats">
+                      <SelectValue placeholder="Select range" />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="1-10">1 – 10</SelectItem>
                       <SelectItem value="11-25">11 – 25</SelectItem>
@@ -299,7 +344,9 @@ function EnterpriseContactForm({ open, onOpenChange }: { open: boolean; onOpenCh
               <div>
                 <Label htmlFor="ent-industry">Industry *</Label>
                 <Select name="industry" required>
-                  <SelectTrigger id="ent-industry"><SelectValue placeholder="Select industry" /></SelectTrigger>
+                  <SelectTrigger id="ent-industry">
+                    <SelectValue placeholder="Select industry" />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Dental">Dental</SelectItem>
                     <SelectItem value="Medical / Primary Care">Medical / Primary Care</SelectItem>
@@ -316,10 +363,14 @@ function EnterpriseContactForm({ open, onOpenChange }: { open: boolean; onOpenCh
               <div>
                 <Label htmlFor="ent-usecase">Primary use case *</Label>
                 <Select name="useCase" required>
-                  <SelectTrigger id="ent-usecase"><SelectValue placeholder="What do you need most?" /></SelectTrigger>
+                  <SelectTrigger id="ent-usecase">
+                    <SelectValue placeholder="What do you need most?" />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Call QA & Performance Scoring">Call QA & Performance Scoring</SelectItem>
-                    <SelectItem value="Clinical Documentation (AI Scribe)">Clinical Documentation (AI Scribe)</SelectItem>
+                    <SelectItem value="Clinical Documentation (AI Scribe)">
+                      Clinical Documentation (AI Scribe)
+                    </SelectItem>
                     <SelectItem value="Both QA + Clinical Docs">Both QA + Clinical Docs</SelectItem>
                     <SelectItem value="Compliance & Audit">Compliance & Audit</SelectItem>
                     <SelectItem value="Coaching & Training">Coaching & Training</SelectItem>
@@ -332,7 +383,9 @@ function EnterpriseContactForm({ open, onOpenChange }: { open: boolean; onOpenCh
                 <div>
                   <Label htmlFor="ent-sso">Need SSO / SCIM?</Label>
                   <Select name="needsSso">
-                    <SelectTrigger id="ent-sso"><SelectValue placeholder="Select" /></SelectTrigger>
+                    <SelectTrigger id="ent-sso">
+                      <SelectValue placeholder="Select" />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Yes">Yes</SelectItem>
                       <SelectItem value="No">No</SelectItem>
@@ -343,7 +396,9 @@ function EnterpriseContactForm({ open, onOpenChange }: { open: boolean; onOpenCh
                 <div>
                   <Label htmlFor="ent-clinical">Need Clinical Docs?</Label>
                   <Select name="needsClinical">
-                    <SelectTrigger id="ent-clinical"><SelectValue placeholder="Select" /></SelectTrigger>
+                    <SelectTrigger id="ent-clinical">
+                      <SelectValue placeholder="Select" />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Yes">Yes</SelectItem>
                       <SelectItem value="No">No</SelectItem>
@@ -361,7 +416,9 @@ function EnterpriseContactForm({ open, onOpenChange }: { open: boolean; onOpenCh
               <div>
                 <Label htmlFor="ent-referral">How did you hear about us?</Label>
                 <Select name="referralSource">
-                  <SelectTrigger id="ent-referral"><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectTrigger id="ent-referral">
+                    <SelectValue placeholder="Select" />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Google search">Google search</SelectItem>
                     <SelectItem value="LinkedIn">LinkedIn</SelectItem>
@@ -378,10 +435,19 @@ function EnterpriseContactForm({ open, onOpenChange }: { open: boolean; onOpenCh
 
               <div>
                 <Label htmlFor="ent-details">Anything else we should know?</Label>
-                <Textarea id="ent-details" name="details" rows={3} placeholder="Specific requirements, timeline, integrations needed..." />
+                <Textarea
+                  id="ent-details"
+                  name="details"
+                  rows={3}
+                  placeholder="Specific requirements, timeline, integrations needed..."
+                />
               </div>
 
-              <Button type="submit" className="w-full bg-gradient-to-r from-teal-500 to-blue-500 hover:from-teal-600 hover:to-blue-600 text-white" disabled={submitting}>
+              <Button
+                type="submit"
+                className="w-full bg-gradient-to-r from-teal-500 to-blue-500 hover:from-teal-600 hover:to-blue-600 text-white"
+                disabled={submitting}
+              >
                 {submitting ? "Preparing..." : "Send Inquiry"}
                 <RiArrowRightSLine className="w-4 h-4 ml-1" />
               </Button>
@@ -417,9 +483,15 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
               <ObservatoryLogo variant="icon" height={32} hoverable className="landing-text" />
             </div>
             <nav className="hidden md:flex items-center gap-8">
-              <a href="#features" className="text-sm landing-text-muted hover:text-foreground transition-colors">Features</a>
-              <a href="#how-it-works" className="text-sm landing-text-muted hover:text-foreground transition-colors">How it Works</a>
-              <a href="#pricing" className="text-sm landing-text-muted hover:text-foreground transition-colors">Pricing</a>
+              <a href="#features" className="text-sm landing-text-muted hover:text-foreground transition-colors">
+                Features
+              </a>
+              <a href="#how-it-works" className="text-sm landing-text-muted hover:text-foreground transition-colors">
+                How it Works
+              </a>
+              <a href="#pricing" className="text-sm landing-text-muted hover:text-foreground transition-colors">
+                Pricing
+              </a>
             </nav>
             <div className="flex gap-3">
               <Button
@@ -471,8 +543,8 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.7, delay: 0.24, ease: [0.22, 1, 0.36, 1] }}
               >
-                AI-powered transcription, scoring, and coaching for every customer
-                call — HIPAA-compliant and ready in minutes.
+                AI-powered transcription, scoring, and coaching for every customer call — HIPAA-compliant and ready in
+                minutes.
               </motion.p>
 
               <motion.div
@@ -521,13 +593,13 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
         <div className="max-w-7xl mx-auto px-6">
           <FadeUp>
             <div className="text-center mb-16">
-              <p className="text-sm font-semibold text-teal-500 dark:text-teal-400 tracking-widest uppercase mb-3">Features</p>
-              <h2 className="text-3xl md:text-4xl font-bold landing-text mb-4">
-                Everything you need for call quality
-              </h2>
+              <p className="text-sm font-semibold text-teal-500 dark:text-teal-400 tracking-widest uppercase mb-3">
+                Features
+              </p>
+              <h2 className="text-3xl md:text-4xl font-bold landing-text mb-4">Everything you need for call quality</h2>
               <p className="landing-text-muted max-w-2xl mx-auto">
-                From automated transcription to AI-powered coaching, Observatory gives your team
-                the tools to deliver consistently excellent customer experiences.
+                From automated transcription to AI-powered coaching, Observatory gives your team the tools to deliver
+                consistently excellent customer experiences.
               </p>
             </div>
           </FadeUp>
@@ -555,7 +627,9 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
         <div className="max-w-7xl mx-auto px-6">
           <FadeUp>
             <div className="text-center mb-16">
-              <p className="text-sm font-semibold text-teal-500 dark:text-teal-400 tracking-widest uppercase mb-3">Process</p>
+              <p className="text-sm font-semibold text-teal-500 dark:text-teal-400 tracking-widest uppercase mb-3">
+                Process
+              </p>
               <h2 className="text-3xl md:text-4xl font-bold landing-text">How it works</h2>
             </div>
           </FadeUp>
@@ -588,10 +662,10 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
         <div className="max-w-7xl mx-auto px-6">
           <FadeUp>
             <div className="text-center mb-16">
-              <p className="text-sm font-semibold text-teal-500 dark:text-teal-400 tracking-widest uppercase mb-3">Pricing</p>
-              <h2 className="text-3xl md:text-4xl font-bold landing-text mb-4">
-                Simple, transparent pricing
-              </h2>
+              <p className="text-sm font-semibold text-teal-500 dark:text-teal-400 tracking-widest uppercase mb-3">
+                Pricing
+              </p>
+              <h2 className="text-3xl md:text-4xl font-bold landing-text mb-4">Simple, transparent pricing</h2>
               <p className="landing-text-muted">No credit card required. Start analyzing calls today.</p>
             </div>
           </FadeUp>
@@ -669,7 +743,9 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
               Start Your 14-Day Free Trial
               <RiArrowRightLine className="w-4 h-4 ml-2" />
             </Button>
-            <p className="text-sm landing-text-muted mt-4">No credit card required. 14-day free trial on Starter &amp; Professional plans.</p>
+            <p className="text-sm landing-text-muted mt-4">
+              No credit card required. 14-day free trial on Starter &amp; Professional plans.
+            </p>
           </div>
         </FadeUp>
       </section>
@@ -684,8 +760,12 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
             HIPAA-compliant call analysis platform. Your data is encrypted at rest and in transit.
           </p>
           <div className="flex gap-6">
-            <a href="#features" className="text-xs landing-text-muted hover:text-foreground transition-colors">Features</a>
-            <a href="#pricing" className="text-xs landing-text-muted hover:text-foreground transition-colors">Pricing</a>
+            <a href="#features" className="text-xs landing-text-muted hover:text-foreground transition-colors">
+              Features
+            </a>
+            <a href="#pricing" className="text-xs landing-text-muted hover:text-foreground transition-colors">
+              Pricing
+            </a>
           </div>
         </div>
       </footer>

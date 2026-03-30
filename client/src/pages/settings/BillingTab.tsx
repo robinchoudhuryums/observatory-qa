@@ -11,9 +11,16 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { PLAN_DEFINITIONS, type PlanTier } from "@shared/schema";
 import {
-  RiShieldLine, RiCheckLine, RiArrowRightUpLine, RiFlashlightLine,
-  RiBankCardLine, RiExternalLinkLine, RiAlertLine, RiTimeLine,
-  RiGiftLine, RiBellLine,
+  RiShieldLine,
+  RiCheckLine,
+  RiArrowRightUpLine,
+  RiFlashlightLine,
+  RiBankCardLine,
+  RiExternalLinkLine,
+  RiAlertLine,
+  RiTimeLine,
+  RiGiftLine,
+  RiBellLine,
 } from "@remixicon/react";
 
 interface SubscriptionInfo {
@@ -58,12 +65,18 @@ export default function BillingTab() {
     queryKey: ["/api/billing/subscription"],
   });
 
-  const { data: plans } = useQuery<Array<{
-    tier: PlanTier; name: string; description: string;
-    monthlyPriceUsd: number; yearlyPriceUsd: number; trialDays?: number;
-    limits: Record<string, number | boolean>;
-    stripeConfigured: boolean;
-  }>>({
+  const { data: plans } = useQuery<
+    Array<{
+      tier: PlanTier;
+      name: string;
+      description: string;
+      monthlyPriceUsd: number;
+      yearlyPriceUsd: number;
+      trialDays?: number;
+      limits: Record<string, number | boolean>;
+      stripeConfigured: boolean;
+    }>
+  >({
     queryKey: ["/api/billing/plans"],
   });
 
@@ -83,15 +96,19 @@ export default function BillingTab() {
       const res = await apiRequest("POST", "/api/billing/checkout", { tier, interval });
       return res.json() as Promise<{ url: string }>;
     },
-    onSuccess: (data) => { window.location.href = data.url; },
-    onError: (error) => { toast({ title: "Failed", description: error.message, variant: "destructive" }); },
+    onSuccess: (data) => {
+      window.location.href = data.url;
+    },
+    onError: (error) => {
+      toast({ title: "Failed", description: error.message, variant: "destructive" });
+    },
   });
 
   // Mid-cycle upgrade for existing Stripe subscribers
   const upgradeMutation = useMutation({
     mutationFn: async ({ tier, interval }: { tier: string; interval: string }) => {
       const res = await apiRequest("POST", "/api/billing/upgrade", { tier, interval });
-      const body = await res.json() as { success?: boolean; url?: string; message?: string };
+      const body = (await res.json()) as { success?: boolean; url?: string; message?: string };
       if (!res.ok) throw new Error(body.message || "Upgrade failed");
       return body;
     },
@@ -103,7 +120,9 @@ export default function BillingTab() {
         toast({ title: "Plan upgraded", description: "Prorated charge applied to your next invoice." });
       }
     },
-    onError: (error) => { toast({ title: "Upgrade failed", description: error.message, variant: "destructive" }); },
+    onError: (error) => {
+      toast({ title: "Upgrade failed", description: error.message, variant: "destructive" });
+    },
   });
 
   const portalMutation = useMutation({
@@ -111,12 +130,18 @@ export default function BillingTab() {
       const res = await apiRequest("POST", "/api/billing/portal");
       return res.json() as Promise<{ url: string }>;
     },
-    onSuccess: (data) => { window.location.href = data.url; },
-    onError: (error) => { toast({ title: "Failed", description: error.message, variant: "destructive" }); },
+    onSuccess: (data) => {
+      window.location.href = data.url;
+    },
+    onError: (error) => {
+      toast({ title: "Failed", description: error.message, variant: "destructive" });
+    },
   });
 
   const downgradeMutation = useMutation({
-    mutationFn: async () => { await apiRequest("POST", "/api/billing/downgrade"); },
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/billing/downgrade");
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/billing/subscription"] });
       toast({ title: "Plan updated" });
@@ -128,12 +153,22 @@ export default function BillingTab() {
       const res = await apiRequest("PATCH", "/api/billing/alerts", body);
       if (!res.ok) throw new Error("Failed to save");
     },
-    onSuccess: () => { toast({ title: "Alert settings saved" }); },
-    onError: () => { toast({ title: "Failed to save alert settings", variant: "destructive" }); },
+    onSuccess: () => {
+      toast({ title: "Alert settings saved" });
+    },
+    onError: () => {
+      toast({ title: "Failed to save alert settings", variant: "destructive" });
+    },
   });
 
   if (isLoading) {
-    return <div className="space-y-4">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-32 w-full" />)}</div>;
+    return (
+      <div className="space-y-4">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-32 w-full" />
+        ))}
+      </div>
+    );
   }
 
   const currentTier = subInfo?.subscription?.planTier || "free";
@@ -143,7 +178,8 @@ export default function BillingTab() {
   const status = subInfo?.subscription?.status;
   const isTrialing = status === "trialing";
   const isPastDue = status === "past_due";
-  const hasActiveStripeSub = !!subInfo?.subscription?.stripeSubscriptionId && (status === "active" || status === "trialing");
+  const hasActiveStripeSub =
+    !!subInfo?.subscription?.stripeSubscriptionId && (status === "active" || status === "trialing");
 
   // Determine upgrade action: mid-cycle update vs. new checkout
   function handleUpgrade(tier: string) {
@@ -156,9 +192,8 @@ export default function BillingTab() {
     }
   }
 
-  const trialEndDate = isTrialing && subInfo?.subscription?.currentPeriodEnd
-    ? new Date(subInfo.subscription.currentPeriodEnd)
-    : null;
+  const trialEndDate =
+    isTrialing && subInfo?.subscription?.currentPeriodEnd ? new Date(subInfo.subscription.currentPeriodEnd) : null;
   const trialDaysLeft = trialEndDate
     ? Math.max(0, Math.ceil((trialEndDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
     : null;
@@ -178,7 +213,12 @@ export default function BillingTab() {
             </p>
           </div>
           {subInfo?.subscription?.stripeCustomerId && (
-            <Button size="sm" variant="destructive" onClick={() => portalMutation.mutate()} disabled={portalMutation.isPending}>
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => portalMutation.mutate()}
+              disabled={portalMutation.isPending}
+            >
               Update Payment
             </Button>
           )}
@@ -194,12 +234,19 @@ export default function BillingTab() {
               Free trial — {trialDaysLeft} day{trialDaysLeft !== 1 ? "s" : ""} remaining
             </p>
             <p className="text-sm text-indigo-700 dark:text-indigo-400 mt-0.5">
-              {trialEndDate && `Trial ends ${trialEndDate.toLocaleDateString("en-US", { month: "long", day: "numeric" })}. `}
+              {trialEndDate &&
+                `Trial ends ${trialEndDate.toLocaleDateString("en-US", { month: "long", day: "numeric" })}. `}
               Add a payment method now — you won't be charged until the trial ends.
             </p>
           </div>
           {subInfo?.subscription?.stripeCustomerId && (
-            <Button size="sm" variant="outline" className="border-indigo-400 text-indigo-700" onClick={() => portalMutation.mutate()} disabled={portalMutation.isPending}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-indigo-400 text-indigo-700"
+              onClick={() => portalMutation.mutate()}
+              disabled={portalMutation.isPending}
+            >
               Add Payment Method
             </Button>
           )}
@@ -218,20 +265,25 @@ export default function BillingTab() {
               <CardDescription>{currentPlan.description}</CardDescription>
             </div>
             <div className="flex items-center gap-2">
-              <Badge className={
-                isTrialing
-                  ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400"
-                  : isPastDue
-                    ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
-                    : status === "active"
-                      ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
-                      : "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400"
-              }>
+              <Badge
+                className={
+                  isTrialing
+                    ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400"
+                    : isPastDue
+                      ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
+                      : status === "active"
+                        ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                        : "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400"
+                }
+              >
                 {isTrialing ? "Trialing" : status || "active"}
               </Badge>
               {subInfo?.subscription?.cancelAtPeriodEnd && (
                 <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
-                  Cancels {subInfo.subscription.currentPeriodEnd ? new Date(subInfo.subscription.currentPeriodEnd).toLocaleDateString() : "soon"}
+                  Cancels{" "}
+                  {subInfo.subscription.currentPeriodEnd
+                    ? new Date(subInfo.subscription.currentPeriodEnd).toLocaleDateString()
+                    : "soon"}
                 </Badge>
               )}
             </div>
@@ -273,15 +325,20 @@ export default function BillingTab() {
               <RiTimeLine className="w-4 h-4 shrink-0" />
               {forecast.daysUntilCallQuotaExceeded === 0
                 ? "At your current rate, you'll exceed your call quota today."
-                : `At your current rate, you'll exceed your call quota in ~${forecast.daysUntilCallQuotaExceeded} day${forecast.daysUntilCallQuotaExceeded !== 1 ? "s" : ""}.`}
-              {" "}Consider upgrading to avoid disruptions.
+                : `At your current rate, you'll exceed your call quota in ~${forecast.daysUntilCallQuotaExceeded} day${forecast.daysUntilCallQuotaExceeded !== 1 ? "s" : ""}.`}{" "}
+              Consider upgrading to avoid disruptions.
             </div>
           )}
 
           {/* Manage buttons */}
           <div className="flex gap-2">
             {subInfo?.subscription?.stripeCustomerId && (
-              <Button variant="outline" size="sm" onClick={() => portalMutation.mutate()} disabled={portalMutation.isPending}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => portalMutation.mutate()}
+                disabled={portalMutation.isPending}
+              >
                 <RiExternalLinkLine className="w-4 h-4 mr-2" />
                 {portalMutation.isPending ? "Opening..." : "Manage in Stripe"}
               </Button>
@@ -298,9 +355,14 @@ export default function BillingTab() {
                   if (currentPlan.limits.ssoEnabled) lostFeatures.push("SSO/SAML");
                   if (currentPlan.limits.clinicalDocumentationEnabled) lostFeatures.push("Clinical documentation");
                   if (currentPlan.limits.prioritySupport) lostFeatures.push("Priority support");
-                  const callWarning = usage.callsThisMonth > 50 ? `\n\nWarning: You've used ${usage.callsThisMonth} calls this month. Free plan allows 50.` : "";
-                  const msg = `Downgrade to the free plan?\n\nYou'll lose access to:\n${lostFeatures.map(f => `  - ${f}`).join("\n")}${callWarning}\n\nChanges take effect at the end of your billing period.`;
-                  if (confirm(msg)) { downgradeMutation.mutate(); }
+                  const callWarning =
+                    usage.callsThisMonth > 50
+                      ? `\n\nWarning: You've used ${usage.callsThisMonth} calls this month. Free plan allows 50.`
+                      : "";
+                  const msg = `Downgrade to the free plan?\n\nYou'll lose access to:\n${lostFeatures.map((f) => `  - ${f}`).join("\n")}${callWarning}\n\nChanges take effect at the end of your billing period.`;
+                  if (confirm(msg)) {
+                    downgradeMutation.mutate();
+                  }
                 }}
               >
                 Downgrade to Free
@@ -315,23 +377,45 @@ export default function BillingTab() {
         <CardHeader>
           <CardTitle className="text-lg">Plans</CardTitle>
           <div className="flex gap-2 mt-2">
-            <Button variant={billingInterval === "monthly" ? "default" : "outline"} size="sm" onClick={() => setBillingInterval("monthly")}>Monthly</Button>
-            <Button variant={billingInterval === "yearly" ? "default" : "outline"} size="sm" onClick={() => setBillingInterval("yearly")}>
+            <Button
+              variant={billingInterval === "monthly" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setBillingInterval("monthly")}
+            >
+              Monthly
+            </Button>
+            <Button
+              variant={billingInterval === "yearly" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setBillingInterval("yearly")}
+            >
               Yearly
-              <Badge className="ml-2 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 text-xs">Save 20%</Badge>
+              <Badge className="ml-2 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 text-xs">
+                Save 20%
+              </Badge>
             </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-2">Annual plans billed at full year price upfront</p>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {(plans || Object.entries(PLAN_DEFINITIONS).map(([tier, def]) => ({ tier: tier as PlanTier, ...def, stripeConfigured: false }))).map((plan) => {
+            {(
+              plans ||
+              Object.entries(PLAN_DEFINITIONS).map(([tier, def]) => ({
+                tier: tier as PlanTier,
+                ...def,
+                stripeConfigured: false,
+              }))
+            ).map((plan) => {
               const isCurrent = plan.tier === currentTier;
               const price = billingInterval === "monthly" ? plan.monthlyPriceUsd : Math.round(plan.yearlyPriceUsd / 12);
               const hasTrial = (plan as any).trialDays && !hasActiveStripeSub;
 
               return (
-                <div key={plan.tier} className={`rounded-lg border p-4 ${isCurrent ? "border-primary bg-primary/5" : "border-border"}`}>
+                <div
+                  key={plan.tier}
+                  className={`rounded-lg border p-4 ${isCurrent ? "border-primary bg-primary/5" : "border-border"}`}
+                >
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="font-semibold text-foreground">{plan.name}</h3>
                     <div className="flex items-center gap-1">
@@ -345,28 +429,45 @@ export default function BillingTab() {
                   </div>
                   <p className="text-2xl font-bold text-foreground mb-1">
                     {plan.tier === "enterprise" ? "Custom" : price === 0 ? "Free" : `$${price}`}
-                    {plan.tier !== "enterprise" && price > 0 && <span className="text-sm font-normal text-muted-foreground">/mo</span>}
+                    {plan.tier !== "enterprise" && price > 0 && (
+                      <span className="text-sm font-normal text-muted-foreground">/mo</span>
+                    )}
                   </p>
                   {plan.tier === "enterprise" ? (
                     <p className="text-xs text-muted-foreground mb-3">Pricing based on your needs</p>
-                  ) : (billingInterval === "yearly" && price > 0 && (
-                    <p className="text-xs text-muted-foreground mb-3">${plan.yearlyPriceUsd}/yr billed annually</p>
-                  ))}
+                  ) : (
+                    billingInterval === "yearly" &&
+                    price > 0 && (
+                      <p className="text-xs text-muted-foreground mb-3">${plan.yearlyPriceUsd}/yr billed annually</p>
+                    )
+                  )}
                   <p className="text-sm text-muted-foreground mb-4">{plan.description}</p>
 
                   <ul className="space-y-2 text-sm mb-4">
-                    <PlanFeature label={`${plan.limits.callsPerMonth === -1 ? "Unlimited" : plan.limits.callsPerMonth} calls/mo`} />
-                    <PlanFeature label={`${plan.limits.aiAnalysesPerMonth === -1 ? "Unlimited" : plan.limits.aiAnalysesPerMonth} AI analyses/mo`} />
+                    <PlanFeature
+                      label={`${plan.limits.callsPerMonth === -1 ? "Unlimited" : plan.limits.callsPerMonth} calls/mo`}
+                    />
+                    <PlanFeature
+                      label={`${plan.limits.aiAnalysesPerMonth === -1 ? "Unlimited" : plan.limits.aiAnalysesPerMonth} AI analyses/mo`}
+                    />
                     <PlanFeature label={`${plan.limits.maxUsers === -1 ? "Unlimited" : plan.limits.maxUsers} users`} />
-                    <PlanFeature label={`${Number(plan.limits.storageMb) >= 100000 ? "100 GB" : Number(plan.limits.storageMb) >= 10000 ? "10 GB" : plan.limits.storageMb + " MB"} storage`} />
+                    <PlanFeature
+                      label={`${Number(plan.limits.storageMb) >= 100000 ? "100 GB" : Number(plan.limits.storageMb) >= 10000 ? "10 GB" : plan.limits.storageMb + " MB"} storage`}
+                    />
                     {plan.limits.customPromptTemplates && <PlanFeature label="Custom prompt templates" />}
                     {plan.limits.ragEnabled && <PlanFeature label="Knowledge base (RAG)" />}
                     {plan.limits.clinicalDocumentationEnabled && <PlanFeature label="Clinical documentation" />}
                     {plan.limits.ssoEnabled && <PlanFeature label="SSO / SAML" />}
                     {plan.limits.prioritySupport && <PlanFeature label="Priority support" />}
-                    {(plan.limits.baseSeats as number) > 0 && <PlanFeature label={`${plan.limits.baseSeats} seats included`} />}
-                    {(plan.limits.pricePerAdditionalSeatUsd as number) > 0 && <PlanFeature label={`+$${plan.limits.pricePerAdditionalSeatUsd}/seat/mo`} />}
-                    {(plan.limits.overagePricePerCallUsd as number) > 0 && <PlanFeature label={`$${plan.limits.overagePricePerCallUsd}/call over quota`} />}
+                    {(plan.limits.baseSeats as number) > 0 && (
+                      <PlanFeature label={`${plan.limits.baseSeats} seats included`} />
+                    )}
+                    {(plan.limits.pricePerAdditionalSeatUsd as number) > 0 && (
+                      <PlanFeature label={`+$${plan.limits.pricePerAdditionalSeatUsd}/seat/mo`} />
+                    )}
+                    {(plan.limits.overagePricePerCallUsd as number) > 0 && (
+                      <PlanFeature label={`$${plan.limits.overagePricePerCallUsd}/call over quota`} />
+                    )}
                   </ul>
 
                   {!isCurrent && plan.tier === "enterprise" && (
@@ -378,7 +479,7 @@ export default function BillingTab() {
                     <Button
                       className="w-full"
                       size="sm"
-                      disabled={(checkoutMutation.isPending || upgradeMutation.isPending) || !subInfo?.stripeConfigured}
+                      disabled={checkoutMutation.isPending || upgradeMutation.isPending || !subInfo?.stripeConfigured}
                       onClick={() => handleUpgrade(plan.tier)}
                     >
                       {checkoutMutation.isPending || upgradeMutation.isPending
@@ -391,8 +492,14 @@ export default function BillingTab() {
                     </Button>
                   )}
                   {!isCurrent && plan.tier === "free" && currentTier !== "free" && (
-                    <Button variant="outline" className="w-full" size="sm"
-                      onClick={() => { if (confirm("Downgrade to free?")) downgradeMutation.mutate(); }}>
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      size="sm"
+                      onClick={() => {
+                        if (confirm("Downgrade to free?")) downgradeMutation.mutate();
+                      }}
+                    >
                       Downgrade
                     </Button>
                   )}
@@ -405,7 +512,8 @@ export default function BillingTab() {
           </div>
           {hasActiveStripeSub && (
             <p className="text-xs text-muted-foreground mt-3">
-              Upgrades apply immediately with prorated charges on your next invoice. Downgrades take effect at period end.
+              Upgrades apply immediately with prorated charges on your next invoice. Downgrades take effect at period
+              end.
             </p>
           )}
         </CardContent>
@@ -418,9 +526,7 @@ export default function BillingTab() {
             <RiBellLine className="w-5 h-5 text-primary" />
             Spend Alerts
           </CardTitle>
-          <CardDescription>
-            Get an email when your call usage approaches the plan limit.
-          </CardDescription>
+          <CardDescription>Get an email when your call usage approaches the plan limit.</CardDescription>
         </CardHeader>
         <CardContent>
           <SpendAlertsForm
@@ -486,13 +592,21 @@ export default function BillingTab() {
 // ── Sub-components ──────────────────────────────────────────────────────────
 
 function UsageMeter({
-  label, used, limit, projected, icon,
+  label,
+  used,
+  limit,
+  projected,
+  icon,
 }: {
-  label: string; used: number; limit: number; projected?: number; icon: React.ReactNode;
+  label: string;
+  used: number;
+  limit: number;
+  projected?: number;
+  icon: React.ReactNode;
 }) {
   const isUnlimited = limit === -1;
   const percentage = isUnlimited ? 0 : Math.min((used / limit) * 100, 100);
-  const projectedPct = (!isUnlimited && projected != null) ? Math.min((projected / limit) * 100, 120) : null;
+  const projectedPct = !isUnlimited && projected != null ? Math.min((projected / limit) * 100, 120) : null;
   const isNearLimit = !isUnlimited && percentage >= 80;
   const isOverLimit = !isUnlimited && percentage >= 100;
   const willExceed = !isUnlimited && projectedPct != null && projectedPct > 100 && !isOverLimit;
@@ -503,7 +617,9 @@ function UsageMeter({
         {icon}
         <span className="text-xs font-medium">{label}</span>
       </div>
-      <p className={`text-lg font-bold ${isOverLimit ? "text-red-600" : isNearLimit ? "text-amber-600" : "text-foreground"}`}>
+      <p
+        className={`text-lg font-bold ${isOverLimit ? "text-red-600" : isNearLimit ? "text-amber-600" : "text-foreground"}`}
+      >
         {used.toLocaleString()}
         <span className="text-xs font-normal text-muted-foreground">
           {isUnlimited ? " / unlimited" : ` / ${limit.toLocaleString()}`}
@@ -518,7 +634,10 @@ function UsageMeter({
           {projectedPct != null && projectedPct > percentage && (
             <div
               className="absolute top-0 h-1.5 rounded-full opacity-30 bg-amber-400"
-              style={{ left: `${Math.min(percentage, 100)}%`, width: `${Math.min(projectedPct - percentage, 100 - percentage)}%` }}
+              style={{
+                left: `${Math.min(percentage, 100)}%`,
+                width: `${Math.min(projectedPct - percentage, 100 - percentage)}%`,
+              }}
             />
           )}
         </div>
@@ -542,7 +661,11 @@ function PlanFeature({ label }: { label: string }) {
 }
 
 function SpendAlertsForm({
-  initialEnabled, initialThreshold, initialEmail, onSave, isSaving,
+  initialEnabled,
+  initialThreshold,
+  initialEmail,
+  onSave,
+  isSaving,
 }: {
   initialEnabled: boolean | null;
   initialThreshold: string;
@@ -569,7 +692,7 @@ function SpendAlertsForm({
               min={50}
               max={100}
               value={threshold}
-              onChange={e => setThreshold(e.target.value)}
+              onChange={(e) => setThreshold(e.target.value)}
               className="w-24"
               placeholder="80"
             />
@@ -580,7 +703,7 @@ function SpendAlertsForm({
             <Input
               type="email"
               value={email}
-              onChange={e => setEmail(e.target.value)}
+              onChange={(e) => setEmail(e.target.value)}
               className="w-64"
               placeholder="admin@your-org.com (defaults to your account email)"
             />

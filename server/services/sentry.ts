@@ -32,12 +32,7 @@ export function initSentry(): void {
     tracesSampleRate: process.env.NODE_ENV === "production" ? 0.1 : 1.0,
     // HIPAA: never send PII automatically
     sendDefaultPii: false,
-    ignoreErrors: [
-      "ECONNRESET",
-      "EPIPE",
-      "ECONNREFUSED",
-      "socket hang up",
-    ],
+    ignoreErrors: ["ECONNRESET", "EPIPE", "ECONNREFUSED", "socket hang up"],
     beforeSend(event) {
       // Strip PHI patterns from error messages using the shared redactor
       if (event.message) {

@@ -12,10 +12,19 @@ const startedAt = Date.now();
 /** Run a check with a timeout — prevents a hung dependency from blocking the entire health check. */
 async function withTimeout<T>(fn: () => Promise<T>, timeoutMs: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${label} health check timed out after ${timeoutMs}ms`)), timeoutMs);
+    const timer = setTimeout(
+      () => reject(new Error(`${label} health check timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
     fn().then(
-      (result) => { clearTimeout(timer); resolve(result); },
-      (err) => { clearTimeout(timer); reject(err); },
+      (result) => {
+        clearTimeout(timer);
+        resolve(result);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
     );
   });
 }
@@ -63,9 +72,7 @@ export function registerHealthRoutes(app: Express): void {
     // --- AI provider availability + circuit breaker state ---
     const circuit = getBedrockCircuitState();
     checks.ai = {
-      status: !aiProvider.isAvailable ? "unavailable"
-        : circuit.state === "OPEN" ? "degraded"
-        : "ok",
+      status: !aiProvider.isAvailable ? "unavailable" : circuit.state === "OPEN" ? "degraded" : "ok",
       detail: `${aiProvider.name} | circuit: ${circuit.state}${circuit.state !== "CLOSED" ? ` (${circuit.consecutiveFailures} failures)` : ""}`,
     };
 
@@ -109,8 +116,8 @@ export function registerHealthRoutes(app: Express): void {
     // --- Rate limiting status ---
     const redisStatus = getRedisStatus();
     const rateLimiting = {
-      mode: redisStatus.mode === "distributed" ? "redis" as const : "in-memory" as const,
-      status: redisStatus.mode === "distributed" ? "ok" as const : "degraded" as const,
+      mode: redisStatus.mode === "distributed" ? ("redis" as const) : ("in-memory" as const),
+      status: redisStatus.mode === "distributed" ? ("ok" as const) : ("degraded" as const),
     };
 
     // --- Encryption ---
@@ -215,16 +222,55 @@ export function registerHealthRoutes(app: Express): void {
     const routeMetrics = getMetricsSummary();
     const routeKeys = Object.keys(routeMetrics);
     if (routeKeys.length > 0) {
-      lines.push("# HELP http_requests_total Total requests per route (10m window)", "# TYPE http_requests_total gauge");
-      for (const key of routeKeys) { const [method, ...rp] = key.split(" "); const route = rp.join(" "); lines.push(`http_requests_total{method="${method}",route="${route}"} ${routeMetrics[key].requestCount}`); }
-      lines.push("", "# HELP http_request_errors_total Error responses (4xx/5xx) per route (10m window)", "# TYPE http_request_errors_total gauge");
-      for (const key of routeKeys) { const [method, ...rp] = key.split(" "); const route = rp.join(" "); lines.push(`http_request_errors_total{method="${method}",route="${route}"} ${routeMetrics[key].errorCount}`); }
-      lines.push("", "# HELP http_request_duration_p50_ms 50th percentile latency (10m window)", "# TYPE http_request_duration_p50_ms gauge");
-      for (const key of routeKeys) { const [method, ...rp] = key.split(" "); const route = rp.join(" "); lines.push(`http_request_duration_p50_ms{method="${method}",route="${route}"} ${routeMetrics[key].p50}`); }
-      lines.push("", "# HELP http_request_duration_p95_ms 95th percentile latency (10m window)", "# TYPE http_request_duration_p95_ms gauge");
-      for (const key of routeKeys) { const [method, ...rp] = key.split(" "); const route = rp.join(" "); lines.push(`http_request_duration_p95_ms{method="${method}",route="${route}"} ${routeMetrics[key].p95}`); }
-      lines.push("", "# HELP http_request_duration_p99_ms 99th percentile latency (10m window)", "# TYPE http_request_duration_p99_ms gauge");
-      for (const key of routeKeys) { const [method, ...rp] = key.split(" "); const route = rp.join(" "); lines.push(`http_request_duration_p99_ms{method="${method}",route="${route}"} ${routeMetrics[key].p99}`); }
+      lines.push(
+        "# HELP http_requests_total Total requests per route (10m window)",
+        "# TYPE http_requests_total gauge",
+      );
+      for (const key of routeKeys) {
+        const [method, ...rp] = key.split(" ");
+        const route = rp.join(" ");
+        lines.push(`http_requests_total{method="${method}",route="${route}"} ${routeMetrics[key].requestCount}`);
+      }
+      lines.push(
+        "",
+        "# HELP http_request_errors_total Error responses (4xx/5xx) per route (10m window)",
+        "# TYPE http_request_errors_total gauge",
+      );
+      for (const key of routeKeys) {
+        const [method, ...rp] = key.split(" ");
+        const route = rp.join(" ");
+        lines.push(`http_request_errors_total{method="${method}",route="${route}"} ${routeMetrics[key].errorCount}`);
+      }
+      lines.push(
+        "",
+        "# HELP http_request_duration_p50_ms 50th percentile latency (10m window)",
+        "# TYPE http_request_duration_p50_ms gauge",
+      );
+      for (const key of routeKeys) {
+        const [method, ...rp] = key.split(" ");
+        const route = rp.join(" ");
+        lines.push(`http_request_duration_p50_ms{method="${method}",route="${route}"} ${routeMetrics[key].p50}`);
+      }
+      lines.push(
+        "",
+        "# HELP http_request_duration_p95_ms 95th percentile latency (10m window)",
+        "# TYPE http_request_duration_p95_ms gauge",
+      );
+      for (const key of routeKeys) {
+        const [method, ...rp] = key.split(" ");
+        const route = rp.join(" ");
+        lines.push(`http_request_duration_p95_ms{method="${method}",route="${route}"} ${routeMetrics[key].p95}`);
+      }
+      lines.push(
+        "",
+        "# HELP http_request_duration_p99_ms 99th percentile latency (10m window)",
+        "# TYPE http_request_duration_p99_ms gauge",
+      );
+      for (const key of routeKeys) {
+        const [method, ...rp] = key.split(" ");
+        const route = rp.join(" ");
+        lines.push(`http_request_duration_p99_ms{method="${method}",route="${route}"} ${routeMetrics[key].p99}`);
+      }
       lines.push("");
     }
 

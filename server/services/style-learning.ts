@@ -127,21 +127,68 @@ function countPhrase(text: string, phrase: string): number {
  */
 function extractPhrases(text: string): Map<string, number> {
   const stopWords = new Set([
-    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-    "have", "has", "had", "do", "does", "did", "will", "would", "could",
-    "should", "may", "might", "shall", "can", "to", "of", "in", "for",
-    "on", "with", "at", "by", "from", "as", "into", "and", "or", "but",
-    "not", "no", "this", "that", "it", "its", "he", "she", "they", "we",
+    "the",
+    "a",
+    "an",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "have",
+    "has",
+    "had",
+    "do",
+    "does",
+    "did",
+    "will",
+    "would",
+    "could",
+    "should",
+    "may",
+    "might",
+    "shall",
+    "can",
+    "to",
+    "of",
+    "in",
+    "for",
+    "on",
+    "with",
+    "at",
+    "by",
+    "from",
+    "as",
+    "into",
+    "and",
+    "or",
+    "but",
+    "not",
+    "no",
+    "this",
+    "that",
+    "it",
+    "its",
+    "he",
+    "she",
+    "they",
+    "we",
   ]);
 
-  const words = text.toLowerCase().replace(/[^a-z0-9\s'-]/g, " ").split(/\s+/).filter(w => w.length > 1);
+  const words = text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s'-]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 1);
   const phrases = new Map<string, number>();
 
   for (let n = 2; n <= 4; n++) {
     for (let i = 0; i <= words.length - n; i++) {
       const gram = words.slice(i, i + n);
       // Skip if majority are stop words
-      const stopCount = gram.filter(w => stopWords.has(w)).length;
+      const stopCount = gram.filter((w) => stopWords.has(w)).length;
       if (stopCount > gram.length / 2) continue;
       const phrase = gram.join(" ");
       if (phrase.length < 5) continue;
@@ -162,11 +209,7 @@ function extractPhrases(text: string): Map<string, number> {
  * @returns StyleAnalysisResult with learned preferences and confidence scores,
  *          or null if fewer than MIN_NOTES_REQUIRED notes are provided.
  */
-export function analyzeProviderStyle(
-  orgId: string,
-  userId: string,
-  notes: ClinicalNote[],
-): StyleAnalysisResult | null {
+export function analyzeProviderStyle(orgId: string, userId: string, notes: ClinicalNote[]): StyleAnalysisResult | null {
   if (notes.length < MIN_NOTES_REQUIRED) {
     logger.info(
       { orgId, userId, noteCount: notes.length, required: MIN_NOTES_REQUIRED },
@@ -176,7 +219,7 @@ export function analyzeProviderStyle(
   }
 
   const now = new Date();
-  const weights = notes.map(n => recencyWeight(n.attestedAt, now));
+  const weights = notes.map((n) => recencyWeight(n.attestedAt, now));
   const totalWeight = weights.reduce((a, b) => a + b, 0);
 
   // --- Note format detection ---
@@ -185,9 +228,9 @@ export function analyzeProviderStyle(
     let weightedScore = 0;
     for (let i = 0; i < notes.length; i++) {
       const text = getNoteText(notes[i]);
-      const sectionKeys = Object.keys(notes[i].sections).map(k => k.toLowerCase());
+      const sectionKeys = Object.keys(notes[i].sections).map((k) => k.toLowerCase());
       const combined = text + " " + sectionKeys.join(" ");
-      const matched = patterns.filter(p => p.test(combined)).length;
+      const matched = patterns.filter((p) => p.test(combined)).length;
       weightedScore += (matched / patterns.length) * weights[i];
     }
     formatScores[format] = weightedScore / totalWeight;
@@ -228,7 +271,7 @@ export function analyzeProviderStyle(
   let weightedNoteCount = 0;
   for (let i = 0; i < notes.length; i++) {
     const text = getNoteText(notes[i]);
-    const hasNeg = NEGATIVE_PERTINENT_PHRASES.some(phrase => countPhrase(text, phrase) > 0);
+    const hasNeg = NEGATIVE_PERTINENT_PHRASES.some((phrase) => countPhrase(text, phrase) > 0);
     if (hasNeg) weightedNegCount += weights[i];
     weightedNoteCount += weights[i];
   }
@@ -266,9 +309,7 @@ export function analyzeProviderStyle(
   const sectionEmphasis: ScoredPreference<string> = longestSection
     ? {
         value: longestSection[0],
-        confidence: sortedSections.length > 1
-          ? Math.min(1, longestSection[1] / (sortedSections[1][1] || 1) - 1)
-          : 0.5,
+        confidence: sortedSections.length > 1 ? Math.min(1, longestSection[1] / (sortedSections[1][1] || 1) - 1) : 0.5,
       }
     : { value: "unknown", confidence: 0 };
 
@@ -330,7 +371,9 @@ export function analyzeProviderStyle(
   // --- Section order (from most common ordering) ---
   const orderCounts = new Map<string, number>();
   for (let i = 0; i < notes.length; i++) {
-    const order = Object.keys(notes[i].sections).map(k => k.toLowerCase().trim()).join(",");
+    const order = Object.keys(notes[i].sections)
+      .map((k) => k.toLowerCase().trim())
+      .join(",");
     if (order) {
       orderCounts.set(order, (orderCounts.get(order) || 0) + weights[i]);
     }
@@ -356,12 +399,9 @@ export function analyzeProviderStyle(
     noteFormat: noteFormat.confidence >= 0.3 ? noteFormat.value : undefined,
     sectionOrder,
     abbreviationLevel: abbreviationLevel.confidence >= 0.2 ? abbreviationLevel.value : undefined,
-    includeNegativePertinents: includeNegativePertinents.confidence >= 0.3
-      ? includeNegativePertinents.value
-      : undefined,
-    defaultSpecialty: preferredSpecialty && preferredSpecialty.confidence >= 0.4
-      ? preferredSpecialty.value
-      : undefined,
+    includeNegativePertinents:
+      includeNegativePertinents.confidence >= 0.3 ? includeNegativePertinents.value : undefined,
+    defaultSpecialty: preferredSpecialty && preferredSpecialty.confidence >= 0.4 ? preferredSpecialty.value : undefined,
     customSections,
   };
 
@@ -401,13 +441,15 @@ export function analyzeProviderStyle(
  * Usage: send this prompt to the AI provider and parse the JSON response.
  */
 export function buildStyleLearningPrompt(notes: ClinicalNote[]): string {
-  const notesSummary = notes.map((note, idx) => {
-    const sections = Object.entries(note.sections)
-      .map(([name, content]) => `### ${name}\n${content}`)
-      .join("\n\n");
-    const text = sections || note.fullText || "(empty)";
-    return `--- Note ${idx + 1} (${note.specialty || "unspecified specialty"}, attested ${new Date(note.attestedAt).toISOString().split("T")[0]}) ---\n${text}`;
-  }).join("\n\n");
+  const notesSummary = notes
+    .map((note, idx) => {
+      const sections = Object.entries(note.sections)
+        .map(([name, content]) => `### ${name}\n${content}`)
+        .join("\n\n");
+      const text = sections || note.fullText || "(empty)";
+      return `--- Note ${idx + 1} (${note.specialty || "unspecified specialty"}, attested ${new Date(note.attestedAt).toISOString().split("T")[0]}) ---\n${text}`;
+    })
+    .join("\n\n");
 
   return `You are a clinical documentation analyst. Analyze the following ${notes.length} attested clinical notes from the same provider and identify their documentation style patterns.
 

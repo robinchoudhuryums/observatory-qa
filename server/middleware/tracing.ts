@@ -14,13 +14,10 @@ let requestDuration: ReturnType<ReturnType<typeof getMeter>["createHistogram"]> 
 
 function getRequestDurationHistogram() {
   if (!requestDuration) {
-    requestDuration = getMeter("observatory-qa").createHistogram(
-      "http_request_duration_ms",
-      {
-        description: "HTTP request duration in milliseconds",
-        unit: "ms",
-      },
-    );
+    requestDuration = getMeter("observatory-qa").createHistogram("http_request_duration_ms", {
+      description: "HTTP request duration in milliseconds",
+      unit: "ms",
+    });
   }
   return requestDuration;
 }

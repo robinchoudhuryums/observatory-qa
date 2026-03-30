@@ -32,18 +32,25 @@ export interface RagTrace {
  * Log a RAG query trace with PHI-redacted query text.
  */
 export function logRagTrace(trace: RagTrace): void {
-  logger.info({
-    ragTrace: {
-      ...trace,
-      queryTextRedacted: redactPhi(trace.queryTextRedacted),
+  logger.info(
+    {
+      ragTrace: {
+        ...trace,
+        queryTextRedacted: redactPhi(trace.queryTextRedacted),
+      },
     },
-  }, `RAG trace: ${trace.returnedCount} chunks (${trace.confidenceLevel}) in ${trace.totalTimeMs}ms`);
+    `RAG trace: ${trace.returnedCount} chunks (${trace.confidenceLevel}) in ${trace.totalTimeMs}ms`,
+  );
 }
 
 /**
  * Create a timing helper for measuring pipeline stages.
  */
-export function createRagTimer(): { mark: (stage: string) => void; elapsed: (stage: string) => number; total: () => number } {
+export function createRagTimer(): {
+  mark: (stage: string) => void;
+  elapsed: (stage: string) => number;
+  total: () => number;
+} {
   const marks = new Map<string, number>();
   const start = Date.now();
 

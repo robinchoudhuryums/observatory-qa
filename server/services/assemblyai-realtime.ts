@@ -183,11 +183,17 @@ export class RealtimeTranscriptionSession {
     // Send terminate_session message
     try {
       this.ws.send(JSON.stringify({ terminate_session: true }));
-    } catch { /* connection may already be closing */ }
+    } catch {
+      /* connection may already be closing */
+    }
     // Wait briefly for clean close
     await new Promise<void>((resolve) => {
       const timeout = setTimeout(() => {
-        try { this.ws?.close(); } catch { /* best effort */ }
+        try {
+          this.ws?.close();
+        } catch {
+          /* best effort */
+        }
         this.ws = null;
         resolve();
       }, 3000);

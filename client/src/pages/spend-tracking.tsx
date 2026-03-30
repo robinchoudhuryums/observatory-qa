@@ -3,9 +3,28 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { type UsageRecord } from "@shared/schema";
-import {  RiMoneyDollarCircleLine, RiArrowRightUpLine, RiCalendarLine, RiPulseLine, RiFlaskLine, RiPhoneLine, RiUserLine  } from "@remixicon/react";
 import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell,
+  RiMoneyDollarCircleLine,
+  RiArrowRightUpLine,
+  RiCalendarLine,
+  RiPulseLine,
+  RiFlaskLine,
+  RiPhoneLine,
+  RiUserLine,
+} from "@remixicon/react";
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
 } from "recharts";
 
 function formatCost(cost: number): string {
@@ -28,14 +47,14 @@ function filterByPeriod(records: UsageRecord[], period: Period): UsageRecord[] {
 
   switch (period) {
     case "current-month":
-      return records.filter(r => new Date(r.timestamp) >= startOfMonth);
+      return records.filter((r) => new Date(r.timestamp) >= startOfMonth);
     case "last-month":
-      return records.filter(r => {
+      return records.filter((r) => {
         const d = new Date(r.timestamp);
         return d >= startOfLastMonth && d <= endOfLastMonth;
       });
     case "ytd":
-      return records.filter(r => new Date(r.timestamp) >= startOfYear);
+      return records.filter((r) => new Date(r.timestamp) >= startOfYear);
     case "all-time":
       return records;
   }
@@ -44,10 +63,12 @@ function filterByPeriod(records: UsageRecord[], period: Period): UsageRecord[] {
 function computeStats(records: UsageRecord[]) {
   const totalCost = records.reduce((sum, r) => sum + r.totalEstimatedCost, 0);
   const assemblyaiCost = records.reduce((sum, r) => sum + (r.services.assemblyai?.estimatedCost || 0), 0);
-  const bedrockCost = records.reduce((sum, r) =>
-    sum + (r.services.bedrock?.estimatedCost || 0) + (r.services.bedrockSecondary?.estimatedCost || 0), 0);
-  const callCount = records.filter(r => r.type === "call").length;
-  const abTestCount = records.filter(r => r.type === "ab-test").length;
+  const bedrockCost = records.reduce(
+    (sum, r) => sum + (r.services.bedrock?.estimatedCost || 0) + (r.services.bedrockSecondary?.estimatedCost || 0),
+    0,
+  );
+  const callCount = records.filter((r) => r.type === "call").length;
+  const abTestCount = records.filter((r) => r.type === "ab-test").length;
   const avgCostPerCall = callCount > 0 ? totalCost / (callCount + abTestCount) : 0;
 
   return { totalCost, assemblyaiCost, bedrockCost, callCount, abTestCount, avgCostPerCall };
@@ -108,7 +129,9 @@ export default function SpendTrackingPage() {
     <div className="p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Spend Tracking</h1>
-        <p className="text-muted-foreground mt-1">Monitor estimated API costs for AssemblyAI transcription and Bedrock AI analysis.</p>
+        <p className="text-muted-foreground mt-1">
+          Monitor estimated API costs for AssemblyAI transcription and Bedrock AI analysis.
+        </p>
       </div>
 
       <Tabs defaultValue="current-month">
@@ -119,7 +142,7 @@ export default function SpendTrackingPage() {
           <TabsTrigger value="all-time">All Time</TabsTrigger>
         </TabsList>
 
-        {(["current-month", "last-month", "ytd", "all-time"] as Period[]).map(period => (
+        {(["current-month", "last-month", "ytd", "all-time"] as Period[]).map((period) => (
           <TabsContent key={period} value={period}>
             <PeriodView records={filterByPeriod(records, period)} period={period} />
           </TabsContent>
@@ -134,11 +157,16 @@ export default function SpendTrackingPage() {
         </CardHeader>
         <CardContent>
           {records.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">No usage data recorded yet. Costs will appear here after calls are processed.</p>
+            <p className="text-sm text-muted-foreground py-8 text-center">
+              No usage data recorded yet. Costs will appear here after calls are processed.
+            </p>
           ) : (
             <div className="space-y-2 max-h-[400px] overflow-y-auto">
-              {records.slice(0, 50).map(r => (
-                <div key={r.id} className="flex items-center justify-between py-2 px-3 rounded-md hover:bg-muted/50 border border-transparent hover:border-border transition-colors">
+              {records.slice(0, 50).map((r) => (
+                <div
+                  key={r.id}
+                  className="flex items-center justify-between py-2 px-3 rounded-md hover:bg-muted/50 border border-transparent hover:border-border transition-colors"
+                >
                   <div className="flex items-center gap-3">
                     {r.type === "call" ? (
                       <RiPhoneLine className="w-4 h-4 text-blue-500" />
@@ -146,9 +174,7 @@ export default function SpendTrackingPage() {
                       <RiFlaskLine className="w-4 h-4 text-purple-500" />
                     )}
                     <div>
-                      <span className="text-sm font-medium">
-                        {r.type === "call" ? "Call Analysis" : "A/B Test"}
-                      </span>
+                      <span className="text-sm font-medium">{r.type === "call" ? "Call Analysis" : "A/B Test"}</span>
                       <span className="text-xs text-muted-foreground ml-2">by {r.user}</span>
                     </div>
                   </div>
@@ -170,7 +196,8 @@ export default function SpendTrackingPage() {
                       {formatCostPrecise(r.totalEstimatedCost)}
                     </Badge>
                     <span className="text-xs text-muted-foreground w-32 text-right">
-                      {new Date(r.timestamp).toLocaleDateString()} {new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {new Date(r.timestamp).toLocaleDateString()}{" "}
+                      {new Date(r.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </span>
                   </div>
                 </div>
@@ -191,12 +218,12 @@ function PeriodView({ records, period }: { records: UsageRecord[]; period: Perio
   const serviceSplit = [
     { name: "AssemblyAI", value: stats.assemblyaiCost },
     { name: "Bedrock", value: stats.bedrockCost },
-  ].filter(s => s.value > 0);
+  ].filter((s) => s.value > 0);
 
   const periodLabel = {
     "current-month": "this month",
     "last-month": "last month",
-    "ytd": "year to date",
+    ytd: "year to date",
     "all-time": "all time",
   }[period];
 
@@ -275,11 +302,16 @@ function PeriodView({ records, period }: { records: UsageRecord[]; period: Perio
                 <ResponsiveContainer width="100%" height={250}>
                   <AreaChart data={dailyData}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                    <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={d => d.slice(5)} className="text-muted-foreground" />
-                    <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `$${v}`} className="text-muted-foreground" />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fontSize: 11 }}
+                      tickFormatter={(d) => d.slice(5)}
+                      className="text-muted-foreground"
+                    />
+                    <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${v}`} className="text-muted-foreground" />
                     <Tooltip
                       formatter={(value: number) => [`$${value.toFixed(2)}`, "Cost"]}
-                      labelFormatter={label => new Date(label + "T00:00:00").toLocaleDateString()}
+                      labelFormatter={(label) => new Date(label + "T00:00:00").toLocaleDateString()}
                     />
                     <Area type="monotone" dataKey="cost" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.1} />
                   </AreaChart>
@@ -336,7 +368,12 @@ function PeriodView({ records, period }: { records: UsageRecord[]; period: Perio
             <ResponsiveContainer width="100%" height={Math.max(150, userData.length * 40)}>
               <BarChart data={userData} layout="vertical" margin={{ left: 60 }}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={v => `$${v}`} className="text-muted-foreground" />
+                <XAxis
+                  type="number"
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={(v) => `$${v}`}
+                  className="text-muted-foreground"
+                />
                 <YAxis type="category" dataKey="user" tick={{ fontSize: 12 }} className="text-muted-foreground" />
                 <Tooltip formatter={(value: number) => [`$${value.toFixed(2)}`, "Total Cost"]} />
                 <Bar dataKey="cost" fill="#3b82f6" radius={[0, 4, 4, 0]} />

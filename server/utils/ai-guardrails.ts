@@ -43,9 +43,7 @@ const INJECTION_PATTERNS: Array<{ regex: RegExp; label: string }> = [
  * NFKD decomposition + stripping combining marks converts "ìgnórè" to "ignore".
  */
 function normalizeForDetection(input: string): string {
-  return input
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, ""); // Strip combining diacritical marks
+  return input.normalize("NFKD").replace(/[\u0300-\u036f]/g, ""); // Strip combining diacritical marks
 }
 
 export function detectPromptInjection(input: string): InjectionCheckResult {
@@ -61,18 +59,11 @@ export interface OutputGuardrailResult {
   reason?: string;
 }
 
-const ROLE_DEVIATION_PHRASES = [
-  "As an AI language model",
-  "I cannot help with",
-  "I'm sorry, but as an AI",
-];
+const ROLE_DEVIATION_PHRASES = ["As an AI language model", "I cannot help with", "I'm sorry, but as an AI"];
 
 const PROMPT_ECHO_MARKERS = ["SYSTEM:", "INSTRUCTIONS:", "### System"];
 
-export function checkOutputGuardrails(
-  output: string,
-  systemPromptSnippets?: string[],
-): OutputGuardrailResult {
+export function checkOutputGuardrails(output: string, systemPromptSnippets?: string[]): OutputGuardrailResult {
   if (systemPromptSnippets && systemPromptSnippets.length > 0) {
     for (const snippet of systemPromptSnippets) {
       const check = snippet.slice(0, 50);
