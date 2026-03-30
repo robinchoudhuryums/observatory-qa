@@ -182,9 +182,9 @@ jobs:
       - name: Verify build artifacts
         run: |
           test -f dist/index.js   || (echo "ERROR: dist/index.js missing" && exit 1)
-          test -d dist/client     || (echo "ERROR: dist/client/ missing"  && exit 1)
+          test -d dist/public     || (echo "ERROR: dist/public/ missing"  && exit 1)
           echo "dist/index.js  -- $(du -h dist/index.js | cut -f1)"
-          echo "dist/client/   -- $(du -sh dist/client  | cut -f1)"
+          echo "dist/public/   -- $(du -sh dist/public  | cut -f1)"
           echo "Build artifacts verified"
 
       - name: Upload build artifacts
