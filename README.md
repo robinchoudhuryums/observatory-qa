@@ -154,7 +154,7 @@ shared/
 
 data/dental/          # Dental-specific reference data (CDT codes, prompt templates)
 deploy/ec2/           # EC2 deployment (Caddy, systemd, bootstrap script)
-tests/                # 61 unit test files (Node test runner)
+tests/                # 62 unit test files (Node test runner)
 tests/e2e/            # 12 Playwright E2E spec files
 ```
 
@@ -165,7 +165,7 @@ tests/e2e/            # 12 Playwright E2E spec files
 | `npm run dev` | Dev server with Vite HMR (port 5000) |
 | `npm run build` | Production build (Vite frontend + esbuild backend) |
 | `npm run start` | Start production server |
-| `npm run test` | Run unit test suite (1171 tests) |
+| `npm run test` | Run unit test suite (1179 tests) |
 | `npm run test:coverage` | Run tests with c8 coverage (text + lcov) |
 | `npm run test:e2e` | Run Playwright E2E tests |
 | `npm run test:e2e:ui` | Open Playwright interactive UI |
@@ -249,7 +249,7 @@ Observatory QA implements healthcare-grade security controls:
 npm run test
 ```
 
-61 unit test files (1171 tests) covering schemas, routes, multi-tenancy, RBAC, billing, API keys, clinical workflows, EHR, PHI encryption, SSO, speaker detection, RAG pipeline, clinical amendments, and more. Uses Node.js built-in test runner via tsx. Plus 12 Playwright E2E specs for browser-level testing.
+62 unit test files (1179 tests) covering schemas, routes, multi-tenancy, RBAC, billing, API keys, clinical workflows, EHR, PHI encryption, SSO, speaker detection, RAG pipeline, clinical amendments, load simulation, and more. Uses Node.js built-in test runner via tsx. Plus 12 Playwright E2E specs for browser-level testing.
 
 ### E2E Tests (Playwright)
 ```bash

@@ -79,7 +79,7 @@ npx vite build         # Frontend-only build (quick verification)
 - **Unit tests**: Node.js built-in `test` module via `tsx` — `npm run test`
 - **E2E tests**: Playwright (Chromium) — `npm run test:e2e` or `npm run test:e2e:ui`
 - **Location**: `tests/` (unit), `tests/e2e/` (E2E)
-- **Unit test files** (61 files, 1171 tests):
+- **Unit test files** (62 files, 1179 tests):
   - `tests/schema.test.ts` — Zod schema validation (orgId on all entities, organization schemas)
   - `tests/ai-provider.test.ts` — AI provider utilities (parseJsonResponse, buildAnalysisPrompt, smartTruncate)
   - `tests/routes.test.ts` — API route handler tests
@@ -119,6 +119,29 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/lms-prereq-enforce.test.ts` — LMS prerequisites, enforceOrder, deadlines, passing scores
   - `tests/sso.test.ts` — SAML SSO
   - `tests/validation.test.ts` — Input validation
+  - `tests/load-simulation.test.ts` — Load simulation (5 orgs × 200 calls, concurrent operations, data isolation)
+  - `tests/admin-routes.test.ts` — Admin route handler tests
+  - `tests/cross-org-isolation.test.ts` — Deep cross-org data isolation (user, coaching, prompt template, analysis, API key)
+  - `tests/calls-routes.test.ts` — Call route handler tests
+  - `tests/clinical-routes.test.ts` — Clinical route handler tests
+  - `tests/insurance-narratives.test.ts` — Insurance narrative CRUD and workflow
+  - `tests/lms.test.ts` — LMS module and path CRUD
+  - `tests/marketing.test.ts` — Marketing campaign and attribution CRUD
+  - `tests/load-pipeline.test.ts` — Call processing pipeline step sequencing
+  - `tests/phi-decryption-failure.test.ts` — PHI decryption failure modes (key rotation, tamper detection)
+  - `tests/sync-schema.test.ts` — Auto schema sync table coverage verification
+  - `tests/websocket.test.ts` — WebSocket infrastructure
+  - `tests/bedrock-rate-limit.test.ts` — Bedrock rate limiting and circuit breaker
+  - `tests/health-endpoints.test.ts` — Health check endpoints
+  - `tests/http-integration.test.ts` — HTTP-level integration tests
+  - `tests/input-validation.test.ts` — Input validation edge cases
+  - `tests/external-api-failures.test.ts` — External API failure handling
+  - `tests/newer-routes.test.ts` — Newer feature route tests
+  - `tests/queue-dlq.test.ts` — Job queue and dead letter queue
+  - `tests/upload-errors.test.ts` — Upload error handling
+  - `tests/upload-race-condition.test.ts` — Upload race condition prevention
+  - `tests/validation-middleware.test.ts` — Validation middleware tests
+  - `tests/webhook-retry.test.ts` — Webhook retry logic
 - **E2E test files** (12 specs):
   - `tests/e2e/fixtures.ts` — **Shared auth fixtures** (`adminTest`, `viewerTest`) — per-test login via `page.request.post()`
   - `tests/e2e/auth.spec.ts` — Login, landing page
@@ -1391,7 +1414,7 @@ See `HEALTHCARE_EXPANSION_PLAN.md` for the full 4-phase healthcare expansion roa
 - **Phase 2 (in progress)**: Clinical documentation add-on — AI scribe, style learning, multi-format notes (SOAP/DAP/BIRP), provider attestation workflow
 - **Phase 3 (planned)**: EHR integration — Open Dental (bidirectional), Eaglesoft (read-focused), Dentrix (future). Routes and adapters are scaffolded
 - **Phase 4 (planned)**: Expand verticals — urgent care, behavioral health, dermatology, ophthalmology, veterinary
-- **QA + Docs bundle pricing**: The Professional plan now bundles QA + Clinical Documentation at $149/mo (previously split as $99 QA-only + $49 Docs-only separately)
+- **QA + Docs bundle pricing**: The Professional plan now bundles QA + Clinical Documentation at $199/mo. Clinical Documentation is available as a $49/mo add-on for Starter plans
 - **Super-admin role**: Platform-level admin (not org-scoped) for managing all organizations — `SUPER_ADMIN_USERS` env var
 - **PostgreSQL migration**: Move remaining S3-only deployments to PostgreSQL for better query performance and transactional integrity
 - **Spanish language support**: Multilingual clinical note generation
