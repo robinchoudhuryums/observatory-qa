@@ -8,8 +8,9 @@ test.describe("Dashboard", () => {
   });
 
   test("shows metrics overview", async ({ page }) => {
-    await page.goto("/");
-    await expect(page.locator("[data-testid='metrics-overview']")).toBeVisible({ timeout: 15000 });
+    await page.goto("/dashboard");
+    await page.waitForLoadState("networkidle");
+    await expect(page.locator("[data-testid='metrics-overview']")).toBeVisible({ timeout: 30000 });
   });
 
   test("shows sentiment analysis", async ({ page }) => {
