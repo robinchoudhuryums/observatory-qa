@@ -195,7 +195,9 @@ jobs:
           retention-days: 1
 
 # ---------------------------------------------------------------------------
-# Job: Docker build — validates Dockerfile; pushes to GHCR on main branch
+# Job: Docker build — validates Dockerfile builds successfully.
+# Push to GHCR is disabled until package permissions are configured.
+# To enable: repo Settings → Actions → General → "Read and write permissions"
 # ---------------------------------------------------------------------------
   docker:
     name: Docker Build
@@ -207,22 +209,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GitHub Container Registry
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build (and push on main)
+      - name: Build (validate only, no push)
         uses: docker/build-push-action@v5
         with:
           context: .
-          push: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
-          tags: |
-            ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:${{ github.sha }}
+          push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
