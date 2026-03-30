@@ -48,7 +48,7 @@ export async function setupGoogleOAuth(): Promise<boolean> {
             }
 
             // Look up user by username (email) — no org context yet, search globally
-            let user = await storage.getUserByUsername(email);
+            const user = await storage.getUserByUsername(email);
 
             if (user) {
               // Existing user — resolve org for session

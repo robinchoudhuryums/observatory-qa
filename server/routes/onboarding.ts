@@ -712,7 +712,7 @@ export function registerOnboardingRoutes(app: Express): void {
 
       // Walk the version chain backwards
       const versions: Array<{ id: string; version: number; name: string; fileName: string; fileSize: number; createdAt?: string; isActive: boolean; indexingStatus?: string }> = [];
-      let currentDoc = doc;
+      const currentDoc = doc;
       versions.push({
         id: currentDoc.id,
         version: currentDoc.version ?? 1,

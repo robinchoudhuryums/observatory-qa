@@ -255,7 +255,7 @@ export class MemStorage implements IStorage {
     filters: { status?: string; sentiment?: string; employee?: string } = {}
   ): Promise<CallWithDetails[]> {
     const calls = await this.getAllCalls(orgId);
-    let results: CallWithDetails[] = await Promise.all(
+    const results: CallWithDetails[] = await Promise.all(
       calls.map(async (call) => {
         const [employee, transcript, sentiment, analysis] = await Promise.all([
           call.employeeId ? this.getEmployee(orgId, call.employeeId) : Promise.resolve(undefined),
@@ -274,7 +274,7 @@ export class MemStorage implements IStorage {
     filters: { status?: string; sentiment?: string; employee?: string } = {}
   ): Promise<CallSummary[]> {
     const calls = await this.getAllCalls(orgId);
-    let results: CallSummary[] = await Promise.all(
+    const results: CallSummary[] = await Promise.all(
       calls.map(async (call) => {
         const [employee, sentiment, analysis] = await Promise.all([
           call.employeeId ? this.getEmployee(orgId, call.employeeId) : Promise.resolve(undefined),

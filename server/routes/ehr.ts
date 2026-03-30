@@ -524,7 +524,7 @@ export function registerEhrRoutes(app: Express): void {
       });
 
       // Get patient demographics and allergies from EHR
-      let medications: Array<{ name: string; dose?: string; frequency?: string }> = [];
+      const medications: Array<{ name: string; dose?: string; frequency?: string }> = [];
       let allergies: Array<{ substance: string; reaction?: string }> = [];
       let lastChiefComplaint: string | undefined;
       let demographicsNote: string | undefined;
