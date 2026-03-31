@@ -587,6 +587,19 @@ export async function syncSchema(db: Database): Promise<void> {
       });
     await db.execute(sql`CREATE INDEX IF NOT EXISTS doc_chunks_org_id_idx ON document_chunks (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS doc_chunks_document_id_idx ON document_chunks (document_id)`);
+    // HNSW vector index for fast cosine similarity search.
+    // Without this, pgvector does sequential scan (O(n) per query).
+    // HNSW provides approximate nearest neighbor with O(log n) performance.
+    await db
+      .execute(
+        sql`CREATE INDEX IF NOT EXISTS doc_chunks_embedding_hnsw_idx
+            ON document_chunks USING hnsw (embedding vector_cosine_ops)
+            WITH (m = 16, ef_construction = 64)`,
+      )
+      .catch((e) => {
+        // May fail if pgvector extension not available or column is NULL-type
+        logger.warn({ err: e }, "HNSW vector index creation skipped (pgvector may not be available)");
+      });
     await addRlsPolicy(db, "document_chunks").catch((e) =>
       logger.warn({ err: e }, "RLS setup skipped for document_chunks"),
     );

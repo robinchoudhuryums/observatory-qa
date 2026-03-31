@@ -118,18 +118,35 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   const timeout = setTimeout(() => controller.abort(), EMBED_TIMEOUT_MS);
 
   try {
-    const command = new InvokeModelCommand({
-      modelId: EMBED_MODEL,
-      contentType: "application/json",
-      accept: "application/json",
-      body: new TextEncoder().encode(body),
-    });
+    // Retry transient failures (timeouts, throttling) up to 2 times with exponential backoff
+    let embedding: number[] | undefined;
+    let lastErr: Error | undefined;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const command = new InvokeModelCommand({
+          modelId: EMBED_MODEL,
+          contentType: "application/json",
+          accept: "application/json",
+          body: new TextEncoder().encode(body),
+        });
 
-    const response = await client.send(command, { abortSignal: controller.signal });
-
-    const responseBody = new TextDecoder().decode(response.body);
-    const result = JSON.parse(responseBody) as { embedding: number[] };
-    const embedding = result.embedding;
+        const response = await client.send(command, { abortSignal: controller.signal });
+        const responseBody = new TextDecoder().decode(response.body);
+        const result = JSON.parse(responseBody) as { embedding: number[] };
+        embedding = result.embedding;
+        break; // Success
+      } catch (retryErr: any) {
+        lastErr = retryErr;
+        const status = retryErr?.$metadata?.httpStatusCode;
+        // Only retry on throttling (429) or server errors (5xx), not client errors
+        if (status && status < 500 && status !== 429) throw retryErr;
+        if (attempt < 2) {
+          const delay = Math.pow(2, attempt) * 1000; // 1s, 2s
+          await new Promise((r) => setTimeout(r, delay));
+        }
+      }
+    }
+    if (!embedding) throw lastErr || new Error("Embedding generation failed after retries");
 
     // Validate embedding dimensions and values
     if (!Array.isArray(embedding) || embedding.length !== EMBED_DIMENSIONS) {
@@ -183,10 +200,31 @@ export async function generateEmbeddingsBatch(
       `Generating embeddings batch ${batchNum}/${totalBatches}`,
     );
 
-    const batchResults = await Promise.all(batch.map((text) => generateEmbedding(text)));
+    // Use allSettled so one failed embedding doesn't abort the entire batch.
+    // Failed chunks get null embeddings and are logged for investigation.
+    const batchResults = await Promise.allSettled(batch.map((text) => generateEmbedding(text)));
 
+    let batchFailures = 0;
     for (let j = 0; j < batchResults.length; j++) {
-      results[i + j] = batchResults[j];
+      const result = batchResults[j];
+      if (result.status === "fulfilled") {
+        results[i + j] = result.value;
+      } else {
+        batchFailures++;
+        // Store zero-vector placeholder so array indexing stays aligned.
+        // Chunks with null/zero embeddings won't match any search query.
+        results[i + j] = [];
+        logger.warn(
+          { chunkIndex: i + j, batch: batchNum, err: result.reason },
+          "Embedding generation failed for chunk — stored without embedding",
+        );
+      }
+    }
+    if (batchFailures > 0) {
+      logger.warn(
+        { batch: batchNum, failures: batchFailures, batchSize: batch.length },
+        `${batchFailures}/${batch.length} embeddings failed in batch ${batchNum}`,
+      );
     }
     completed += batch.length;
     opts?.onProgress?.(completed, texts.length);

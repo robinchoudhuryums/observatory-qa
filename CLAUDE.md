@@ -421,7 +421,7 @@ Reference documents uploaded by orgs are processed through:
 2. **Chunking** (`chunker.ts`) — sliding window with overlap (400 tokens, 80 token overlap), natural break detection (paragraph > sentence > line via `lastIndexOf`), section header tracking. Configurable `charsPerToken` ratio: 3.5 for medical/dental (clinical codes are dense), 4.0 for general text. Minimum step of 40 chars prevents micro-chunks
 3. **Embedding** (`embeddings.ts`) — Amazon Titan Embed V2 via Bedrock (1024 dimensions, raw REST + SigV4)
 4. **Storage** — chunks + embeddings stored in `document_chunks` table (pgvector)
-5. **Retrieval** (`rag.ts`) — hybrid search: pgvector cosine similarity + BM25 keyword boosting, weighted scoring (70% semantic, 30% keyword), minimum relevance score threshold (0.3) filters low-quality chunks
+5. **Retrieval** (`rag.ts`) — hybrid search: pgvector cosine similarity (HNSW index) + BM25 keyword boosting with log-linear normalization, weighted scoring (70% semantic, 30% keyword, tunable via env vars), minimum relevance score threshold (0.3) filters low-quality chunks
 6. **Injection** — relevant chunks formatted and injected into the AI analysis prompt
 
 RAG requires: PostgreSQL with pgvector extension + AWS credentials for Titan embeddings. Document indexing can run via BullMQ worker or in-process fallback.
@@ -1468,6 +1468,14 @@ Server serves both API and static frontend from the same process.
 - **Automated PR review** — `.github/workflows/pr-review.yml`: lint + type check + tests + PR size check + auto-labeling based on changed files
 - **E2E security tests** — `tests/e2e/security.spec.ts`: cross-org data access prevention, role escalation, CSRF, session fixation, auth enforcement, rate limiting
 - **Deploy auto-rollback** — `deploy/ec2/deploy.sh`: saves previous SHA before deploy; auto-rollback on health check failure; hard-fail on missing env vars in production; `--force` flag to skip pre-flight
+
+#### ✅ Completed & committed: RAG Feature improvements
+- **HNSW vector index** — `doc_chunks_embedding_hnsw_idx` added to sync-schema.ts; pgvector cosine search goes from O(n) sequential scan to O(log n) approximate nearest neighbor. Critical for orgs with 10K+ chunks
+- **BM25 normalization fix** — was dividing score by query term count (penalizing multi-term queries); replaced with log-linear scaling `log1p(score) / log1p(3)` which preserves ranking consistency regardless of query length
+- **Embedding batch partial failure handling** — `generateEmbeddingsBatch()` now uses `Promise.allSettled()` instead of `Promise.all()`; individual chunk failures no longer abort the entire batch. Failed chunks get empty embeddings and are logged
+- **Embedding retry with backoff** — `generateEmbedding()` now retries transient failures (429 throttling, 5xx server errors) up to 2 times with exponential backoff (1s, 2s)
+- **RAG context XML framing** — `formatRetrievedContext()` now wraps each chunk in `<knowledge_source>` XML tags with doc/category/section attributes; prevents prompt injection via malicious document content
+- **Tunable RAG config** — search parameters (topK, semanticWeight, keywordWeight, minRelevanceScore, candidateMultiplier) now configurable via environment variables (`RAG_SEARCH_TOP_K`, `RAG_SEMANTIC_WEIGHT`, etc.) with backward-compatible defaults
 
 #### ✅ Completed & committed: Call Analysis improvements
 - **Talk time ratio fix** — was using raw speaker label "A" regardless of role mapping; now uses `speakerRoleMap` to identify agent speaker labels, moved calculation after role detection to avoid forward-reference
