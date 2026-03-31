@@ -190,9 +190,8 @@ export function registerEmailRoutes(app: Express): void {
    * GET /api/emails
    * List all email interactions for the org (convenience endpoint, filters by channel).
    */
-  app.get("/api/emails", requireAuth, async (req, res) => {
-    const orgId = req.orgId;
-    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+  app.get("/api/emails", requireAuth, injectOrgContext, async (req, res) => {
+    const orgId = req.orgId!;
 
     try {
       const allCalls = await storage.getCallsWithDetails(orgId, {
@@ -214,9 +213,8 @@ export function registerEmailRoutes(app: Express): void {
    * GET /api/emails/threads
    * Get email conversations grouped by thread ID.
    */
-  app.get("/api/emails/threads", requireAuth, async (req, res) => {
-    const orgId = req.orgId;
-    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+  app.get("/api/emails/threads", requireAuth, injectOrgContext, async (req, res) => {
+    const orgId = req.orgId!;
 
     try {
       const allCalls = await storage.getAllCalls(orgId);
@@ -249,9 +247,8 @@ export function registerEmailRoutes(app: Express): void {
    * GET /api/emails/stats
    * Email channel analytics: volume, avg scores, category breakdown.
    */
-  app.get("/api/emails/stats", requireAuth, async (req, res) => {
-    const orgId = req.orgId;
-    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+  app.get("/api/emails/stats", requireAuth, injectOrgContext, async (req, res) => {
+    const orgId = req.orgId!;
 
     try {
       const allCalls = await storage.getCallsWithDetails(orgId);

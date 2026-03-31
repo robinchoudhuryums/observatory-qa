@@ -326,6 +326,11 @@ app.post("/api/clinical/style-learning/analyze", distributedRateLimit(60 * 1000,
       envWarnings.push("SESSION_SECRET appears weak — use a random 32+ character string in production");
   }
 
+  // PHI encryption (HIPAA requirement in production)
+  if (isProduction && !isPhiEncryptionEnabled()) {
+    envErrors.push("PHI_ENCRYPTION_KEY required in production — PHI must never be stored unencrypted");
+  }
+
   // AI provider
   if (process.env.AWS_ACCESS_KEY_ID && !process.env.AWS_SECRET_ACCESS_KEY)
     envErrors.push("AWS_SECRET_ACCESS_KEY required when AWS_ACCESS_KEY_ID is set");
