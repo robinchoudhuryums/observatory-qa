@@ -1456,13 +1456,19 @@ Server serves both API and static frontend from the same process.
 - **Schema validation hardening** — added hex color regex validation for branding colors; domain format validation for `emailDomain`; max-length constraints on `departments` (100), `callCategories` (50), `callPartyTypes` (20), `customVocabulary` (1000 terms, 200 chars each); string min/max on all array items
 
 #### ✅ Completed & committed: CI/CD improvements (P3)
-- **ESLint warning budget** — tightened from 280 to 271 (current actual count); 260 `no-unused-vars` + 11 `no-console`
+- **ESLint warning budget** — tightened from 280 to 260; all `no-console` warnings resolved via eslint-disable-line on bootstrap/CLI code; remaining 260 are all `no-unused-vars`
 - **Missing dev dependency** — installed `typescript-eslint` (was referenced in eslint.config.js but not in devDependencies)
 - **Nightly CI workflow** — `.github/workflows/nightly.yml`: full test + coverage + security audit + secret scanning, creates GitHub issue on failure
 - **Weekly dependency check** — `.github/workflows/dependency-check.yml`: npm audit + outdated packages + license compliance, creates issue with findings
 - **Automated PR review** — `.github/workflows/pr-review.yml`: lint + type check + tests + PR size check + auto-labeling based on changed files
 - **E2E security tests** — `tests/e2e/security.spec.ts`: cross-org data access prevention, role escalation, CSRF, session fixation, auth enforcement, rate limiting
 - **Deploy auto-rollback** — `deploy/ec2/deploy.sh`: saves previous SHA before deploy; auto-rollback on health check failure; hard-fail on missing env vars in production; `--force` flag to skip pre-flight
+
+#### ✅ Completed & committed: Code cleanup & deduplication
+- **Legacy logger consolidation** — `server/logger.ts` replaced with re-export from `server/services/logger.ts` (28 services now get correlation ID injection automatically)
+- **Dashboard metrics deduplication** — extracted `calculateDashboardMetrics()` and `calculateSentimentDistribution()` into `server/storage/types.ts`; eliminates triplicated math in memory.ts, cloud.ts, pg-storage.ts
+- **Dead code removal** — removed deprecated `POWER_MOBILITY_SUBTEAMS` export (zero production callers)
+- **ESLint no-console fixes** — all 11 no-console warnings resolved via eslint-disable-line on bootstrap/CLI code; budget reduced 271→260
 
 ## Future Plans / Roadmap
 See `HEALTHCARE_EXPANSION_PLAN.md` for the full 4-phase healthcare expansion roadmap.
