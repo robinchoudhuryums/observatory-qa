@@ -171,16 +171,26 @@ function parseScoreRationale(raw: unknown): Record<string, string[]> | undefined
 export function parseJsonResponse(text: string, callId: string): CallAnalysis {
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
-    logger.warn({ callId, responsePreview: text.slice(0, 200) }, "AI response was not parseable JSON");
-    throw new Error("AI response did not contain valid JSON");
+    logger.warn(
+      { callId, responsePreview: text.slice(0, 200), responseLength: text.length, errorCode: "AI_NO_JSON" },
+      "AI response contained no JSON object — may be truncated or an error message",
+    );
+    const err = new Error("AI response did not contain valid JSON");
+    (err as any).code = "AI_NO_JSON";
+    throw err;
   }
 
   let raw: Record<string, unknown>;
   try {
     raw = JSON.parse(jsonMatch[0]);
   } catch (parseError) {
-    logger.warn({ callId, err: parseError, responsePreview: text.slice(0, 300) }, "AI response JSON parse failed");
-    throw new Error("AI response contained malformed JSON");
+    logger.warn(
+      { callId, err: parseError, responsePreview: text.slice(0, 300), errorCode: "AI_MALFORMED_JSON" },
+      "AI response JSON parse failed — response may be truncated or contain syntax errors",
+    );
+    const err2 = new Error("AI response contained malformed JSON");
+    (err2 as any).code = "AI_MALFORMED_JSON";
+    throw err2;
   }
 
   // Validate and normalize with safe defaults for missing/malformed fields
@@ -268,14 +278,25 @@ export function parseJsonResponse(text: string, callId: string): CallAnalysis {
     analysis.clinical_note = raw.clinical_note as CallAnalysis["clinical_note"];
   }
 
-  // Log if we had to fix missing fields
+  // Log if we had to fix missing fields — helps audit AI data quality
   const missingFields: string[] = [];
   if (!raw.summary) missingFields.push("summary");
   if (!raw.performance_score && raw.performance_score !== 0) missingFields.push("performance_score");
+  if (!raw.sentiment_score && raw.sentiment_score !== 0) missingFields.push("sentiment_score");
   if (!raw.sub_scores) missingFields.push("sub_scores");
+  else {
+    // Track individual sub-score defaults
+    for (const key of ["compliance", "customer_experience", "communication", "resolution"]) {
+      if (!(key in (raw.sub_scores as Record<string, unknown>))) missingFields.push(`sub_scores.${key}`);
+    }
+  }
   if (!raw.feedback) missingFields.push("feedback");
+  if (!raw.detected_agent_name) missingFields.push("detected_agent_name");
   if (missingFields.length > 0) {
-    logger.warn({ callId, missingFields }, "AI response missing fields — defaults applied");
+    logger.warn(
+      { callId, missingFields, fieldCount: missingFields.length },
+      "AI response missing fields — defaults applied",
+    );
   }
 
   return analysis;

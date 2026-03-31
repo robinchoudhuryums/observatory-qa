@@ -1469,6 +1469,14 @@ Server serves both API and static frontend from the same process.
 - **E2E security tests** — `tests/e2e/security.spec.ts`: cross-org data access prevention, role escalation, CSRF, session fixation, auth enforcement, rate limiting
 - **Deploy auto-rollback** — `deploy/ec2/deploy.sh`: saves previous SHA before deploy; auto-rollback on health check failure; hard-fail on missing env vars in production; `--force` flag to skip pre-flight
 
+#### ✅ Completed & committed: Call Analysis improvements
+- **Talk time ratio fix** — was using raw speaker label "A" regardless of role mapping; now uses `speakerRoleMap` to identify agent speaker labels, moved calculation after role detection to avoid forward-reference
+- **Webhook empty transcript guard** — `continueAfterTranscription()` now checks transcript length (<10 chars) and short-circuits with `empty_transcript` tag; prevents webhook-delivered empty transcripts from being sent to AI analysis
+- **Confidence scoring fix** — failed AI analysis now applies 25% confidence penalty (was only 7.5%); calls with default scores are clearly flagged as low_confidence
+- **Configurable analysis thresholds** — `enforceServerFlags()` now accepts optional `AnalysisThresholds` (lowConfidence, lowScore, exceptionalScore); defaults preserved for backward compat; per-org overrides via `org.settings.analysisThresholds`
+- **AI response field logging** — `parseJsonResponse()` now logs individual missing sub-scores (`sub_scores.compliance`, etc.) with field count; helps audit AI data quality over time
+- **Structured AI error codes** — JSON parse failures now include `errorCode` ("AI_NO_JSON", "AI_MALFORMED_JSON") in log context and error objects; distinguishes truncation from hallucination
+
 #### ✅ Completed & committed: HIPAA Compliance hardening
 - **Incident/breach DB persistence** — `security_incidents` and `breach_reports` tables with RLS policies; incident-response.ts now persists all creates/updates to PostgreSQL (falls back to in-memory without DB)
 - **Breach notification emails** — `sendBreachNotificationEmails()` sends HIPAA §164.404 compliant notification emails to affected individuals via existing email service; auto-updates breach report status and audit logs

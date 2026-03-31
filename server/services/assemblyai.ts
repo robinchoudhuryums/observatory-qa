@@ -401,28 +401,32 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
     const performanceScore = aiAnalysis?.performance_score ?? 5.0;
     const words = transcriptResponse.words || [];
 
-    // Calculate talk time ratio (if speaker labels exist)
-    let talkTimeRatio = 0.5;
-    if (words.length > 0) {
-      const speakerATime = words
-        .filter((w: TranscriptWord) => w.speaker === "A")
-        .reduce((sum: number, w: TranscriptWord) => sum + (w.end - w.start), 0);
-      const totalTime = words[words.length - 1].end - words[0].start;
-      if (totalTime > 0) {
-        talkTimeRatio = Math.round((speakerATime / totalTime) * 100) / 100;
-      }
-    }
-
     // --- Speech Analytics: compute from word timing data ---
     const speechMetrics = this.computeSpeechMetrics(words);
 
     // --- Speaker role mapping ---
     // Priority: (1) auto-detect from transcript patterns + AI-detected agent name,
     //           (2) org-configured default, (3) hardcoded default (A=agent, B=customer).
-    const detectedRoles = detectSpeakerRolesFromTranscript(words, aiAnalysis?.detected_agent_name);
+    const detectedRoles = detectSpeakerRolesFromTranscript(words, aiAnalysis?.detected_agent_name ?? undefined);
     const speakerRoleMap: Record<string, string> =
       detectedRoles ??
       (orgSpeakerRoles && Object.keys(orgSpeakerRoles).length > 0 ? orgSpeakerRoles : { A: "agent", B: "customer" });
+
+    // Calculate talk time ratio per speaker (uses role mapping from above).
+    // Result is a 0.0–1.0 decimal representing the agent's share of talk time.
+    let talkTimeRatio = 0.5;
+    if (words.length > 0) {
+      const totalTime = words[words.length - 1].end - words[0].start;
+      if (totalTime > 0) {
+        const agentLabels = Object.entries(speakerRoleMap)
+          .filter(([, role]) => role === "agent")
+          .map(([label]) => label);
+        const agentTime = words
+          .filter((w: TranscriptWord) => w.speaker && agentLabels.includes(w.speaker))
+          .reduce((sum: number, w: TranscriptWord) => sum + (w.end - w.start), 0);
+        talkTimeRatio = Math.round((agentTime / totalTime) * 100) / 100;
+      }
+    }
 
     // Determine flags
     const flags: string[] = aiAnalysis?.flags || [];
