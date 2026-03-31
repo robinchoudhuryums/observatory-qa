@@ -1468,7 +1468,9 @@ Server serves both API and static frontend from the same process.
 - **Legacy logger consolidation** — `server/logger.ts` replaced with re-export from `server/services/logger.ts` (28 services now get correlation ID injection automatically)
 - **Dashboard metrics deduplication** — extracted `calculateDashboardMetrics()` and `calculateSentimentDistribution()` into `server/storage/types.ts`; eliminates triplicated math in memory.ts, cloud.ts, pg-storage.ts
 - **Dead code removal** — removed deprecated `POWER_MOBILITY_SUBTEAMS` export (zero production callers)
-- **ESLint no-console fixes** — all 11 no-console warnings resolved via eslint-disable-line on bootstrap/CLI code; budget reduced 271→260
+- **ESLint no-console fixes** — all 11 no-console warnings resolved via eslint-disable-line on bootstrap/CLI code
+- **Dead frontend code removal** — deleted unused i18n module (275 lines, English+Spanish translations never imported), removed `prefersReducedMotion()`, unused icon imports from 3 dashboard components, dead `index` prop from CallCard
+- **ESLint budget** — tightened from 280 to 254 across cleanup rounds
 
 ## Future Plans / Roadmap
 See `HEALTHCARE_EXPANSION_PLAN.md` for the full 4-phase healthcare expansion roadmap.
