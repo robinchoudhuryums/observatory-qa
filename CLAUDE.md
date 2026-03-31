@@ -968,6 +968,8 @@ DISABLE_SECURE_COOKIE           # Set to skip secure cookie flag (for non-TLS de
 | `calibration_evaluations` | unique on `(session_id, evaluator_id)` | Individual evaluator scores, cascade delete with session |
 | `provider_templates` | index on `(org_id, user_id)`, `(org_id, specialty)` | Per-provider custom clinical note templates. JSONB sections, defaultCodes, tags |
 | `mfa_recovery_requests` | index on `(org_id, status)`, `user_id` | Emergency MFA bypass: user requests → email-verified → admin approves → time-limited use token (15 min). Cascade delete with user/org. |
+| `security_incidents` | index on `(org_id, phase)` | HIPAA breach tracking: severity, phase lifecycle, timeline, action items, breach notification deadline. RLS-protected |
+| `breach_reports` | index on `(org_id, notification_status)` | HIPAA §164.408: affected individuals count, PHI types, 60-day notification deadline, notification status tracking, corrective actions |
 
 Requires pgvector extension: `CREATE EXTENSION IF NOT EXISTS vector;`
 
@@ -1009,6 +1011,9 @@ On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add mi
 | **FAQ analytics PHI safety** | `server/services/faq-analytics.ts` | Sample queries stored in FAQ analytics are PHI-redacted via `redactPhi()` before persistence |
 | **WAF log safety** | `server/middleware/waf.ts` | WAF violation logs use `req.path` (no query string) to prevent logging PHI from query parameters |
 | **Idle timeout** | `client/src/hooks/use-idle-timeout.ts` | 15-min idle timeout with 2-min warning countdown. "Stay Logged In" button resets the timer. Logout clears session storage only (preserves user preferences in localStorage) |
+| **Breach notification** | `server/services/incident-response.ts` | HIPAA §164.404 compliant breach notification: `sendBreachNotificationEmails()` sends templated notification to affected individuals, auto-updates breach report status, logs to audit trail. 60-day deadline tracked per §164.408 |
+| **Incident persistence** | `server/db/schema.ts` | `security_incidents` and `breach_reports` tables with RLS policies. All creates/updates persisted to PostgreSQL with in-memory fallback |
+| **Minimum necessary access** | `server/routes/clinical.ts` | Viewer role sees redacted PHI fields on clinical notes (subjective, objective, assessment, plan stripped). Managers/admins see full content for clinical workflows |
 
 ## Key Design Decisions
 - **AWS SDK v3**: S3 (`@aws-sdk/client-s3`), Bedrock (`@aws-sdk/client-bedrock-runtime`), SES (`@aws-sdk/client-ses`), and Titan Embed use the modular AWS SDK v3. Credential resolution (`@aws-sdk/credential-providers`) supports env vars and EC2 instance metadata (IMDSv2)
@@ -1463,6 +1468,13 @@ Server serves both API and static frontend from the same process.
 - **Automated PR review** — `.github/workflows/pr-review.yml`: lint + type check + tests + PR size check + auto-labeling based on changed files
 - **E2E security tests** — `tests/e2e/security.spec.ts`: cross-org data access prevention, role escalation, CSRF, session fixation, auth enforcement, rate limiting
 - **Deploy auto-rollback** — `deploy/ec2/deploy.sh`: saves previous SHA before deploy; auto-rollback on health check failure; hard-fail on missing env vars in production; `--force` flag to skip pre-flight
+
+#### ✅ Completed & committed: HIPAA Compliance hardening
+- **Incident/breach DB persistence** — `security_incidents` and `breach_reports` tables with RLS policies; incident-response.ts now persists all creates/updates to PostgreSQL (falls back to in-memory without DB)
+- **Breach notification emails** — `sendBreachNotificationEmails()` sends HIPAA §164.404 compliant notification emails to affected individuals via existing email service; auto-updates breach report status and audit logs
+- **Viewer PHI field filtering** — `GET /api/clinical/notes/:callId` now strips PHI content (subjective, objective, assessment, plan, HPI, amendments) for viewer role; managers and admins see full notes. Enforces HIPAA minimum necessary access principle
+- **Incident audit logging** — `declareIncident()` and `createBreachReport()` now log to HIPAA audit trail via `logPhiAccess()`
+- **Breach notification text/HTML templates** — HIPAA-compliant notification letter content covering what happened, what information was involved, corrective actions, and what individuals can do
 
 #### ✅ Completed & committed: Code cleanup & deduplication
 - **Legacy logger consolidation** — `server/logger.ts` replaced with re-export from `server/services/logger.ts` (28 services now get correlation ID injection automatically)

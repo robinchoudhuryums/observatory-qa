@@ -135,6 +135,21 @@ export function registerClinicalRoutes(app: Express): void {
           (Object.keys(structuredDataExtracted).length > 0 ? structuredDataExtracted : undefined),
       };
 
+      // HIPAA minimum necessary: viewers see only metadata, not full PHI content.
+      // Managers and admins see the full note for clinical/QA workflows.
+      const currentUserRole = req.user?.role;
+      if (currentUserRole === "viewer") {
+        const phiFields = [
+          "subjective", "objective", "assessment", "plan", "hpiText",
+          "reviewOfSystems", "differentialDiagnoses", "amendments",
+        ];
+        for (const field of phiFields) {
+          if (field in enriched) {
+            (enriched as Record<string, unknown>)[field] = "[Restricted — manager or admin access required]";
+          }
+        }
+      }
+
       res.json(enriched);
     } catch (error) {
       logger.error({ err: error }, "Failed to get clinical note");

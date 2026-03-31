@@ -1124,6 +1124,70 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS call_shares_call_idx ON call_shares (org_id, call_id)`);
     await addRlsPolicy(db, "call_shares").catch((e) => logger.warn({ err: e }, "RLS setup skipped for call_shares"));
 
+    // --- Security Incidents (HIPAA breach tracking) ---
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS security_incidents (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL REFERENCES organizations(id),
+        title VARCHAR(500) NOT NULL,
+        description TEXT NOT NULL,
+        severity VARCHAR(20) NOT NULL DEFAULT 'medium',
+        phase VARCHAR(30) NOT NULL DEFAULT 'detection',
+        declared_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        declared_by TEXT NOT NULL,
+        closed_at TIMESTAMPTZ,
+        affected_systems JSONB DEFAULT '[]',
+        estimated_affected_records INTEGER DEFAULT 0,
+        phi_involved BOOLEAN DEFAULT FALSE,
+        timeline JSONB DEFAULT '[]',
+        action_items JSONB DEFAULT '[]',
+        breach_notification VARCHAR(30) DEFAULT 'not_required',
+        breach_notification_deadline TIMESTAMPTZ,
+        contained_at TIMESTAMPTZ,
+        eradicated_at TIMESTAMPTZ,
+        recovered_at TIMESTAMPTZ,
+        root_cause TEXT,
+        lessons_learned TEXT
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS security_incidents_org_idx ON security_incidents (org_id)`);
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS security_incidents_org_phase_idx ON security_incidents (org_id, phase)`,
+    );
+    await addRlsPolicy(db, "security_incidents").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for security_incidents"),
+    );
+
+    // --- Breach Reports (HIPAA §164.408 notification tracking) ---
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS breach_reports (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL REFERENCES organizations(id),
+        incident_id TEXT REFERENCES security_incidents(id),
+        title VARCHAR(500) NOT NULL,
+        description TEXT NOT NULL,
+        discovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        reported_by TEXT NOT NULL,
+        affected_individuals INTEGER NOT NULL DEFAULT 0,
+        phi_types JSONB DEFAULT '[]',
+        notification_status VARCHAR(30) NOT NULL DEFAULT 'pending',
+        notification_deadline TIMESTAMPTZ NOT NULL,
+        individuals_notified_at TIMESTAMPTZ,
+        hhs_notified_at TIMESTAMPTZ,
+        media_notified_at TIMESTAMPTZ,
+        corrective_actions JSONB DEFAULT '[]',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS breach_reports_org_idx ON breach_reports (org_id)`);
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS breach_reports_org_status_idx ON breach_reports (org_id, notification_status)`,
+    );
+    await addRlsPolicy(db, "breach_reports").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for breach_reports"),
+    );
+
     // ── One-time data migrations ─────────────────────────────────────────────
     // These use runOnceMigration() to ensure they execute exactly once even
     // across repeated server restarts. Add new one-time migrations here.

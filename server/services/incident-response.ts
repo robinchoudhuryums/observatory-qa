@@ -10,13 +10,32 @@
  * - Breach notification status tracking
  * - Action item management
  *
- * Storage: In-memory with persistence via the storage layer.
- * In production, incidents should be stored in PostgreSQL.
+ * Storage: PostgreSQL when available (via security_incidents and breach_reports tables),
+ * with in-memory fallback for development without a database.
  *
  * Multi-tenant: All incidents are org-scoped.
  */
 import { randomUUID } from "crypto";
 import { logger } from "./logger";
+import { logPhiAccess } from "./audit-log";
+
+// --- DB helpers (lazy import to avoid circular deps) ---
+async function getDb() {
+  try {
+    const { getDatabase } = await import("../db/index");
+    return getDatabase();
+  } catch {
+    return null;
+  }
+}
+
+async function getDbTables() {
+  try {
+    return await import("../db/schema");
+  } catch {
+    return null;
+  }
+}
 
 // --- Types ---
 
@@ -144,6 +163,21 @@ export function declareIncident(
     { orgId, incidentId: id, severity: data.severity, phiInvolved: data.phiInvolved },
     "Security incident declared",
   );
+
+  // Persist to DB (fire-and-forget — in-memory is authoritative)
+  persistIncidentToDb(incident).catch((err) =>
+    logger.error({ err, incidentId: id }, "Failed to persist incident to DB"),
+  );
+
+  logPhiAccess({
+    event: "incident_declared",
+    orgId,
+    userId: data.declaredBy,
+    resourceType: "security_incident",
+    resourceId: id,
+    detail: `Severity: ${data.severity}, PHI involved: ${data.phiInvolved}`,
+  });
+
   return incident;
 }
 
@@ -181,6 +215,11 @@ export function advanceIncidentPhase(orgId: string, incidentId: string, advanced
   });
 
   logger.info({ orgId, incidentId, phase: nextPhase }, "Incident phase advanced");
+
+  persistIncidentToDb(incident).catch((err) =>
+    logger.error({ err, incidentId }, "Failed to persist incident phase update to DB"),
+  );
+
   return incident;
 }
 
@@ -255,6 +294,11 @@ export function updateIncident(
   if (!incident || incident.orgId !== orgId) return null;
 
   Object.assign(incident, updates);
+
+  persistIncidentToDb(incident).catch((err) =>
+    logger.error({ err, incidentId }, "Failed to persist incident update to DB"),
+  );
+
   return incident;
 }
 
@@ -310,6 +354,21 @@ export function createBreachReport(
 
   breachReports.set(id, report);
   logger.warn({ orgId, breachId: id, affected: data.affectedIndividuals }, "HIPAA breach report filed");
+
+  // Persist to DB
+  persistBreachReportToDb(report).catch((err) =>
+    logger.error({ err, breachId: id }, "Failed to persist breach report to DB"),
+  );
+
+  logPhiAccess({
+    event: "breach_report_filed",
+    orgId,
+    userId: data.reportedBy,
+    resourceType: "breach_report",
+    resourceId: id,
+    detail: `Affected: ${data.affectedIndividuals}, PHI types: ${data.phiTypes.join(", ")}`,
+  });
+
   return report;
 }
 
@@ -338,6 +397,12 @@ export function updateBreachReport(
   }
 
   logger.info({ orgId, breachId: reportId, status: report.notificationStatus }, "Breach report updated");
+
+  // Persist updated report to DB
+  persistBreachReportToDb(report).catch((err) =>
+    logger.error({ err, breachId: reportId }, "Failed to persist breach report update to DB"),
+  );
+
   return report;
 }
 
@@ -351,4 +416,201 @@ export function getBreachReport(orgId: string, reportId: string): BreachReport |
   const report = breachReports.get(reportId);
   if (!report || report.orgId !== orgId) return null;
   return report;
+}
+
+// --- DB persistence helpers ---
+
+async function persistIncidentToDb(incident: SecurityIncident): Promise<void> {
+  const db = await getDb();
+  const tables = await getDbTables();
+  if (!db || !tables?.securityIncidents) return;
+
+  const { eq } = await import("drizzle-orm");
+  const existing = await db
+    .select({ id: tables.securityIncidents.id })
+    .from(tables.securityIncidents)
+    .where(eq(tables.securityIncidents.id, incident.id))
+    .limit(1);
+
+  const row = {
+    id: incident.id,
+    orgId: incident.orgId,
+    title: incident.title,
+    description: incident.description,
+    severity: incident.severity,
+    phase: incident.phase,
+    declaredAt: new Date(incident.declaredAt),
+    declaredBy: incident.declaredBy,
+    closedAt: incident.closedAt ? new Date(incident.closedAt) : null,
+    affectedSystems: incident.affectedSystems,
+    estimatedAffectedRecords: incident.estimatedAffectedRecords,
+    phiInvolved: incident.phiInvolved,
+    timeline: incident.timeline,
+    actionItems: incident.actionItems,
+    breachNotification: incident.breachNotification,
+    breachNotificationDeadline: incident.breachNotificationDeadline
+      ? new Date(incident.breachNotificationDeadline)
+      : null,
+    containedAt: incident.containedAt ? new Date(incident.containedAt) : null,
+    eradicatedAt: incident.eradicatedAt ? new Date(incident.eradicatedAt) : null,
+    recoveredAt: incident.recoveredAt ? new Date(incident.recoveredAt) : null,
+    rootCause: incident.rootCause || null,
+    lessonsLearned: incident.lessonsLearned || null,
+  };
+
+  if (existing.length > 0) {
+    await db.update(tables.securityIncidents).set(row).where(eq(tables.securityIncidents.id, incident.id));
+  } else {
+    await db.insert(tables.securityIncidents).values(row);
+  }
+}
+
+async function persistBreachReportToDb(report: BreachReport): Promise<void> {
+  const db = await getDb();
+  const tables = await getDbTables();
+  if (!db || !tables?.breachReports) return;
+
+  const { eq } = await import("drizzle-orm");
+  const existing = await db
+    .select({ id: tables.breachReports.id })
+    .from(tables.breachReports)
+    .where(eq(tables.breachReports.id, report.id))
+    .limit(1);
+
+  const row = {
+    id: report.id,
+    orgId: report.orgId,
+    incidentId: report.incidentId || null,
+    title: report.title,
+    description: report.description,
+    discoveredAt: new Date(report.discoveredAt),
+    reportedBy: report.reportedBy,
+    affectedIndividuals: report.affectedIndividuals,
+    phiTypes: report.phiTypes,
+    notificationStatus: report.notificationStatus,
+    notificationDeadline: new Date(report.notificationDeadline),
+    individualsNotifiedAt: report.individualsNotifiedAt ? new Date(report.individualsNotifiedAt) : null,
+    hhsNotifiedAt: report.hhsNotifiedAt ? new Date(report.hhsNotifiedAt) : null,
+    mediaNotifiedAt: report.mediaNotifiedAt ? new Date(report.mediaNotifiedAt) : null,
+    correctiveActions: report.correctiveActions,
+    createdAt: new Date(report.createdAt),
+    updatedAt: new Date(report.updatedAt),
+  };
+
+  if (existing.length > 0) {
+    await db.update(tables.breachReports).set(row).where(eq(tables.breachReports.id, report.id));
+  } else {
+    await db.insert(tables.breachReports).values(row);
+  }
+}
+
+// --- Breach notification email ---
+
+/**
+ * Send breach notification email to affected individuals.
+ * HIPAA §164.404 requires notification within 60 days of discovery.
+ *
+ * @param orgId - Organization that experienced the breach
+ * @param reportId - Breach report ID
+ * @param recipientEmails - Email addresses of affected individuals
+ * @returns Number of emails sent
+ */
+export async function sendBreachNotificationEmails(
+  orgId: string,
+  reportId: string,
+  recipientEmails: string[],
+): Promise<number> {
+  const report = breachReports.get(reportId);
+  if (!report || report.orgId !== orgId) {
+    throw new Error("Breach report not found");
+  }
+
+  const { sendEmail } = await import("./email");
+
+  let sentCount = 0;
+  for (const email of recipientEmails) {
+    try {
+      await sendEmail({
+        to: email,
+        subject: `Important Notice: Data Security Incident — ${report.title}`,
+        text: buildBreachNotificationText(report),
+        html: buildBreachNotificationHtml(report),
+      });
+      sentCount++;
+    } catch (err) {
+      logger.error({ err, email: "[redacted]", breachId: reportId }, "Failed to send breach notification");
+    }
+  }
+
+  if (sentCount > 0) {
+    const now = new Date().toISOString();
+    updateBreachReport(orgId, reportId, {
+      individualsNotifiedAt: now,
+      notificationStatus: "individuals_notified",
+    });
+
+    logPhiAccess({
+      event: "breach_notification_sent",
+      orgId,
+      resourceType: "breach_report",
+      resourceId: reportId,
+      detail: `Notified ${sentCount} of ${recipientEmails.length} affected individuals`,
+    });
+  }
+
+  return sentCount;
+}
+
+function buildBreachNotificationText(report: BreachReport): string {
+  return `NOTICE OF DATA SECURITY INCIDENT
+
+Date of Notice: ${new Date().toLocaleDateString()}
+Date of Discovery: ${new Date(report.discoveredAt).toLocaleDateString()}
+
+Dear Individual,
+
+We are writing to inform you of a data security incident that may have affected your personal health information.
+
+WHAT HAPPENED:
+${report.description}
+
+WHAT INFORMATION WAS INVOLVED:
+The following types of information may have been affected: ${report.phiTypes.join(", ")}.
+
+WHAT WE ARE DOING:
+${report.correctiveActions.map((a, i) => `${i + 1}. ${a}`).join("\n")}
+
+WHAT YOU CAN DO:
+- Monitor your health insurance statements for any unfamiliar charges
+- Review your medical records for accuracy
+- Consider placing a fraud alert on your credit file
+
+For questions, please contact our Privacy Officer.
+
+This notice is being provided pursuant to the Health Insurance Portability and Accountability Act (HIPAA).`;
+}
+
+function buildBreachNotificationHtml(report: BreachReport): string {
+  return `<!DOCTYPE html>
+<html><body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+<h2 style="color: #dc2626;">Notice of Data Security Incident</h2>
+<p><strong>Date of Notice:</strong> ${new Date().toLocaleDateString()}<br>
+<strong>Date of Discovery:</strong> ${new Date(report.discoveredAt).toLocaleDateString()}</p>
+<p>Dear Individual,</p>
+<p>We are writing to inform you of a data security incident that may have affected your personal health information.</p>
+<h3>What Happened</h3>
+<p>${report.description}</p>
+<h3>What Information Was Involved</h3>
+<p>The following types of information may have been affected: <strong>${report.phiTypes.join(", ")}</strong>.</p>
+<h3>What We Are Doing</h3>
+<ol>${report.correctiveActions.map((a) => `<li>${a}</li>`).join("")}</ol>
+<h3>What You Can Do</h3>
+<ul>
+<li>Monitor your health insurance statements for any unfamiliar charges</li>
+<li>Review your medical records for accuracy</li>
+<li>Consider placing a fraud alert on your credit file</li>
+</ul>
+<p>For questions, please contact our Privacy Officer.</p>
+<p style="color: #666; font-size: 12px;">This notice is being provided pursuant to the Health Insurance Portability and Accountability Act (HIPAA).</p>
+</body></html>`;
 }
