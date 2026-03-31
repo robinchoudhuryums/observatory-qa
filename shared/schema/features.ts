@@ -409,24 +409,25 @@ export type LmsCategory = (typeof LMS_CATEGORIES)[number]["value"];
 // --- Learning Module (the content unit) ---
 export const insertLearningModuleSchema = z.object({
   orgId: z.string(),
-  title: z.string().min(1),
-  description: z.string().optional(),
-  contentType: z.string(), // article, quiz, video, document, ai_generated
-  category: z.string().optional(),
-  content: z.string().optional(), // markdown/HTML body for articles
+  title: z.string().min(1).max(500),
+  description: z.string().max(5000).optional(),
+  contentType: z.string().max(50), // article, quiz, video, document, ai_generated
+  category: z.string().max(100).optional(),
+  content: z.string().max(500000).optional(), // markdown/HTML body (500KB max)
   quizQuestions: z
     .array(
       z.object({
-        question: z.string(),
-        options: z.array(z.string()),
-        correctIndex: z.number(),
-        explanation: z.string().optional(),
+        question: z.string().min(1).max(1000),
+        options: z.array(z.string().min(1).max(500)).min(2).max(10),
+        correctIndex: z.number().int().min(0),
+        explanation: z.string().max(1000).optional(),
       }),
     )
+    .max(100)
     .optional(),
-  estimatedMinutes: z.number().optional(),
+  estimatedMinutes: z.number().min(1).max(600).optional(),
   difficulty: z.enum(["beginner", "intermediate", "advanced"]).optional(),
-  tags: z.array(z.string()).optional(),
+  tags: z.array(z.string().max(50)).max(20).optional(),
   sourceDocumentId: z.string().optional(), // reference doc this was generated from
   isPublished: z.boolean().optional(),
   isPlatformContent: z.boolean().optional(), // true = Observatory-curated content

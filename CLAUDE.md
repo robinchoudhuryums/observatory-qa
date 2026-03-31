@@ -1502,6 +1502,13 @@ Server serves both API and static frontend from the same process.
 - **Incident audit logging** — `declareIncident()` and `createBreachReport()` now log to HIPAA audit trail via `logPhiAccess()`
 - **Breach notification text/HTML templates** — HIPAA-compliant notification letter content covering what happened, what information was involved, corrective actions, and what individuals can do
 
+#### ✅ Completed & committed: LMS improvements
+- **Quiz answer validation** — quiz submission now validates answer count matches question count and each answer is a valid index within the options array; returns specific error codes (`OBS-LMS-ANSWER-MISMATCH`, `OBS-LMS-INVALID-ANSWER`)
+- **Module deletion cascade** — deleting a module now checks for dependent prerequisites (returns 409 with list), removes module from all learning paths, prevents orphaned references
+- **Path module validation** — learning path creation now validates all module IDs exist in the organization before creating the path
+- **Quiz deadline enforcement** — quiz submission now checks learning path deadline; rejects with `OBS-LMS-DEADLINE-PASSED` if overdue
+- **Schema length constraints** — added max lengths to title (500), description (5K), content (500K), quiz questions (1K), options (500 each, 2-10 per question, max 100 questions), tags (50 chars, max 20), estimatedMinutes (1-600)
+
 #### ✅ Completed & committed: Code cleanup & deduplication
 - **Legacy logger consolidation** — `server/logger.ts` replaced with re-export from `server/services/logger.ts` (28 services now get correlation ID injection automatically)
 - **Dashboard metrics deduplication** — extracted `calculateDashboardMetrics()` and `calculateSentimentDistribution()` into `server/storage/types.ts`; eliminates triplicated math in memory.ts, cloud.ts, pg-storage.ts

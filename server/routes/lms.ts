@@ -203,8 +203,33 @@ export function registerLmsRoutes(app: Express): void {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-      await storage.deleteLearningModule(orgId, req.params.id);
-      res.json({ message: "Module deleted" });
+      const moduleId = req.params.id;
+
+      // Check if any other modules reference this as a prerequisite
+      const allModules = await storage.listLearningModules(orgId);
+      const dependents = allModules.filter(
+        (m) => m.prerequisiteModuleIds && (m.prerequisiteModuleIds as string[]).includes(moduleId),
+      );
+      if (dependents.length > 0) {
+        return res.status(409).json({
+          message: `Cannot delete: ${dependents.length} module(s) have this as a prerequisite`,
+          code: "OBS-LMS-HAS-DEPENDENTS",
+          dependentModules: dependents.map((d) => ({ id: d.id, title: d.title })),
+        });
+      }
+
+      // Remove from any learning paths that reference this module
+      const allPaths = await storage.listLearningPaths(orgId);
+      for (const path of allPaths) {
+        const moduleIds = path.moduleIds as string[];
+        if (moduleIds.includes(moduleId)) {
+          const filtered = moduleIds.filter((id) => id !== moduleId);
+          await storage.updateLearningPath(orgId, path.id, { moduleIds: filtered });
+        }
+      }
+
+      await storage.deleteLearningModule(orgId, moduleId);
+      res.json({ message: "Module deleted", cleanedPaths: allPaths.filter((p) => (p.moduleIds as string[]).includes(moduleId)).length });
     },
   );
 
@@ -330,6 +355,20 @@ Respond with ONLY valid JSON (no markdown fences):
     const { title, description, category, moduleIds, isRequired, assignedTo, estimatedMinutes } = req.body;
     if (!title || !moduleIds || !Array.isArray(moduleIds)) {
       return res.status(400).json({ message: "title and moduleIds are required" });
+    }
+    if (moduleIds.length === 0) {
+      return res.status(400).json({ message: "At least one module is required in a learning path" });
+    }
+
+    // Validate all referenced modules exist
+    for (const moduleId of moduleIds) {
+      const mod = await storage.getLearningModule(orgId, moduleId);
+      if (!mod) {
+        return res.status(400).json({
+          message: `Module "${moduleId}" not found in organization`,
+          code: "OBS-LMS-MODULE-NOT-FOUND",
+        });
+      }
     }
 
     const path = await storage.createLearningPath(orgId, {
@@ -474,6 +513,22 @@ Respond with ONLY valid JSON (no markdown fences):
           return res.status(400).json({ message: "This module does not have quiz questions" });
         }
 
+        // Check if module is part of any path with a passed deadline
+        const pathId = req.body.pathId;
+        if (pathId) {
+          const path = await storage.getLearningPath(orgId, pathId);
+          if (path) {
+            const deadline = checkPathDeadline(path);
+            if (deadline?.overdue) {
+              return res.status(403).json({
+                message: "This learning path's deadline has passed. Contact your manager for an extension.",
+                code: "OBS-LMS-DEADLINE-PASSED",
+                daysOverdue: Math.abs(deadline.daysRemaining),
+              });
+            }
+          }
+        }
+
         // Check prerequisites before allowing quiz submission
         const prereqs = Array.isArray(module.prerequisiteModuleIds) ? (module.prerequisiteModuleIds as string[]) : [];
         if (prereqs.length > 0) {
@@ -495,6 +550,25 @@ Respond with ONLY valid JSON (no markdown fences):
           correctIndex: number;
           explanation?: string;
         }>;
+
+        // Validate answer count matches question count
+        if (answers.length !== questions.length) {
+          return res.status(400).json({
+            message: `Expected ${questions.length} answers, got ${answers.length}`,
+            code: "OBS-LMS-ANSWER-MISMATCH",
+          });
+        }
+
+        // Validate each answer is a valid index
+        for (let i = 0; i < answers.length; i++) {
+          const ans = answers[i];
+          if (typeof ans !== "number" || !Number.isInteger(ans) || ans < 0 || ans >= questions[i].options.length) {
+            return res.status(400).json({
+              message: `Invalid answer for question ${i + 1}: must be 0-${questions[i].options.length - 1}`,
+              code: "OBS-LMS-INVALID-ANSWER",
+            });
+          }
+        }
 
         // Grade each answer
         const results = questions.map((q, i) => {
