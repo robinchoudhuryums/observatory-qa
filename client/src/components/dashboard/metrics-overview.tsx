@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import { useCountUp } from "@/hooks/use-count-up";
 import { HelpTip } from "@/components/ui/help-tip";
 import type { DashboardMetrics } from "@shared/schema";
-import { RiPhoneLine, RiHeartLine, RiTimeLine, RiStarLine, RiAlertLine, RiUploadLine } from "@remixicon/react";
+import { RiPhoneLine, RiHeartLine, RiTimeLine, RiStarLine, RiUploadLine } from "@remixicon/react";
 
 const cardVariants = {
   hidden: { opacity: 0, y: 16 },

@@ -167,7 +167,7 @@ export default function SearchPage() {
               <div className="space-y-4">
                 {displayCalls.map((call, index) => (
                   <ErrorBoundary key={call?.id || index}>
-                    <CallCard call={call} index={index} />
+                    <CallCard call={call} />
                   </ErrorBoundary>
                 ))}
               </div>

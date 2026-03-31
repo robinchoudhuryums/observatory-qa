@@ -29,9 +29,3 @@ export const safeStorage = {
     }
   },
 };
-
-/** Check if user prefers reduced motion (accessibility) */
-export function prefersReducedMotion(): boolean {
-  if (typeof window === "undefined") return false;
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}

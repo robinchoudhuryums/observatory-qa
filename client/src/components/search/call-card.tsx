@@ -6,10 +6,9 @@ import { getSentimentBadge, getStatusBadge } from "@/lib/badge-helpers";
 
 interface CallCardProps {
   call: CallWithDetails;
-  index: number;
 }
 
-export function CallCard({ call, index }: CallCardProps) {
+export function CallCard({ call }: CallCardProps) {
   const formatDuration = (seconds?: number | null) => {
     if (seconds === null || seconds === undefined) return "N/A";
     const mins = Math.floor(seconds / 60);
