@@ -3480,6 +3480,9 @@ export class PostgresStorage implements IStorage {
     if (updates.isNewPatient !== undefined) setClause.isNewPatient = updates.isNewPatient;
     if (updates.referrerName !== undefined) setClause.referrerName = updates.referrerName;
     if (updates.notes !== undefined) setClause.notes = updates.notes;
+    if (updates.detectionMethod !== undefined) setClause.detectionMethod = updates.detectionMethod;
+    if (updates.confidence !== undefined) setClause.confidence = updates.confidence;
+    if (updates.attributedBy !== undefined) setClause.attributedBy = updates.attributedBy;
     const rows = await this.db
       .update(tables.callAttributions)
       .set(setClause)

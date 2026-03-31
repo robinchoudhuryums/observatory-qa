@@ -1509,6 +1509,12 @@ Server serves both API and static frontend from the same process.
 - **Quiz deadline enforcement** — quiz submission now checks learning path deadline; rejects with `OBS-LMS-DEADLINE-PASSED` if overdue
 - **Schema length constraints** — added max lengths to title (500), description (5K), content (500K), quiz questions (1K), options (500 each, 2-10 per question, max 100 questions), tags (50 chars, max 20), estimatedMinutes (1-600)
 
+#### ✅ Completed & committed: Lead Tracking improvements
+- **Attribution update fix** — `updateCallAttribution()` in pg-storage.ts was missing `detectionMethod`, `confidence`, and `attributedBy` fields; updates to these fields were silently dropped
+- **Campaign budget validation** — campaign creation now validates budget >= 0 and startDate <= endDate
+- **Confidence bounds check** — attribution confidence must be 0-1 range; rejects out-of-bounds values
+- **costPerLead div-by-zero** — metrics endpoint now checks `data.calls > 0` before dividing budget by calls (was producing `Infinity` for zero-call campaigns)
+
 #### ✅ Completed & committed: Code cleanup & deduplication
 - **Legacy logger consolidation** — `server/logger.ts` replaced with re-export from `server/services/logger.ts` (28 services now get correlation ID injection automatically)
 - **Dashboard metrics deduplication** — extracted `calculateDashboardMetrics()` and `calculateSentimentDistribution()` into `server/storage/types.ts`; eliminates triplicated math in memory.ts, cloud.ts, pg-storage.ts

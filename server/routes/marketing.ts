@@ -46,6 +46,14 @@ export function registerMarketingRoutes(app: Express): void {
       return res
         .status(400)
         .json({ message: `Invalid source. Valid sources: ${Array.from(VALID_SOURCES).join(", ")}` });
+    // Validate budget is non-negative
+    if (budget !== undefined && (typeof budget !== "number" || budget < 0)) {
+      return res.status(400).json({ message: "budget must be a non-negative number" });
+    }
+    // Validate date ordering
+    if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
+      return res.status(400).json({ message: "startDate must be before endDate" });
+    }
     const campaign = await storage.createMarketingCampaign(orgId, {
       orgId,
       name,
@@ -120,6 +128,10 @@ export function registerMarketingRoutes(app: Express): void {
         return res
           .status(400)
           .json({ message: `Invalid source. Valid sources: ${Array.from(VALID_SOURCES).join(", ")}` });
+      // Validate confidence bounds (0-1 range)
+      if (confidence !== undefined && (typeof confidence !== "number" || confidence < 0 || confidence > 1)) {
+        return res.status(400).json({ message: "confidence must be a number between 0 and 1" });
+      }
 
       // Upsert: check if attribution exists
       const existing = await storage.getCallAttribution(orgId, callId);
@@ -272,7 +284,7 @@ export function registerMarketingRoutes(app: Express): void {
             data.scores.length > 0
               ? Math.round((data.scores.reduce((a, b) => a + b, 0) / data.scores.length) * 10) / 10
               : 0,
-          costPerLead: budget ? Math.round((budget / data.calls) * 100) / 100 : null,
+          costPerLead: budget && data.calls > 0 ? Math.round((budget / data.calls) * 100) / 100 : null,
           roi: budget && data.revenue > 0 ? Math.round(((data.revenue - budget) / budget) * 100) / 100 : null,
           // Source→funnel pipeline: how far leads from this source progress
           funnel: data.funnel,
