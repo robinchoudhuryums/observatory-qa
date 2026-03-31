@@ -136,13 +136,20 @@ export const clinicalNoteSchema = z.object({
   icd10Codes: z
     .array(
       z.object({
-        code: z.string().regex(/^[A-TV-Z]\d{2}(\.\d{1,4})?$/, "Invalid ICD-10 format"),
+        // ICD-10-CM: letter A-Z (including U for COVID-19 codes like U07.1), followed by 2 digits, optional decimal with 1-4 digits
+        code: z.string().regex(/^[A-Z]\d{2}(\.\d{1,4})?$/, "Invalid ICD-10 format (e.g. U07.1, M54.5)"),
         description: z.string(),
       }),
     )
     .optional(),
   cptCodes: z
-    .array(z.object({ code: z.string().regex(/^\d{5}[A-Z]?$/, "Invalid CPT format"), description: z.string() }))
+    .array(
+      z.object({
+        // CPT: 5 digits with optional letter suffix (Category III) or hyphen-separated modifier (e.g. 99213-25)
+        code: z.string().regex(/^\d{5}[A-Z]?(-\d{2})?$/, "Invalid CPT format (e.g. 99213, 99213-25)"),
+        description: z.string(),
+      }),
+    )
     .optional(),
   prescriptions: z
     .array(

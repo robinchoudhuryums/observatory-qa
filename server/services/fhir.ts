@@ -149,7 +149,8 @@ export function buildFhirComposition(params: {
     resourceType: "Composition",
     id: callId,
     meta: {
-      profile: ["http://hl7.org/fhir/us/core/StructureDefinition/us-core-documentreference"],
+      // US Core Clinical Notes profile for Composition (not DocumentReference)
+      profile: ["http://hl7.org/fhir/us/core/StructureDefinition/us-core-clinical-note"],
     },
     status: "final",
     type: {

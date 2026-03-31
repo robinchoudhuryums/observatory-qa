@@ -250,7 +250,8 @@ export function mapClinicalNote(rawNote: any): any {
     subjective: rawNote.subjective,
     objective: rawNote.objective,
     assessment: rawNote.assessment,
-    plan: rawNote.plan,
+    // Normalize plan to array — AI may return a string instead of array
+    plan: Array.isArray(rawNote.plan) ? rawNote.plan : rawNote.plan ? [rawNote.plan] : [],
     hpiNarrative: rawNote.hpi_narrative,
     reviewOfSystems: rawNote.review_of_systems,
     differentialDiagnoses: rawNote.differential_diagnoses,

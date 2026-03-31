@@ -189,6 +189,29 @@ export function registerClinicalRoutes(app: Express): void {
           return;
         }
 
+        // HIPAA: Validate note completeness before allowing attestation.
+        // Providers should not attest incomplete notes — they must add missing sections first.
+        const attestValidation = validateClinicalNote(analysis.clinicalNote as Record<string, unknown>);
+        if (!attestValidation.valid) {
+          res.status(400).json({
+            message: "Clinical note cannot be attested — required sections are missing or incomplete",
+            code: "OBS-CLINICAL-INCOMPLETE",
+            warnings: attestValidation.warnings,
+            weightedCompleteness: attestValidation.weightedCompleteness,
+          });
+          return;
+        }
+        // Block attestation for very low completeness scores (< 4.0 out of 10)
+        if (attestValidation.weightedCompleteness < 4.0) {
+          res.status(400).json({
+            message: "Clinical note completeness is too low for attestation — please add required sections",
+            code: "OBS-CLINICAL-LOW-COMPLETENESS",
+            weightedCompleteness: attestValidation.weightedCompleteness,
+            warnings: attestValidation.warnings,
+          });
+          return;
+        }
+
         analysis.clinicalNote.providerAttested = true;
         analysis.clinicalNote.attestedBy = currentUserName;
         analysis.clinicalNote.attestedById = req.user?.id;
@@ -1302,10 +1325,28 @@ export function registerClinicalRoutes(app: Express): void {
           res.status(404).json({ message: "No clinical note found for this encounter" });
           return;
         }
-        // Amendments snapshot contains no PHI — no decryption needed
+        logPhiAccess({
+          ...auditContext(req),
+          event: "view_clinical_amendments",
+          resourceType: "clinical_note",
+          resourceId: req.params.callId,
+        });
+
+        // Decrypt addendum content (encrypted at creation time since it may contain PHI)
+        const amendments = (analysis.clinicalNote.amendments || []).map((a: any) => {
+          if (a.content && typeof a.content === "string" && a.content.startsWith("enc_v1:")) {
+            try {
+              return { ...a, content: decryptField(a.content) };
+            } catch {
+              return { ...a, content: "[Decryption failed — content unavailable]" };
+            }
+          }
+          return a;
+        });
+
         res.json({
-          amendments: analysis.clinicalNote.amendments || [],
-          count: analysis.clinicalNote.amendments?.length || 0,
+          amendments,
+          count: amendments.length,
         });
       } catch (error) {
         logger.error({ err: error }, "Failed to get clinical note amendments");

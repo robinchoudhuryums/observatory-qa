@@ -1469,6 +1469,14 @@ Server serves both API and static frontend from the same process.
 - **E2E security tests** — `tests/e2e/security.spec.ts`: cross-org data access prevention, role escalation, CSRF, session fixation, auth enforcement, rate limiting
 - **Deploy auto-rollback** — `deploy/ec2/deploy.sh`: saves previous SHA before deploy; auto-rollback on health check failure; hard-fail on missing env vars in production; `--force` flag to skip pre-flight
 
+#### ✅ Completed & committed: Clinical Documentation improvements
+- **ICD-10 regex fix** — schema now accepts U-prefix codes (U07.1 for COVID-19); was rejecting valid ICD-10-CM codes starting with U
+- **CPT modifier support** — regex updated to accept hyphen-separated modifiers (e.g. 99213-25 for distinct procedural service)
+- **Attestation validation gate** — `POST /api/clinical/notes/:callId/attest` now validates completeness before allowing attestation; blocks notes with `weightedCompleteness < 4.0` or validation failures
+- **Addendum content decryption** — `GET /api/clinical/notes/:callId/amendments` now decrypts encrypted addendum content before returning (was returning `enc_v1:base64...` to client)
+- **Plan field normalization** — `mapClinicalNote()` now converts AI string responses to array for `plan` field (schema requires array but AI sometimes returns string)
+- **FHIR Composition profile fix** — changed profile from `us-core-documentreference` (wrong resource type) to `us-core-clinical-note` (correct for Composition)
+
 #### ✅ Completed & committed: RAG Feature improvements
 - **HNSW vector index** — `doc_chunks_embedding_hnsw_idx` added to sync-schema.ts; pgvector cosine search goes from O(n) sequential scan to O(log n) approximate nearest neighbor. Critical for orgs with 10K+ chunks
 - **BM25 normalization fix** — was dividing score by query term count (penalizing multi-term queries); replaced with log-linear scaling `log1p(score) / log1p(3)` which preserves ranking consistency regardless of query length
