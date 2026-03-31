@@ -1483,12 +1483,52 @@ export function registerClinicalRoutes(app: Express): void {
         const providerName = cn.attestedBy || req.user?.name || req.user?.username || "Unknown Provider";
         const npi = cn.attestedNpi;
 
+        // Attempt to load patient data from EHR if configured and ehrPatientId available
+        let patientData: { id?: string; firstName?: string; lastName?: string; dateOfBirth?: string; phone?: string; email?: string } | undefined;
+        const call = await storage.getCall(req.orgId!, req.params.callId);
+        const ehrPatientId = (call as any)?.ehrPatientId || req.query.ehrPatientId;
+        if (ehrPatientId) {
+          try {
+            const { getEhrAdapter } = await import("../services/ehr/index");
+            const ehrConfig = (org?.settings as any)?.ehrConfig;
+            if (ehrConfig?.enabled) {
+              const adapter = getEhrAdapter(ehrConfig.system);
+              if (!adapter) throw new Error("EHR adapter not available");
+              const patient = await adapter.getPatient(ehrConfig, ehrPatientId as string);
+              if (patient) {
+                patientData = {
+                  id: patient.ehrPatientId,
+                  firstName: patient.firstName,
+                  lastName: patient.lastName,
+                  dateOfBirth: patient.dateOfBirth,
+                  phone: patient.phone,
+                  email: patient.email,
+                };
+              }
+            }
+          } catch (ehrErr) {
+            // Non-fatal — FHIR export works without patient data
+            logger.debug({ err: ehrErr }, "EHR patient lookup failed for FHIR export — continuing without patient");
+          }
+        }
+
+        // Build cosigner info if present
+        const cosigner = cn.cosignature
+          ? {
+              name: (cn.cosignature as any).cosignedBy,
+              npi: (cn.cosignature as any).cosignedNpi,
+              credentials: (cn.cosignature as any).credentials,
+            }
+          : undefined;
+
         const fhirBundle = buildFhirBundle({
           note: cn as Record<string, unknown>,
           callId: req.params.callId,
           orgName,
           providerName,
           npi,
+          patient: patientData,
+          cosigner,
         });
 
         logPhiAccess({

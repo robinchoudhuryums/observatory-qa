@@ -1,11 +1,18 @@
 /**
  * FHIR R4 Resource Builders
  *
- * Converts clinical notes to FHIR R4 Composition + DocumentReference resources.
+ * Converts clinical notes to FHIR R4 resources:
+ *   - Patient (from EHR data or clinical note context)
+ *   - Practitioner (from attesting provider)
+ *   - Encounter (from call/clinical encounter)
+ *   - Composition (clinical note with sections)
+ *   - DocumentReference (pointing to Composition)
+ *
  * Only attested notes should be exported as FHIR (enforced in the route layer).
  *
  * References:
  *   - FHIR R4: https://hl7.org/fhir/R4/
+ *   - US Core: https://hl7.org/fhir/us/core/
  *   - LOINC codes for note types: https://loinc.org/
  */
 
@@ -60,6 +67,171 @@ function buildSection(title: string, content: string, loincCode?: string): objec
   return section;
 }
 
+// ─── Patient resource ────────────────────────────────────────────────────────
+
+/**
+ * Build a FHIR R4 Patient resource from available patient context.
+ * Returns null if no patient identifying info is available.
+ */
+export function buildFhirPatient(params: {
+  patientId?: string;
+  firstName?: string;
+  lastName?: string;
+  dateOfBirth?: string;
+  phone?: string;
+  email?: string;
+}): object | null {
+  const { patientId, firstName, lastName, dateOfBirth, phone, email } = params;
+  // Need at minimum a name or identifier to create a useful Patient resource
+  if (!firstName && !lastName && !patientId) return null;
+
+  const patient: Record<string, unknown> = {
+    resourceType: "Patient",
+    id: patientId || randomUUID(),
+  };
+
+  if (firstName || lastName) {
+    patient.name = [
+      {
+        use: "official",
+        family: lastName || undefined,
+        given: firstName ? [firstName] : undefined,
+      },
+    ];
+  }
+
+  if (dateOfBirth) {
+    patient.birthDate = dateOfBirth;
+  }
+
+  const telecom: object[] = [];
+  if (phone) {
+    telecom.push({ system: "phone", value: phone, use: "home" });
+  }
+  if (email) {
+    telecom.push({ system: "email", value: email });
+  }
+  if (telecom.length > 0) patient.telecom = telecom;
+
+  return patient;
+}
+
+// ─── Practitioner resource ───────────────────────────────────────────────────
+
+/**
+ * Build a FHIR R4 Practitioner resource from provider info.
+ */
+export function buildFhirPractitioner(params: {
+  providerName: string;
+  npi?: string;
+  cosigner?: { name: string; npi?: string; credentials?: string };
+}): object {
+  const { providerName, npi, cosigner } = params;
+  const [given, ...familyParts] = providerName.split(" ");
+  const family = familyParts.join(" ") || given;
+
+  const practitioner: Record<string, unknown> = {
+    resourceType: "Practitioner",
+    id: `practitioner-${npi || randomUUID()}`,
+    name: [
+      {
+        use: "official",
+        family,
+        given: familyParts.length > 0 ? [given] : undefined,
+        text: providerName,
+      },
+    ],
+  };
+
+  const identifiers: object[] = [];
+  if (npi) {
+    identifiers.push({
+      system: "http://hl7.org/fhir/sid/us-npi",
+      value: npi,
+    });
+  }
+  if (identifiers.length > 0) practitioner.identifier = identifiers;
+
+  // If there's a cosigner, create a qualification entry
+  if (cosigner) {
+    practitioner.qualification = [
+      {
+        code: {
+          text: cosigner.credentials || "Supervising Provider",
+        },
+      },
+    ];
+  }
+
+  return practitioner;
+}
+
+// ─── Encounter resource ──────────────────────────────────────────────────────
+
+/**
+ * Build a FHIR R4 Encounter resource representing the clinical encounter.
+ */
+export function buildFhirEncounter(params: {
+  encounterId: string;
+  patientId?: string;
+  practitionerId?: string;
+  encounterDate: string;
+  encounterType?: string; // e.g., "ambulatory", "inpatient", "emergency"
+  specialty?: string;
+}): object {
+  const { encounterId, patientId, practitionerId, encounterDate, encounterType, specialty } = params;
+
+  const encounter: Record<string, unknown> = {
+    resourceType: "Encounter",
+    id: encounterId,
+    status: "finished",
+    class: {
+      system: "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+      code: encounterType === "inpatient" ? "IMP" : "AMB",
+      display: encounterType === "inpatient" ? "Inpatient" : "Ambulatory",
+    },
+    period: {
+      start: encounterDate,
+      end: encounterDate,
+    },
+  };
+
+  if (patientId) {
+    encounter.subject = { reference: `Patient/${patientId}` };
+  }
+
+  if (practitionerId) {
+    encounter.participant = [
+      {
+        type: [
+          {
+            coding: [
+              {
+                system: "http://terminology.hl7.org/CodeSystem/v3-ParticipationType",
+                code: "PPRF",
+                display: "Primary performer",
+              },
+            ],
+          },
+        ],
+        individual: { reference: `Practitioner/${practitionerId}` },
+      },
+    ];
+  }
+
+  if (specialty) {
+    encounter.type = [
+      {
+        text: specialty,
+      },
+    ];
+  }
+
+  return encounter;
+}
+
+// ─── Composition resource ────────────────────────────────────────────────────
+
 /**
  * Build a FHIR R4 Composition resource from a clinical note.
  * The note must be decrypted before passing to this function.
@@ -71,8 +243,10 @@ export function buildFhirComposition(params: {
   providerName: string;
   npi?: string;
   encounterId?: string;
+  patientId?: string;
+  practitionerId?: string;
 }): object {
-  const { note, callId, orgName, providerName, npi, encounterId } = params;
+  const { note, callId, orgName, providerName, npi, encounterId, patientId, practitionerId } = params;
   const format = (note.format as string) || "soap";
   const loinc = FORMAT_LOINC[format] || FORMAT_LOINC.soap;
   const attestedAt = (note.attestedAt as string) || new Date().toISOString();
@@ -164,7 +338,9 @@ export function buildFhirComposition(params: {
       text: loinc.display,
     },
     date: attestedAt,
-    author: [author],
+    author: practitionerId
+      ? [{ reference: `Practitioner/${practitionerId}`, display: providerName }]
+      : [author],
     title: "Clinical Note",
     custodian: {
       display: orgName,
@@ -174,11 +350,19 @@ export function buildFhirComposition(params: {
       {
         mode: "professional",
         time: attestedAt,
-        party: { display: providerName },
+        party: practitionerId
+          ? { reference: `Practitioner/${practitionerId}`, display: providerName }
+          : { display: providerName },
       },
     ],
   };
 
+  // Link to Patient if available (US Core requires subject on Composition)
+  if (patientId) {
+    composition.subject = { reference: `Patient/${patientId}` };
+  }
+
+  // Link to Encounter
   if (encounterId) {
     composition.encounter = { reference: `Encounter/${encounterId}` };
   }
@@ -240,8 +424,16 @@ export function buildFhirDocumentReference(params: {
 }
 
 /**
- * Build a FHIR R4 Bundle containing a Composition and DocumentReference.
- * Returns a searchset bundle suitable for export to EHR systems.
+ * Build a FHIR R4 Bundle containing all clinical resources.
+ *
+ * The bundle includes (when data is available):
+ *   - Patient (from EHR or clinical note context)
+ *   - Practitioner (from attesting provider)
+ *   - Encounter (representing the clinical encounter)
+ *   - Composition (the clinical note with sections)
+ *   - DocumentReference (pointing to Composition)
+ *
+ * Returns a document bundle suitable for export to EHR systems.
  */
 export function buildFhirBundle(params: {
   note: Record<string, unknown>;
@@ -249,9 +441,65 @@ export function buildFhirBundle(params: {
   orgName: string;
   providerName: string;
   npi?: string;
+  /** Patient demographics from EHR integration (optional) */
+  patient?: {
+    id?: string;
+    firstName?: string;
+    lastName?: string;
+    dateOfBirth?: string;
+    phone?: string;
+    email?: string;
+  };
+  /** Cosigning provider info (optional) */
+  cosigner?: { name: string; npi?: string; credentials?: string };
+  /** Encounter date (defaults to attestation date) */
+  encounterDate?: string;
 }): object {
-  const composition = buildFhirComposition(params);
+  const entries: Array<{ fullUrl: string; resource: object }> = [];
+
+  // 1. Build Practitioner
+  const practitioner = buildFhirPractitioner({
+    providerName: params.providerName,
+    npi: params.npi,
+    cosigner: params.cosigner,
+  });
+  const practitionerId = (practitioner as Record<string, unknown>).id as string;
+  entries.push({ fullUrl: `urn:uuid:${practitionerId}`, resource: practitioner });
+
+  // 2. Build Patient (if data available)
+  let patientId: string | undefined;
+  if (params.patient) {
+    const patient = buildFhirPatient(params.patient);
+    if (patient) {
+      patientId = (patient as Record<string, unknown>).id as string;
+      entries.push({ fullUrl: `urn:uuid:${patientId}`, resource: patient });
+    }
+  }
+
+  // 3. Build Encounter
+  const encounterId = `encounter-${params.callId}`;
+  const encounterDate =
+    params.encounterDate || (params.note.attestedAt as string) || new Date().toISOString();
+  const encounter = buildFhirEncounter({
+    encounterId,
+    patientId,
+    practitionerId,
+    encounterDate,
+    specialty: params.note.specialty as string | undefined,
+  });
+  entries.push({ fullUrl: `urn:uuid:${encounterId}`, resource: encounter });
+
+  // 4. Build Composition (the clinical note)
+  const composition = buildFhirComposition({
+    ...params,
+    encounterId,
+    patientId,
+    practitionerId,
+  });
   const compositionId = (composition as Record<string, unknown>).id as string;
+  entries.push({ fullUrl: `urn:uuid:${compositionId}`, resource: composition });
+
+  // 5. Build DocumentReference
   const docRef = buildFhirDocumentReference({
     compositionId,
     callId: params.callId,
@@ -259,6 +507,7 @@ export function buildFhirBundle(params: {
     orgName: params.orgName,
     providerName: params.providerName,
   });
+  entries.push({ fullUrl: `urn:uuid:${randomUUID()}`, resource: docRef });
 
   return {
     resourceType: "Bundle",
@@ -268,15 +517,6 @@ export function buildFhirBundle(params: {
     meta: {
       profile: ["http://hl7.org/fhir/us/core/StructureDefinition/us-core-documentreference"],
     },
-    entry: [
-      {
-        fullUrl: `urn:uuid:${compositionId}`,
-        resource: composition,
-      },
-      {
-        fullUrl: `urn:uuid:${randomUUID()}`,
-        resource: docRef,
-      },
-    ],
+    entry: entries,
   };
 }

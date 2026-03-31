@@ -1476,6 +1476,8 @@ Server serves both API and static frontend from the same process.
 - **Addendum content decryption** — `GET /api/clinical/notes/:callId/amendments` now decrypts encrypted addendum content before returning (was returning `enc_v1:base64...` to client)
 - **Plan field normalization** — `mapClinicalNote()` now converts AI string responses to array for `plan` field (schema requires array but AI sometimes returns string)
 - **FHIR Composition profile fix** — changed profile from `us-core-documentreference` (wrong resource type) to `us-core-clinical-note` (correct for Composition)
+- **FHIR resource expansion** — added `buildFhirPatient()` (demographics from EHR), `buildFhirPractitioner()` (NPI, name from attesting provider), `buildFhirEncounter()` (encounter date, specialty, participant). Bundle now includes Patient + Practitioner + Encounter + Composition + DocumentReference with proper inter-resource references (`subject`, `participant`, `author`). EHR patient data auto-loaded when configured
+- **Style learning** — verified already working correctly: route decrypts PHI fields before passing to `analyzeProviderStyle()` (fixed in prior session)
 
 #### ✅ Completed & committed: RAG Feature improvements
 - **HNSW vector index** — `doc_chunks_embedding_hnsw_idx` added to sync-schema.ts; pgvector cosine search goes from O(n) sequential scan to O(log n) approximate nearest neighbor. Critical for orgs with 10K+ chunks
