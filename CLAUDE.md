@@ -1528,3 +1528,81 @@ See `HEALTHCARE_EXPANSION_PLAN.md` for the full 4-phase healthcare expansion roa
 - **Super-admin role**: Platform-level admin (not org-scoped) for managing all organizations — `SUPER_ADMIN_USERS` env var
 - **PostgreSQL migration**: Move remaining S3-only deployments to PostgreSQL for better query performance and transactional integrity
 - **Spanish language support**: Multilingual clinical note generation
+
+## Improvement Backlog (Multi-Sprint)
+
+Longer-term improvements identified during codebase audits. Work on these incrementally across sessions. Mark items `✅ Done` as they're completed, with the branch/session where they were done.
+
+### Clinical Documentation / Medical Scribe
+| Priority | Item | Notes |
+|----------|------|-------|
+| HIGH | **HL7v2 ADT integration** | New protocol adapter, MSH/PID/PV1 message parsing, TCP/MLLP transport. Required for hospital EHR integration beyond dental |
+| HIGH | **Clinical decision support alerts** | Rules engine for drug interactions, allergy cross-reference, contraindication warnings during note generation |
+| MEDIUM | **Structured data auto-extraction at generation time** | `extractStructuredDataFromSections()` currently runs only at read time, not during pipeline. Vitals, meds, allergies should be extracted and stored on note creation |
+| MEDIUM | **Clinical note retry on AI failure** | When AI returns no `clinical_note` field, call completes without note. Should mark as `requires_retry` and auto-queue |
+| MEDIUM | **Amendment chain integrity** | Amendments stored as mutable JSONB array. Should use append-only audit log or DB-level write-once semantics for tamper-proofing |
+| MEDIUM | **Cosignature version conflict detection** | Cosign endpoint doesn't verify note wasn't edited between attestation and cosignature |
+| LOW | **ICD-10/diagnosis linkage** | `icd10Codes` array has no association to which assessment/diagnosis each code corresponds — needed for accurate FHIR coding |
+| LOW | **Amendment subtypes** | Add `type: "amendment" | "addendum" | "section_completion"` to distinguish corrections from completions in audit trail |
+| LOW | **Batch clinical note revalidation** | Endpoint to re-validate notes against updated validation rules (useful after schema/regex changes) |
+
+### Call Analysis
+| Priority | Item | Notes |
+|----------|------|-------|
+| HIGH | **Upload deduplication lock** | File hash TOCTOU race: two concurrent uploads with same hash can both create calls. Need atomic `getOrCreateCall()` or Redis lock |
+| MEDIUM | **Confidence-based prompt adjustment** | For low-confidence transcripts (<0.5), inject guidance asking AI to flag uncertain passages with `[UNCLEAR]` |
+| MEDIUM | **Prompt template caching** | Templates loaded fresh per call. Cache rendered system prompt by `{orgId}:{category}:{templateHash}:{ragHash}` to improve Bedrock prompt cache hit rate |
+| LOW | **Per-call cost attribution** | Track actual Bedrock input/output token counts from response metadata (currently estimated from text length) |
+
+### RAG Knowledge Base
+| Priority | Item | Notes |
+|----------|------|-------|
+| MEDIUM | **Chunk deduplication** | Identical text chunks across documents generate duplicate embeddings. Track content hash to reuse existing embeddings |
+| MEDIUM | **Semantic deduplication of results** | If two retrieved chunks are >0.95 cosine similar, only return the higher-scored one to reduce redundancy in context |
+| MEDIUM | **PDF extraction timeout** | `pdf-parse` can hang on malformed PDFs. Add 5-second extraction timeout with `Promise.race()` |
+| LOW | **Chunk-level retrieval tracking** | `retrieval_count` increments per-document, not per-chunk. Per-chunk tracking would show which sections are most useful |
+| LOW | **pgvector availability check** | No explicit check that pgvector extension is installed before attempting vector queries. Add startup validation |
+
+### HIPAA Compliance
+| Priority | Item | Notes |
+|----------|------|-------|
+| HIGH | **BAA management system** | Currently documentation-only (`BAA_TEMPLATE.md`). Need DB table to track BAA status, expiry dates, signatory info per sub-processor |
+| HIGH | **Automated breach detection** | Currently manual `declareIncident()` only. Add anomaly detection: unusual PHI access patterns, bulk exports, off-hours access |
+| MEDIUM | **S3/backup lifecycle purging** | Retention worker handles DB but not S3 object lifecycle, RDS backups, or cross-region replicas |
+| MEDIUM | **PHI access reporting UI** | Audit log data exists but no admin dashboard for "show who accessed patient X in the last 30 days" queries |
+| LOW | **Key escrow for PHI encryption** | No recovery path if `PHI_ENCRYPTION_KEY` is lost. Document or implement secure key backup via AWS Secrets Manager |
+
+### LMS / Learning
+| Priority | Item | Notes |
+|----------|------|-------|
+| MEDIUM | **Progress upsert race condition** | `select` then `insert/update` pattern vulnerable to concurrent requests. Use PostgreSQL `INSERT ... ON CONFLICT DO UPDATE` |
+| MEDIUM | **Quiz question versioning** | If module content changes, old progress doesn't reflect what was actually answered. Store quiz version hash with progress |
+| MEDIUM | **N+1 query in path progress** | `getLearningModule()` called per module in a path. Add batch method `getLearningModulesByIds()` |
+| LOW | **Learning path assignment notifications** | `assignedTo` array stored but no notification when assigned, no audit log |
+| LOW | **Bulk progress operations** | Manager can't bulk mark employees complete, reset progress, or bulk assign paths |
+| LOW | **Stats endpoint optimization** | Loads all modules + all employees + per-employee progress. Need SQL-level aggregation |
+
+### Lead Tracking
+| Priority | Item | Notes |
+|----------|------|-------|
+| MEDIUM | **UTM parameter capture** | No UTM tracking from call source URLs. Would enable attribution from web forms/landing pages |
+| MEDIUM | **CRM webhook integration** | No outbound webhooks to Salesforce/HubSpot when call-to-appointment conversion is tracked |
+| LOW | **Cohort conversion analysis** | Basic per-source metrics exist but no time-based cohort analysis (e.g., "calls from January → conversion rate over 90 days") |
+| LOW | **Time-to-convert metrics** | No tracking of elapsed time between call and each attribution stage |
+
+### Architecture / Code Quality
+| Priority | Item | Notes |
+|----------|------|-------|
+| MEDIUM | **Route error handling standardization** | `asyncHandler()` + `AppError` pattern exists in `error-handler.ts` but used in <10% of routes. ~400 lines of duplicated try/catch boilerplate |
+| MEDIUM | **Inline schema centralization** | ~80 lines of ad-hoc Zod schemas defined in route files. Move to `shared/schema` for frontend/backend reuse |
+| MEDIUM | **Large route file decomposition** | `clinical.ts` (1.8K lines), `admin.ts` (1.4K lines), `mfa.ts` (1.2K lines). Extract business logic to services |
+| LOW | **254 ESLint `no-unused-vars` warnings** | Spread across ~100 files, mostly unused function params. Tedious but reduces noise |
+| LOW | **OIDC state persistence** | OIDC state map is in-memory. Multi-instance deployments need Redis-backed state |
+
+### UI/UX
+| Priority | Item | Notes |
+|----------|------|-------|
+| MEDIUM | **Dashboard query freshness** | No `staleTime`/`refetchInterval` on dashboard queries — data can be stale until window focus |
+| MEDIUM | **Accessibility audit** | Some ARIA labels present but no WAVE/axe-core audit done. Missing visible labels on some form elements |
+| LOW | **Large page decomposition** | `clinical-notes.tsx` (1.2K lines), `reports.tsx` (1.2K lines) could be broken into smaller components |
+| LOW | **Upload progress tracking** | No progress bar for large file uploads. `fetch()` doesn't support progress natively — need XMLHttpRequest or tus protocol |
