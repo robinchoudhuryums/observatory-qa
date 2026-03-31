@@ -798,6 +798,7 @@ export const callRevenues = pgTable(
     insuranceAmount: real("insurance_amount"),
     patientAmount: real("patient_amount"),
     ehrSyncedAt: timestamp("ehr_synced_at"),
+    convertedAt: timestamp("converted_at"),
   },
   (t) => [
     index("call_revenues_org_idx").on(t.orgId),
@@ -991,6 +992,12 @@ export const callAttributions = pgTable(
     confidence: real("confidence"),
     notes: text("notes"),
     attributedBy: varchar("attributed_by", { length: 255 }),
+    // UTM parameter tracking
+    utmSource: varchar("utm_source", { length: 255 }),
+    utmMedium: varchar("utm_medium", { length: 255 }),
+    utmCampaign: varchar("utm_campaign", { length: 255 }),
+    utmContent: varchar("utm_content", { length: 255 }),
+    utmTerm: varchar("utm_term", { length: 255 }),
     createdAt: timestamp("created_at").defaultNow(),
   },
   (t) => [

@@ -310,6 +310,8 @@ export const insertCallRevenueSchema = z.object({
   // --- EHR sync ---
   /** ISO timestamp of last EHR sync for this revenue record */
   ehrSyncedAt: z.string().optional(),
+  /** ISO timestamp when the call converted (appointment completed, payment collected, etc.) */
+  convertedAt: z.string().optional(),
 });
 
 export const callRevenueSchema = insertCallRevenueSchema.extend({
@@ -572,6 +574,12 @@ export const insertCallAttributionSchema = z.object({
   confidence: z.number().min(0).max(1).optional(), // 0-1 for AI-detected
   notes: z.string().optional(),
   attributedBy: z.string().optional(),
+  // UTM parameter tracking — captured from call metadata, web forms, or tracking URLs
+  utmSource: z.string().max(255).optional(), // e.g., "google", "facebook", "newsletter"
+  utmMedium: z.string().max(255).optional(), // e.g., "cpc", "email", "organic"
+  utmCampaign: z.string().max(255).optional(), // e.g., "spring_promo_2026"
+  utmContent: z.string().max(255).optional(), // e.g., "hero_banner_v2"
+  utmTerm: z.string().max(255).optional(), // e.g., "dental implants near me"
 });
 
 export const callAttributionSchema = insertCallAttributionSchema.extend({

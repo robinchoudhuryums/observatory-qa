@@ -3483,6 +3483,11 @@ export class PostgresStorage implements IStorage {
     if (updates.detectionMethod !== undefined) setClause.detectionMethod = updates.detectionMethod;
     if (updates.confidence !== undefined) setClause.confidence = updates.confidence;
     if (updates.attributedBy !== undefined) setClause.attributedBy = updates.attributedBy;
+    if (updates.utmSource !== undefined) setClause.utmSource = updates.utmSource;
+    if (updates.utmMedium !== undefined) setClause.utmMedium = updates.utmMedium;
+    if (updates.utmCampaign !== undefined) setClause.utmCampaign = updates.utmCampaign;
+    if (updates.utmContent !== undefined) setClause.utmContent = updates.utmContent;
+    if (updates.utmTerm !== undefined) setClause.utmTerm = updates.utmTerm;
     const rows = await this.db
       .update(tables.callAttributions)
       .set(setClause)
@@ -3530,6 +3535,11 @@ export class PostgresStorage implements IStorage {
       confidence: r.confidence || undefined,
       notes: r.notes || undefined,
       attributedBy: r.attributedBy || undefined,
+      utmSource: r.utmSource || undefined,
+      utmMedium: r.utmMedium || undefined,
+      utmCampaign: r.utmCampaign || undefined,
+      utmContent: r.utmContent || undefined,
+      utmTerm: r.utmTerm || undefined,
       createdAt: toISOString(r.createdAt),
     };
   }

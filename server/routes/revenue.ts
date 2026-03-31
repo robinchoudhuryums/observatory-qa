@@ -40,6 +40,8 @@ const updateRevenueSchema = z.object({
   insuranceCarrier: z.string().optional(),
   insuranceAmount: z.number().min(0).optional(),
   patientAmount: z.number().min(0).optional(),
+  /** ISO timestamp when the call converted (auto-set when conversionStatus → "converted") */
+  convertedAt: z.string().optional(),
 });
 
 export function registerRevenueRoutes(app: Express) {
@@ -73,12 +75,21 @@ export function registerRevenueRoutes(app: Express) {
         revenues.map(async (rev) => {
           const call = await storage.getCall(orgId, rev.callId);
           const employee = call?.employeeId ? await storage.getEmployee(orgId, call.employeeId) : undefined;
+          // Compute time-to-convert: days between call upload and conversion
+          let daysToConvert: number | null = null;
+          if (rev.convertedAt && call?.uploadedAt) {
+            const callDate = new Date(call.uploadedAt);
+            const convertDate = new Date(rev.convertedAt);
+            daysToConvert = Math.max(0, Math.round((convertDate.getTime() - callDate.getTime()) / (24 * 60 * 60 * 1000)));
+          }
+
           return {
             ...rev,
             callFileName: call?.fileName,
             callCategory: call?.callCategory,
             employeeName: employee?.name,
             callDate: call?.uploadedAt,
+            daysToConvert,
           };
         }),
       );
@@ -127,7 +138,15 @@ export function registerRevenueRoutes(app: Express) {
         const call = await storage.getCall(orgId, callId);
         if (!call) return res.status(404).json({ message: "Call not found" });
 
-        const revenueData = { ...parsed.data, updatedBy: req.user!.name || req.user!.username };
+        const revenueData: Record<string, unknown> = { ...parsed.data, updatedBy: req.user!.name || req.user!.username };
+
+        // Auto-set convertedAt when conversion status changes to "converted"
+        if (parsed.data.conversionStatus === "converted" && !parsed.data.convertedAt) {
+          const existingRev = await storage.getCallRevenue(orgId, callId);
+          if (!existingRev?.convertedAt) {
+            revenueData.convertedAt = new Date().toISOString();
+          }
+        }
         const existing = await storage.getCallRevenue(orgId, callId);
         if (existing) {
           const updated = await storage.updateCallRevenue(orgId, callId, revenueData);

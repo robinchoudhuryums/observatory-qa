@@ -15,6 +15,21 @@ import { MARKETING_SOURCES } from "@shared/schema";
 
 const VALID_SOURCES = new Set(MARKETING_SOURCES.map((s) => s.value));
 
+/** Map common UTM source values to our marketing source enum */
+function mapUtmSourceToMarketingSource(utmSource: string): string {
+  const source = (utmSource || "").toLowerCase().trim();
+  const map: Record<string, string> = {
+    google: "google_ads", "google-ads": "google_ads", adwords: "google_ads",
+    facebook: "facebook_ads", fb: "facebook_ads", meta: "facebook_ads",
+    instagram: "instagram", ig: "instagram",
+    yelp: "yelp",
+    email: "email_campaign", newsletter: "email_campaign", mailchimp: "email_campaign",
+    sms: "sms_campaign", text: "sms_campaign",
+    direct_mail: "direct_mail", postcard: "direct_mail",
+  };
+  return map[source] || "website"; // Default to "website" for unknown UTM sources
+}
+
 export function registerMarketingRoutes(app: Express): void {
   // --- Marketing Campaigns ---
 
@@ -122,7 +137,8 @@ export function registerMarketingRoutes(app: Express): void {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
       const callId = req.params.callId;
-      const { source, campaignId, isNewPatient, referrerName, detectionMethod, confidence, notes } = req.body;
+      const { source, campaignId, isNewPatient, referrerName, detectionMethod, confidence, notes,
+        utmSource, utmMedium, utmCampaign, utmContent, utmTerm } = req.body;
       if (!source) return res.status(400).json({ message: "source is required" });
       if (!VALID_SOURCES.has(source))
         return res
@@ -144,21 +160,29 @@ export function registerMarketingRoutes(app: Express): void {
           notes,
           detectionMethod: detectionMethod || existing.detectionMethod,
           confidence: confidence ?? existing.confidence,
+          utmSource, utmMedium, utmCampaign, utmContent, utmTerm,
         });
         return res.json(updated);
       }
 
+      // Auto-detect UTM-based source if UTM params provided and no explicit source match
+      const effectiveDetection = utmSource ? "utm" : (detectionMethod || "manual");
+      const effectiveSource = utmSource && !VALID_SOURCES.has(source)
+        ? mapUtmSourceToMarketingSource(utmSource)
+        : source;
+
       const attr = await storage.createCallAttribution(orgId, {
         orgId,
         callId,
-        source,
+        source: effectiveSource,
         campaignId,
         isNewPatient,
         referrerName,
-        detectionMethod: detectionMethod || "manual",
-        confidence: confidence || 1.0,
+        detectionMethod: effectiveDetection,
+        confidence: confidence || (utmSource ? 0.95 : 1.0), // UTM = high confidence
         notes,
         attributedBy: (req.user as any)?.name || "unknown",
+        utmSource, utmMedium, utmCampaign, utmContent, utmTerm,
       });
       res.status(201).json(attr);
     },
@@ -185,12 +209,33 @@ export function registerMarketingRoutes(app: Express): void {
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
     try {
+      // Optional date-range filtering (e.g., ?startDate=2026-01-01&endDate=2026-03-31)
+      const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
+      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+      if (startDate && isNaN(startDate.getTime())) {
+        return res.status(400).json({ message: "Invalid startDate format (use ISO 8601)" });
+      }
+      if (endDate && isNaN(endDate.getTime())) {
+        return res.status(400).json({ message: "Invalid endDate format (use ISO 8601)" });
+      }
+
       // Load all data in parallel to avoid sequential queries
-      const [attributions, campaigns, revenues] = await Promise.all([
+      let [attributions, campaigns, revenues] = await Promise.all([
         storage.listCallAttributions(orgId),
         storage.listMarketingCampaigns(orgId),
         storage.listCallRevenues(orgId),
       ]);
+
+      // Apply date-range filter if provided
+      if (startDate || endDate) {
+        attributions = attributions.filter((a) => {
+          const created = a.createdAt ? new Date(a.createdAt) : null;
+          if (!created) return true;
+          if (startDate && created < startDate) return false;
+          if (endDate && created > endDate) return false;
+          return true;
+        });
+      }
 
       // Build revenue lookup (amount + attribution stage for funnel visibility)
       const revenueByCall = new Map<string, number>();
@@ -389,62 +434,156 @@ export function registerMarketingRoutes(app: Express): void {
         const text = transcript.text.toLowerCase();
         const detections: Array<{ source: string; confidence: number; matchedPhrase: string }> = [];
 
-        const SOURCE_PATTERNS: Array<{ source: string; patterns: RegExp[] }> = [
+        // Per-pattern confidence: specific phrases get higher confidence than vague ones
+        const SOURCE_PATTERNS: Array<{ source: string; patterns: Array<{ re: RegExp; conf: number }> }> = [
           {
             source: "google_ads",
-            patterns: [/\bgoogle\b.*\bad\b/i, /\bsaw.*\bad\b.*\bgoogle\b/i, /\bgoogle search\b/i],
+            patterns: [
+              { re: /\bgoogle\b.*\bad\b/i, conf: 0.9 },
+              { re: /\bsaw.*\bad\b.*\bgoogle\b/i, conf: 0.9 },
+              { re: /\bgoogle search\b/i, conf: 0.7 },
+            ],
           },
           {
             source: "google_organic",
-            patterns: [/\bfound.*\bgoogle\b/i, /\bgoogled\b/i, /\bsearched online\b/i, /\bfound.*\bonline\b/i],
+            patterns: [
+              { re: /\bgoogled\b/i, conf: 0.9 },
+              { re: /\bfound.*\bgoogle\b/i, conf: 0.85 },
+              { re: /\bsearched online\b/i, conf: 0.6 },
+              { re: /\bfound.*\bonline\b/i, conf: 0.5 },
+            ],
           },
           {
             source: "facebook_ads",
-            patterns: [/\bfacebook\b.*\bad\b/i, /\bmeta\b.*\bad\b/i, /\bsaw.*\bon facebook\b/i],
+            patterns: [
+              { re: /\bfacebook\b.*\bad\b/i, conf: 0.9 },
+              { re: /\bmeta\b.*\bad\b/i, conf: 0.85 },
+              { re: /\bsaw.*\bon facebook\b/i, conf: 0.8 },
+            ],
           },
-          { source: "instagram", patterns: [/\binstagram\b/i, /\bsaw.*\bon instagram\b/i] },
-          { source: "yelp", patterns: [/\byelp\b/i, /\bfound.*\bon yelp\b/i, /\byelp reviews?\b/i] },
+          {
+            source: "instagram",
+            patterns: [
+              { re: /\bsaw.*\bon instagram\b/i, conf: 0.85 },
+              { re: /\binstagram\b/i, conf: 0.7 },
+            ],
+          },
+          {
+            source: "yelp",
+            patterns: [
+              { re: /\byelp reviews?\b/i, conf: 0.9 },
+              { re: /\bfound.*\bon yelp\b/i, conf: 0.9 },
+              { re: /\byelp\b/i, conf: 0.8 },
+            ],
+          },
           {
             source: "referral_patient",
             patterns: [
-              /\bfriend\b.*\brecommend/i,
-              /\bfamily\b.*\brefer/i,
-              /\bco-?worker\b.*\btold\b/i,
-              /\bneighbo[u]?r\b.*\brefer/i,
+              { re: /\bfriend\b.*\brecommend/i, conf: 0.9 },
+              { re: /\bfamily\b.*\brefer/i, conf: 0.9 },
+              { re: /\bco-?worker\b.*\btold\b/i, conf: 0.85 },
+              { re: /\bneighbo[u]?r\b.*\brefer/i, conf: 0.85 },
             ],
           },
           {
             source: "referral_doctor",
             patterns: [
-              /\bdoctor\b.*\brefer/i,
-              /\bdentist\b.*\brefer/i,
-              /\bdr\.?\b.*\bsent me\b/i,
-              /\bphysician\b.*\brefer/i,
+              { re: /\bdoctor\b.*\brefer/i, conf: 0.9 },
+              { re: /\bdentist\b.*\brefer/i, conf: 0.9 },
+              { re: /\bdr\.?\b.*\bsent me\b/i, conf: 0.85 },
+              { re: /\bphysician\b.*\brefer/i, conf: 0.85 },
             ],
           },
-          { source: "website", patterns: [/\byour website\b/i, /\bfound.*\bwebsite\b/i, /\bsaw.*\bsite\b/i] },
+          {
+            source: "website",
+            patterns: [
+              { re: /\byour website\b/i, conf: 0.85 },
+              { re: /\bfound.*\bwebsite\b/i, conf: 0.8 },
+              { re: /\bsaw.*\bsite\b/i, conf: 0.6 },
+            ],
+          },
           {
             source: "insurance_portal",
-            patterns: [/\binsurance\b.*\blist/i, /\binsurance\b.*\bwebsite\b/i, /\bin[- ]?network\b.*\bfound\b/i],
+            patterns: [
+              { re: /\binsurance\b.*\blist/i, conf: 0.8 },
+              { re: /\binsurance\b.*\bwebsite\b/i, conf: 0.75 },
+              { re: /\bin[- ]?network\b.*\bfound\b/i, conf: 0.85 },
+            ],
           },
-          { source: "walk_in", patterns: [/\bwalking by\b/i, /\bwalk-?in\b/i, /\bsaw.*\bsign\b/i, /\bdrove by\b/i] },
-          { source: "direct_mail", patterns: [/\bmailer\b/i, /\bpostcard\b/i, /\bgot.*\bmail\b/i, /\bflyer\b/i] },
+          {
+            source: "walk_in",
+            patterns: [
+              { re: /\bwalking by\b/i, conf: 0.9 },
+              { re: /\bwalk-?in\b/i, conf: 0.85 },
+              { re: /\bsaw.*\bsign\b/i, conf: 0.75 },
+              { re: /\bdrove by\b/i, conf: 0.8 },
+            ],
+          },
+          {
+            source: "direct_mail",
+            patterns: [
+              { re: /\bpostcard\b/i, conf: 0.9 },
+              { re: /\bmailer\b/i, conf: 0.85 },
+              { re: /\bflyer\b/i, conf: 0.8 },
+              { re: /\bgot.*\bmail\b/i, conf: 0.6 },
+            ],
+          },
           {
             source: "returning_patient",
-            patterns: [/\bcoming back\b/i, /\bprevious patient\b/i, /\bbeen here before\b/i, /\breturn(?:ing)?\b/i],
+            patterns: [
+              { re: /\bbeen here before\b/i, conf: 0.9 },
+              { re: /\bprevious patient\b/i, conf: 0.9 },
+              { re: /\bcoming back\b/i, conf: 0.8 },
+              { re: /\breturn(?:ing)?\b/i, conf: 0.6 },
+            ],
+          },
+          // New source patterns
+          {
+            source: "phone_directory",
+            patterns: [
+              { re: /\bphone ?book\b/i, conf: 0.9 },
+              { re: /\bdirectory\b.*\blist/i, conf: 0.8 },
+              { re: /\byellow ?pages\b/i, conf: 0.9 },
+            ],
+          },
+          {
+            source: "email_campaign",
+            patterns: [
+              { re: /\bemail\b.*\breceived\b/i, conf: 0.8 },
+              { re: /\bnewsletter\b/i, conf: 0.85 },
+              { re: /\bgot.*\bemail\b.*\bfrom\b/i, conf: 0.8 },
+            ],
+          },
+          {
+            source: "community_event",
+            patterns: [
+              { re: /\bhealth fair\b/i, conf: 0.9 },
+              { re: /\bseminar\b/i, conf: 0.85 },
+              { re: /\bworkshop\b/i, conf: 0.7 },
+              { re: /\bcommunity event\b/i, conf: 0.9 },
+            ],
+          },
+          {
+            source: "social_organic",
+            patterns: [
+              { re: /\bsaw.*\bon tiktok\b/i, conf: 0.85 },
+              { re: /\btiktok\b/i, conf: 0.7 },
+              { re: /\bnextdoor\b/i, conf: 0.8 },
+              { re: /\bsocial media\b/i, conf: 0.6 },
+            ],
           },
         ];
 
         for (const { source, patterns } of SOURCE_PATTERNS) {
-          for (const pattern of patterns) {
-            const match = text.match(pattern);
+          for (const { re, conf } of patterns) {
+            const match = text.match(re);
             if (match) {
               detections.push({
                 source,
-                confidence: 0.75, // Pattern-based detection = moderate confidence
+                confidence: conf,
                 matchedPhrase: match[0].trim().slice(0, 100),
               });
-              break; // One match per source is enough
+              break; // One match per source is enough (highest confidence listed first)
             }
           }
         }

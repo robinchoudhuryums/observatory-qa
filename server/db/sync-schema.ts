@@ -1048,10 +1048,19 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(
       sql`CREATE INDEX IF NOT EXISTS call_attributions_campaign_idx ON call_attributions (org_id, campaign_id)`,
     );
+    // UTM parameter columns
+    await addColumnIfNotExists(db, "call_attributions", "utm_source", "VARCHAR(255)");
+    await addColumnIfNotExists(db, "call_attributions", "utm_medium", "VARCHAR(255)");
+    await addColumnIfNotExists(db, "call_attributions", "utm_campaign", "VARCHAR(255)");
+    await addColumnIfNotExists(db, "call_attributions", "utm_content", "VARCHAR(255)");
+    await addColumnIfNotExists(db, "call_attributions", "utm_term", "VARCHAR(255)");
     // UNIQUE: one attribution per call per org (matches schema.ts definition)
     await db.execute(
       sql`CREATE UNIQUE INDEX IF NOT EXISTS call_attributions_call_idx ON call_attributions (org_id, call_id)`,
     );
+
+    // --- Revenue: time-to-convert tracking ---
+    await addColumnIfNotExists(db, "call_revenues", "converted_at", "TIMESTAMPTZ");
 
     // --- Audit Logs (tamper-evident) ---
     await db.execute(sql`

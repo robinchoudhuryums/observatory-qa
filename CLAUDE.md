@@ -1514,6 +1514,10 @@ Server serves both API and static frontend from the same process.
 - **Campaign budget validation** — campaign creation now validates budget >= 0 and startDate <= endDate
 - **Confidence bounds check** — attribution confidence must be 0-1 range; rejects out-of-bounds values
 - **costPerLead div-by-zero** — metrics endpoint now checks `data.calls > 0` before dividing budget by calls (was producing `Infinity` for zero-call campaigns)
+- **UTM parameter capture** — new `utmSource`, `utmMedium`, `utmCampaign`, `utmContent`, `utmTerm` fields on CallAttribution schema + DB + pg-storage; auto-maps UTM source to marketing source enum (google→google_ads, facebook→facebook_ads, etc.); `detectionMethod: "utm"` with 0.95 confidence
+- **Time-to-convert tracking** — new `convertedAt` field on CallRevenue; auto-set when `conversionStatus` changes to "converted"; `daysToConvert` computed in revenue list response
+- **Date-range filtering on metrics** — `GET /api/marketing/metrics` now accepts `?startDate=...&endDate=...` to filter attribution data by date range
+- **Per-pattern confidence scores** — source detection now assigns different confidence per pattern (e.g., "googled" = 0.9, "found online" = 0.5); 7 new source patterns added (phone_directory, email_campaign, community_event, social_organic)
 
 #### ✅ Completed & committed: Code cleanup & deduplication
 - **Legacy logger consolidation** — `server/logger.ts` replaced with re-export from `server/services/logger.ts` (28 services now get correlation ID injection automatically)
@@ -1591,10 +1595,10 @@ Longer-term improvements identified during codebase audits. Work on these increm
 ### Lead Tracking
 | Priority | Item | Notes |
 |----------|------|-------|
-| MEDIUM | **UTM parameter capture** | No UTM tracking from call source URLs. Would enable attribution from web forms/landing pages |
+| ✅ Done | **UTM parameter capture** | `claude/audit-observatory-codebase-0eONS` — utmSource/Medium/Campaign/Content/Term fields, auto-mapping, 0.95 confidence |
 | MEDIUM | **CRM webhook integration** | No outbound webhooks to Salesforce/HubSpot when call-to-appointment conversion is tracked |
 | LOW | **Cohort conversion analysis** | Basic per-source metrics exist but no time-based cohort analysis (e.g., "calls from January → conversion rate over 90 days") |
-| LOW | **Time-to-convert metrics** | No tracking of elapsed time between call and each attribution stage |
+| ✅ Done | **Time-to-convert metrics** | `claude/audit-observatory-codebase-0eONS` — `convertedAt` field, auto-set on conversion, `daysToConvert` in API |
 
 ### Architecture / Code Quality
 | Priority | Item | Notes |
