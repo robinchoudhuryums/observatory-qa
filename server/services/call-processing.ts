@@ -119,7 +119,9 @@ export function computeConfidence(
   const densityConfidence = Math.min(wpm / 80, 1);
   const wordConfidence = Math.min(wordCount / 30, 1); // Lower threshold (30 vs 50) for procedural calls
   const durationConfidence = callDuration > 15 ? 1 : callDuration / 15; // Lower threshold (15s vs 30s)
-  const aiConfidence = hasAiAnalysis ? 1 : 0.3;
+  // When AI analysis fails, scores are all defaults (5.0) — confidence should
+  // reflect that results are unreliable. 0.0 gives a hard 25% penalty.
+  const aiConfidence = hasAiAnalysis ? 1 : 0;
 
   const score =
     transcriptConfidence * 0.35 +
@@ -143,19 +145,34 @@ export function computeConfidence(
 
 // ==================== FLAG ENFORCEMENT ====================
 
+/** Configurable thresholds for server-side flag enforcement. Per-org overrides via org.settings.analysisThresholds. */
+export interface AnalysisThresholds {
+  lowConfidence: number; // Below this confidence → "low_confidence" flag (default: 0.7)
+  lowScore: number; // At or below this score → "low_score" flag (default: 2.0)
+  exceptionalScore: number; // At or above this score → "exceptional_call" flag (default: 9.0)
+}
+
+const DEFAULT_THRESHOLDS: AnalysisThresholds = {
+  lowConfidence: 0.7,
+  lowScore: 2.0,
+  exceptionalScore: 9.0,
+};
+
 export function enforceServerFlags(
   existingFlags: string[],
   confidenceScore: number,
   performanceScore: number,
+  thresholds?: Partial<AnalysisThresholds>,
 ): string[] {
+  const t = { ...DEFAULT_THRESHOLDS, ...thresholds };
   const flags = [...existingFlags];
-  if (confidenceScore < 0.7 && !flags.includes("low_confidence")) {
+  if (confidenceScore < t.lowConfidence && !flags.includes("low_confidence")) {
     flags.push("low_confidence");
   }
-  if (performanceScore > 0 && performanceScore <= 2.0 && !flags.includes("low_score")) {
+  if (performanceScore > 0 && performanceScore <= t.lowScore && !flags.includes("low_score")) {
     flags.push("low_score");
   }
-  if (performanceScore >= 9.0 && !flags.includes("exceptional_call")) {
+  if (performanceScore >= t.exceptionalScore && !flags.includes("exceptional_call")) {
     flags.push("exceptional_call");
   }
   return flags;
@@ -233,7 +250,8 @@ export function mapClinicalNote(rawNote: any): any {
     subjective: rawNote.subjective,
     objective: rawNote.objective,
     assessment: rawNote.assessment,
-    plan: rawNote.plan,
+    // Normalize plan to array — AI may return a string instead of array
+    plan: Array.isArray(rawNote.plan) ? rawNote.plan : rawNote.plan ? [rawNote.plan] : [],
     hpiNarrative: rawNote.hpi_narrative,
     reviewOfSystems: rawNote.review_of_systems,
     differentialDiagnoses: rawNote.differential_diagnoses,
@@ -547,6 +565,32 @@ export async function continueAfterTranscription(
     }
   }
 
+  // Guard: empty/too-short transcripts should not proceed to AI analysis.
+  // The polling path handles this in processAudioFile, but the webhook path
+  // calls continueAfterTranscription directly and may skip it.
+  const transcriptText = transcriptResponse.text || "";
+  if (transcriptText.trim().length < 10) {
+    logger.warn({ callId, textLen: transcriptText.length }, "Empty/too-short transcript in continueAfterTranscription");
+    await storage.updateCall(orgId, callId, {
+      status: "completed",
+      tags: ["empty_transcript"],
+    });
+    // Store minimal transcript so the call is queryable
+    try {
+      await storage.createTranscript(orgId, {
+        orgId,
+        callId,
+        text: transcriptText,
+        confidence: 0.1,
+        words: [],
+      } as any);
+    } catch {
+      // Transcript may already exist from a prior attempt — non-fatal
+    }
+    broadcastCallUpdate(callId, "completed", { label: "Empty transcript" }, orgId);
+    return;
+  }
+
   try {
     // Step 4: AI analysis
     const aiAnalysis = await runAiAnalysis(
@@ -556,7 +600,7 @@ export async function continueAfterTranscription(
       userId,
       clinicalSpecialty,
       noteFormat,
-      transcriptResponse.text,
+      transcriptText,
     );
 
     // Warn if clinical call didn't produce a clinical note

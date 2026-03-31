@@ -7,6 +7,7 @@
  * This applies all pending Drizzle migrations to the configured PostgreSQL database.
  * Run `npm run db:generate` first to create migration SQL files from schema changes.
  */
+/* eslint-disable no-console -- CLI script, logger not available */
 import "dotenv/config";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";

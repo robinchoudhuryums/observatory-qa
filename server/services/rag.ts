@@ -20,6 +20,20 @@ import { logRagTrace, createRagTimer, type RagTrace } from "./rag-trace";
 import { recordFaqQuery } from "./faq-analytics";
 import * as tables from "../db/schema";
 
+// Tunable RAG configuration via environment variables (with sensible defaults)
+const RAG_CONFIG = {
+  /** Number of top chunks to return from search */
+  topK: parseInt(process.env.RAG_SEARCH_TOP_K || "6", 10),
+  /** Semantic (vector) score weight in hybrid search (0-1) */
+  semanticWeight: parseFloat(process.env.RAG_SEMANTIC_WEIGHT || "0.7"),
+  /** BM25 keyword score weight in hybrid search (0-1) */
+  keywordWeight: parseFloat(process.env.RAG_KEYWORD_WEIGHT || "0.3"),
+  /** Minimum combined score to include a chunk in results */
+  minRelevanceScore: parseFloat(process.env.RAG_MIN_RELEVANCE_SCORE || "0.3"),
+  /** Candidate multiplier: fetch topK * this many candidates, then rerank */
+  candidateMultiplier: parseInt(process.env.RAG_CANDIDATE_MULTIPLIER || "3", 10),
+};
+
 export interface RetrievedChunk {
   id: string;
   documentId: string;
@@ -152,9 +166,9 @@ export async function searchRelevantChunks(
   documentIds: string[],
   options: RAGSearchOptions = {},
 ): Promise<RetrievedChunk[]> {
-  const topK = options.topK ?? 6;
-  const semanticWeight = options.semanticWeight ?? 0.7;
-  const keywordWeight = options.keywordWeight ?? 0.3;
+  const topK = options.topK ?? RAG_CONFIG.topK;
+  const semanticWeight = options.semanticWeight ?? RAG_CONFIG.semanticWeight;
+  const keywordWeight = options.keywordWeight ?? RAG_CONFIG.keywordWeight;
   const timer = createRagTimer();
 
   if (!isEmbeddingAvailable() || documentIds.length === 0) {
@@ -196,7 +210,7 @@ export async function searchRelevantChunks(
   const embeddingStr = `[${queryEmbedding.join(",")}]`;
 
   // Fetch top candidates from pgvector (retrieve more than topK for keyword reranking)
-  const candidateLimit = Math.min(topK * 3, 50);
+  const candidateLimit = Math.min(topK * RAG_CONFIG.candidateMultiplier, 50);
 
   // Use raw SQL for pgvector cosine distance
   const candidates = await db.execute(sql`
@@ -274,8 +288,7 @@ export async function searchRelevantChunks(
 
   // Sort by combined score, filter out low-relevance chunks, and return top K
   results.sort((a, b) => b.score - a.score);
-  const MIN_RELEVANCE_SCORE = 0.3;
-  const relevant = results.filter((r) => r.score >= MIN_RELEVANCE_SCORE);
+  const relevant = results.filter((r) => r.score >= RAG_CONFIG.minRelevanceScore);
   const finalResults = relevant.slice(0, topK);
 
   // Compute confidence for tracing and FAQ analytics
@@ -312,12 +325,19 @@ export async function searchRelevantChunks(
 export function formatRetrievedContext(chunks: RetrievedChunk[]): string {
   if (chunks.length === 0) return "";
 
+  // Wrap each chunk in XML tags to clearly delineate knowledge base content
+  // from instructions. This prevents prompt injection via malicious document content —
+  // the model is trained to treat tagged content as data, not instructions.
   const sections: string[] = [];
   for (const chunk of chunks) {
-    const header = chunk.sectionHeader
-      ? `[${chunk.documentName} — ${chunk.documentCategory} — §${chunk.sectionHeader}]`
-      : `[${chunk.documentName} — ${chunk.documentCategory}]`;
-    sections.push(`${header}\n${chunk.text}`);
+    const attrs = [
+      `doc="${(chunk.documentName || "").replace(/"/g, "&quot;")}"`,
+      chunk.documentCategory ? `category="${chunk.documentCategory.replace(/"/g, "&quot;")}"` : "",
+      chunk.sectionHeader ? `section="${chunk.sectionHeader.replace(/"/g, "&quot;")}"` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    sections.push(`<knowledge_source ${attrs}>\n${chunk.text}\n</knowledge_source>`);
   }
 
   return sections.join("\n\n");
@@ -520,8 +540,10 @@ function bm25Score(
     score += idf * (numerator / denominator);
   }
 
-  // Normalize to 0–1 range
-  return Math.min(score / queryTerms.length, 1);
+  // Normalize to 0–1 range using log-linear scaling.
+  // Standard BM25 does NOT divide by query term count — doing so penalizes
+  // multi-term queries and inflates single-term queries. Use log scaling instead.
+  return Math.min(Math.log1p(score) / Math.log1p(3), 1);
 }
 
 const MEDICAL_SHORT_TOKENS = new Set([

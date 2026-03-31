@@ -133,6 +133,45 @@ export function normalizeAnalysis(analysis: CallAnalysis | undefined): CallAnaly
   return normalized;
 }
 
+/**
+ * Shared dashboard metrics calculation.
+ * Extracted from memory.ts / cloud.ts / pg-storage.ts to avoid triplicating the same math.
+ */
+export function calculateDashboardMetrics(
+  totalCalls: number,
+  sentiments: Array<{ overallScore?: string | number | null }>,
+  analyses: Array<{ performanceScore?: string | number | null }>,
+): DashboardMetrics {
+  const avgSentiment =
+    sentiments.length > 0
+      ? (sentiments.reduce((sum, s) => sum + parseFloat(String(s.overallScore || "0")), 0) / sentiments.length) * 10
+      : 0;
+  const avgPerformanceScore =
+    analyses.length > 0
+      ? analyses.reduce((sum, a) => sum + parseFloat(String(a.performanceScore || "0")), 0) / analyses.length
+      : 0;
+  return {
+    totalCalls,
+    avgSentiment: Math.round(avgSentiment * 100) / 100,
+    avgPerformanceScore: Math.round(avgPerformanceScore * 100) / 100,
+    avgTranscriptionTime: 2.3,
+  };
+}
+
+/**
+ * Shared sentiment distribution calculation.
+ */
+export function calculateSentimentDistribution(
+  sentiments: Array<{ overallSentiment?: string }>,
+): SentimentDistribution {
+  const distribution: SentimentDistribution = { positive: 0, neutral: 0, negative: 0 };
+  for (const s of sentiments) {
+    const key = s.overallSentiment as keyof SentimentDistribution;
+    if (key in distribution) distribution[key]++;
+  }
+  return distribution;
+}
+
 /** Apply standard call filters (status, sentiment, employee) */
 export function applyCallFilters<
   T extends { status?: string; employeeId?: string; sentiment?: { overallSentiment?: string } },

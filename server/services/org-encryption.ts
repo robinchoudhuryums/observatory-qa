@@ -22,9 +22,9 @@ const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 
-// In-memory DEK cache (30-minute TTL per org)
+// In-memory DEK cache (5-minute TTL per org — shorter window reduces exposure if memory is dumped)
 const dekCache = new Map<string, { key: Buffer; expiresAt: number }>();
-const DEK_TTL_MS = 30 * 60 * 1000;
+const DEK_TTL_MS = 5 * 60 * 1000;
 
 // Per-org DEK generation lock — prevents concurrent generation race condition
 // where two requests both see "no DEK" and overwrite each other.
@@ -42,8 +42,25 @@ function cacheDek(orgId: string, key: Buffer): void {
 }
 
 export function invalidateOrgDek(orgId: string): void {
-  dekCache.delete(orgId);
+  const entry = dekCache.get(orgId);
+  if (entry) {
+    // Zero out the key buffer before removing from cache to limit exposure
+    entry.key.fill(0);
+    dekCache.delete(orgId);
+  }
 }
+
+/** Periodic cache cleanup — evicts expired entries and zeros their key buffers. */
+setInterval(() => {
+  const now = Date.now();
+  const entries = Array.from(dekCache.entries());
+  for (const [orgId, entry] of entries) {
+    if (now >= entry.expiresAt) {
+      entry.key.fill(0);
+      dekCache.delete(orgId);
+    }
+  }
+}, 60_000).unref();
 
 /**
  * Get or create the DEK for an org.

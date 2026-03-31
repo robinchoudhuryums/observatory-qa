@@ -46,6 +46,12 @@ export function registerCallInsightRoutes(app: Express): void {
         res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
         return;
       }
+      logPhiAccess({
+        ...auditContext(req),
+        event: "view_speech_metrics",
+        resourceType: "analysis",
+        resourceId: req.params.id,
+      });
       res.json((analysis as any).speechMetrics || null);
     } catch (error) {
       logger.error({ err: error }, "Failed to get speech metrics");

@@ -6,6 +6,7 @@
  * This endpoint is public but verified via the X-Assembly-Webhook-Token header.
  */
 import type { Express } from "express";
+import { timingSafeEqual } from "crypto";
 import { storage } from "../storage";
 import { logger } from "../services/logger";
 import { continueAfterTranscription } from "../services/call-processing";
@@ -19,7 +20,12 @@ export function registerAssemblyAIWebhookRoutes(app: Express): void {
     const expectedToken = process.env.ASSEMBLYAI_WEBHOOK_SECRET || process.env.SESSION_SECRET;
     const receivedToken = req.headers["x-assembly-webhook-token"];
 
-    if (expectedToken && receivedToken !== expectedToken) {
+    const tokenMismatch =
+      expectedToken &&
+      (typeof receivedToken !== "string" ||
+        receivedToken.length !== expectedToken.length ||
+        !timingSafeEqual(Buffer.from(receivedToken), Buffer.from(expectedToken)));
+    if (tokenMismatch) {
       logger.warn({ receivedToken: receivedToken ? "[redacted]" : "missing" }, "AssemblyAI webhook: invalid token");
       res.status(401).json({ error: "Unauthorized" });
       return;
@@ -48,6 +54,16 @@ export function registerAssemblyAIWebhookRoutes(app: Express): void {
       const call = await storage.getCallByAssemblyAiId(transcriptResponse.id);
       if (!call) {
         logger.warn({ transcriptId: transcriptResponse.id }, "AssemblyAI webhook: call not found for transcript ID");
+        return;
+      }
+
+      // Safety: only process calls that are still in "processing" state
+      // Prevents replay attacks from re-processing already-completed calls
+      if (call.status !== "processing" && call.status !== "pending") {
+        logger.warn(
+          { callId: call.id, status: call.status, transcriptId: transcriptResponse.id },
+          "AssemblyAI webhook: ignoring callback for call not in processing state",
+        );
         return;
       }
 

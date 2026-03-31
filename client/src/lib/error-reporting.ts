@@ -14,7 +14,7 @@ let sentryInitialized = false;
 export function initErrorReporting(): void {
   const dsn = import.meta.env.VITE_SENTRY_DSN;
   if (!dsn) {
-    console.info("[ErrorReporting] VITE_SENTRY_DSN not set — errors logged to console only");
+    console.info("[ErrorReporting] VITE_SENTRY_DSN not set — errors logged to console only"); // eslint-disable-line no-console
     return;
   }
 
@@ -44,7 +44,7 @@ export function initErrorReporting(): void {
   });
 
   sentryInitialized = true;
-  console.info("[ErrorReporting] Sentry initialized");
+  console.info("[ErrorReporting] Sentry initialized"); // eslint-disable-line no-console
 }
 
 interface ErrorContext {

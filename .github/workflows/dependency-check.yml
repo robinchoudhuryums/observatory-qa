@@ -1,0 +1,314 @@
+name: Dependency Check
+
+on:
+  schedule:
+    # Every Monday at 8 AM UTC
+    - cron: "0 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  NODE_VERSION: "20"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job: npm audit — all severity levels
+  # ---------------------------------------------------------------------------
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    outputs:
+      critical: ${{ steps.audit.outputs.critical }}
+      high: ${{ steps.audit.outputs.high }}
+      moderate: ${{ steps.audit.outputs.moderate }}
+      low: ${{ steps.audit.outputs.low }}
+      total: ${{ steps.audit.outputs.total }}
+      report: ${{ steps.audit.outputs.report }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        id: audit
+        run: |
+          # Run audit and capture output (don't fail on vulnerabilities)
+          npm audit --json > audit.json 2>/dev/null || true
+          npm audit 2>/dev/null > audit-readable.txt || true
+
+          # Parse vulnerability counts
+          CRITICAL=$(node -e "try { const a = require('./audit.json'); console.log(a.metadata?.vulnerabilities?.critical || 0); } catch { console.log(0); }")
+          HIGH=$(node -e "try { const a = require('./audit.json'); console.log(a.metadata?.vulnerabilities?.high || 0); } catch { console.log(0); }")
+          MODERATE=$(node -e "try { const a = require('./audit.json'); console.log(a.metadata?.vulnerabilities?.moderate || 0); } catch { console.log(0); }")
+          LOW=$(node -e "try { const a = require('./audit.json'); console.log(a.metadata?.vulnerabilities?.low || 0); } catch { console.log(0); }")
+          TOTAL=$((CRITICAL + HIGH + MODERATE + LOW))
+
+          echo "critical=$CRITICAL" >> "$GITHUB_OUTPUT"
+          echo "high=$HIGH" >> "$GITHUB_OUTPUT"
+          echo "moderate=$MODERATE" >> "$GITHUB_OUTPUT"
+          echo "low=$LOW" >> "$GITHUB_OUTPUT"
+          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+
+          # Truncate report for output (max ~1000 chars)
+          REPORT=$(head -50 audit-readable.txt)
+          echo "report<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$REPORT" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+          echo "Vulnerabilities: $CRITICAL critical, $HIGH high, $MODERATE moderate, $LOW low"
+
+  # ---------------------------------------------------------------------------
+  # Job: Outdated packages
+  # ---------------------------------------------------------------------------
+  outdated:
+    name: Outdated Packages
+    runs-on: ubuntu-latest
+    outputs:
+      count: ${{ steps.outdated.outputs.count }}
+      major_updates: ${{ steps.outdated.outputs.major_updates }}
+      report: ${{ steps.outdated.outputs.report }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check outdated packages
+        id: outdated
+        run: |
+          # npm outdated returns exit code 1 when packages are outdated
+          npm outdated --json > outdated.json 2>/dev/null || true
+          npm outdated --long 2>/dev/null > outdated-readable.txt || true
+
+          COUNT=$(node -e "try { const o = require('./outdated.json'); console.log(Object.keys(o).length); } catch { console.log(0); }")
+
+          # Count major version updates
+          MAJOR=$(node -e "
+            try {
+              const o = require('./outdated.json');
+              let count = 0;
+              for (const [pkg, info] of Object.entries(o)) {
+                const current = (info.current || '').split('.')[0];
+                const latest = (info.latest || '').split('.')[0];
+                if (current !== latest && current && latest) count++;
+              }
+              console.log(count);
+            } catch { console.log(0); }
+          ")
+
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "major_updates=$MAJOR" >> "$GITHUB_OUTPUT"
+
+          REPORT=$(head -60 outdated-readable.txt)
+          echo "report<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$REPORT" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+          echo "$COUNT outdated packages ($MAJOR major updates available)"
+
+  # ---------------------------------------------------------------------------
+  # Job: License compliance
+  # ---------------------------------------------------------------------------
+  licenses:
+    name: License Compliance
+    runs-on: ubuntu-latest
+    outputs:
+      issues: ${{ steps.check.outputs.issues }}
+      report: ${{ steps.check.outputs.report }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check licenses
+        id: check
+        run: |
+          # Allowed license patterns (SPDX identifiers)
+          ALLOWED="MIT|ISC|BSD-2-Clause|BSD-3-Clause|Apache-2.0|0BSD|CC0-1.0|CC-BY-3.0|CC-BY-4.0|Unlicense|BlueOak-1.0.0|Python-2.0"
+          # Known problematic licenses
+          BLOCKED="GPL-2.0|GPL-3.0|AGPL-3.0|SSPL-1.0|EUPL-1.1"
+
+          ISSUES=0
+          REPORT=""
+
+          # List all production dependency licenses
+          npx license-checker --production --json > licenses.json 2>/dev/null || true
+
+          if [ -f licenses.json ]; then
+            # Check for blocked licenses
+            BLOCKED_PKGS=$(node -e "
+              try {
+                const data = require('./licenses.json');
+                const blocked = /^(GPL-2\.0|GPL-3\.0|AGPL-3\.0|SSPL-1\.0|EUPL-1\.1)/;
+                const found = [];
+                for (const [pkg, info] of Object.entries(data)) {
+                  const lic = info.licenses || 'UNKNOWN';
+                  if (blocked.test(lic)) found.push(pkg + ' (' + lic + ')');
+                }
+                console.log(found.join('\n'));
+              } catch { console.log(''); }
+            ")
+
+            UNKNOWN_PKGS=$(node -e "
+              try {
+                const data = require('./licenses.json');
+                const found = [];
+                for (const [pkg, info] of Object.entries(data)) {
+                  const lic = info.licenses || 'UNKNOWN';
+                  if (lic === 'UNKNOWN' || lic === 'UNLICENSED') found.push(pkg);
+                }
+                console.log(found.join('\n'));
+              } catch { console.log(''); }
+            ")
+
+            if [ -n "$BLOCKED_PKGS" ]; then
+              ISSUES=$((ISSUES + $(echo "$BLOCKED_PKGS" | wc -l)))
+              REPORT="**Blocked licenses found:**\n\`\`\`\n$BLOCKED_PKGS\n\`\`\`"
+            fi
+
+            if [ -n "$UNKNOWN_PKGS" ]; then
+              UNKNOWN_COUNT=$(echo "$UNKNOWN_PKGS" | wc -l)
+              REPORT="$REPORT\n\n**Unknown/unlicensed packages ($UNKNOWN_COUNT):**\n\`\`\`\n$UNKNOWN_PKGS\n\`\`\`"
+            fi
+
+            TOTAL_PKGS=$(node -e "try { console.log(Object.keys(require('./licenses.json')).length); } catch { console.log(0); }")
+            REPORT="$REPORT\n\nTotal production packages scanned: $TOTAL_PKGS"
+          else
+            REPORT="License checker not available (install license-checker for full scan)"
+            echo "::warning::license-checker not available"
+          fi
+
+          echo "issues=$ISSUES" >> "$GITHUB_OUTPUT"
+          echo "report<<EOF" >> "$GITHUB_OUTPUT"
+          printf "$REPORT" >> "$GITHUB_OUTPUT"
+          echo "" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+          echo "$ISSUES license issues found"
+
+  # ---------------------------------------------------------------------------
+  # Job: Create summary issue
+  # ---------------------------------------------------------------------------
+  report:
+    name: Dependency Report
+    runs-on: ubuntu-latest
+    needs: [audit, outdated, licenses]
+    if: always()
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Create dependency report issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUDIT_CRITICAL: ${{ needs.audit.outputs.critical }}
+          AUDIT_HIGH: ${{ needs.audit.outputs.high }}
+          AUDIT_MODERATE: ${{ needs.audit.outputs.moderate }}
+          AUDIT_LOW: ${{ needs.audit.outputs.low }}
+          AUDIT_TOTAL: ${{ needs.audit.outputs.total }}
+          AUDIT_REPORT: ${{ needs.audit.outputs.report }}
+          OUTDATED_COUNT: ${{ needs.outdated.outputs.count }}
+          OUTDATED_MAJOR: ${{ needs.outdated.outputs.major_updates }}
+          OUTDATED_REPORT: ${{ needs.outdated.outputs.report }}
+          LICENSE_ISSUES: ${{ needs.licenses.outputs.issues }}
+          LICENSE_REPORT: ${{ needs.licenses.outputs.report }}
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          # Determine if anything needs attention
+          NEEDS_ATTENTION=false
+          if [ "${AUDIT_CRITICAL:-0}" -gt 0 ] || [ "${AUDIT_HIGH:-0}" -gt 0 ]; then
+            NEEDS_ATTENTION=true
+          fi
+          if [ "${OUTDATED_MAJOR:-0}" -gt 5 ]; then
+            NEEDS_ATTENTION=true
+          fi
+          if [ "${LICENSE_ISSUES:-0}" -gt 0 ]; then
+            NEEDS_ATTENTION=true
+          fi
+
+          # Build issue body
+          cat > issue-body.md << 'ENDOFTEMPLATE'
+          ## Weekly Dependency Report
+          ENDOFTEMPLATE
+
+          cat > issue-body.md << EOF
+          ## Weekly Dependency Report - $DATE
+
+          ### Security Vulnerabilities (npm audit)
+          | Severity | Count |
+          |----------|-------|
+          | Critical | ${AUDIT_CRITICAL:-0} |
+          | High     | ${AUDIT_HIGH:-0} |
+          | Moderate | ${AUDIT_MODERATE:-0} |
+          | Low      | ${AUDIT_LOW:-0} |
+          | **Total** | **${AUDIT_TOTAL:-0}** |
+
+          <details>
+          <summary>Audit details</summary>
+
+          \`\`\`
+          ${AUDIT_REPORT:-No audit data available}
+          \`\`\`
+          </details>
+
+          ### Outdated Packages
+          - **Total outdated**: ${OUTDATED_COUNT:-0}
+          - **Major updates available**: ${OUTDATED_MAJOR:-0}
+
+          <details>
+          <summary>Outdated package details</summary>
+
+          \`\`\`
+          ${OUTDATED_REPORT:-No outdated packages}
+          \`\`\`
+          </details>
+
+          ### License Compliance
+          - **Issues found**: ${LICENSE_ISSUES:-0}
+
+          ${LICENSE_REPORT:-No license issues detected}
+
+          ---
+          **Run**: $RUN_URL
+          **SHA**: \`${{ github.sha }}\`
+          EOF
+
+          # Always create an issue for the weekly report
+          LABELS="dependencies"
+          if [ "$NEEDS_ATTENTION" = "true" ]; then
+            LABELS="dependencies,security,priority"
+            TITLE="[ACTION REQUIRED] Weekly Dependency Report - $DATE"
+          else
+            TITLE="Weekly Dependency Report - $DATE"
+          fi
+
+          gh issue create \
+            --title "$TITLE" \
+            --body-file issue-body.md \
+            --label "$LABELS"
+
+          echo "Dependency report issue created"

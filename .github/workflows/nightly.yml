@@ -1,0 +1,311 @@
+name: Nightly CI
+
+on:
+  schedule:
+    # Every night at 2 AM UTC
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  NODE_VERSION: "20"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job: Full test suite with coverage
+  # ---------------------------------------------------------------------------
+  tests:
+    name: Full Test Suite
+    runs-on: ubuntu-latest
+    outputs:
+      result: ${{ steps.tests.outcome }}
+      coverage_summary: ${{ steps.coverage.outputs.summary }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type check
+        id: typecheck
+        run: npm run check
+
+      - name: Unit tests with coverage
+        id: tests
+        run: npx c8 --reporter=text --reporter=text-summary --reporter=lcov --src=server --src=shared tsx --test tests/*.test.ts 2>&1 | tee test-output.txt
+
+      - name: Extract coverage summary
+        id: coverage
+        if: always()
+        run: |
+          SUMMARY=$(tail -20 test-output.txt | grep -A5 "Statements" || echo "Coverage data unavailable")
+          echo "summary<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$SUMMARY" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        with:
+          name: nightly-coverage-${{ github.sha }}
+          path: coverage/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Job: ESLint with warning count tracking
+  # ---------------------------------------------------------------------------
+  lint:
+    name: Lint Warning Tracker
+    runs-on: ubuntu-latest
+    outputs:
+      result: ${{ steps.lint.outcome }}
+      warning_count: ${{ steps.count.outputs.warnings }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        id: lint
+        continue-on-error: true
+        run: npx eslint server/ shared/ client/src/ --format json --output-file eslint-report.json 2>/dev/null || true
+
+      - name: Count warnings and errors
+        id: count
+        run: |
+          if [ -f eslint-report.json ]; then
+            WARNINGS=$(node -e "
+              const r = require('./eslint-report.json');
+              const w = r.reduce((sum, f) => sum + f.warningCount, 0);
+              console.log(w);
+            ")
+            ERRORS=$(node -e "
+              const r = require('./eslint-report.json');
+              const e = r.reduce((sum, f) => sum + f.errorCount, 0);
+              console.log(e);
+            ")
+            echo "warnings=$WARNINGS" >> "$GITHUB_OUTPUT"
+            echo "errors=$ERRORS" >> "$GITHUB_OUTPUT"
+            echo "Lint results: $ERRORS errors, $WARNINGS warnings"
+            if [ "$ERRORS" -gt 0 ]; then
+              echo "::error::ESLint found $ERRORS errors"
+              exit 1
+            fi
+          else
+            echo "warnings=unknown" >> "$GITHUB_OUTPUT"
+            echo "errors=unknown" >> "$GITHUB_OUTPUT"
+            echo "::warning::ESLint report not generated"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Job: Security audit + secret scanning
+  # ---------------------------------------------------------------------------
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    outputs:
+      result: ${{ steps.audit.outcome }}
+      secrets_found: ${{ steps.secrets.outputs.found }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: npm audit
+        id: audit
+        continue-on-error: true
+        run: npm audit --audit-level=high 2>&1 | tee audit-output.txt
+
+      - name: Scan for secrets
+        id: secrets
+        run: |
+          FINDINGS=0
+          # AWS keys
+          if git grep -lI 'AKIA[0-9A-Z]\{16\}' -- ':!*.md' ':!*.yml' ':!*.yaml' ':!.env.example' 2>/dev/null; then
+            echo "::error::Possible AWS access key found in source files"
+            FINDINGS=$((FINDINGS + 1))
+          fi
+          # Private keys
+          if git grep -lI '-----BEGIN.*PRIVATE KEY-----' -- ':!*.md' ':!*.example' 2>/dev/null; then
+            echo "::error::Possible private key found in source files"
+            FINDINGS=$((FINDINGS + 1))
+          fi
+          # Generic API keys/tokens in .ts/.tsx files
+          if git grep -lI 'sk-[a-zA-Z0-9]\{20,\}' -- '*.ts' '*.tsx' 2>/dev/null; then
+            echo "::error::Possible API key found in TypeScript files"
+            FINDINGS=$((FINDINGS + 1))
+          fi
+          # .env files committed
+          if git ls-files -- '.env' '.env.local' '.env.production' 2>/dev/null | grep -q .; then
+            echo "::error::Environment file committed to repository"
+            FINDINGS=$((FINDINGS + 1))
+          fi
+          # Hardcoded passwords
+          if git grep -lI 'password\s*[:=]\s*"[^"]\{8,\}"' -- '*.ts' '*.tsx' ':!*test*' ':!*.example' 2>/dev/null; then
+            echo "::warning::Possible hardcoded password found"
+            FINDINGS=$((FINDINGS + 1))
+          fi
+          echo "found=$FINDINGS" >> "$GITHUB_OUTPUT"
+          if [ "$FINDINGS" -gt 0 ]; then
+            echo "Found $FINDINGS potential secret(s)"
+            exit 1
+          fi
+          echo "No secrets detected"
+
+  # ---------------------------------------------------------------------------
+  # Job: Build verification + schema sync validation
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build & Schema Validation
+    runs-on: ubuntu-latest
+    outputs:
+      result: ${{ steps.build.outcome }}
+      missing_tables: ${{ steps.schema.outputs.missing }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate schema sync coverage
+        id: schema
+        run: |
+          DRIZZLE_TABLES=$(grep -o 'pgTable("[^"]*"' server/db/schema.ts | sed 's/pgTable("//;s/"//' | sort)
+          MISSING=""
+          for TABLE in $DRIZZLE_TABLES; do
+            if ! grep -q "CREATE TABLE IF NOT EXISTS ${TABLE}" server/db/sync-schema.ts 2>/dev/null; then
+              MISSING="$MISSING $TABLE"
+            fi
+          done
+          echo "missing=$MISSING" >> "$GITHUB_OUTPUT"
+          if [ -n "$MISSING" ]; then
+            echo "::warning::Tables missing from sync-schema.ts:$MISSING"
+          else
+            echo "All Drizzle tables covered in sync-schema.ts"
+          fi
+
+      - name: Build frontend + backend
+        id: build
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: Verify build artifacts
+        run: |
+          test -f dist/index.js   || (echo "ERROR: dist/index.js missing" && exit 1)
+          test -d dist/public     || (echo "ERROR: dist/public/ missing"  && exit 1)
+          echo "dist/index.js  -- $(du -h dist/index.js | cut -f1)"
+          echo "dist/public/   -- $(du -sh dist/public  | cut -f1)"
+
+  # ---------------------------------------------------------------------------
+  # Job: Report — creates a GitHub issue if any nightly check failed
+  # ---------------------------------------------------------------------------
+  report:
+    name: Nightly Report
+    runs-on: ubuntu-latest
+    needs: [tests, lint, security, build]
+    if: always()
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Evaluate results and create issue if needed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TESTS_RESULT: ${{ needs.tests.result }}
+          LINT_RESULT: ${{ needs.lint.result }}
+          LINT_WARNINGS: ${{ needs.lint.outputs.warning_count }}
+          SECURITY_RESULT: ${{ needs.security.result }}
+          SECRETS_FOUND: ${{ needs.security.outputs.secrets_found }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          MISSING_TABLES: ${{ needs.build.outputs.missing_tables }}
+          COVERAGE_SUMMARY: ${{ needs.tests.outputs.coverage_summary }}
+        run: |
+          HAS_FAILURE=false
+          BODY=""
+
+          # Check each job result
+          if [ "$TESTS_RESULT" != "success" ]; then
+            HAS_FAILURE=true
+            BODY="$BODY\n- :x: **Tests**: Failed"
+          else
+            BODY="$BODY\n- :white_check_mark: **Tests**: Passed"
+          fi
+
+          if [ "$LINT_RESULT" != "success" ]; then
+            HAS_FAILURE=true
+            BODY="$BODY\n- :x: **Lint**: Failed"
+          else
+            BODY="$BODY\n- :white_check_mark: **Lint**: Passed ($LINT_WARNINGS warnings)"
+          fi
+
+          if [ "$SECURITY_RESULT" != "success" ]; then
+            HAS_FAILURE=true
+            BODY="$BODY\n- :x: **Security**: Failed (secrets found: $SECRETS_FOUND)"
+          else
+            BODY="$BODY\n- :white_check_mark: **Security**: Passed"
+          fi
+
+          if [ "$BUILD_RESULT" != "success" ]; then
+            HAS_FAILURE=true
+            BODY="$BODY\n- :x: **Build**: Failed"
+          else
+            BODY="$BODY\n- :white_check_mark: **Build**: Passed"
+          fi
+
+          if [ -n "$MISSING_TABLES" ]; then
+            BODY="$BODY\n\n**Schema sync gaps**: \`$MISSING_TABLES\`"
+          fi
+
+          BODY="$BODY\n\n**ESLint warning count**: $LINT_WARNINGS"
+
+          if [ -n "$COVERAGE_SUMMARY" ]; then
+            BODY="$BODY\n\n**Coverage**:\n\`\`\`\n$COVERAGE_SUMMARY\n\`\`\`"
+          fi
+
+          DATE=$(date -u +%Y-%m-%d)
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          BODY="$BODY\n\n**Run**: $RUN_URL\n**SHA**: \`${{ github.sha }}\`\n**Date**: $DATE"
+
+          if [ "$HAS_FAILURE" = "true" ]; then
+            ISSUE_BODY=$(printf "$BODY")
+            gh issue create \
+              --title "Nightly CI failure - $DATE" \
+              --body "$ISSUE_BODY" \
+              --label "ci,nightly,bug"
+            echo "::error::Nightly CI had failures -- issue created"
+          else
+            echo "All nightly checks passed"
+            echo ""
+            printf "$BODY"
+          fi

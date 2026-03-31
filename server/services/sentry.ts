@@ -112,8 +112,3 @@ export async function flushSentry(timeoutMs = 2000): Promise<void> {
   if (!initialized) return;
   await Sentry.close(timeoutMs);
 }
-
-/** @deprecated Use redactPhi() from phi-redactor.ts instead — kept for backward compatibility */
-function sanitizeForHipaa(message: string): string {
-  return redactPhi(message);
-}

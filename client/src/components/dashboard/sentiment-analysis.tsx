@@ -2,7 +2,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { motion } from "framer-motion";
 import type { SentimentDistribution } from "@shared/schema";
-import { RiAlertLine, RiRefreshLine } from "@remixicon/react";
 
 export default function SentimentAnalysis() {
   const queryClient = useQueryClient();

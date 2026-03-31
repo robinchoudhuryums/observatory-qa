@@ -120,7 +120,7 @@ export async function initTelemetry(): Promise<void> {
     description: "Number of active user sessions",
   });
 
-  console.log(`[telemetry] OpenTelemetry initialised — exporting to ${endpoint}`);
+  console.log(`[telemetry] OpenTelemetry initialised — exporting to ${endpoint}`); // eslint-disable-line no-console -- logs before pino available
 }
 
 /**

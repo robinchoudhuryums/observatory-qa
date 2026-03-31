@@ -135,6 +135,21 @@ export function registerClinicalRoutes(app: Express): void {
           (Object.keys(structuredDataExtracted).length > 0 ? structuredDataExtracted : undefined),
       };
 
+      // HIPAA minimum necessary: viewers see only metadata, not full PHI content.
+      // Managers and admins see the full note for clinical/QA workflows.
+      const currentUserRole = req.user?.role;
+      if (currentUserRole === "viewer") {
+        const phiFields = [
+          "subjective", "objective", "assessment", "plan", "hpiText",
+          "reviewOfSystems", "differentialDiagnoses", "amendments",
+        ];
+        for (const field of phiFields) {
+          if (field in enriched) {
+            (enriched as Record<string, unknown>)[field] = "[Restricted — manager or admin access required]";
+          }
+        }
+      }
+
       res.json(enriched);
     } catch (error) {
       logger.error({ err: error }, "Failed to get clinical note");
@@ -170,6 +185,29 @@ export function registerClinicalRoutes(app: Express): void {
           res.status(403).json({
             message: "Only the treating provider or an admin can attest this clinical note",
             attestedBy: noteCreator,
+          });
+          return;
+        }
+
+        // HIPAA: Validate note completeness before allowing attestation.
+        // Providers should not attest incomplete notes — they must add missing sections first.
+        const attestValidation = validateClinicalNote(analysis.clinicalNote as Record<string, unknown>);
+        if (!attestValidation.valid) {
+          res.status(400).json({
+            message: "Clinical note cannot be attested — required sections are missing or incomplete",
+            code: "OBS-CLINICAL-INCOMPLETE",
+            warnings: attestValidation.warnings,
+            weightedCompleteness: attestValidation.weightedCompleteness,
+          });
+          return;
+        }
+        // Block attestation for very low completeness scores (< 4.0 out of 10)
+        if (attestValidation.weightedCompleteness < 4.0) {
+          res.status(400).json({
+            message: "Clinical note completeness is too low for attestation — please add required sections",
+            code: "OBS-CLINICAL-LOW-COMPLETENESS",
+            weightedCompleteness: attestValidation.weightedCompleteness,
+            warnings: attestValidation.warnings,
           });
           return;
         }
@@ -1287,10 +1325,28 @@ export function registerClinicalRoutes(app: Express): void {
           res.status(404).json({ message: "No clinical note found for this encounter" });
           return;
         }
-        // Amendments snapshot contains no PHI — no decryption needed
+        logPhiAccess({
+          ...auditContext(req),
+          event: "view_clinical_amendments",
+          resourceType: "clinical_note",
+          resourceId: req.params.callId,
+        });
+
+        // Decrypt addendum content (encrypted at creation time since it may contain PHI)
+        const amendments = (analysis.clinicalNote.amendments || []).map((a: any) => {
+          if (a.content && typeof a.content === "string" && a.content.startsWith("enc_v1:")) {
+            try {
+              return { ...a, content: decryptField(a.content) };
+            } catch {
+              return { ...a, content: "[Decryption failed — content unavailable]" };
+            }
+          }
+          return a;
+        });
+
         res.json({
-          amendments: analysis.clinicalNote.amendments || [],
-          count: analysis.clinicalNote.amendments?.length || 0,
+          amendments,
+          count: amendments.length,
         });
       } catch (error) {
         logger.error({ err: error }, "Failed to get clinical note amendments");
@@ -1427,12 +1483,52 @@ export function registerClinicalRoutes(app: Express): void {
         const providerName = cn.attestedBy || req.user?.name || req.user?.username || "Unknown Provider";
         const npi = cn.attestedNpi;
 
+        // Attempt to load patient data from EHR if configured and ehrPatientId available
+        let patientData: { id?: string; firstName?: string; lastName?: string; dateOfBirth?: string; phone?: string; email?: string } | undefined;
+        const call = await storage.getCall(req.orgId!, req.params.callId);
+        const ehrPatientId = (call as any)?.ehrPatientId || req.query.ehrPatientId;
+        if (ehrPatientId) {
+          try {
+            const { getEhrAdapter } = await import("../services/ehr/index");
+            const ehrConfig = (org?.settings as any)?.ehrConfig;
+            if (ehrConfig?.enabled) {
+              const adapter = getEhrAdapter(ehrConfig.system);
+              if (!adapter) throw new Error("EHR adapter not available");
+              const patient = await adapter.getPatient(ehrConfig, ehrPatientId as string);
+              if (patient) {
+                patientData = {
+                  id: patient.ehrPatientId,
+                  firstName: patient.firstName,
+                  lastName: patient.lastName,
+                  dateOfBirth: patient.dateOfBirth,
+                  phone: patient.phone,
+                  email: patient.email,
+                };
+              }
+            }
+          } catch (ehrErr) {
+            // Non-fatal — FHIR export works without patient data
+            logger.debug({ err: ehrErr }, "EHR patient lookup failed for FHIR export — continuing without patient");
+          }
+        }
+
+        // Build cosigner info if present
+        const cosigner = cn.cosignature
+          ? {
+              name: (cn.cosignature as any).cosignedBy,
+              npi: (cn.cosignature as any).cosignedNpi,
+              credentials: (cn.cosignature as any).credentials,
+            }
+          : undefined;
+
         const fhirBundle = buildFhirBundle({
           note: cn as Record<string, unknown>,
           callId: req.params.callId,
           orgName,
           providerName,
           npi,
+          patient: patientData,
+          cosigner,
         });
 
         logPhiAccess({

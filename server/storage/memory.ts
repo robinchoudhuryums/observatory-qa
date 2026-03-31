@@ -62,7 +62,7 @@ import {
   type InsertCallShare,
 } from "@shared/schema";
 import { randomUUID, randomBytes } from "crypto";
-import { type IStorage, applyCallFilters } from "./types";
+import { type IStorage, applyCallFilters, calculateDashboardMetrics, calculateSentimentDistribution } from "./types";
 
 /**
  * In-memory storage fallback for when cloud credentials are not configured.
@@ -400,35 +400,17 @@ export class MemStorage implements IStorage {
     const orgCallIds = new Set(orgCalls.map((c) => c.id));
     const sentiments = Array.from(this.sentiments.values()).filter((s) => orgCallIds.has(s.callId));
     const analyses = Array.from(this.analyses.values()).filter((a) => orgCallIds.has(a.callId));
-    const avgSentiment =
-      sentiments.length > 0
-        ? (sentiments.reduce((sum, s) => sum + parseFloat(s.overallScore || "0"), 0) / sentiments.length) * 10
-        : 0;
-    const avgPerformanceScore =
-      analyses.length > 0
-        ? analyses.reduce((sum, a) => sum + parseFloat(a.performanceScore || "0"), 0) / analyses.length
-        : 0;
-    return {
-      totalCalls: orgCalls.length,
-      avgSentiment: Math.round(avgSentiment * 100) / 100,
-      avgPerformanceScore: Math.round(avgPerformanceScore * 100) / 100,
-      avgTranscriptionTime: 2.3,
-    };
+    return calculateDashboardMetrics(orgCalls.length, sentiments, analyses);
   }
 
   async getSentimentDistribution(orgId: string): Promise<SentimentDistribution> {
-    const distribution: SentimentDistribution = { positive: 0, neutral: 0, negative: 0 };
     const orgCallIds = new Set(
       Array.from(this.calls.values())
         .filter((c) => c.orgId === orgId)
         .map((c) => c.id),
     );
-    for (const s of Array.from(this.sentiments.values())) {
-      if (!orgCallIds.has(s.callId)) continue;
-      const key = s.overallSentiment as keyof SentimentDistribution;
-      if (key in distribution) distribution[key]++;
-    }
-    return distribution;
+    const sentiments = Array.from(this.sentiments.values()).filter((s) => orgCallIds.has(s.callId));
+    return calculateSentimentDistribution(sentiments);
   }
 
   async getTopPerformers(orgId: string, limit = 3): Promise<TopPerformer[]> {

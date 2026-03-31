@@ -652,8 +652,16 @@ export const injectOrgContext: RequestHandler = async (req: Request, res: Respon
       return;
     }
   } catch (err) {
-    // Don't block request if status check fails (fail open for availability)
-    logger.warn({ orgId: req.orgId, err }, "Could not verify org status — allowing request");
+    if (process.env.NODE_ENV === "production") {
+      logger.error({ orgId: req.orgId, err }, "Could not verify org status — blocking request in production");
+      res.status(503).json({
+        message: "Service temporarily unavailable. Please try again.",
+        code: "OBS-ORG-STATUS-UNAVAILABLE",
+      });
+      return;
+    }
+    // In development, allow the request through with a warning
+    logger.warn({ orgId: req.orgId, err }, "Could not verify org status — allowing request (dev mode)");
   }
   next();
 };

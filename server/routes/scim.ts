@@ -1,5 +1,5 @@
 import type { Express, Request, Response, NextFunction } from "express";
-import { createHash, randomBytes } from "crypto";
+import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import { storage } from "../storage";
 import { logger } from "../services/logger";
 import { logPhiAccess } from "../services/audit-log";
@@ -141,7 +141,10 @@ async function scimAuth(req: Request, res: Response, next: NextFunction): Promis
     const orgs = await storage.listOrganizations();
     const org = orgs.find((o: import("../../shared/schema").Organization) => {
       const settings = o.settings as OrgSettings | undefined;
-      return settings?.scimEnabled && settings.scimTokenHash === tokenHash;
+      if (!settings?.scimEnabled || !settings.scimTokenHash) return false;
+      const a = Buffer.from(settings.scimTokenHash);
+      const b = Buffer.from(tokenHash);
+      return a.length === b.length && timingSafeEqual(a, b);
     });
 
     if (!org) {

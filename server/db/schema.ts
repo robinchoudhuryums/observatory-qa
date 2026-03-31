@@ -798,6 +798,7 @@ export const callRevenues = pgTable(
     insuranceAmount: real("insurance_amount"),
     patientAmount: real("patient_amount"),
     ehrSyncedAt: timestamp("ehr_synced_at"),
+    convertedAt: timestamp("converted_at"),
   },
   (t) => [
     index("call_revenues_org_idx").on(t.orgId),
@@ -991,6 +992,12 @@ export const callAttributions = pgTable(
     confidence: real("confidence"),
     notes: text("notes"),
     attributedBy: varchar("attributed_by", { length: 255 }),
+    // UTM parameter tracking
+    utmSource: varchar("utm_source", { length: 255 }),
+    utmMedium: varchar("utm_medium", { length: 255 }),
+    utmCampaign: varchar("utm_campaign", { length: 255 }),
+    utmContent: varchar("utm_content", { length: 255 }),
+    utmTerm: varchar("utm_term", { length: 255 }),
     createdAt: timestamp("created_at").defaultNow(),
   },
   (t) => [
@@ -1055,5 +1062,69 @@ export const providerTemplates = pgTable(
   (t) => [
     index("provider_templates_org_user_idx").on(t.orgId, t.userId),
     index("provider_templates_org_specialty_idx").on(t.orgId, t.specialty),
+  ],
+);
+
+// --- Security Incidents (HIPAA breach tracking) ---
+export const securityIncidents = pgTable(
+  "security_incidents",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organizations.id),
+    title: varchar("title", { length: 500 }).notNull(),
+    description: text("description").notNull(),
+    severity: varchar("severity", { length: 20 }).notNull(), // critical, high, medium, low
+    phase: varchar("phase", { length: 30 }).notNull().default("detection"),
+    declaredAt: timestamp("declared_at").notNull().defaultNow(),
+    declaredBy: text("declared_by").notNull(),
+    closedAt: timestamp("closed_at"),
+    affectedSystems: jsonb("affected_systems").default([]),
+    estimatedAffectedRecords: integer("estimated_affected_records").default(0),
+    phiInvolved: boolean("phi_involved").default(false),
+    timeline: jsonb("timeline").default([]),
+    actionItems: jsonb("action_items").default([]),
+    breachNotification: varchar("breach_notification", { length: 30 }).default("not_required"),
+    breachNotificationDeadline: timestamp("breach_notification_deadline"),
+    containedAt: timestamp("contained_at"),
+    eradicatedAt: timestamp("eradicated_at"),
+    recoveredAt: timestamp("recovered_at"),
+    rootCause: text("root_cause"),
+    lessonsLearned: text("lessons_learned"),
+  },
+  (t) => [
+    index("security_incidents_org_idx").on(t.orgId),
+    index("security_incidents_org_phase_idx").on(t.orgId, t.phase),
+  ],
+);
+
+// --- Breach Reports (HIPAA §164.408 notification tracking) ---
+export const breachReports = pgTable(
+  "breach_reports",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organizations.id),
+    incidentId: text("incident_id").references(() => securityIncidents.id),
+    title: varchar("title", { length: 500 }).notNull(),
+    description: text("description").notNull(),
+    discoveredAt: timestamp("discovered_at").notNull().defaultNow(),
+    reportedBy: text("reported_by").notNull(),
+    affectedIndividuals: integer("affected_individuals").notNull().default(0),
+    phiTypes: jsonb("phi_types").default([]), // e.g., ["names", "medical_records", "ssn"]
+    notificationStatus: varchar("notification_status", { length: 30 }).notNull().default("pending"),
+    notificationDeadline: timestamp("notification_deadline").notNull(),
+    individualsNotifiedAt: timestamp("individuals_notified_at"),
+    hhsNotifiedAt: timestamp("hhs_notified_at"),
+    mediaNotifiedAt: timestamp("media_notified_at"),
+    correctiveActions: jsonb("corrective_actions").default([]),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (t) => [
+    index("breach_reports_org_idx").on(t.orgId),
+    index("breach_reports_org_status_idx").on(t.orgId, t.notificationStatus),
   ],
 );
