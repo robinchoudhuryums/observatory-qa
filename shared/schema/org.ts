@@ -1,11 +1,13 @@
 import { z } from "zod";
 
 // --- ORGANIZATION SCHEMAS ---
+const hexColorRegex = /^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$/;
+
 export const orgBrandingSchema = z.object({
-  appName: z.string().default("Observatory"),
-  logoUrl: z.string().optional(),
-  primaryColor: z.string().optional(), // Hex color (e.g., "#10b981") to override default theme
-  secondaryColor: z.string().optional(), // Hex color for accent/secondary elements
+  appName: z.string().max(100).default("Observatory"),
+  logoUrl: z.string().max(2048).optional(),
+  primaryColor: z.string().regex(hexColorRegex, "Invalid hex color (e.g. #10b981)").optional(),
+  secondaryColor: z.string().regex(hexColorRegex, "Invalid hex color (e.g. #10b981)").optional(),
   onboardingCompleted: z.boolean().optional(),
 });
 
@@ -24,12 +26,16 @@ export const INDUSTRY_TYPES = [
 export type IndustryType = (typeof INDUSTRY_TYPES)[number]["value"];
 
 export const orgSettingsSchema = z.object({
-  industryType: z.string().optional(),
-  emailDomain: z.string().optional(),
-  departments: z.array(z.string()).optional(),
-  subTeams: z.record(z.string(), z.array(z.string())).optional(),
-  callCategories: z.array(z.string()).optional(),
-  callPartyTypes: z.array(z.string()).optional(),
+  industryType: z.string().max(50).optional(),
+  emailDomain: z
+    .string()
+    .max(255)
+    .regex(/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/, "Invalid domain format")
+    .optional(),
+  departments: z.array(z.string().min(1).max(100)).max(100).optional(),
+  subTeams: z.record(z.string().max(100), z.array(z.string().min(1).max(100)).max(50)).optional(),
+  callCategories: z.array(z.string().min(1).max(100)).max(50).optional(),
+  callPartyTypes: z.array(z.string().min(1).max(100)).max(20).optional(),
   retentionDays: z.number().default(90),
   branding: orgBrandingSchema.optional(),
   bedrockModel: z.string().optional(), // Per-org model override (e.g., "us.anthropic.claude-haiku-4-5-20251001")
@@ -145,7 +151,7 @@ export const orgSettingsSchema = z.object({
     })
     .optional(),
   // Custom vocabulary — word boost list for better transcription of org-specific terms
-  customVocabulary: z.array(z.string()).optional(),
+  customVocabulary: z.array(z.string().min(1).max(200).trim()).max(1000).optional(),
   // Co-signature requirements (clinical documentation)
   requiresCosignature: z.boolean().optional(), // all notes require co-signature
   cosignatureRoles: z.array(z.string()).optional(), // ["admin", "manager"] can co-sign

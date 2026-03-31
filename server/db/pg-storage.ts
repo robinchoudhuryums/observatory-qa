@@ -306,7 +306,11 @@ export class PostgresStorage implements IStorage {
   }
 
   async getAllEmployees(orgId: string): Promise<Employee[]> {
-    const rows = await this.db.select().from(tables.employees).where(eq(tables.employees.orgId, orgId));
+    const rows = await this.db
+      .select()
+      .from(tables.employees)
+      .where(eq(tables.employees.orgId, orgId))
+      .limit(QUERY_HARD_CAP);
     return rows.map((r) => this.mapEmployee(r));
   }
 
@@ -458,7 +462,8 @@ export class PostgresStorage implements IStorage {
       .select()
       .from(tables.calls)
       .where(eq(tables.calls.orgId, orgId))
-      .orderBy(desc(tables.calls.uploadedAt));
+      .orderBy(desc(tables.calls.uploadedAt))
+      .limit(QUERY_HARD_CAP);
     return rows.map((r) => this.mapCall(r));
   }
 
@@ -2143,22 +2148,28 @@ export class PostgresStorage implements IStorage {
       .select()
       .from(tables.referenceDocuments)
       .where(eq(tables.referenceDocuments.orgId, orgId))
-      .orderBy(desc(tables.referenceDocuments.createdAt));
+      .orderBy(desc(tables.referenceDocuments.createdAt))
+      .limit(QUERY_HARD_CAP);
     return rows.map((r) => this.mapReferenceDocument(r));
   }
 
   async getReferenceDocumentsForCategory(orgId: string, callCategory: string): Promise<ReferenceDocument[]> {
+    // Use SQL-level JSONB filtering with GIN index instead of loading all docs into memory.
+    // Matches documents where appliesTo is NULL, empty array, or contains the category.
     const rows = await this.db
       .select()
       .from(tables.referenceDocuments)
-      .where(and(eq(tables.referenceDocuments.orgId, orgId), eq(tables.referenceDocuments.isActive, true)));
-    // Filter in-memory since appliesTo is JSONB — either empty (applies to all) or includes the category
-    return rows
-      .filter((r) => {
-        const applies = r.appliesTo as string[] | null;
-        return !applies || applies.length === 0 || applies.includes(callCategory);
-      })
-      .map((r) => this.mapReferenceDocument(r));
+      .where(
+        and(
+          eq(tables.referenceDocuments.orgId, orgId),
+          eq(tables.referenceDocuments.isActive, true),
+          sql`(${tables.referenceDocuments.appliesTo} IS NULL
+               OR jsonb_array_length(${tables.referenceDocuments.appliesTo}) = 0
+               OR ${tables.referenceDocuments.appliesTo} @> ${JSON.stringify([callCategory])}::jsonb)`,
+        ),
+      )
+      .limit(QUERY_HARD_CAP);
+    return rows.map((r) => this.mapReferenceDocument(r));
   }
 
   async updateReferenceDocument(
@@ -3089,7 +3100,8 @@ export class PostgresStorage implements IStorage {
     const rows = await this.db
       .select()
       .from(tables.learningModules)
-      .where(and(...conditions));
+      .where(and(...conditions))
+      .limit(QUERY_HARD_CAP);
     return rows.map((r) => this.mapLearningModule(r));
   }
 

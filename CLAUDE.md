@@ -156,6 +156,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/e2e/admin.spec.ts` — Admin panel
   - `tests/e2e/logout.spec.ts` — Logout flow
   - `tests/e2e/api-health.spec.ts` — Health endpoint
+  - `tests/e2e/security.spec.ts` — Security boundaries (auth enforcement, RBAC escalation, CSRF, session fixation, rate limiting)
 - **E2E auth pattern**: Import `{ adminTest as test, expect } from "./fixtures"` (or `viewerTest`) for authenticated tests. Each test gets a fresh login — no shared storageState. Tests use `data-testid` selectors for stability.
 
 ## Architecture
@@ -1000,9 +1001,10 @@ On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add mi
 | **PHI decryption audit** | `server/services/phi-encryption.ts` | `decryptClinicalNotePhi()` accepts audit context and logs `[HIPAA_AUDIT] PHI_DECRYPT` events with userId, orgId, resourceId, and field count. All callers in `calls.ts` and `clinical.ts` pass audit context |
 | **Tamper-evident audit** | `server/services/audit-log.ts` | `audit_logs` table with SHA-256 integrity hashes and sequence numbers. Per-org promise-chain mutex serializes concurrent writes to prevent sequence number race conditions |
 | **PostgreSQL RLS** | `server/db/sync-schema.ts` | `ENABLE/FORCE ROW LEVEL SECURITY` on all 27 tenant-scoped tables. `org_isolation` policies using `current_setting('app.org_id')`. DO-block idempotency for PG15 compatibility. `app.bypass_rls` session var for schema-sync and super-admin operations |
-| **Per-org KMS encryption** | `server/services/org-encryption.ts` | Envelope encryption: AWS KMS generates per-org DEK, encrypted DEK stored in org settings, 30-min cache, `enc_v2_{orgPrefix}:` format. Falls back to shared `PHI_ENCRYPTION_KEY` when `AWS_KMS_KEY_ID` not set |
+| **Per-org KMS encryption** | `server/services/org-encryption.ts` | Envelope encryption: AWS KMS generates per-org DEK, encrypted DEK stored in org settings, 5-min cache (keys zeroed on eviction), `enc_v2_{orgPrefix}:` format. Falls back to shared `PHI_ENCRYPTION_KEY` when `AWS_KMS_KEY_ID` not set |
 | **GDPR/CCPA compliance** | `server/routes/admin.ts` | `GET /api/admin/org/export` (right to access), `DELETE /api/admin/org/purge` (right to erasure with confirmation). `deleteOrgData()` in all storage backends |
-| **Org suspension gate** | `server/auth.ts` | `injectOrgContext` checks org `status` field: suspended → 403 `OBS-ORG-SUSPENDED`, deleted → 410 `OBS-ORG-DELETED`. SSO session check failures now deny with 503 `OBS-AUTH-007` instead of silently allowing |
+| **Org suspension gate** | `server/auth.ts` | `injectOrgContext` checks org `status` field: suspended → 403 `OBS-ORG-SUSPENDED`, deleted → 410 `OBS-ORG-DELETED`. Org status lookup failure → 503 in production (fail-closed). SSO session check failures now deny with 503 `OBS-AUTH-007` instead of silently allowing |
+| **Timing-safe token comparison** | `assemblyai-webhook.ts`, `scim.ts` | All secret token comparisons use `crypto.timingSafeEqual()` to prevent timing-based attacks on webhook secrets and SCIM bearer tokens |
 | **Sentry PHI redaction** | `server/services/sentry.ts` | Uses shared `redactPhi()` for selective PHI scrubbing in error messages, request bodies, and exception values. Preserves debugging context while removing SSN, phone, email, MRN patterns |
 | **FAQ analytics PHI safety** | `server/services/faq-analytics.ts` | Sample queries stored in FAQ analytics are PHI-redacted via `redactPhi()` before persistence |
 | **WAF log safety** | `server/middleware/waf.ts` | WAF violation logs use `req.path` (no query string) to prevent logging PHI from query parameters |
@@ -1057,6 +1059,32 @@ Automated pipeline runs on push to `main` and all PRs:
 | **Deploy Staging** | Auto on main push via Render deploy hook + health check | Requires quality gate |
 | **Deploy Production** | Manual only (`workflow_dispatch`), GitHub Environment approval | Requires quality gate |
 
+### Nightly CI (`.github/workflows/nightly.yml`)
+Runs every night at 2 AM UTC (also manually triggerable):
+- Full test suite with c8 coverage
+- TypeScript type check
+- ESLint warning count tracking
+- `npm audit` security scan
+- Secret scanning
+- Build verification + schema sync validation
+- Creates a GitHub issue with label `nightly-failure` if any check fails
+
+### Weekly Dependency Check (`.github/workflows/dependency-check.yml`)
+Runs every Monday at 8 AM UTC (also manually triggerable):
+- `npm audit` at all severity levels with detailed breakdown
+- `npm outdated` for stale packages
+- License compliance check (scans for GPL/AGPL/SSPL in production dependencies)
+- Creates a GitHub issue with label `dependency-review` summarizing findings
+
+### Automated PR Review (`.github/workflows/pr-review.yml`)
+Runs on all pull requests:
+- Lint + type check + unit tests
+- ESLint warning regression detection (compares PR against main branch)
+- Secret scanning on changed files only
+- PR size check (warns if > 500 lines changed, fails if > 2000)
+- Auto-labels PRs based on changed files (`security`, `frontend`, `backend`, `database`, `tests`, `ci-cd`, `docs`)
+- Posts PR comment with results summary
+
 ### Docker
 - **Dockerfile**: Multi-stage (builder → production), non-root user, tini init, health check via `fetch()`
 - **docker-compose.yml**: App + workers + PostgreSQL 16 (pgvector) + Redis 7
@@ -1071,6 +1099,8 @@ Internet → Caddy (:443, auto TLS) → Node.js (:5000) → PostgreSQL + S3 + Be
 ```
 - EC2 t3.micro + Caddy for TLS + systemd for process management
 - IAM instance role for S3 + Bedrock (no hardcoded AWS keys)
+- **Auto-rollback**: deploy.sh saves previous SHA before deploy; if health check fails, automatically rolls back to previous version, rebuilds, and restarts
+- **Pre-flight validation**: required env vars (`DATABASE_URL`, `ASSEMBLYAI_API_KEY`, `SESSION_SECRET`, `PHI_ENCRYPTION_KEY`) are hard-checked before deploy in production; use `--force` to skip
 - Estimated ~$13/month (after free tier)
 - See `deploy/ec2/README.md` for full setup guide
 
@@ -1406,6 +1436,33 @@ Server serves both API and static frontend from the same process.
 - Renamed sidebar label, page title, and CLAUDE.md references
 - API paths (`/api/marketing/*`) unchanged for backward compatibility
 - Positioned as "where do calls come from?" rather than a marketing attribution product
+
+### Branch: `claude/audit-observatory-codebase-0eONS`
+
+#### ✅ Completed & committed: Security hardening (P0)
+- **Timing-safe token comparison** — `assemblyai-webhook.ts` and `scim.ts` now use `crypto.timingSafeEqual()` instead of `===`/`!==` for webhook token and SCIM token hash comparison (prevents timing attacks)
+- **Webhook replay prevention** — AssemblyAI webhook handler now rejects callbacks for calls not in `processing`/`pending` state, preventing replay attacks on already-completed calls
+- **Org status fail-closed** — `injectOrgContext` in `auth.ts` now returns 503 in production when org status lookup fails (was fail-open, allowing requests through during DB issues)
+- **All tests passing** — fixed 85 previously-failing tests (root cause: missing `typescript-eslint` dev dependency); 1179/1179 tests pass, 0 TypeScript errors
+
+#### ✅ Completed & committed: Database & query hardening (P1)
+- **Unbounded query protection** — added `QUERY_HARD_CAP` (5000) limits to `getAllEmployees()`, `getAllCalls()`, `listReferenceDocuments()`, `listLearningModules()` in pg-storage.ts (prevents OOM on large orgs)
+- **SQL-level JSONB filtering** — `getReferenceDocumentsForCategory()` now uses `@>` JSONB containment operator with GIN index instead of loading all docs into memory
+- **GIN index** — `ref_docs_applies_to_gin_idx` on `reference_documents.applies_to` for efficient category filtering
+- **DEK cache security** — reduced TTL from 30 minutes to 5 minutes; added `Buffer.fill(0)` key zeroing on eviction; periodic cleanup interval for expired entries
+
+#### ✅ Completed & committed: Data isolation fixes (P2)
+- **Password reset safety** — documented cross-tenant lookup behavior; token is bound to specific `userId + orgId` so no cross-tenant password change is possible
+- **Schema validation hardening** — added hex color regex validation for branding colors; domain format validation for `emailDomain`; max-length constraints on `departments` (100), `callCategories` (50), `callPartyTypes` (20), `customVocabulary` (1000 terms, 200 chars each); string min/max on all array items
+
+#### ✅ Completed & committed: CI/CD improvements (P3)
+- **ESLint warning budget** — tightened from 280 to 271 (current actual count); 260 `no-unused-vars` + 11 `no-console`
+- **Missing dev dependency** — installed `typescript-eslint` (was referenced in eslint.config.js but not in devDependencies)
+- **Nightly CI workflow** — `.github/workflows/nightly.yml`: full test + coverage + security audit + secret scanning, creates GitHub issue on failure
+- **Weekly dependency check** — `.github/workflows/dependency-check.yml`: npm audit + outdated packages + license compliance, creates issue with findings
+- **Automated PR review** — `.github/workflows/pr-review.yml`: lint + type check + tests + PR size check + auto-labeling based on changed files
+- **E2E security tests** — `tests/e2e/security.spec.ts`: cross-org data access prevention, role escalation, CSRF, session fixation, auth enforcement, rate limiting
+- **Deploy auto-rollback** — `deploy/ec2/deploy.sh`: saves previous SHA before deploy; auto-rollback on health check failure; hard-fail on missing env vars in production; `--force` flag to skip pre-flight
 
 ## Future Plans / Roadmap
 See `HEALTHCARE_EXPANSION_PLAN.md` for the full 4-phase healthcare expansion roadmap.

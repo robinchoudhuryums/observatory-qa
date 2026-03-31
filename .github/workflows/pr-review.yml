@@ -1,0 +1,417 @@
+name: PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+
+concurrency:
+  group: pr-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job: Lint, type check, and tests
+  # ---------------------------------------------------------------------------
+  quality:
+    name: Quality Checks
+    runs-on: ubuntu-latest
+    outputs:
+      lint_result: ${{ steps.lint.outcome }}
+      typecheck_result: ${{ steps.typecheck.outcome }}
+      test_result: ${{ steps.tests.outcome }}
+      warning_count: ${{ steps.warnings.outputs.count }}
+      main_warning_count: ${{ steps.main_warnings.outputs.count }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type check
+        id: typecheck
+        continue-on-error: true
+        run: npm run check
+
+      - name: ESLint (PR branch)
+        id: lint
+        continue-on-error: true
+        run: |
+          npx eslint server/ shared/ client/src/ --format json --output-file eslint-pr.json 2>/dev/null || true
+          npm run lint -- --max-warnings 280 2>&1 || true
+
+      - name: Count PR warnings
+        id: warnings
+        run: |
+          if [ -f eslint-pr.json ]; then
+            COUNT=$(node -e "
+              try {
+                const r = require('./eslint-pr.json');
+                console.log(r.reduce((s, f) => s + f.warningCount, 0));
+              } catch { console.log(0); }
+            ")
+            echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          else
+            echo "count=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: ESLint (main branch baseline)
+        id: main_warnings
+        run: |
+          # Stash any changes and check out main to get baseline
+          git stash --include-untracked 2>/dev/null || true
+          git checkout origin/main -- . 2>/dev/null || git checkout main -- . 2>/dev/null || true
+
+          # Re-install if lockfile changed
+          npm ci --ignore-scripts 2>/dev/null || true
+
+          npx eslint server/ shared/ client/src/ --format json --output-file eslint-main.json 2>/dev/null || true
+
+          if [ -f eslint-main.json ]; then
+            COUNT=$(node -e "
+              try {
+                const r = require('./eslint-main.json');
+                console.log(r.reduce((s, f) => s + f.warningCount, 0));
+              } catch { console.log(0); }
+            ")
+            echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          else
+            echo "count=0" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Restore PR branch
+          git checkout - 2>/dev/null || true
+          git stash pop 2>/dev/null || true
+
+      - name: Unit tests
+        id: tests
+        continue-on-error: true
+        run: npm run test
+
+  # ---------------------------------------------------------------------------
+  # Job: Security and secrets check on changed files
+  # ---------------------------------------------------------------------------
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    outputs:
+      secrets_found: ${{ steps.secrets.outputs.found }}
+      secrets_detail: ${{ steps.secrets.outputs.detail }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Scan changed files for secrets
+        id: secrets
+        run: |
+          FINDINGS=0
+          DETAIL=""
+
+          # Get changed files in this PR
+          CHANGED_FILES=$(git diff --name-only origin/main...HEAD 2>/dev/null || git diff --name-only HEAD~1 2>/dev/null || echo "")
+
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "found=0" >> "$GITHUB_OUTPUT"
+            echo "detail=No changed files detected" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Scanning $(echo "$CHANGED_FILES" | wc -l) changed files..."
+
+          for FILE in $CHANGED_FILES; do
+            [ ! -f "$FILE" ] && continue
+
+            # Skip non-text and config files
+            case "$FILE" in
+              *.md|*.yml|*.yaml|.env.example|*.lock) continue ;;
+            esac
+
+            # AWS keys
+            if grep -lI 'AKIA[0-9A-Z]\{16\}' "$FILE" 2>/dev/null; then
+              DETAIL="$DETAIL\n- AWS key in \`$FILE\`"
+              FINDINGS=$((FINDINGS + 1))
+            fi
+
+            # Private keys
+            if grep -lI '-----BEGIN.*PRIVATE KEY-----' "$FILE" 2>/dev/null; then
+              DETAIL="$DETAIL\n- Private key in \`$FILE\`"
+              FINDINGS=$((FINDINGS + 1))
+            fi
+
+            # API tokens
+            if grep -lI 'sk-[a-zA-Z0-9]\{20,\}' "$FILE" 2>/dev/null; then
+              DETAIL="$DETAIL\n- API token in \`$FILE\`"
+              FINDINGS=$((FINDINGS + 1))
+            fi
+
+            # Connection strings with passwords
+            if grep -lI 'postgresql://[^:]*:[^@]*@' "$FILE" 2>/dev/null; then
+              case "$FILE" in
+                *.example|*.md|*test*) ;; # Allow in examples/tests
+                *) DETAIL="$DETAIL\n- DB connection string in \`$FILE\`"
+                   FINDINGS=$((FINDINGS + 1)) ;;
+              esac
+            fi
+          done
+
+          echo "found=$FINDINGS" >> "$GITHUB_OUTPUT"
+          echo "detail<<EOF" >> "$GITHUB_OUTPUT"
+          printf "$DETAIL" >> "$GITHUB_OUTPUT"
+          echo "" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+          echo "Secret scan complete: $FINDINGS finding(s)"
+
+  # ---------------------------------------------------------------------------
+  # Job: PR size check
+  # ---------------------------------------------------------------------------
+  size:
+    name: PR Size Check
+    runs-on: ubuntu-latest
+    outputs:
+      lines_changed: ${{ steps.size.outputs.lines }}
+      files_changed: ${{ steps.size.outputs.files }}
+      size_label: ${{ steps.size.outputs.label }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Calculate PR size
+        id: size
+        run: |
+          # Get diff stats
+          STATS=$(git diff --shortstat origin/main...HEAD 2>/dev/null || git diff --shortstat HEAD~1 2>/dev/null || echo "0 files changed, 0 insertions, 0 deletions")
+
+          FILES=$(echo "$STATS" | grep -oP '\d+(?= files? changed)' || echo "0")
+          INSERTIONS=$(echo "$STATS" | grep -oP '\d+(?= insertions?)' || echo "0")
+          DELETIONS=$(echo "$STATS" | grep -oP '\d+(?= deletions?)' || echo "0")
+          LINES=$((${INSERTIONS:-0} + ${DELETIONS:-0}))
+
+          echo "files=${FILES:-0}" >> "$GITHUB_OUTPUT"
+          echo "lines=$LINES" >> "$GITHUB_OUTPUT"
+
+          # Determine size label
+          if [ "$LINES" -gt 1000 ]; then
+            echo "label=XL" >> "$GITHUB_OUTPUT"
+          elif [ "$LINES" -gt 500 ]; then
+            echo "label=L" >> "$GITHUB_OUTPUT"
+          elif [ "$LINES" -gt 200 ]; then
+            echo "label=M" >> "$GITHUB_OUTPUT"
+          elif [ "$LINES" -gt 50 ]; then
+            echo "label=S" >> "$GITHUB_OUTPUT"
+          else
+            echo "label=XS" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "$LINES lines changed across ${FILES:-0} files"
+
+  # ---------------------------------------------------------------------------
+  # Job: Auto-label based on changed files
+  # ---------------------------------------------------------------------------
+  label:
+    name: Auto Label
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Detect and apply labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          CHANGED=$(git diff --name-only origin/main...HEAD 2>/dev/null || git diff --name-only HEAD~1 2>/dev/null || echo "")
+          LABELS=""
+
+          # Frontend changes
+          if echo "$CHANGED" | grep -qE '^client/'; then
+            LABELS="$LABELS frontend"
+          fi
+
+          # Backend changes
+          if echo "$CHANGED" | grep -qE '^server/'; then
+            LABELS="$LABELS backend"
+          fi
+
+          # Test changes
+          if echo "$CHANGED" | grep -qE '^tests/'; then
+            LABELS="$LABELS tests"
+          fi
+
+          # Schema / database changes
+          if echo "$CHANGED" | grep -qE '(schema\.ts|sync-schema\.ts|migrate\.ts|pg-storage\.ts)'; then
+            LABELS="$LABELS database"
+          fi
+
+          # Security-related changes
+          if echo "$CHANGED" | grep -qE '(auth\.|sso\.|mfa\.|phi-|encryption|waf\.|security|scim\.)'; then
+            LABELS="$LABELS security"
+          fi
+
+          # Clinical changes
+          if echo "$CHANGED" | grep -qE '(clinical|ehr|fhir)'; then
+            LABELS="$LABELS clinical"
+          fi
+
+          # CI/CD changes
+          if echo "$CHANGED" | grep -qE '^(\.github/|Dockerfile|docker-compose|render\.yaml|deploy/)'; then
+            LABELS="$LABELS ci/cd"
+          fi
+
+          # Documentation
+          if echo "$CHANGED" | grep -qE '\.(md|txt)$'; then
+            LABELS="$LABELS documentation"
+          fi
+
+          # Dependencies
+          if echo "$CHANGED" | grep -qE '(package\.json|package-lock\.json)'; then
+            LABELS="$LABELS dependencies"
+          fi
+
+          # Shared schema (impacts both client and server)
+          if echo "$CHANGED" | grep -qE '^shared/'; then
+            LABELS="$LABELS shared-schema"
+          fi
+
+          # Apply labels (create if they don't exist)
+          for LABEL in $LABELS; do
+            # Ensure label exists (ignore errors if it already does)
+            gh label create "$LABEL" --color "ededed" --force 2>/dev/null || true
+            gh pr edit "$PR_NUMBER" --add-label "$LABEL" 2>/dev/null || true
+          done
+
+          echo "Applied labels: $LABELS"
+
+  # ---------------------------------------------------------------------------
+  # Job: Post review comment with summary
+  # ---------------------------------------------------------------------------
+  review-comment:
+    name: Review Summary
+    runs-on: ubuntu-latest
+    needs: [quality, security, size]
+    if: always()
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Post review comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          TYPECHECK: ${{ needs.quality.outputs.typecheck_result }}
+          LINT: ${{ needs.quality.outputs.lint_result }}
+          TESTS: ${{ needs.quality.outputs.test_result }}
+          PR_WARNINGS: ${{ needs.quality.outputs.warning_count }}
+          MAIN_WARNINGS: ${{ needs.quality.outputs.main_warning_count }}
+          SECRETS_FOUND: ${{ needs.security.outputs.secrets_found }}
+          SECRETS_DETAIL: ${{ needs.security.outputs.secrets_detail }}
+          LINES_CHANGED: ${{ needs.size.outputs.lines_changed }}
+          FILES_CHANGED: ${{ needs.size.outputs.files_changed }}
+          SIZE_LABEL: ${{ needs.size.outputs.size_label }}
+        run: |
+          # Build status icons
+          icon() { [ "$1" = "success" ] && echo ":white_check_mark:" || echo ":x:"; }
+
+          TYPECHECK_ICON=$(icon "$TYPECHECK")
+          LINT_ICON=$(icon "$LINT")
+          TESTS_ICON=$(icon "$TESTS")
+
+          # Warning delta
+          PR_W=${PR_WARNINGS:-0}
+          MAIN_W=${MAIN_WARNINGS:-0}
+          WARN_DELTA=$((PR_W - MAIN_W))
+          if [ "$WARN_DELTA" -gt 0 ]; then
+            WARN_STATUS=":warning: +$WARN_DELTA new warnings"
+          elif [ "$WARN_DELTA" -lt 0 ]; then
+            WARN_STATUS=":tada: $WARN_DELTA warnings (reduced!)"
+          else
+            WARN_STATUS=":white_check_mark: No change"
+          fi
+
+          # Secrets status
+          if [ "${SECRETS_FOUND:-0}" -gt 0 ]; then
+            SECRET_STATUS=":rotating_light: **${SECRETS_FOUND} potential secret(s) detected**"
+            SECRET_DETAIL="\n${SECRETS_DETAIL}"
+          else
+            SECRET_STATUS=":white_check_mark: No secrets detected"
+            SECRET_DETAIL=""
+          fi
+
+          # Size warning
+          SIZE_WARNING=""
+          LINES=${LINES_CHANGED:-0}
+          if [ "$LINES" -gt 1000 ]; then
+            SIZE_WARNING="\n\n:warning: **This PR is very large ($LINES lines).** Consider splitting into smaller, focused PRs for easier review."
+          elif [ "$LINES" -gt 500 ]; then
+            SIZE_WARNING="\n\n:eyes: **Large PR ($LINES lines).** If possible, consider breaking this into smaller changes."
+          fi
+
+          # Build comment body
+          cat > comment.md << EOF
+          ## PR Review Summary
+
+          ### Quality Checks
+          | Check | Status |
+          |-------|--------|
+          | TypeScript | $TYPECHECK_ICON |
+          | ESLint | $LINT_ICON |
+          | Unit Tests | $TESTS_ICON |
+
+          ### ESLint Warnings
+          | Branch | Warnings |
+          |--------|----------|
+          | main | $MAIN_W |
+          | This PR | $PR_W |
+          | **Delta** | **$WARN_STATUS** |
+
+          ### Security
+          $SECRET_STATUS$SECRET_DETAIL
+
+          ### PR Size
+          - **Lines changed**: $LINES ($SIZE_LABEL)
+          - **Files changed**: ${FILES_CHANGED:-0}$SIZE_WARNING
+
+          ---
+          <sub>Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}</sub>
+          EOF
+
+          # Delete previous bot comments to avoid clutter
+          EXISTING=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("PR Review Summary"))) | .id' 2>/dev/null || true)
+
+          for COMMENT_ID in $EXISTING; do
+            gh api -X DELETE "repos/${{ github.repository }}/issues/comments/$COMMENT_ID" 2>/dev/null || true
+          done
+
+          # Post new comment
+          gh pr comment "$PR_NUMBER" --body-file comment.md
+
+          echo "Review comment posted"
+
+          # Fail if there are critical issues
+          if [ "${SECRETS_FOUND:-0}" -gt 0 ]; then
+            echo "::error::Secrets detected in changed files -- review required"
+            exit 1
+          fi

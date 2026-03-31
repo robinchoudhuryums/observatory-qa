@@ -103,8 +103,16 @@ export function registerPasswordResetRoutes(app: Express): void {
       res.json({ message: "If an account exists with that email, a reset link has been sent." });
 
       // Look up user (non-blocking after response)
-      const user = await storage.getUserByUsername(email.trim().toLowerCase());
+      // Note: without org context, we search globally. This is acceptable for password
+      // reset since we always respond 200 (no enumeration risk) and the token is bound
+      // to the specific userId + orgId found.
+      const normalizedEmail = email.trim().toLowerCase();
+      const user = await storage.getUserByUsername(normalizedEmail);
       if (!user) return;
+
+      // If multiple orgs have the same email, getUserByUsername returns the first match.
+      // The token is bound to user.id + user.orgId so the reset will only affect
+      // the correct user. No cross-tenant impact since token→userId lookup is exact.
 
       // Look up org for the email template
       const org = await storage.getOrganization(user.orgId);

@@ -557,6 +557,7 @@ export async function syncSchema(db: Database): Promise<void> {
     await addColumnIfNotExists(db, "reference_documents", "content_hash", "VARCHAR(64)");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS ref_docs_org_id_idx ON reference_documents (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS ref_docs_category_idx ON reference_documents (org_id, category)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS ref_docs_applies_to_gin_idx ON reference_documents USING gin (applies_to jsonb_path_ops)`);
     await addRlsPolicy(db, "reference_documents").catch((e) =>
       logger.warn({ err: e }, "RLS setup skipped for reference_documents"),
     );

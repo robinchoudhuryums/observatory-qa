@@ -46,9 +46,10 @@ jobs:
         run: npm ci
 
       - name: Lint (warning budget)
-        # Allow existing warnings (272 as of 2026-03-30) while preventing new ones.
+        # Allow existing warnings (271 as of 2026-03-31) while preventing new ones.
         # Reduce this number over time as warnings are cleaned up.
-        run: npm run lint -- --max-warnings 280
+        # Breakdown: 260 @typescript-eslint/no-unused-vars, 11 no-console
+        run: npm run lint -- --max-warnings 271
 
       - name: Format check
         run: npm run format:check

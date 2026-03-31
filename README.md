@@ -228,6 +228,16 @@ See [`deploy/ec2/README.md`](deploy/ec2/README.md) for a lean EC2 setup (~$13/mo
 - Start: `npm run start`
 - Configure env vars in Render dashboard
 
+## CI/CD
+
+GitHub Actions pipelines:
+- **CI** (`.github/workflows/ci.yml`) — runs on push to main and all PRs: lint, type check, tests, security audit, build, E2E, staging deploy
+- **Nightly** (`.github/workflows/nightly.yml`) — 2 AM UTC: full test suite with coverage, security audit, secret scanning. Creates GitHub issue on failure
+- **Dependency Check** (`.github/workflows/dependency-check.yml`) — Mondays 8 AM UTC: npm audit, outdated packages, license compliance. Creates summary issue
+- **PR Review** (`.github/workflows/pr-review.yml`) — on PRs: lint regression check, secret scanning, PR size warning, auto-labeling
+
+EC2 deploy script (`deploy/ec2/deploy.sh`) includes automatic rollback on health check failure — saves previous SHA, restores if new version fails.
+
 ## HIPAA Compliance
 
 Observatory QA implements healthcare-grade security controls:
@@ -239,7 +249,8 @@ Observatory QA implements healthcare-grade security controls:
 - **Data retention**: Auto-purge calls per org policy (configurable, default 90 days)
 - **Tenant isolation**: All data access requires org context — cross-org access is structurally impossible. Per-org username uniqueness, org-scoped rate limiting, org-scoped WebSocket broadcasts
 - **PostgreSQL Row-Level Security** — Database-level tenant isolation via RLS policies on all 27 tenant-scoped tables, enforced at the PostgreSQL layer independent of application code
-- **Per-org KMS encryption** — Envelope encryption with AWS KMS: per-org AES-256 data encryption keys (DEK), encrypted master key stored per org, 30-min cache, graceful fallback to shared PHI_ENCRYPTION_KEY
+- **Per-org KMS encryption** — Envelope encryption with AWS KMS: per-org AES-256 data encryption keys (DEK), encrypted master key stored per org, 5-min cache (keys zeroed on eviction), graceful fallback to shared PHI_ENCRYPTION_KEY
+- **Timing-safe comparisons** — All secret token comparisons (webhook, SCIM) use `crypto.timingSafeEqual()` to prevent timing attacks
 - **GDPR/CCPA** — Data export (right to access) and full org purge (right to erasure) with confirmation token
 - **Security headers**: CSP, HSTS, X-Frame-Options, X-Content-Type-Options, X-XSS-Protection
 
@@ -249,7 +260,7 @@ Observatory QA implements healthcare-grade security controls:
 npm run test
 ```
 
-62 unit test files (1179 tests) covering schemas, routes, multi-tenancy, RBAC, billing, API keys, clinical workflows, EHR, PHI encryption, SSO, speaker detection, RAG pipeline, clinical amendments, load simulation, and more. Uses Node.js built-in test runner via tsx. Plus 12 Playwright E2E specs for browser-level testing.
+62 unit test files (1179 tests) covering schemas, routes, multi-tenancy, RBAC, billing, API keys, clinical workflows, EHR, PHI encryption, SSO, speaker detection, RAG pipeline, clinical amendments, load simulation, and more. Uses Node.js built-in test runner via tsx. Plus 13 Playwright E2E specs for browser-level testing (including security boundary tests).
 
 ### E2E Tests (Playwright)
 ```bash
