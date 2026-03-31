@@ -60,7 +60,7 @@ import {
   type InsertCallAttribution,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
-import { type IStorage, type ObjectStorageClient, mapConcurrent, normalizeAnalysis, applyCallFilters } from "./types";
+import { type IStorage, type ObjectStorageClient, mapConcurrent, normalizeAnalysis, applyCallFilters, calculateDashboardMetrics, calculateSentimentDistribution } from "./types";
 import { logger } from "../services/logger";
 
 export class CloudStorage implements IStorage {
@@ -427,33 +427,12 @@ export class CloudStorage implements IStorage {
       this.client.listAndDownloadJson<SentimentAnalysis>(`${prefix}/sentiments/`),
       this.client.listAndDownloadJson<CallAnalysis>(`${prefix}/analyses/`),
     ]);
-
-    const totalCalls = calls.length;
-    const avgSentiment =
-      sentiments.length > 0
-        ? (sentiments.reduce((sum, s) => sum + parseFloat(s.overallScore || "0"), 0) / sentiments.length) * 10
-        : 0;
-    const avgPerformanceScore =
-      analyses.length > 0
-        ? analyses.reduce((sum, a) => sum + parseFloat(a.performanceScore || "0"), 0) / analyses.length
-        : 0;
-
-    return {
-      totalCalls,
-      avgSentiment: Math.round(avgSentiment * 100) / 100,
-      avgPerformanceScore: Math.round(avgPerformanceScore * 100) / 100,
-      avgTranscriptionTime: 2.3,
-    };
+    return calculateDashboardMetrics(calls.length, sentiments, analyses);
   }
 
   async getSentimentDistribution(orgId: string): Promise<SentimentDistribution> {
     const sentiments = await this.client.listAndDownloadJson<SentimentAnalysis>(`${this.orgPrefix(orgId)}/sentiments/`);
-    const distribution: SentimentDistribution = { positive: 0, neutral: 0, negative: 0 };
-    for (const s of sentiments) {
-      const key = s.overallSentiment as keyof SentimentDistribution;
-      if (key in distribution) distribution[key]++;
-    }
-    return distribution;
+    return calculateSentimentDistribution(sentiments);
   }
 
   async getTopPerformers(orgId: string, limit = 3): Promise<TopPerformer[]> {

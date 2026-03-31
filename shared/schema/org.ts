@@ -279,9 +279,6 @@ export const DEFAULT_SUBTEAMS: Record<string, readonly string[]> = {
   ],
 };
 
-/** @deprecated Use org settings subTeams instead. Kept for backward compatibility. */
-export const POWER_MOBILITY_SUBTEAMS = DEFAULT_SUBTEAMS["Intake - Power Mobility"]!;
-
 // --- TYPES ---
 export type InsertOrganization = z.infer<typeof insertOrganizationSchema>;
 export type Organization = z.infer<typeof organizationSchema>;

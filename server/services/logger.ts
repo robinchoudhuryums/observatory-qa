@@ -23,7 +23,7 @@ function buildTransport(): pino.TransportSingleOptions | pino.TransportMultiOpti
 
   if (betterstackToken) {
     // Stream to both stdout (for Render logs) and Betterstack
-    console.log("[LOGGER] Betterstack transport enabled");
+    console.log("[LOGGER] Betterstack transport enabled"); // eslint-disable-line no-console -- bootstrap, pino not yet created
     return {
       targets: [
         { target: "pino/file", options: { destination: 1 } },
@@ -33,7 +33,7 @@ function buildTransport(): pino.TransportSingleOptions | pino.TransportMultiOpti
   }
 
   // Production without Betterstack: structured JSON to stdout
-  console.log("[LOGGER] BETTERSTACK_SOURCE_TOKEN not set — logging to stdout only");
+  console.log("[LOGGER] BETTERSTACK_SOURCE_TOKEN not set — logging to stdout only"); // eslint-disable-line no-console -- bootstrap
   return undefined;
 }
 
@@ -62,6 +62,8 @@ export const logger = pino({
 /**
  * Create a child logger scoped to a specific context.
  * Useful for request-scoped or org-scoped logging.
+ *
+ * Example: const reqLogger = createChildLogger({ orgId, userId });
  */
 export function createChildLogger(bindings: Record<string, unknown>) {
   return logger.child(bindings);
