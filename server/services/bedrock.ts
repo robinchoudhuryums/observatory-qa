@@ -156,6 +156,7 @@ export class BedrockProvider implements AIAnalysisProvider {
     callId: string,
     callCategory?: string,
     promptTemplate?: any,
+    options?: { transcriptConfidence?: number },
   ): Promise<CallAnalysis> {
     await this.ensureCredentials();
     if (!this.credentials || !this.client) {
@@ -164,7 +165,9 @@ export class BedrockProvider implements AIAnalysisProvider {
 
     // Split prompt into cacheable system prompt + dynamic user message
     const systemPrompt = buildSystemPrompt(callCategory, promptTemplate);
-    const userMessage = buildUserMessage(transcriptText, callCategory);
+    const userMessage = buildUserMessage(transcriptText, callCategory, {
+      transcriptConfidence: options?.transcriptConfidence,
+    });
 
     logger.info(
       { callId, model: this.model, systemPromptLen: systemPrompt.length, userMsgLen: userMessage.length },

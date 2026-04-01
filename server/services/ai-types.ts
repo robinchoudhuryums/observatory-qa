@@ -63,6 +63,7 @@ export interface AIAnalysisProvider {
     callId: string,
     callCategory?: string,
     promptTemplate?: PromptTemplateConfig,
+    options?: { transcriptConfidence?: number },
   ): Promise<CallAnalysis>;
   generateText?(prompt: string): Promise<string>;
 }

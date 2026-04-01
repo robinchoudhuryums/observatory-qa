@@ -571,10 +571,23 @@ export function sanitizeTranscript(text: string): string {
 /**
  * Build the user message (dynamic, per-call transcript).
  */
-export function buildUserMessage(transcriptText: string, callCategory?: string): string {
+export function buildUserMessage(
+  transcriptText: string,
+  callCategory?: string,
+  options?: { transcriptConfidence?: number },
+): string {
   const sanitized = sanitizeTranscript(transcriptText);
   const processedTranscript = smartTruncate(sanitized);
-  return `TRANSCRIPT:\n${processedTranscript}`;
+
+  // For low-confidence transcripts, inject guidance asking the AI to flag uncertainty
+  let confidenceNote = "";
+  if (options?.transcriptConfidence !== undefined && options.transcriptConfidence < 0.5) {
+    confidenceNote = `\nNOTE: This transcript has LOW confidence (${Math.round(options.transcriptConfidence * 100)}%). ` +
+      "Some words may be inaccurate. When scoring, account for potential transcription errors. " +
+      "Flag any passages where the meaning is ambiguous with [UNCLEAR] in your summary.\n";
+  }
+
+  return `${confidenceNote}TRANSCRIPT:\n${processedTranscript}`;
 }
 
 /**

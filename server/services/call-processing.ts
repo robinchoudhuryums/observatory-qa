@@ -40,6 +40,10 @@ import { LruCache } from "../utils/lru-cache";
 const REF_DOC_CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_REF_DOC_CACHE_ENTRIES = 1_000;
 
+// Prompt template cache — avoids DB lookup on every call for the same org+category
+const PROMPT_TEMPLATE_CACHE_TTL_MS = 5 * 60 * 1000;
+const promptTemplateCache = new Map<string, { template: any; expiresAt: number }>();
+
 type RefDocList = Array<{ name: string; category: string; extractedText?: string | null; id: string }>;
 
 const refDocCache = new LruCache<RefDocList>({ maxSize: MAX_REF_DOC_CACHE_ENTRIES, ttlMs: REF_DOC_CACHE_TTL_MS });
@@ -279,21 +283,28 @@ async function loadPromptTemplate(
 ): Promise<PromptTemplateConfig | undefined> {
   let template: PromptTemplateConfig | undefined;
 
-  // Load custom prompt template by category
+  // Load custom prompt template by category (cached to avoid DB hit per call)
   if (callCategory) {
-    try {
-      const tmpl = await storage.getPromptTemplateByCategory(orgId, callCategory);
-      if (tmpl) {
-        template = {
-          evaluationCriteria: tmpl.evaluationCriteria,
-          requiredPhrases: tmpl.requiredPhrases,
-          scoringWeights: tmpl.scoringWeights,
-          additionalInstructions: tmpl.additionalInstructions,
-        };
-        logger.info({ callId, templateName: tmpl.name }, "Using custom prompt template");
+    const cacheKey = `${orgId}:${callCategory}`;
+    const cached = promptTemplateCache.get(cacheKey);
+    if (cached && Date.now() < cached.expiresAt) {
+      template = cached.template ? { ...cached.template } : undefined;
+    } else {
+      try {
+        const tmpl = await storage.getPromptTemplateByCategory(orgId, callCategory);
+        if (tmpl) {
+          template = {
+            evaluationCriteria: tmpl.evaluationCriteria,
+            requiredPhrases: tmpl.requiredPhrases,
+            scoringWeights: tmpl.scoringWeights,
+            additionalInstructions: tmpl.additionalInstructions,
+          };
+          logger.info({ callId, templateName: tmpl.name }, "Using custom prompt template");
+        }
+        promptTemplateCache.set(cacheKey, { template: template || null, expiresAt: Date.now() + PROMPT_TEMPLATE_CACHE_TTL_MS });
+      } catch (err) {
+        logger.warn({ callId, err }, "Failed to load prompt template (using defaults)");
       }
-    } catch (err) {
-      logger.warn({ callId, err }, "Failed to load prompt template (using defaults)");
     }
   }
 
@@ -591,6 +602,7 @@ export async function continueAfterTranscription(
       clinicalSpecialty,
       noteFormat,
       transcriptText,
+      transcriptResponse.confidence,
     );
 
     // Warn if clinical call didn't produce a clinical note
@@ -905,6 +917,7 @@ async function runAiAnalysis(
   clinicalSpecialty: string | undefined,
   noteFormat: string | undefined,
   transcriptText: string | undefined,
+  transcriptConfidence?: number,
 ) {
   broadcastCallUpdate(callId, "analyzing", { step: 4, totalSteps: 6, label: "Running AI analysis..." }, orgId);
 
@@ -925,7 +938,9 @@ async function runAiAnalysis(
 
   try {
     const result = await withBedrockProtection(orgId, () =>
-      withRetry(() => aiProvider.analyzeCallTranscript(transcriptText, callId, callCategory, promptTemplate), {
+      withRetry(() => aiProvider.analyzeCallTranscript(transcriptText, callId, callCategory, promptTemplate, {
+        transcriptConfidence,
+      }), {
         retries: 2,
         baseDelay: 2000,
         label: `AI analysis for ${callId}`,

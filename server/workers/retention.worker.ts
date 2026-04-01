@@ -45,6 +45,43 @@ export function createRetentionWorker(
         detail: `Purged ${purged} call(s) older than ${retentionDays} days (retention policy)`,
       });
 
+      // HIPAA: Purge orphaned S3 audio files that may remain after DB call deletion.
+      // Lists S3 objects in the org's prefix and deletes any with last-modified older
+      // than retentionDays that no longer have a corresponding DB record.
+      try {
+        const s3Bucket = process.env.S3_BUCKET;
+        if (s3Bucket) {
+          const { S3Client } = await import("../services/s3");
+          const s3 = new S3Client(s3Bucket);
+          const prefix = `orgs/${orgId}/audio/`;
+          const objects = await s3.listObjectsWithMetadata(prefix);
+          const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+          let s3Purged = 0;
+          for (const obj of objects) {
+            const updated = new Date(obj.updated);
+            if (updated < cutoff) {
+              try {
+                await s3.deleteObject(obj.name);
+                s3Purged++;
+              } catch {
+                // Individual delete failure — log but continue
+              }
+            }
+          }
+          if (s3Purged > 0) {
+            logger.info({ orgId, s3Purged, retentionDays }, "Retention worker: orphaned S3 audio files purged");
+            logPhiAccess({
+              event: "s3_audio_purge",
+              orgId,
+              resourceType: "audio_files",
+              detail: `Purged ${s3Purged} S3 audio file(s) older than ${retentionDays} days`,
+            });
+          }
+        }
+      } catch (s3Err) {
+        logger.warn({ orgId, err: s3Err }, "Retention worker: S3 audio purge failed (non-fatal)");
+      }
+
       // HIPAA: Purge only very old audit logs (7+ years) — never delete with PHI
       if (storage.purgeExpiredAuditLogs) {
         const auditPurged = await storage.purgeExpiredAuditLogs(orgId, AUDIT_LOG_RETENTION_DAYS);
