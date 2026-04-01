@@ -622,4 +622,229 @@ export function registerAdminRoutes(app: Express): void {
   // Audit logs, WAF, incidents, breach reports, GDPR, vocabulary, MFA recovery
   // → delegated to admin-security.routes.ts
   registerAdminSecurityRoutes(app);
+
+  // ── PHI Access Report ───────────────────────────────────────────────────
+  // Answers: "Who accessed what PHI in the last N days?"
+  // Required by HIPAA for audit/compliance reviews and breach investigations.
+  app.get("/api/admin/phi-access-report", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      const { queryAuditLogs } = await import("../services/audit-log");
+      const days = Math.min(Math.max(parseInt(req.query.days as string) || 30, 1), 365);
+      const userId = req.query.userId as string | undefined;
+      const resourceType = req.query.resourceType as string | undefined;
+      const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+      const result = await queryAuditLogs({
+        orgId: req.orgId!,
+        from,
+        userId,
+        resourceType,
+        limit: 200,
+      });
+
+      // Aggregate by user for summary view
+      const byUser = new Map<string, { userId: string; username: string; accessCount: number; resourceTypes: Set<string>; lastAccess: string }>();
+      for (const entry of result.entries) {
+        const uid = entry.userId || "unknown";
+        const existing = byUser.get(uid);
+        if (existing) {
+          existing.accessCount++;
+          if (entry.resourceType) existing.resourceTypes.add(entry.resourceType);
+          if (entry.timestamp && entry.timestamp > existing.lastAccess) existing.lastAccess = entry.timestamp;
+        } else {
+          byUser.set(uid, {
+            userId: uid,
+            username: entry.username || uid,
+            accessCount: 1,
+            resourceTypes: new Set(entry.resourceType ? [entry.resourceType] : []),
+            lastAccess: entry.timestamp || "",
+          });
+        }
+      }
+
+      const userSummary = Array.from(byUser.values())
+        .map((u) => ({ ...u, resourceTypes: Array.from(u.resourceTypes) }))
+        .sort((a, b) => b.accessCount - a.accessCount);
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "view_phi_access_report",
+        resourceType: "audit_logs",
+        detail: `PHI access report for last ${days} days`,
+      });
+
+      res.json({
+        period: { days, from: from.toISOString(), to: new Date().toISOString() },
+        totalEvents: result.total,
+        returnedEvents: result.entries.length,
+        userSummary,
+        recentEvents: result.entries.slice(0, 50),
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to generate PHI access report");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to generate PHI access report"));
+    }
+  });
+
+  // ── BAA Management (Business Associate Agreements — HIPAA §164.502(e)) ────
+
+  /** List all BAA records for the organization */
+  app.get("/api/admin/baa", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      const { getDatabase } = await import("../db/index");
+      const db = getDatabase();
+      if (!db) return res.json([]);
+
+      const { baaRecords } = await import("../db/schema");
+      const { eq, desc } = await import("drizzle-orm");
+      const rows = await db
+        .select()
+        .from(baaRecords)
+        .where(eq(baaRecords.orgId, req.orgId!))
+        .orderBy(desc(baaRecords.createdAt));
+
+      const now = Date.now();
+      const enriched = rows.map((r) => ({
+        ...r,
+        isExpiringSoon: r.expiryDate ? new Date(r.expiryDate).getTime() - now < 60 * 24 * 60 * 60 * 1000 : false,
+        isExpired: r.expiryDate ? new Date(r.expiryDate).getTime() < now : false,
+      }));
+
+      res.json(enriched);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to list BAA records");
+      res.status(500).json({ message: "Failed to list BAA records" });
+    }
+  });
+
+  /** Create a new BAA record */
+  app.post("/api/admin/baa", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      const { getDatabase } = await import("../db/index");
+      const db = getDatabase();
+      if (!db) return res.status(503).json({ message: "Database not available" });
+
+      const { baaRecords } = await import("../db/schema");
+      const { randomUUID } = await import("crypto");
+
+      const { vendorName, vendorType, signedDate, expiryDate, renewalDate, signatoryName, signatoryTitle, notes, documentUrl, phiCategories } = req.body;
+      if (!vendorName || !vendorType) {
+        return res.status(400).json({ message: "vendorName and vendorType are required" });
+      }
+
+      const [row] = await db
+        .insert(baaRecords)
+        .values({
+          id: randomUUID(),
+          orgId: req.orgId!,
+          vendorName,
+          vendorType,
+          signedDate: signedDate ? new Date(signedDate) : null,
+          expiryDate: expiryDate ? new Date(expiryDate) : null,
+          renewalDate: renewalDate ? new Date(renewalDate) : null,
+          status: "active",
+          signatoryName: signatoryName || null,
+          signatoryTitle: signatoryTitle || null,
+          notes: notes || null,
+          documentUrl: documentUrl || null,
+          phiCategories: phiCategories || [],
+        })
+        .returning();
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "baa_created",
+        resourceType: "baa_record",
+        resourceId: row.id,
+        detail: `BAA created for vendor: ${vendorName} (${vendorType})`,
+      });
+
+      res.status(201).json(row);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to create BAA record");
+      res.status(500).json({ message: "Failed to create BAA record" });
+    }
+  });
+
+  /** Update a BAA record */
+  app.patch("/api/admin/baa/:id", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      const { getDatabase } = await import("../db/index");
+      const db = getDatabase();
+      if (!db) return res.status(503).json({ message: "Database not available" });
+
+      const { baaRecords } = await import("../db/schema");
+      const { eq, and } = await import("drizzle-orm");
+
+      const updateFields: Record<string, unknown> = {};
+      const allowedFields = [
+        "vendorName", "vendorType", "signedDate", "expiryDate", "renewalDate",
+        "status", "signatoryName", "signatoryTitle", "notes", "documentUrl", "phiCategories",
+      ];
+      for (const field of allowedFields) {
+        if (req.body[field] !== undefined) {
+          if (["signedDate", "expiryDate", "renewalDate"].includes(field) && req.body[field]) {
+            updateFields[field] = new Date(req.body[field]);
+          } else {
+            updateFields[field] = req.body[field];
+          }
+        }
+      }
+      updateFields.updatedAt = new Date();
+      updateFields.lastReviewedAt = new Date();
+      updateFields.lastReviewedBy = req.user?.name || req.user?.username;
+
+      const rows = await db
+        .update(baaRecords)
+        .set(updateFields)
+        .where(and(eq(baaRecords.id, req.params.id), eq(baaRecords.orgId, req.orgId!)))
+        .returning();
+
+      if (rows.length === 0) return res.status(404).json({ message: "BAA record not found" });
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "baa_updated",
+        resourceType: "baa_record",
+        resourceId: req.params.id,
+      });
+
+      res.json(rows[0]);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to update BAA record");
+      res.status(500).json({ message: "Failed to update BAA record" });
+    }
+  });
+
+  /** Delete a BAA record */
+  app.delete("/api/admin/baa/:id", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+    try {
+      const { getDatabase } = await import("../db/index");
+      const db = getDatabase();
+      if (!db) return res.status(503).json({ message: "Database not available" });
+
+      const { baaRecords } = await import("../db/schema");
+      const { eq, and } = await import("drizzle-orm");
+
+      const rows = await db
+        .delete(baaRecords)
+        .where(and(eq(baaRecords.id, req.params.id), eq(baaRecords.orgId, req.orgId!)))
+        .returning();
+
+      if (rows.length === 0) return res.status(404).json({ message: "BAA record not found" });
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "baa_deleted",
+        resourceType: "baa_record",
+        resourceId: req.params.id,
+        detail: `BAA deleted for vendor: ${rows[0].vendorName}`,
+      });
+
+      res.json({ message: "BAA record deleted" });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to delete BAA record");
+      res.status(500).json({ message: "Failed to delete BAA record" });
+    }
+  });
 }

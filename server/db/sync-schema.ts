@@ -1059,6 +1059,34 @@ export async function syncSchema(db: Database): Promise<void> {
       sql`CREATE UNIQUE INDEX IF NOT EXISTS call_attributions_call_idx ON call_attributions (org_id, call_id)`,
     );
 
+    // --- BAA Records (HIPAA §164.502(e) Business Associate Agreements) ---
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS baa_records (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL REFERENCES organizations(id),
+        vendor_name VARCHAR(255) NOT NULL,
+        vendor_type VARCHAR(100) NOT NULL,
+        signed_date TIMESTAMPTZ,
+        expiry_date TIMESTAMPTZ,
+        renewal_date TIMESTAMPTZ,
+        status VARCHAR(30) NOT NULL DEFAULT 'active',
+        signatory_name VARCHAR(255),
+        signatory_title VARCHAR(255),
+        notes TEXT,
+        document_url TEXT,
+        phi_categories JSONB DEFAULT '[]',
+        last_reviewed_at TIMESTAMPTZ,
+        last_reviewed_by VARCHAR(255),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS baa_records_org_idx ON baa_records (org_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS baa_records_org_status_idx ON baa_records (org_id, status)`);
+    await addRlsPolicy(db, "baa_records").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for baa_records"),
+    );
+
     // --- Revenue: time-to-convert tracking ---
     await addColumnIfNotExists(db, "call_revenues", "converted_at", "TIMESTAMPTZ");
 

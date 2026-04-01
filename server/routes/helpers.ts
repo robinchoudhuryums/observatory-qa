@@ -193,3 +193,30 @@ export const upload = multer({
     }
   },
 });
+
+// ─── Upload deduplication lock ───────────────────────────────────────────────
+// Prevents TOCTOU race when two concurrent uploads have the same file hash.
+// Uses Redis SET NX (atomic "set if not exists") with 30-second TTL.
+// Falls back to in-memory Map when Redis is unavailable.
+const memLocks = new Map<string, number>(); // key → expiresAt timestamp
+
+export async function acquireUploadLock(lockKey: string, ttlMs = 30_000): Promise<boolean> {
+  try {
+    const { getRedis } = await import("../services/redis");
+    const redis = getRedis();
+    if (redis?.status === "ready") {
+      // SET NX: only sets if key doesn't exist (atomic). Returns "OK" on success, null if already locked.
+      const result = await redis.set(lockKey, "1", "PX", ttlMs, "NX");
+      return result === "OK";
+    }
+  } catch {
+    // Redis unavailable — fall through to in-memory
+  }
+
+  // In-memory fallback (single-instance only)
+  const now = Date.now();
+  const existing = memLocks.get(lockKey);
+  if (existing && existing > now) return false; // Lock held
+  memLocks.set(lockKey, now + ttlMs);
+  return true;
+}
