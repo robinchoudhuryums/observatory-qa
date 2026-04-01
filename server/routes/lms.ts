@@ -592,6 +592,13 @@ Respond with ONLY valid JSON (no markdown fences):
         const existing = await storage.getLearningProgress(orgId, employeeId, module.id);
         const attempts = (existing?.quizAttempts || 0) + 1;
 
+        // Compute quiz version hash — detects if questions changed since last attempt
+        const { createHash } = await import("crypto");
+        const quizVersionHash = createHash("sha256")
+          .update(JSON.stringify(questions.map((q) => ({ q: q.question, o: q.options, c: q.correctIndex }))))
+          .digest("hex")
+          .slice(0, 16);
+
         // Update progress with quiz results
         const progress = await storage.upsertLearningProgress(orgId, {
           orgId,
@@ -601,7 +608,8 @@ Respond with ONLY valid JSON (no markdown fences):
           quizScore: score,
           quizAttempts: attempts,
           completedAt: score >= passingScore ? new Date().toISOString() : undefined,
-        });
+          quizVersionHash,
+        } as any);
 
         res.json({
           score,
@@ -635,16 +643,18 @@ Respond with ONLY valid JSON (no markdown fences):
       const allProgress = await storage.getEmployeeLearningProgress(orgId, req.params.employeeId);
       const progressMap = new Map(allProgress.map((p) => [p.moduleId, p]));
 
-      // Load modules with progress
-      const modules = await Promise.all(
-        path.moduleIds.map(async (mid) => {
-          const mod = await storage.getLearningModule(orgId, mid);
+      // Batch-fetch all modules in the path (avoids N+1 query — was 1 query per module)
+      const allModules = await storage.listLearningModules(orgId);
+      const moduleMap = new Map(allModules.map((m) => [m.id, m]));
+      const modules = (path.moduleIds as string[])
+        .map((mid) => {
+          const mod = moduleMap.get(mid);
           if (!mod) return null;
           return { ...mod, progress: progressMap.get(mid) || null };
-        }),
-      );
+        })
+        .filter(Boolean);
 
-      const validModules = modules.filter(Boolean);
+      const validModules = modules;
       const completedCount = validModules.filter((m: any) => m.progress?.status === "completed").length;
 
       res.json({

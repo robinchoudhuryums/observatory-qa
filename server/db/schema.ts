@@ -932,6 +932,7 @@ export const learningProgress = pgTable(
     status: varchar("status", { length: 20 }).notNull().default("not_started"),
     quizScore: integer("quiz_score"),
     quizAttempts: integer("quiz_attempts"),
+    quizVersionHash: varchar("quiz_version_hash", { length: 64 }), // SHA-256 of quiz questions at time of attempt
     timeSpentMinutes: integer("time_spent_minutes"),
     completedAt: timestamp("completed_at"),
     notes: text("notes"),
