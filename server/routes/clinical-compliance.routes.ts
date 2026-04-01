@@ -86,7 +86,17 @@ export function registerClinicalComplianceRoutes(app: Express, requireClinicalPl
           amendedAt: new Date().toISOString(),
           fieldsChanged: [] as string[],
           content: encryptField(content.trim()),
+          integrityHash: "",
         };
+        // Amendment chain integrity: SHA-256(prevHash + type + reason + amendedBy + amendedAt)
+        const { createHash } = await import("crypto");
+        const existingAmendments = analysis.clinicalNote.amendments || [];
+        const prevHash = existingAmendments.length > 0
+          ? (existingAmendments[existingAmendments.length - 1] as any).integrityHash || ""
+          : "";
+        addendum.integrityHash = createHash("sha256")
+          .update(`${prevHash}|${addendum.type}|${addendum.reason}|${addendum.amendedBy}|${addendum.amendedAt}`)
+          .digest("hex");
 
         const currentVersion = analysis.clinicalNote.version || 0;
         if (req.body.version !== undefined && req.body.version !== currentVersion) {
@@ -249,7 +259,35 @@ export function registerClinicalComplianceRoutes(app: Express, requireClinicalPl
           }
         }
 
+        // Verify the note hasn't been edited since attestation.
+        // If amendments exist after attestation, the cosigner is signing a modified version
+        // which they may not have reviewed. Require re-attestation first.
+        const amendments = analysis.clinicalNote.amendments || [];
+        const attestedAt = analysis.clinicalNote.attestedAt;
+        if (attestedAt && amendments.length > 0) {
+          const postAttestAmendments = amendments.filter(
+            (a: any) => a.type === "amendment" && new Date(a.amendedAt) > new Date(attestedAt),
+          );
+          if (postAttestAmendments.length > 0) {
+            res.status(409).json({
+              message: "This note was edited after attestation. The provider must re-attest before co-signature.",
+              code: "OBS-CLINICAL-COSIGN-STALE",
+              postAttestAmendments: postAttestAmendments.length,
+            });
+            return;
+          }
+        }
+
+        // Optimistic locking: verify version hasn't changed since client loaded the note
         const currentVersion = analysis.clinicalNote.version || 0;
+        if (req.body.version !== undefined && req.body.version !== currentVersion) {
+          res.status(409).json({
+            message: "Clinical note has been modified since you loaded it. Please refresh and try again.",
+            code: "OBS-CLINICAL-CONFLICT",
+            currentVersion,
+          });
+          return;
+        }
         analysis.clinicalNote.version = currentVersion + 1;
 
         const cosignedAt = new Date().toISOString();

@@ -672,8 +672,35 @@ export async function continueAfterTranscription(
 
     // Clinical note processing
     if (aiAnalysis?.clinical_note) {
-      analysis.clinicalNote = mapClinicalNote(aiAnalysis.clinical_note);
-      validateAndEncryptClinicalNote(callId, analysis.clinicalNote);
+      const cn = mapClinicalNote(aiAnalysis.clinical_note);
+      // Extract structured data (vitals, meds, allergies) from note sections
+      // BEFORE encryption — encrypted text can't be parsed for patterns.
+      try {
+        const { extractStructuredDataFromSections } = await import("./clinical-extraction");
+        const structuredData = extractStructuredDataFromSections({
+          objective: typeof cn.objective === "string" ? cn.objective : undefined,
+          subjective: typeof cn.subjective === "string" ? cn.subjective : undefined,
+          plan: Array.isArray(cn.plan) ? cn.plan.join("\n") : undefined,
+        });
+        if (Object.keys(structuredData).length > 0) {
+          cn.structuredData = structuredData;
+        }
+      } catch (extractErr) {
+        logger.debug({ err: extractErr, callId }, "Structured data extraction failed — non-fatal");
+      }
+      validateAndEncryptClinicalNote(callId, cn);
+      analysis.clinicalNote = cn;
+    } else if (clinicalSpecialty || noteFormat) {
+      // AI was expected to produce a clinical note but didn't — flag for retry
+      logger.warn(
+        { callId, clinicalSpecialty, noteFormat },
+        "AI analysis completed but no clinical_note field returned — flagging for retry",
+      );
+      const retryFlags = Array.isArray(analysis.flags) ? [...(analysis.flags as string[])] : [];
+      if (!retryFlags.includes("requires_clinical_retry")) {
+        retryFlags.push("requires_clinical_retry");
+      }
+      analysis.flags = retryFlags;
     }
 
     // Server-side flag enforcement

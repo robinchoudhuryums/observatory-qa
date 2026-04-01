@@ -1627,10 +1627,10 @@ Longer-term improvements identified during codebase audits. Work on these increm
 |----------|------|-------|
 | HIGH | **HL7v2 ADT integration** | New protocol adapter, MSH/PID/PV1 message parsing, TCP/MLLP transport. Required for hospital EHR integration beyond dental |
 | HIGH | **Clinical decision support alerts** | Rules engine for drug interactions, allergy cross-reference, contraindication warnings during note generation |
-| MEDIUM | **Structured data auto-extraction at generation time** | `extractStructuredDataFromSections()` currently runs only at read time, not during pipeline. Vitals, meds, allergies should be extracted and stored on note creation |
-| MEDIUM | **Clinical note retry on AI failure** | When AI returns no `clinical_note` field, call completes without note. Should mark as `requires_retry` and auto-queue |
-| MEDIUM | **Amendment chain integrity** | Amendments stored as mutable JSONB array. Should use append-only audit log or DB-level write-once semantics for tamper-proofing |
-| MEDIUM | **Cosignature version conflict detection** | Cosign endpoint doesn't verify note wasn't edited between attestation and cosignature |
+| ✅ Done | **Structured data auto-extraction at generation time** | `claude/audit-observatory-codebase-0eONS` — `extractStructuredDataFromSections()` now runs during pipeline before encryption; vitals/meds/allergies stored on note creation |
+| ✅ Done | **Clinical note retry on AI failure** | `claude/audit-observatory-codebase-0eONS` — when AI returns no `clinical_note`, call gets `requires_clinical_retry` flag for admin review |
+| ✅ Done | **Amendment chain integrity** | `claude/audit-observatory-codebase-0eONS` — SHA-256 hash chain on amendments; each amendment's `integrityHash` includes previous hash for tamper detection |
+| ✅ Done | **Cosignature version conflict detection** | `claude/audit-observatory-codebase-0eONS` — cosign endpoint verifies no post-attestation amendments exist; optimistic locking via version check |
 | LOW | **ICD-10/diagnosis linkage** | `icd10Codes` array has no association to which assessment/diagnosis each code corresponds — needed for accurate FHIR coding |
 | LOW | **Amendment subtypes** | Add `type: "amendment" | "addendum" | "section_completion"` to distinguish corrections from completions in audit trail |
 | LOW | **Batch clinical note revalidation** | Endpoint to re-validate notes against updated validation rules (useful after schema/regex changes) |
