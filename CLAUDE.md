@@ -1604,13 +1604,13 @@ Longer-term improvements identified during codebase audits. Work on these increm
 ### Architecture / Code Quality
 | Priority | Item | Notes |
 |----------|------|-------|
-| MEDIUM | **Route error handling standardization** | `asyncHandler()` + `AppError` pattern exists in `error-handler.ts` but used in <10% of routes. ~400 lines of duplicated try/catch boilerplate |
+| MEDIUM | **Route error handling standardization** | `asyncHandler()` + `AppError` pattern adopted in employees.ts, access.ts; globalErrorHandler registered. ~300 remaining try/catch blocks across 33 route files can be incrementally converted |
 | MEDIUM | **Inline schema centralization** | ~80 lines of ad-hoc Zod schemas defined in route files. Move to `shared/schema` for frontend/backend reuse |
 | MEDIUM | **Large file decomposition** | Server: `pg-storage.ts` (3.8K), `clinical.ts` (1.9K), `memory.ts` (1.6K), `sync-schema.ts` (1.4K). Client: `transcript-viewer.tsx` (1.3K), `clinical-notes.tsx` (1.2K), `reports.tsx` (1.2K). Extract business logic to services/sub-components |
-| MEDIUM | **Team scoping at query level** | `GET /api/calls/:id` retrieves call from DB *before* checking team scope; should filter at query time with JOIN to avoid TOCTOU and return 404 instead of 403 |
+| ✅ Done | **Team scoping TOCTOU fix** | `claude/codebase-audit-evaluation-MhG8w` — pre-compute team scope before fetch; return 404 instead of 403 to avoid leaking call existence |
 | LOW | **253 ESLint `no-unused-vars` warnings** | Spread across ~100 files, mostly unused function params. Tedious but reduces noise |
 | LOW | **OIDC state persistence** | OIDC state map is in-memory. Multi-instance deployments need Redis-backed state |
-| LOW | **Inconsistent UUID validation** | Some routes use `validateUUIDParam` middleware, others accept `:id` params without validation |
+| LOW | **Inconsistent UUID validation** | validateUUIDParam added to critical PHI routes (calls detail/audio/transcript/sentiment/analysis/delete, employees). ~30 non-PHI routes still missing — add incrementally |
 
 ### Security
 | Priority | Item | Notes |
@@ -1645,7 +1645,7 @@ Longer-term improvements identified during codebase audits. Work on these increm
 | Priority | Item | Notes |
 |----------|------|-------|
 | ✅ Done | **Ref doc cache FIFO→LRU** | `claude/codebase-audit-evaluation-MhG8w` — uses shared LruCache utility |
-| MEDIUM | **analyzeAndStoreEditPatterns N+1** | Loads 500 calls then calls `getCallAnalysis()` per call in a loop; should batch-load analyses |
+| ✅ Done | **analyzeAndStoreEditPatterns N+1 fix** | `claude/codebase-audit-evaluation-MhG8w` — uses call.analysis from CallWithDetails (already batch-loaded) instead of 500 individual queries |
 
 ### Testing
 | Priority | Item | Notes |
