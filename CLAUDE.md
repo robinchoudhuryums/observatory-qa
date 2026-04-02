@@ -1580,6 +1580,7 @@ Longer-term improvements identified during codebase audits. Work on these increm
 | HIGH | **Automated breach detection** | Currently manual `declareIncident()` only. Add anomaly detection: unusual PHI access patterns, bulk exports, off-hours access |
 | MEDIUM | **S3/backup lifecycle purging** | Retention worker handles DB but not S3 object lifecycle, RDS backups, or cross-region replicas |
 | MEDIUM | **PHI access reporting UI** | Audit log data exists but no admin dashboard for "show who accessed patient X in the last 30 days" queries |
+| MEDIUM | **Audit log chain state memory** | Per-org `chainLocks` Map can hold 10K+ pending promises under load; no cleanup of completed entries. Move to Redis for multi-instance |
 | LOW | **Key escrow for PHI encryption** | No recovery path if `PHI_ENCRYPTION_KEY` is lost. Document or implement secure key backup via AWS Secrets Manager |
 
 ### LMS / Learning
@@ -1605,19 +1606,27 @@ Longer-term improvements identified during codebase audits. Work on these increm
 |----------|------|-------|
 | MEDIUM | **Route error handling standardization** | `asyncHandler()` + `AppError` pattern exists in `error-handler.ts` but used in <10% of routes. ~400 lines of duplicated try/catch boilerplate |
 | MEDIUM | **Inline schema centralization** | ~80 lines of ad-hoc Zod schemas defined in route files. Move to `shared/schema` for frontend/backend reuse |
-| MEDIUM | **Large route file decomposition** | `clinical.ts` (1.8K lines), `admin.ts` (1.4K lines), `mfa.ts` (1.2K lines). Extract business logic to services |
-| LOW | **254 ESLint `no-unused-vars` warnings** | Spread across ~100 files, mostly unused function params. Tedious but reduces noise |
+| MEDIUM | **Large file decomposition** | Server: `pg-storage.ts` (3.8K), `clinical.ts` (1.9K), `memory.ts` (1.6K), `sync-schema.ts` (1.4K). Client: `transcript-viewer.tsx` (1.3K), `clinical-notes.tsx` (1.2K), `reports.tsx` (1.2K). Extract business logic to services/sub-components |
+| MEDIUM | **Team scoping at query level** | `GET /api/calls/:id` retrieves call from DB *before* checking team scope; should filter at query time with JOIN to avoid TOCTOU and return 404 instead of 403 |
+| LOW | **253 ESLint `no-unused-vars` warnings** | Spread across ~100 files, mostly unused function params. Tedious but reduces noise |
 | LOW | **OIDC state persistence** | OIDC state map is in-memory. Multi-instance deployments need Redis-backed state |
+| LOW | **Inconsistent UUID validation** | Some routes use `validateUUIDParam` middleware, others accept `:id` params without validation |
 
 ### Security
 | Priority | Item | Notes |
 |----------|------|-------|
 | HIGH | **Prompt injection tag soup bypass** | `ai-guardrails.ts` tag patterns don't catch HTML entities (`&lt;system&gt;`), comment-wrapped injections, or `</knowledge_source>` closing tags that break RAG XML framing |
 | HIGH | **PHI redaction gaps** | `phi-redactor.ts` missing NPI numbers (10 digits), FHIR resource UUIDs, visit/encounter IDs. These leak in RAG traces and clinical output |
+| HIGH | **PHI decryption failure handling** | When `decryptField()` throws (corrupted data/key mismatch), routes return generic 500; clinicians get no indication of data integrity issue. Should return 503 + alert admins |
+| HIGH | **MFA recovery token multi-instance race** | In-memory `recoveryStore` not atomic across instances; two concurrent requests can both consume same approved token. Move to Redis with SET NX |
 | MEDIUM | **RAG topK unbounded** | `RAG_SEARCH_TOP_K` env var parsed without bounds; setting to 1000 injects 200K+ tokens into prompt. Clamp to [1, 100] |
 | MEDIUM | **Prompt injection regex DoS** | `detectPromptInjection()` has no input length limit; 10MB crafted payload can hang regex. Truncate to 10KB before matching |
 | MEDIUM | **OIDC state in-memory** | OIDC state map is in-memory; multi-instance deployments lose state across servers. Move to Redis |
+| MEDIUM | **Org cache stale state** | `orgCache` in `auth.ts` has 30s TTL; suspended/MFA-required org changes not reflected for up to 30s. Reduce TTL or add explicit invalidation |
+| MEDIUM | **Account lockout eviction** | `loginAttempts` map evicts oldest entry when full; attacker can create many usernames to evict target's tracking before lockout applies |
+| MEDIUM | **Session absolute max too long** | 8-hour absolute session max exceeds NIST recommendation of 4-6 hours for healthcare; should be configurable per-org |
 | LOW | **Bedrock TLS validation** | `requestHandler` cast to `any` bypasses TypeScript; certificate validation not explicitly enabled |
+| LOW | **Error message information disclosure** | Some routes include underlying error messages (e.g., URL fetch errors in onboarding) that could leak internal infrastructure details |
 
 ### RAG Knowledge Base (continued)
 | Priority | Item | Notes |
