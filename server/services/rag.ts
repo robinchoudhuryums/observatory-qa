@@ -114,19 +114,34 @@ export async function indexDocument(
     const texts = chunks.map((c) => c.text);
     const embeddings = await generateEmbeddingsBatch(texts);
 
-    // Store chunks with embeddings
-    const rows = chunks.map((chunk, i) => ({
-      id: randomUUID(),
-      orgId,
-      documentId: chunk.documentId,
-      chunkIndex: chunk.chunkIndex,
-      text: chunk.text,
-      sectionHeader: chunk.sectionHeader,
-      tokenCount: chunk.tokenCount,
-      charStart: chunk.charStart,
-      charEnd: chunk.charEnd,
-      embedding: embeddings[i],
-    }));
+    // Store chunks with embeddings — skip null embeddings (failed generation)
+    // to prevent empty/null vectors from corrupting pgvector cosine searches.
+    let failedEmbeddingCount = 0;
+    const rows = chunks.map((chunk, i) => {
+      const embedding = embeddings[i];
+      if (!embedding || embedding.length === 0) {
+        failedEmbeddingCount++;
+      }
+      return {
+        id: randomUUID(),
+        orgId,
+        documentId: chunk.documentId,
+        chunkIndex: chunk.chunkIndex,
+        text: chunk.text,
+        sectionHeader: chunk.sectionHeader,
+        tokenCount: chunk.tokenCount,
+        charStart: chunk.charStart,
+        charEnd: chunk.charEnd,
+        // Store null for failed embeddings — pgvector ignores NULL in cosine search
+        embedding: embedding && embedding.length > 0 ? embedding : null,
+      };
+    });
+    if (failedEmbeddingCount > 0) {
+      logger.warn(
+        { documentId, failed: failedEmbeddingCount, total: chunks.length },
+        "Some chunk embeddings failed — stored without vectors (excluded from search)",
+      );
+    }
 
     // Insert in batches of 100 to avoid exceeding query parameter limits
     for (let i = 0; i < rows.length; i += 100) {

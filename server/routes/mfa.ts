@@ -1112,7 +1112,10 @@ export function registerMfaRoutes(app: Express): void {
       const { useToken } = req.params;
       const useTokenHash = createHash("sha256").update(useToken).digest("hex");
 
-      // Find record by useTokenHash
+      // Find record by useTokenHash — atomic claim pattern:
+      // Delete from the map BEFORE any await to prevent concurrent requests from
+      // both finding the same approved token. In single-instance Node.js the
+      // synchronous find+delete is safe. For multi-instance, move to Redis SET NX.
       let foundKey: string | undefined;
       let record: typeof recoveryStore extends Map<string, infer V> ? V : never = undefined as any;
       for (const [k, v] of Array.from(recoveryStore)) {
@@ -1132,12 +1135,18 @@ export function registerMfaRoutes(app: Express): void {
         return res.status(400).json({ message: "Recovery token has expired" });
       }
 
-      // Mark as used
+      // Atomically claim: mark as used BEFORE any async work to prevent
+      // concurrent requests from consuming the same token during the await gap.
       record.status = "used";
       recoveryStore.set(foundKey, record);
 
       const user = await storage.getUser(record.userId);
-      if (!user) return res.status(400).json({ message: "User not found" });
+      if (!user) {
+        // Rollback: token was claimed but user lookup failed — allow retry
+        record.status = "approved";
+        recoveryStore.set(foundKey, record);
+        return res.status(400).json({ message: "User not found" });
+      }
 
       const org = await storage.getOrganization(user.orgId);
       const sessionUser = {

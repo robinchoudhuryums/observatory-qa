@@ -103,9 +103,9 @@ export function registerClinicalRoutes(app: Express): void {
           resourceId: req.params.callId,
           detail: "Decryption failed — key mismatch or data corruption",
         });
-        res.status(500).json({
-          message: "Unable to decrypt clinical note. PHI encryption key may be misconfigured.",
-          code: "OBS-PHI-DECRYPT-001",
+        res.status(503).json({
+          message: "Unable to decrypt clinical note. PHI encryption key may be misconfigured — contact your administrator.",
+          errorCode: "OBS-PHI-001",
         });
         return;
       }

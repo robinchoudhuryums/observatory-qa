@@ -183,12 +183,19 @@ export async function generateEmbedding(text: string): Promise<number[]> {
  * For large document uploads (100+ chunks), this provides steady throughput
  * without overwhelming Bedrock's rate limits.
  */
+/**
+ * Generate embeddings for multiple texts in batches with backpressure.
+ *
+ * Failed chunks get `null` instead of empty arrays to prevent pgvector
+ * corruption — empty arrays produce undefined cosine distances. Callers
+ * MUST check for null before inserting into the database.
+ */
 export async function generateEmbeddingsBatch(
   texts: string[],
   opts?: { concurrency?: number; onProgress?: (completed: number, total: number) => void },
-): Promise<number[][]> {
+): Promise<(number[] | null)[]> {
   const concurrency = opts?.concurrency ?? BATCH_SIZE;
-  const results: number[][] = new Array(texts.length);
+  const results: (number[] | null)[] = new Array(texts.length);
   let completed = 0;
 
   for (let i = 0; i < texts.length; i += concurrency) {
@@ -201,7 +208,6 @@ export async function generateEmbeddingsBatch(
     );
 
     // Use allSettled so one failed embedding doesn't abort the entire batch.
-    // Failed chunks get null embeddings and are logged for investigation.
     const batchResults = await Promise.allSettled(batch.map((text) => generateEmbedding(text)));
 
     let batchFailures = 0;
@@ -211,9 +217,9 @@ export async function generateEmbeddingsBatch(
         results[i + j] = result.value;
       } else {
         batchFailures++;
-        // Store zero-vector placeholder so array indexing stays aligned.
-        // Chunks with null/zero embeddings won't match any search query.
-        results[i + j] = [];
+        // Store null — NOT empty array. Empty arrays in pgvector produce
+        // undefined cosine distances and corrupt search results.
+        results[i + j] = null;
         logger.warn(
           { chunkIndex: i + j, batch: batchNum, err: result.reason },
           "Embedding generation failed for chunk — stored without embedding",

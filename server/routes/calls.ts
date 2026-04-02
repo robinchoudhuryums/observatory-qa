@@ -150,12 +150,31 @@ export function registerCallRoutes(app: Express): void {
       ]);
 
       const analysis = normalizeAnalysis(rawAnalysis);
-      decryptClinicalNotePhi(analysis as Record<string, unknown> | null, {
-        userId: req.user?.id,
-        orgId: req.orgId,
-        resourceId: call.id,
-        resourceType: "call_analysis",
-      });
+
+      // Decrypt PHI fields — isolated catch so decryption failures get a clear
+      // HIPAA-specific error rather than a generic 500.
+      try {
+        decryptClinicalNotePhi(analysis as Record<string, unknown> | null, {
+          userId: req.user?.id,
+          orgId: req.orgId,
+          resourceId: call.id,
+          resourceType: "call_analysis",
+        });
+      } catch (decryptErr) {
+        logger.error({ err: decryptErr, callId: call.id }, "PHI decryption failed for call details");
+        logPhiAccess({
+          ...auditContext(req),
+          event: "phi_decryption_failure",
+          resourceType: "call_analysis",
+          resourceId: call.id,
+          detail: "Decryption failed — key mismatch or data corruption",
+        });
+        res.status(503).json(errorResponse(
+          ERROR_CODES.PHI_DECRYPTION_FAILED,
+          "Unable to decrypt clinical data. This may indicate an encryption key issue — contact your administrator.",
+        ));
+        return;
+      }
 
       res.json({
         ...call,
@@ -414,12 +433,28 @@ export function registerCallRoutes(app: Express): void {
         res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
         return;
       }
-      decryptClinicalNotePhi(analysis as Record<string, unknown>, {
-        userId: req.user?.id,
-        orgId: req.orgId,
-        resourceId: req.params.id,
-        resourceType: "call_analysis",
-      });
+      try {
+        decryptClinicalNotePhi(analysis as Record<string, unknown>, {
+          userId: req.user?.id,
+          orgId: req.orgId,
+          resourceId: req.params.id,
+          resourceType: "call_analysis",
+        });
+      } catch (decryptErr) {
+        logger.error({ err: decryptErr, callId: req.params.id }, "PHI decryption failed for call analysis");
+        logPhiAccess({
+          ...auditContext(req),
+          event: "phi_decryption_failure",
+          resourceType: "call_analysis",
+          resourceId: req.params.id,
+          detail: "Decryption failed — key mismatch or data corruption",
+        });
+        res.status(503).json(errorResponse(
+          ERROR_CODES.PHI_DECRYPTION_FAILED,
+          "Unable to decrypt clinical data. This may indicate an encryption key issue — contact your administrator.",
+        ));
+        return;
+      }
       logPhiAccess({
         ...auditContext(req),
         event: "view_call_analysis",
