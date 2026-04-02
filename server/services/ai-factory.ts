@@ -24,9 +24,13 @@ function createProvider(modelOverride?: string): AIAnalysisProvider {
 export const aiProvider = createProvider();
 
 // Cache of per-org providers to avoid re-creating on every call.
-// Bounded to prevent unbounded memory growth in large multi-tenant deployments.
-const MAX_ORG_PROVIDER_CACHE_SIZE = 200;
-const orgProviderCache = new Map<string, AIAnalysisProvider>();
+// LRU eviction ensures frequently-used orgs stay cached while inactive ones are dropped.
+import { LruCache } from "../utils/lru-cache";
+
+const orgProviderCache = new LruCache<AIAnalysisProvider>({
+  maxSize: 200,
+  ttlMs: 30 * 60 * 1000, // 30 min TTL — re-creates provider when org changes bedrockModel
+});
 
 /**
  * Get the AI provider for a specific organization.
@@ -40,12 +44,6 @@ export function getOrgAIProvider(orgId: string, orgSettings?: OrgSettings | null
   const cacheKey = `${orgId}:${orgSettings.bedrockModel}`;
   const cached = orgProviderCache.get(cacheKey);
   if (cached) return cached;
-
-  // Evict oldest entry (Map preserves insertion order) when at capacity
-  if (orgProviderCache.size >= MAX_ORG_PROVIDER_CACHE_SIZE) {
-    const oldestKey = orgProviderCache.keys().next().value;
-    if (oldestKey !== undefined) orgProviderCache.delete(oldestKey);
-  }
 
   const provider = new BedrockProvider(orgSettings.bedrockModel);
   const resolved = provider.isAvailable ? provider : aiProvider;

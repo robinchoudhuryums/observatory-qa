@@ -21,17 +21,22 @@ import { recordFaqQuery } from "./faq-analytics";
 import * as tables from "../db/schema";
 
 // Tunable RAG configuration via environment variables (with sensible defaults)
+/** Clamp a number to [min, max]. */
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
 const RAG_CONFIG = {
-  /** Number of top chunks to return from search */
-  topK: parseInt(process.env.RAG_SEARCH_TOP_K || "6", 10),
+  /** Number of top chunks to return from search (clamped to [1, 100]) */
+  topK: clamp(parseInt(process.env.RAG_SEARCH_TOP_K || "6", 10) || 6, 1, 100),
   /** Semantic (vector) score weight in hybrid search (0-1) */
-  semanticWeight: parseFloat(process.env.RAG_SEMANTIC_WEIGHT || "0.7"),
+  semanticWeight: clamp(parseFloat(process.env.RAG_SEMANTIC_WEIGHT || "0.7") || 0.7, 0, 1),
   /** BM25 keyword score weight in hybrid search (0-1) */
-  keywordWeight: parseFloat(process.env.RAG_KEYWORD_WEIGHT || "0.3"),
+  keywordWeight: clamp(parseFloat(process.env.RAG_KEYWORD_WEIGHT || "0.3") || 0.3, 0, 1),
   /** Minimum combined score to include a chunk in results */
-  minRelevanceScore: parseFloat(process.env.RAG_MIN_RELEVANCE_SCORE || "0.3"),
+  minRelevanceScore: clamp(parseFloat(process.env.RAG_MIN_RELEVANCE_SCORE || "0.3") || 0.3, 0, 1),
   /** Candidate multiplier: fetch topK * this many candidates, then rerank */
-  candidateMultiplier: parseInt(process.env.RAG_CANDIDATE_MULTIPLIER || "3", 10),
+  candidateMultiplier: clamp(parseInt(process.env.RAG_CANDIDATE_MULTIPLIER || "3", 10) || 3, 1, 10),
 };
 
 export interface RetrievedChunk {

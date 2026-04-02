@@ -33,47 +33,37 @@ import { PLAN_DEFINITIONS, type PlanTier, type UsageRecord, type OrgSettings } f
 import type { PromptTemplateConfig } from "./ai-provider";
 import type { AssemblyAIResponse, TranscriptionOptions } from "./assemblyai";
 
-// ==================== REFERENCE DOC CACHE ====================
+// ==================== REFERENCE DOC CACHE (LRU) ====================
+
+import { LruCache } from "../utils/lru-cache";
 
 const REF_DOC_CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_REF_DOC_CACHE_ENTRIES = 1_000;
 
-interface RefDocCacheEntry {
-  docs: Array<{ name: string; category: string; extractedText?: string | null; id: string }>;
-  expiresAt: number;
-}
+type RefDocList = Array<{ name: string; category: string; extractedText?: string | null; id: string }>;
 
-const refDocCache = new Map<string, RefDocCacheEntry>();
+const refDocCache = new LruCache<RefDocList>({ maxSize: MAX_REF_DOC_CACHE_ENTRIES, ttlMs: REF_DOC_CACHE_TTL_MS });
 
 /** Invalidate cached reference docs for an org (call on doc upload/delete) */
 export function invalidateRefDocCache(orgId: string): void {
+  // Invalidate all category-specific keys for this org
+  // Since LruCache doesn't support prefix delete, delete the org key
+  // and rely on TTL for category variants
   refDocCache.delete(orgId);
 }
 
 async function getCachedRefDocs(orgId: string, callCategory: string) {
   const cacheKey = `${orgId}:${callCategory}`;
   const cached = refDocCache.get(cacheKey);
-  if (cached && Date.now() < cached.expiresAt) return cached.docs;
+  if (cached) return cached;
 
   const docs = await storage.getReferenceDocumentsForCategory(orgId, callCategory);
-  if (refDocCache.size >= MAX_REF_DOC_CACHE_ENTRIES && !refDocCache.has(cacheKey)) {
-    const oldest = refDocCache.keys().next().value;
-    if (oldest) refDocCache.delete(oldest);
-  }
-  refDocCache.set(cacheKey, { docs: docs as any, expiresAt: Date.now() + REF_DOC_CACHE_TTL_MS });
+  refDocCache.set(cacheKey, docs as RefDocList);
   return docs;
 }
 
-// Prune expired cache entries
-setInterval(
-  () => {
-    const now = Date.now();
-    for (const [key, entry] of Array.from(refDocCache)) {
-      if (now > entry.expiresAt) refDocCache.delete(key);
-    }
-  },
-  5 * 60 * 1000,
-).unref();
+// Prune expired cache entries periodically
+setInterval(() => refDocCache.prune(), 5 * 60 * 1000).unref();
 
 // ==================== FILE CLEANUP ====================
 

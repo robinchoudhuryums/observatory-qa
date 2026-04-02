@@ -20,26 +20,16 @@ const MAX_INPUT_CHARS = 8000;
 const BATCH_SIZE = 20; // Concurrent embeddings per batch
 const EMBED_TIMEOUT_MS = 30_000; // 30 seconds
 
-// --- Embedding cache (deduplicates identical queries) ---
+// --- Embedding cache (deduplicates identical queries, LRU eviction) ---
+import { LruCache } from "../utils/lru-cache";
+
 const CACHE_MAX_SIZE = 200;
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
-interface CachedEmbedding {
-  embedding: number[];
-  expiresAt: number;
-}
-const embeddingCache = new Map<string, CachedEmbedding>();
+const embeddingCache = new LruCache<number[]>({ maxSize: CACHE_MAX_SIZE, ttlMs: CACHE_TTL_MS });
 
 // Prune expired cache entries every 10 minutes
-setInterval(
-  () => {
-    const now = Date.now();
-    for (const [key, entry] of Array.from(embeddingCache)) {
-      if (now > entry.expiresAt) embeddingCache.delete(key);
-    }
-  },
-  10 * 60 * 1000,
-).unref();
+setInterval(() => embeddingCache.prune(), 10 * 60 * 1000).unref();
 
 function getCacheKey(text: string): string {
   return createHash("sha256").update(text.slice(0, MAX_INPUT_CHARS)).digest("hex");
@@ -104,8 +94,8 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   // Check cache first (deduplicates identical queries within TTL)
   const cacheKey = getCacheKey(inputText);
   const cached = embeddingCache.get(cacheKey);
-  if (cached && Date.now() < cached.expiresAt) {
-    return cached.embedding;
+  if (cached) {
+    return cached;
   }
 
   const body = JSON.stringify({
@@ -159,12 +149,8 @@ export async function generateEmbedding(text: string): Promise<number[]> {
       throw new Error("Embedding contains NaN or Infinity values — aborting to prevent pgvector corruption");
     }
 
-    // Cache the result (evict oldest if at capacity)
-    if (embeddingCache.size >= CACHE_MAX_SIZE) {
-      const oldest = embeddingCache.keys().next().value;
-      if (oldest) embeddingCache.delete(oldest);
-    }
-    embeddingCache.set(cacheKey, { embedding, expiresAt: Date.now() + CACHE_TTL_MS });
+    // Cache the result (LRU eviction handles capacity)
+    embeddingCache.set(cacheKey, embedding);
 
     return embedding;
   } catch (err: any) {

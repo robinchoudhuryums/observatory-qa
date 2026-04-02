@@ -319,11 +319,10 @@ app.post("/api/clinical/style-learning/analyze", distributedRateLimit(60 * 1000,
       envErrors.push("PHI_ENCRYPTION_KEY must be exactly 64 hex characters");
     if (!process.env.DATABASE_URL && process.env.STORAGE_BACKEND === "postgres")
       envErrors.push("DATABASE_URL required when STORAGE_BACKEND=postgres");
-    if (
-      process.env.SESSION_SECRET === "dev-secret" ||
-      (process.env.SESSION_SECRET && process.env.SESSION_SECRET.length < 16)
-    )
-      envWarnings.push("SESSION_SECRET appears weak — use a random 32+ character string in production");
+    if (process.env.SESSION_SECRET === "dev-secret")
+      envErrors.push("SESSION_SECRET is set to 'dev-secret' — use a random 32+ character string in production");
+    else if (process.env.SESSION_SECRET && process.env.SESSION_SECRET.length < 32)
+      envErrors.push(`SESSION_SECRET is too short (${process.env.SESSION_SECRET.length} chars) — must be at least 32 characters in production`);
   }
 
   // PHI encryption (HIPAA requirement in production)

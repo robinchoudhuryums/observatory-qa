@@ -15,6 +15,11 @@ import { processAudioFile, invalidateRefDocCache, cleanupFile } from "../service
 import { broadcastCallUpdate } from "../services/websocket";
 import path from "path";
 
+// In-flight upload dedup lock: prevents TOCTOU race where two concurrent
+// uploads with the same file hash both pass the duplicate check.
+// Key = `${orgId}:${fileHash}`, value = true while upload is in progress.
+const uploadHashLocks = new Set<string>();
+
 // Re-export invalidateRefDocCache for consumers that import from calls route
 export { invalidateRefDocCache } from "../services/call-processing";
 
@@ -270,10 +275,30 @@ export function registerCallRoutes(app: Express): void {
         });
         // Read the buffer after hashing — still needed for AssemblyAI + S3 upload.
         const audioBuffer = await fs.promises.readFile(req.file.path);
-        const duplicate = await storage.getCallByFileHash(req.orgId!, fileHash);
-        if (duplicate) {
+        // Deduplication with TOCTOU race prevention: an in-memory lock ensures
+        // two concurrent uploads with the same hash can't both pass the check.
+        const hashLockKey = `${orgId}:${fileHash}`;
+        if (uploadHashLocks.has(hashLockKey)) {
           await cleanupFile(req.file.path);
-          releaseUploadSlot(req.orgId!);
+          releaseUploadSlot(orgId);
+          res.status(409).json({
+            message: "This file is currently being uploaded. Please wait.",
+            duplicate: true,
+          });
+          return;
+        }
+        uploadHashLocks.add(hashLockKey);
+
+        try {
+          var duplicate = await storage.getCallByFileHash(orgId, fileHash);
+        } catch (dupErr) {
+          uploadHashLocks.delete(hashLockKey);
+          throw dupErr;
+        }
+        if (duplicate) {
+          uploadHashLocks.delete(hashLockKey);
+          await cleanupFile(req.file.path);
+          releaseUploadSlot(orgId);
           res.status(409).json({
             message: "This file has already been uploaded.",
             existingCallId: duplicate.id,
@@ -282,15 +307,22 @@ export function registerCallRoutes(app: Express): void {
           return;
         }
 
-        const call = await storage.createCall(req.orgId!, {
-          orgId: req.orgId!,
-          employeeId: employeeId || undefined,
-          fileName: req.file.originalname,
-          filePath: req.file.path,
-          fileHash,
-          status: "processing",
-          callCategory: callCategory || undefined,
-        });
+        let call;
+        try {
+          call = await storage.createCall(req.orgId!, {
+            orgId: req.orgId!,
+            employeeId: employeeId || undefined,
+            fileName: req.file.originalname,
+            filePath: req.file.path,
+            fileHash,
+            status: "processing",
+            callCategory: callCategory || undefined,
+          });
+        } finally {
+          // Release hash lock once the call is created (or creation failed).
+          // The DB record now prevents future duplicates via getCallByFileHash.
+          uploadHashLocks.delete(hashLockKey);
+        }
         const originalName = req.file.originalname;
         const mimeType = req.file.mimetype || "audio/mpeg";
         const uploadUserId = req.user?.id;
