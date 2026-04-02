@@ -257,6 +257,7 @@ export function registerCallRoutes(app: Express): void {
         const validCategories = CALL_CATEGORIES.map((c) => c.value);
         if (callCategory && !validCategories.includes(callCategory)) {
           await cleanupFile(req.file.path);
+          releaseUploadSlot(orgId);
           res.status(400).json({ message: `Invalid call category. Must be one of: ${validCategories.join(", ")}` });
           return;
         }
@@ -265,6 +266,7 @@ export function registerCallRoutes(app: Express): void {
           const employee = await storage.getEmployee(req.orgId!, employeeId);
           if (!employee) {
             await cleanupFile(req.file.path);
+            releaseUploadSlot(orgId);
             res.status(404).json(errorResponse(ERROR_CODES.EMP_NOT_FOUND, "Employee not found"));
             return;
           }
@@ -569,7 +571,9 @@ export function registerCallRoutes(app: Express): void {
         await storage.updateCallAnalysis(req.orgId!, callId, updatedAnalysis);
 
         // Fire-and-forget: update edit pattern insights for this org
-        analyzeAndStoreEditPatterns(req.orgId!).catch(() => {});
+        analyzeAndStoreEditPatterns(req.orgId!).catch((err) => {
+          logger.debug({ err, orgId: req.orgId }, "Edit pattern analysis failed (non-critical)");
+        });
 
         logger.info(
           { callId, editedBy, reason, fields: editRecord.fieldsChanged },
