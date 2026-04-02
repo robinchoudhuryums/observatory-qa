@@ -1604,7 +1604,7 @@ Longer-term improvements identified during codebase audits. Work on these increm
 ### Architecture / Code Quality
 | Priority | Item | Notes |
 |----------|------|-------|
-| MEDIUM | **Route error handling standardization** | `asyncHandler()` + `AppError` pattern adopted in employees.ts, access.ts; globalErrorHandler registered. ~300 remaining try/catch blocks across 33 route files can be incrementally converted |
+| MEDIUM | **Route error handling standardization** | `asyncHandler()` + `AppError` pattern adopted in 10 route files (employees, access, health, benchmarks, dashboard, insights, feedback, export, spend-tracking, patient-journey); globalErrorHandler registered. ~260 remaining try/catch blocks across 25 route files can be incrementally converted |
 | MEDIUM | **Inline schema centralization** | ~80 lines of ad-hoc Zod schemas defined in route files. Move to `shared/schema` for frontend/backend reuse |
 | MEDIUM | **Large file decomposition** | Server done: `pg-storage.ts` 3,795→2,279 (-40%, prototype mixin to `pg-storage-features.ts`); `clinical.ts` 1,928→1,194 (-38%); `admin.ts` 1,380→625 (-55%). Remaining: `memory.ts` (1.6K), `sync-schema.ts` (1.4K). Client: `transcript-viewer.tsx` (1.3K), `clinical-notes.tsx` (1.2K), `reports.tsx` (1.2K) |
 | ✅ Done | **Team scoping TOCTOU fix** | `claude/codebase-audit-evaluation-MhG8w` — pre-compute team scope before fetch; return 404 instead of 403 to avoid leaking call existence |
