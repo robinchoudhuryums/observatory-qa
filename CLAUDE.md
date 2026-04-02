@@ -1609,10 +1609,58 @@ Longer-term improvements identified during codebase audits. Work on these increm
 | LOW | **254 ESLint `no-unused-vars` warnings** | Spread across ~100 files, mostly unused function params. Tedious but reduces noise |
 | LOW | **OIDC state persistence** | OIDC state map is in-memory. Multi-instance deployments need Redis-backed state |
 
+### Security
+| Priority | Item | Notes |
+|----------|------|-------|
+| HIGH | **Prompt injection tag soup bypass** | `ai-guardrails.ts` tag patterns don't catch HTML entities (`&lt;system&gt;`), comment-wrapped injections, or `</knowledge_source>` closing tags that break RAG XML framing |
+| HIGH | **PHI redaction gaps** | `phi-redactor.ts` missing NPI numbers (10 digits), FHIR resource UUIDs, visit/encounter IDs. These leak in RAG traces and clinical output |
+| MEDIUM | **RAG topK unbounded** | `RAG_SEARCH_TOP_K` env var parsed without bounds; setting to 1000 injects 200K+ tokens into prompt. Clamp to [1, 100] |
+| MEDIUM | **Prompt injection regex DoS** | `detectPromptInjection()` has no input length limit; 10MB crafted payload can hang regex. Truncate to 10KB before matching |
+| MEDIUM | **OIDC state in-memory** | OIDC state map is in-memory; multi-instance deployments lose state across servers. Move to Redis |
+| LOW | **Bedrock TLS validation** | `requestHandler` cast to `any` bypasses TypeScript; certificate validation not explicitly enabled |
+
+### RAG Knowledge Base (continued)
+| Priority | Item | Notes |
+|----------|------|-------|
+| HIGH | **Empty embedding arrays corrupt pgvector** | Failed chunk embeddings stored as `[]` instead of null/zero-vectors; participate in cosine searches producing undefined distances |
+| MEDIUM | **BM25 normalization overflow** | Hardcoded `log1p(3)` denominator can be exceeded by multi-term high-TF queries; combined score may exceed 1.0 |
+| MEDIUM | **Embedding cache FIFO not LRU** | `embeddingCache` evicts first-inserted key, not least-recently-used; hot clinical codes re-embedded unnecessarily |
+| MEDIUM | **Silent RAG degradation** | When all chunks have failed embeddings, `searchRelevantChunks` returns `[]` silently; AI proceeds without RAG context with no user feedback |
+| LOW | **AI provider cache invalidation** | `orgProviderCache` in `ai-factory.ts` never invalidated when org changes `bedrockModel`; stale model used until restart |
+
+### Call Analysis (continued)
+| Priority | Item | Notes |
+|----------|------|-------|
+| MEDIUM | **Ref doc cache FIFO eviction** | `refDocCache` in `call-processing.ts` uses same FIFO eviction pattern as embedding cache; should be LRU |
+| MEDIUM | **analyzeAndStoreEditPatterns N+1** | Loads 500 calls then calls `getCallAnalysis()` per call in a loop; should batch-load analyses |
+
+### Testing
+| Priority | Item | Notes |
+|----------|------|-------|
+| HIGH | **No coverage thresholds enforced** | c8 runs but doesn't fail on regression; coverage can degrade silently. Add `--check-coverage --lines=70` |
+| HIGH | **E2E tests share single admin account** | All Playwright tests use same `admin:admin123` — state pollution across parallel tests |
+| HIGH | **Missing AI provider mocks** | No mock for Bedrock API; cannot test rate limit, timeout, or malformed response handling |
+| MEDIUM | **E2E tests use in-memory DB** | Playwright runs against MemStorage; doesn't catch PostgreSQL-specific failures |
+| MEDIUM | **Race condition tests need real DB** | Upload race tests only validate MemStorage; PostgreSQL row locking not tested |
+| MEDIUM | **No integration test suite** | Gap between unit tests (mocked storage) and E2E (browser); no HTTP-level integration tests against real PostgreSQL |
+
+### DevOps / Infrastructure
+| Priority | Item | Notes |
+|----------|------|-------|
+| HIGH | **Docker image push disabled** | GHCR push set to `false`; deployments must rebuild from source; 1-day artifact retention |
+| HIGH | **Schema sync validation is grep-only** | CI checks table names exist in `sync-schema.ts` but doesn't validate columns, indexes, or types match `schema.ts` |
+| MEDIUM | **No canary deployment strategy** | All production traffic switches immediately; no gradual rollout or auto-rollback on error rate |
+| MEDIUM | **Blue-green deploy manual cutover** | `deploy/docker-deploy.sh` requires manual proxy reconfiguration |
+| MEDIUM | **Dependency audit not on PRs** | Weekly-only check; critical vulns can ship for days before detection |
+
 ### UI/UX
 | Priority | Item | Notes |
 |----------|------|-------|
 | MEDIUM | **Dashboard query freshness** | No `staleTime`/`refetchInterval` on dashboard queries — data can be stale until window focus |
 | MEDIUM | **Accessibility audit** | Some ARIA labels present but no WAVE/axe-core audit done. Missing visible labels on some form elements |
+| MEDIUM | **ProtectedRoute stale permissions** | `useQuery` with `staleTime: Infinity` means role changes server-side aren't reflected until page reload |
+| MEDIUM | **WebSocket reconnection loop risk** | `connect` in dependency array of `use-websocket.ts` can cause infinite reconnection if `queryClient` identity changes |
 | LOW | **Large page decomposition** | `clinical-notes.tsx` (1.2K lines), `reports.tsx` (1.2K lines) could be broken into smaller components |
 | LOW | **Upload progress tracking** | No progress bar for large file uploads. `fetch()` doesn't support progress natively — need XMLHttpRequest or tus protocol |
+| LOW | **File upload dropzone missing maxSize** | `react-dropzone` config doesn't specify `maxSize`; validation only in `onDrop` callback |
+| LOW | **Onboarding wizard step validation** | Users can proceed through steps without completing required fields |
