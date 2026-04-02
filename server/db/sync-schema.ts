@@ -598,6 +598,7 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS doc_chunks_org_id_idx ON document_chunks (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS doc_chunks_document_id_idx ON document_chunks (document_id)`);
     await addColumnIfNotExists(db, "document_chunks", "content_hash", "VARCHAR(64)");
+    await addColumnIfNotExists(db, "document_chunks", "retrieval_count", "INTEGER DEFAULT 0");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS doc_chunks_content_hash_idx ON document_chunks (org_id, content_hash)`).catch(() => {});
     // HNSW vector index for fast cosine similarity search.
     // Without this, pgvector does sequential scan (O(n) per query).

@@ -470,14 +470,36 @@ export async function hasIndexedChunks(db: NodePgDatabase, orgId: string): Promi
  * Increment retrieval counts for documents whose chunks were used.
  * Fire-and-forget — does not block the caller.
  */
-export async function incrementRetrievalCounts(db: NodePgDatabase, documentIds: string[]): Promise<void> {
+/**
+ * Increment retrieval counts at both document and chunk level.
+ * Document-level: how often any chunk from this doc is retrieved.
+ * Chunk-level: how often this specific chunk is retrieved (shows which sections are most useful).
+ */
+export async function incrementRetrievalCounts(
+  db: NodePgDatabase,
+  documentIds: string[],
+  chunkIds?: string[],
+): Promise<void> {
   if (documentIds.length === 0) return;
-  const uniqueIds = Array.from(new Set(documentIds));
+  const uniqueDocIds = Array.from(new Set(documentIds));
   await db.execute(sql`
     UPDATE reference_documents
     SET retrieval_count = retrieval_count + 1
-    WHERE id = ANY(${uniqueIds}::text[])
+    WHERE id = ANY(${uniqueDocIds}::text[])
   `);
+
+  // Chunk-level tracking (optional — callers pass chunk IDs when available)
+  if (chunkIds && chunkIds.length > 0) {
+    const uniqueChunkIds = Array.from(new Set(chunkIds));
+    await db.execute(sql`
+      UPDATE document_chunks
+      SET retrieval_count = COALESCE(retrieval_count, 0) + 1
+      WHERE id = ANY(${uniqueChunkIds}::text[])
+    `).catch((err) => {
+      // Non-fatal — chunk retrieval tracking is analytics, not critical path
+      logger.debug({ err }, "Chunk retrieval count increment failed");
+    });
+  }
 }
 
 /**

@@ -207,6 +207,18 @@ export class BedrockProvider implements AIAnalysisProvider {
     const responseText = result.output?.message?.content?.[0]?.text || "";
 
     const analysis = parseJsonResponse(responseText, callId);
+
+    // Attach actual token usage from Bedrock response for accurate cost tracking
+    // (instead of estimating from text length)
+    const usage = result?.usage;
+    if (usage) {
+      (analysis as any)._tokenUsage = {
+        inputTokens: usage.inputTokens || 0,
+        outputTokens: usage.outputTokens || 0,
+        cacheReadTokens: (usage as any).cacheReadInputTokens || (usage as any).cacheReadInputTokenCount || 0,
+      };
+    }
+
     logger.info(
       { callId, performanceScore: analysis.performance_score, sentiment: analysis.sentiment },
       "Bedrock analysis complete",

@@ -410,10 +410,11 @@ async function loadReferenceContext(
             score: Math.round(c.score * 1000) / 1000,
           }));
 
-          // Increment retrieval counts (fire-and-forget)
+          // Increment retrieval counts at document + chunk level (fire-and-forget)
           incrementRetrievalCounts(
             db as any,
             chunks.map((c) => c.documentId),
+            chunks.map((c) => c.id),
           ).catch((err) => {
             logger.debug({ err }, "Failed to increment retrieval counts");
           });
@@ -1131,10 +1132,14 @@ async function postProcessing(
       (transcriptResponse.words?.[transcriptResponse.words.length - 1]?.end || 0) / 1000,
     );
     const assemblyaiCost = estimateAssemblyAICost(audioDuration);
-    const estimatedInputTokens = Math.ceil((transcriptResponse.text || "").length / 4) + 500;
-    const estimatedOutputTokens = 800;
+    // Use actual Bedrock token counts when available (from _tokenUsage attached by provider),
+    // fall back to text-length estimation when actual counts aren't available.
+    const actualTokens = (aiAnalysis as any)?._tokenUsage;
+    const inputTokens = actualTokens?.inputTokens || Math.ceil((transcriptResponse.text || "").length / 4) + 500;
+    const outputTokens = actualTokens?.outputTokens || 800;
+    const tokenSource = actualTokens ? "actual" : "estimated";
     const bedrockModel = process.env.BEDROCK_MODEL || "us.anthropic.claude-sonnet-4-6";
-    const bedrockCost = aiAnalysis ? estimateBedrockCost(bedrockModel, estimatedInputTokens, estimatedOutputTokens) : 0;
+    const bedrockCost = aiAnalysis ? estimateBedrockCost(bedrockModel, inputTokens, outputTokens) : 0;
 
     const spendRecord: UsageRecord = {
       id: randomUUID(),
@@ -1149,8 +1154,8 @@ async function postProcessing(
           ? {
               bedrock: {
                 model: bedrockModel,
-                estimatedInputTokens,
-                estimatedOutputTokens,
+                estimatedInputTokens: inputTokens,
+                estimatedOutputTokens: outputTokens,
                 estimatedCost: Math.round(bedrockCost * 10000) / 10000,
               },
             }

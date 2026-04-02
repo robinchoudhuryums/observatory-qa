@@ -547,6 +547,7 @@ export const documentChunks = pgTable(
     charEnd: integer("char_end").notNull(),
     embedding: vector("embedding", 1024), // Amazon Titan Embed V2 — 1024 dimensions
     contentHash: varchar("content_hash", { length: 64 }), // SHA-256 of chunk text for deduplication
+    retrievalCount: integer("retrieval_count").default(0), // Per-chunk retrieval tracking
     createdAt: timestamp("created_at").defaultNow(),
   },
   (t) => [index("doc_chunks_org_id_idx").on(t.orgId), index("doc_chunks_document_id_idx").on(t.documentId)],
