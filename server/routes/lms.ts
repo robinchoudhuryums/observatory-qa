@@ -713,35 +713,172 @@ Respond with ONLY valid JSON (no markdown fences):
     }
   });
 
+  // ── Bulk progress operations (manager+) ──────────────────────────────────
+
+  /** POST /api/lms/bulk/complete — Mark multiple employees as completed for a module */
+  app.post("/api/lms/bulk/complete", requireAuth, requireRole("manager"), async (req: Request, res: Response) => {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+    const { moduleId, employeeIds } = req.body;
+    if (!moduleId || !Array.isArray(employeeIds) || employeeIds.length === 0) {
+      return res.status(400).json({ message: "moduleId and employeeIds array required" });
+    }
+    if (employeeIds.length > 200) {
+      return res.status(400).json({ message: "Maximum 200 employees per bulk operation" });
+    }
+
+    try {
+      let completed = 0;
+      for (const empId of employeeIds) {
+        try {
+          await storage.upsertLearningProgress(orgId, {
+            orgId,
+            employeeId: empId,
+            moduleId,
+            status: "completed",
+            completedAt: new Date().toISOString(),
+          });
+          completed++;
+        } catch {
+          // Skip individual failures
+        }
+      }
+      res.json({ completed, total: employeeIds.length });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to bulk complete module");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to bulk complete"));
+    }
+  });
+
+  /** POST /api/lms/bulk/reset — Reset progress for multiple employees on a module */
+  app.post("/api/lms/bulk/reset", requireAuth, requireRole("manager"), async (req: Request, res: Response) => {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+    const { moduleId, employeeIds } = req.body;
+    if (!moduleId || !Array.isArray(employeeIds) || employeeIds.length === 0) {
+      return res.status(400).json({ message: "moduleId and employeeIds array required" });
+    }
+    if (employeeIds.length > 200) {
+      return res.status(400).json({ message: "Maximum 200 employees per bulk operation" });
+    }
+
+    try {
+      let reset = 0;
+      for (const empId of employeeIds) {
+        try {
+          await storage.upsertLearningProgress(orgId, {
+            orgId,
+            employeeId: empId,
+            moduleId,
+            status: "not_started",
+            quizScore: 0,
+            quizAttempts: 0,
+            completedAt: undefined,
+          });
+          reset++;
+        } catch {
+          // Skip individual failures
+        }
+      }
+      res.json({ reset, total: employeeIds.length });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to bulk reset progress");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to bulk reset"));
+    }
+  });
+
+  /** POST /api/lms/bulk/assign — Assign a path to multiple employees */
+  app.post("/api/lms/bulk/assign", requireAuth, requireRole("manager"), async (req: Request, res: Response) => {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+    const { pathId, employeeIds } = req.body;
+    if (!pathId || !Array.isArray(employeeIds) || employeeIds.length === 0) {
+      return res.status(400).json({ message: "pathId and employeeIds array required" });
+    }
+
+    try {
+      const path = await storage.getLearningPath(orgId, pathId);
+      if (!path) return res.status(404).json({ message: "Path not found" });
+
+      // Merge new employees into assignedTo (deduplicate)
+      const existing = new Set((path.assignedTo as string[]) || []);
+      for (const empId of employeeIds) existing.add(empId);
+      await storage.updateLearningPath(orgId, pathId, {
+        assignedTo: Array.from(existing),
+      });
+
+      // Send notification emails
+      const newAssignees = employeeIds.filter((id) => !(path.assignedTo as string[] || []).includes(id));
+      if (newAssignees.length > 0) {
+        notifyAssignedEmployees(orgId, path, newAssignees, (req.user as any)?.name || "Manager").catch(() => {});
+      }
+
+      res.json({ assigned: employeeIds.length, totalAssigned: existing.size });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to bulk assign path");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to bulk assign"));
+    }
+  });
+
   /** GET /api/lms/stats — LMS analytics overview */
   app.get("/api/lms/stats", requireAuth, async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
     try {
-      const [modules, paths, employees] = await Promise.all([
+      // Optimized: fetch modules + paths + aggregate progress in parallel.
+      // Previous version loaded all employees (could be thousands) then fetched
+      // progress per-employee (N+1 queries capped at 50). Now uses storage-level
+      // aggregation for progress stats.
+      const [modules, paths] = await Promise.all([
         storage.listLearningModules(orgId),
         storage.listLearningPaths(orgId),
-        storage.getAllEmployees(orgId),
       ]);
 
       const publishedModules = modules.filter((m) => m.isPublished);
       const aiGenerated = modules.filter((m) => m.contentType === "ai_generated");
 
-      // Batch-load progress for employees (parallel, capped at 50)
-      const progressArrays = await Promise.all(
-        employees.slice(0, 50).map((emp) => storage.getEmployeeLearningProgress(orgId, emp.id)),
-      );
-      const allProgress = progressArrays.flat();
-      const totalCompletions = allProgress.filter((p) => p.status === "completed").length;
-      const totalInProgress = allProgress.filter((p) => p.status === "in_progress").length;
-      const avgQuizScore =
-        allProgress.filter((p) => p.quizScore != null).length > 0
-          ? Math.round(
-              allProgress.filter((p) => p.quizScore != null).reduce((sum, p) => sum + (p.quizScore || 0), 0) /
-                allProgress.filter((p) => p.quizScore != null).length,
-            )
+      // Aggregate progress stats — try SQL-level aggregation, fall back to in-memory
+      let totalCompletions = 0;
+      let totalInProgress = 0;
+      let avgQuizScore: number | null = null;
+      let totalEmployeesLearning = 0;
+
+      try {
+        const { getDatabase } = await import("../db/index");
+        const db = getDatabase();
+        if (db) {
+          const { sql } = await import("drizzle-orm");
+          const statsResult = await db.execute(sql`
+            SELECT
+              COUNT(*) FILTER (WHERE status = 'completed') AS completed_count,
+              COUNT(*) FILTER (WHERE status = 'in_progress') AS in_progress_count,
+              ROUND(AVG(quiz_score) FILTER (WHERE quiz_score IS NOT NULL))::int AS avg_quiz,
+              COUNT(DISTINCT employee_id) AS unique_learners
+            FROM learning_progress
+            WHERE org_id = ${orgId}
+          `);
+          const row = (statsResult.rows[0] as any) || {};
+          totalCompletions = parseInt(row.completed_count) || 0;
+          totalInProgress = parseInt(row.in_progress_count) || 0;
+          avgQuizScore = row.avg_quiz != null ? parseInt(row.avg_quiz) : null;
+          totalEmployeesLearning = parseInt(row.unique_learners) || 0;
+        }
+      } catch {
+        // Fall back to in-memory if SQL fails (e.g., no DB)
+        const employees = await storage.getAllEmployees(orgId);
+        const progressArrays = await Promise.all(
+          employees.slice(0, 50).map((emp) => storage.getEmployeeLearningProgress(orgId, emp.id)),
+        );
+        const allProgress = progressArrays.flat();
+        totalCompletions = allProgress.filter((p) => p.status === "completed").length;
+        totalInProgress = allProgress.filter((p) => p.status === "in_progress").length;
+        const quizScores = allProgress.filter((p) => p.quizScore != null);
+        avgQuizScore = quizScores.length > 0
+          ? Math.round(quizScores.reduce((sum, p) => sum + (p.quizScore || 0), 0) / quizScores.length)
           : null;
+        totalEmployeesLearning = new Set(allProgress.map((p) => p.employeeId)).size;
+      }
 
       res.json({
         totalModules: modules.length,
@@ -751,7 +888,7 @@ Respond with ONLY valid JSON (no markdown fences):
         totalCompletions,
         totalInProgress,
         avgQuizScore,
-        totalEmployeesLearning: new Set(allProgress.map((p) => p.employeeId)).size,
+        totalEmployeesLearning,
         modulesByCategory: modules.reduce(
           (acc, m) => {
             const cat = m.category || "general";

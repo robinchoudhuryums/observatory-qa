@@ -885,6 +885,75 @@ export function registerClinicalRoutes(app: Express): void {
     },
   );
 
+  // Batch revalidation: re-validate all clinical notes against current validation rules.
+  // Useful after schema/regex changes to identify notes that are now invalid.
+  app.post(
+    "/api/clinical/notes/batch-revalidate",
+    requireAuth,
+    injectOrgContext,
+    requireClinicalPlan(),
+    requireRole("admin"),
+    async (req, res) => {
+      try {
+        const allCalls = await storage.getAllCalls(req.orgId!);
+        const results: Array<{
+          callId: string;
+          valid: boolean;
+          warnings: string[];
+          completeness: number;
+        }> = [];
+
+        let processed = 0;
+        const MAX_BATCH = 200; // Cap to avoid timeout
+        for (const call of allCalls.slice(0, MAX_BATCH)) {
+          try {
+            const analysis = await storage.getCallAnalysis(req.orgId!, call.id);
+            if (!analysis?.clinicalNote) continue;
+
+            // Decrypt PHI for validation
+            const wrapper = { clinicalNote: { ...analysis.clinicalNote } } as Record<string, unknown>;
+            decryptClinicalNotePhi(wrapper, {
+              userId: req.user?.id,
+              orgId: req.orgId,
+              resourceId: call.id,
+              resourceType: "batch_revalidation",
+            });
+
+            const validation = validateClinicalNote((wrapper as any).clinicalNote);
+            results.push({
+              callId: call.id,
+              valid: validation.valid,
+              warnings: validation.warnings,
+              completeness: validation.weightedCompleteness,
+            });
+            processed++;
+          } catch {
+            // Skip individual failures
+          }
+        }
+
+        const invalidCount = results.filter((r) => !r.valid).length;
+        logPhiAccess({
+          ...auditContext(req),
+          event: "batch_clinical_revalidation",
+          resourceType: "clinical_note",
+          detail: `Revalidated ${processed} notes: ${invalidCount} invalid`,
+        });
+
+        res.json({
+          processed,
+          totalCalls: allCalls.length,
+          capped: allCalls.length > MAX_BATCH,
+          invalidCount,
+          results: results.filter((r) => !r.valid || r.warnings.length > 0), // Only return notes with issues
+        });
+      } catch (error) {
+        logger.error({ err: error }, "Failed to batch revalidate clinical notes");
+        res.status(500).json({ message: "Failed to batch revalidate clinical notes" });
+      }
+    },
+  );
+
   // Get a single template by ID (checks custom provider templates first, then system templates)
   app.get("/api/clinical/templates/:id", requireAuth, injectOrgContext, requireClinicalPlan(), async (req, res) => {
     try {
