@@ -1606,7 +1606,7 @@ Longer-term improvements identified during codebase audits. Work on these increm
 |----------|------|-------|
 | MEDIUM | **Route error handling standardization** | `asyncHandler()` + `AppError` pattern adopted in employees.ts, access.ts; globalErrorHandler registered. ~300 remaining try/catch blocks across 33 route files can be incrementally converted |
 | MEDIUM | **Inline schema centralization** | ~80 lines of ad-hoc Zod schemas defined in route files. Move to `shared/schema` for frontend/backend reuse |
-| MEDIUM | **Large file decomposition** | Server: `pg-storage.ts` (3.8K), `clinical.ts` (1.9K), `memory.ts` (1.6K), `sync-schema.ts` (1.4K). Client: `transcript-viewer.tsx` (1.3K), `clinical-notes.tsx` (1.2K), `reports.tsx` (1.2K). Extract business logic to services/sub-components |
+| MEDIUM | **Large file decomposition** | `clinical.ts` split: 1,928→1,194 lines (-38%), extracted `clinical-compliance.routes.ts` (283) + `clinical-analytics.routes.ts` (312). `admin.ts` split: 1,380→625 lines (-55%), extracted `admin-security.routes.ts` (770). Remaining: `pg-storage.ts` (3.8K — needs mixin pattern), `memory.ts` (1.6K), `sync-schema.ts` (1.4K). Client: `transcript-viewer.tsx` (1.3K), `clinical-notes.tsx` (1.2K), `reports.tsx` (1.2K) |
 | ✅ Done | **Team scoping TOCTOU fix** | `claude/codebase-audit-evaluation-MhG8w` — pre-compute team scope before fetch; return 404 instead of 403 to avoid leaking call existence |
 | LOW | **253 ESLint `no-unused-vars` warnings** | Spread across ~100 files, mostly unused function params. Tedious but reduces noise |
 | LOW | **OIDC state persistence** | OIDC state map is in-memory. Multi-instance deployments need Redis-backed state |
