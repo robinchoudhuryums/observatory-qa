@@ -66,47 +66,8 @@ interface CallWithClinical {
 }
 
 // --- Editable Section Card ---
-function SectionCard({
-  title,
-  icon,
-  children,
-  empty,
-  editing,
-  editValue,
-  onEditChange,
-  fieldName,
-}: {
-  title: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-  empty?: string;
-  editing?: boolean;
-  editValue?: string;
-  onEditChange?: (field: string, value: string) => void;
-  fieldName?: string;
-}) {
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base flex items-center gap-2">
-          {icon}
-          {title}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {editing && fieldName ? (
-          <Textarea
-            value={editValue || ""}
-            onChange={(e) => onEditChange?.(fieldName, e.target.value)}
-            className="min-h-[100px] text-sm"
-          />
-        ) : (
-          children || <p className="text-sm text-muted-foreground italic">{empty || "Not documented"}</p>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
+// SectionCard extracted to @/components/lib/section-card for reuse across pages
+import { SectionCard } from "@/components/lib/section-card";
 
 // --- Format label helper ---
 function formatLabel(format: string): string {

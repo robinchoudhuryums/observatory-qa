@@ -100,17 +100,47 @@ export default function FileUpload() {
       if (employeeId) formData.append("employeeId", employeeId);
       if (callCategory) formData.append("callCategory", callCategory);
 
-      const response = await fetch("/api/calls/upload", {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
+      // Use XMLHttpRequest for real upload progress tracking
+      // (fetch API doesn't support progress events)
+      return new Promise<any>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/api/calls/upload");
+        xhr.withCredentials = true;
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Upload failed");
-      }
-      return response.json();
+        // Get CSRF token from cookie
+        const csrfMatch = document.cookie.match(/csrf_token=([^;]+)/);
+        if (csrfMatch) xhr.setRequestHeader("X-CSRF-Token", csrfMatch[1]);
+
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            const pct = Math.round((event.loaded / event.total) * 100);
+            setUploadFiles((prev) =>
+              prev.map((f) =>
+                f.file === file ? { ...f, progress: pct, status: "uploading" as const } : f,
+              ),
+            );
+          }
+        };
+
+        xhr.onload = () => {
+          try {
+            const data = JSON.parse(xhr.responseText);
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve(data);
+            } else {
+              reject(new Error(data.message || "Upload failed"));
+            }
+          } catch {
+            reject(new Error(`Upload failed (HTTP ${xhr.status})`));
+          }
+        };
+
+        xhr.onerror = () => reject(new Error("Network error during upload"));
+        xhr.ontimeout = () => reject(new Error("Upload timed out"));
+        xhr.timeout = 300000; // 5 minutes
+
+        xhr.send(formData);
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/calls"] });
