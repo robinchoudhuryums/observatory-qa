@@ -157,22 +157,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Validate schema sync coverage
-        run: |
-          echo "Checking that sync-schema.ts covers all Drizzle pgTable definitions..."
-          # Extract table names from Drizzle schema (POSIX-compatible regex)
-          DRIZZLE_TABLES=$(grep -o 'pgTable("[^"]*"' server/db/schema.ts | sed 's/pgTable("//;s/"//' | sort)
-          MISSING=""
-          for TABLE in $DRIZZLE_TABLES; do
-            if ! grep -q "CREATE TABLE IF NOT EXISTS ${TABLE}" server/db/sync-schema.ts 2>/dev/null; then
-              MISSING="$MISSING $TABLE"
-            fi
-          done
-          if [ -n "$MISSING" ]; then
-            echo "::warning::Tables in schema.ts but missing from sync-schema.ts:$MISSING"
-          else
-            echo "All Drizzle tables covered in sync-schema.ts"
-          fi
+      - name: Validate schema sync coverage (table + column level)
+        run: npx tsx --test tests/schema-column-coverage.test.ts
 
       - name: Build frontend + backend
         run: npm run build

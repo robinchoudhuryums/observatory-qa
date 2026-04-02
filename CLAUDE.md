@@ -1652,7 +1652,7 @@ Longer-term improvements identified during codebase audits. Work on these increm
 |----------|------|-------|
 | ✅ Done | **Coverage thresholds enforced** | `claude/codebase-audit-evaluation-MhG8w` — CI enforces `--check-coverage --lines 70 --functions 60 --branches 55` |
 | ✅ Done | **E2E test isolation** | `claude/codebase-audit-evaluation-MhG8w` — per-worker org registration via /api/auth/register; each Playwright worker gets unique org slug (e2e-w{index}-{ts}); falls back to env-var admin for backward compat |
-| HIGH | **Missing AI provider mocks** | No mock for Bedrock API; cannot test rate limit, timeout, or malformed response handling |
+| ✅ Done | **AI provider mocks** | `claude/codebase-audit-evaluation-MhG8w` — MockBedrockProvider with switchable behaviors (success, rate_limit, timeout, server_error, unavailable, empty_response, malformed_json). 20 tests covering score clamping, default fields, error codes |
 | MEDIUM | **E2E tests use in-memory DB** | Playwright runs against MemStorage; doesn't catch PostgreSQL-specific failures |
 | MEDIUM | **Race condition tests need real DB** | Upload race tests only validate MemStorage; PostgreSQL row locking not tested |
 | MEDIUM | **No integration test suite** | Gap between unit tests (mocked storage) and E2E (browser); no HTTP-level integration tests against real PostgreSQL |
@@ -1661,7 +1661,7 @@ Longer-term improvements identified during codebase audits. Work on these increm
 | Priority | Item | Notes |
 |----------|------|-------|
 | ✅ Done | **Docker image push enabled** | `claude/codebase-audit-evaluation-MhG8w` — GHCR push on main merges with SHA + latest tags; artifact retention 7 days |
-| HIGH | **Schema sync validation is grep-only** | CI checks table names exist in `sync-schema.ts` but doesn't validate columns, indexes, or types match `schema.ts` |
+| ✅ Done | **Schema sync validation** | `claude/codebase-audit-evaluation-MhG8w` — replaced grep-only CI check with TypeScript test that parses both schema.ts and sync-schema.ts, comparing columns per table (45 tests). CI build step now runs the test as a gate |
 | MEDIUM | **No canary deployment strategy** | All production traffic switches immediately; no gradual rollout or auto-rollback on error rate |
 | MEDIUM | **Blue-green deploy manual cutover** | `deploy/docker-deploy.sh` requires manual proxy reconfiguration |
 | MEDIUM | **Dependency audit not on PRs** | Weekly-only check; critical vulns can ship for days before detection |
