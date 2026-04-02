@@ -157,7 +157,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/e2e/logout.spec.ts` — Logout flow
   - `tests/e2e/api-health.spec.ts` — Health endpoint
   - `tests/e2e/security.spec.ts` — Security boundaries (auth enforcement, RBAC escalation, CSRF, session fixation, rate limiting)
-- **E2E auth pattern**: Import `{ adminTest as test, expect } from "./fixtures"` (or `viewerTest`) for authenticated tests. Each test gets a fresh login — no shared storageState. Tests use `data-testid` selectors for stability.
+- **E2E auth pattern**: Import `{ adminTest as test, expect } from "./fixtures"` (or `viewerTest`) for authenticated tests. Each Playwright **worker** registers its own unique org via `/api/auth/register` (slug: `e2e-w{workerIndex}-{ts}`), preventing state pollution between parallel spec files. Falls back to env-var `admin:admin123` if registration fails. Tests use `data-testid` selectors for stability.
 
 ## Architecture
 
@@ -1651,7 +1651,7 @@ Longer-term improvements identified during codebase audits. Work on these increm
 | Priority | Item | Notes |
 |----------|------|-------|
 | ✅ Done | **Coverage thresholds enforced** | `claude/codebase-audit-evaluation-MhG8w` — CI enforces `--check-coverage --lines 70 --functions 60 --branches 55` |
-| HIGH | **E2E tests share single admin account** | All Playwright tests use same `admin:admin123` — state pollution across parallel tests |
+| ✅ Done | **E2E test isolation** | `claude/codebase-audit-evaluation-MhG8w` — per-worker org registration via /api/auth/register; each Playwright worker gets unique org slug (e2e-w{index}-{ts}); falls back to env-var admin for backward compat |
 | HIGH | **Missing AI provider mocks** | No mock for Bedrock API; cannot test rate limit, timeout, or malformed response handling |
 | MEDIUM | **E2E tests use in-memory DB** | Playwright runs against MemStorage; doesn't catch PostgreSQL-specific failures |
 | MEDIUM | **Race condition tests need real DB** | Upload race tests only validate MemStorage; PostgreSQL row locking not tested |
