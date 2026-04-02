@@ -1128,3 +1128,35 @@ export const breachReports = pgTable(
     index("breach_reports_org_status_idx").on(t.orgId, t.notificationStatus),
   ],
 );
+
+// --- BUSINESS ASSOCIATE AGREEMENTS (HIPAA §164.502(e)) ---
+export const businessAssociateAgreements = pgTable(
+  "business_associate_agreements",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organizations.id),
+    vendorName: varchar("vendor_name", { length: 255 }).notNull(),
+    vendorType: varchar("vendor_type", { length: 100 }).notNull(), // cloud_provider, transcription, ai_analysis, ehr, email, etc.
+    description: text("description"),
+    contactName: varchar("contact_name", { length: 255 }),
+    contactEmail: varchar("contact_email", { length: 255 }),
+    status: varchar("status", { length: 30 }).notNull().default("active"), // active, expired, terminated, pending
+    signedAt: timestamp("signed_at"),
+    expiresAt: timestamp("expires_at"),
+    renewalReminderDays: integer("renewal_reminder_days").default(30), // days before expiry to alert
+    signedBy: varchar("signed_by", { length: 255 }), // org-side signatory
+    vendorSignatory: varchar("vendor_signatory", { length: 255 }),
+    documentUrl: text("document_url"), // link to signed BAA PDF (S3 or external)
+    notes: text("notes"),
+    phiCategories: jsonb("phi_categories").default([]), // e.g., ["audio", "transcripts", "clinical_notes"]
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (t) => [
+    index("baa_org_idx").on(t.orgId),
+    index("baa_org_status_idx").on(t.orgId, t.status),
+    index("baa_expiry_idx").on(t.expiresAt),
+  ],
+);

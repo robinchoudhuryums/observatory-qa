@@ -1578,3 +1578,89 @@ function mapProviderTemplate(r: any): any {
   };
 }
 
+// ==================== BAA Management (HIPAA §164.502(e)) ====================
+
+function mapBaa(r: any): any {
+  return {
+    id: r.id,
+    orgId: r.orgId,
+    vendorName: r.vendorName,
+    vendorType: r.vendorType,
+    description: r.description,
+    contactName: r.contactName,
+    contactEmail: r.contactEmail,
+    status: r.status,
+    signedAt: toISOString(r.signedAt),
+    expiresAt: toISOString(r.expiresAt),
+    renewalReminderDays: r.renewalReminderDays,
+    signedBy: r.signedBy,
+    vendorSignatory: r.vendorSignatory,
+    documentUrl: r.documentUrl,
+    notes: r.notes,
+    phiCategories: r.phiCategories,
+    createdAt: toISOString(r.createdAt),
+    updatedAt: toISOString(r.updatedAt),
+  };
+}
+
+P.listBusinessAssociateAgreements = async function(orgId: string): Promise<any[]> {
+  const rows = await db(this).select().from(tables.businessAssociateAgreements)
+    .where(eq(tables.businessAssociateAgreements.orgId, orgId))
+    .orderBy(desc(tables.businessAssociateAgreements.createdAt));
+  return rows.map(mapBaa);
+};
+
+P.getBusinessAssociateAgreement = async function(orgId: string, id: string): Promise<any | undefined> {
+  const rows = await db(this).select().from(tables.businessAssociateAgreements)
+    .where(and(eq(tables.businessAssociateAgreements.orgId, orgId), eq(tables.businessAssociateAgreements.id, id)))
+    .limit(1);
+  return rows[0] ? mapBaa(rows[0]) : undefined;
+};
+
+P.createBusinessAssociateAgreement = async function(orgId: string, baa: any): Promise<any> {
+  const [row] = await db(this).insert(tables.businessAssociateAgreements).values({
+    id: baa.id,
+    orgId,
+    vendorName: baa.vendorName,
+    vendorType: baa.vendorType,
+    description: baa.description,
+    contactName: baa.contactName,
+    contactEmail: baa.contactEmail,
+    status: baa.status || "active",
+    signedAt: baa.signedAt ? new Date(baa.signedAt) : null,
+    expiresAt: baa.expiresAt ? new Date(baa.expiresAt) : null,
+    renewalReminderDays: baa.renewalReminderDays ?? 30,
+    signedBy: baa.signedBy,
+    vendorSignatory: baa.vendorSignatory,
+    documentUrl: baa.documentUrl,
+    notes: baa.notes,
+    phiCategories: baa.phiCategories || [],
+  }).returning();
+  return mapBaa(row);
+};
+
+P.updateBusinessAssociateAgreement = async function(orgId: string, id: string, updates: any): Promise<any | undefined> {
+  const updateData: Record<string, any> = {};
+  const allowedFields = [
+    "vendorName", "vendorType", "description", "contactName", "contactEmail",
+    "status", "signedAt", "expiresAt", "renewalReminderDays", "signedBy",
+    "vendorSignatory", "documentUrl", "notes", "phiCategories",
+  ];
+  for (const key of allowedFields) {
+    if (updates[key] !== undefined) {
+      if (key === "signedAt" || key === "expiresAt") {
+        updateData[key] = updates[key] ? new Date(updates[key]) : null;
+      } else {
+        updateData[key] = updates[key];
+      }
+    }
+  }
+  updateData.updatedAt = new Date();
+
+  const [row] = await db(this).update(tables.businessAssociateAgreements)
+    .set(updateData)
+    .where(and(eq(tables.businessAssociateAgreements.orgId, orgId), eq(tables.businessAssociateAgreements.id, id)))
+    .returning();
+  return row ? mapBaa(row) : undefined;
+};
+

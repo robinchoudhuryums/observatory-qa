@@ -129,17 +129,45 @@ const failedLoginsByIp = new Map<string, { count: number; windowStart: number }>
 const FAILED_LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const FAILED_LOGIN_THRESHOLD = 10;
 
+/** In-memory tracker for per-user PHI access velocity. */
+interface PhiAccessTracker {
+  count: number;
+  uniqueResources: Set<string>;
+  windowStart: number;
+  alertedVelocity: boolean;
+  alertedBreadth: boolean;
+}
+const phiAccessByUser = new Map<string, PhiAccessTracker>();
+const PHI_ACCESS_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+const PHI_VELOCITY_THRESHOLD = 50; // 50 PHI accesses in 10 min = suspicious
+const PHI_BREADTH_THRESHOLD = 20; // 20 different resources in 10 min = suspicious
+const MAX_PHI_TRACKER_ENTRIES = 10_000;
+
 // Clean up stale entries every 15 minutes
 setInterval(() => {
   const cutoff = Date.now() - FAILED_LOGIN_WINDOW_MS;
   for (const [key, val] of Array.from(failedLoginsByIp.entries())) {
     if (val.windowStart < cutoff) failedLoginsByIp.delete(key);
   }
+  const phiCutoff = Date.now() - PHI_ACCESS_WINDOW_MS;
+  for (const [key, val] of Array.from(phiAccessByUser.entries())) {
+    if (val.windowStart < phiCutoff) phiAccessByUser.delete(key);
+  }
 }, FAILED_LOGIN_WINDOW_MS).unref();
 
 /**
  * Detect anomalous audit events and emit structured security alerts.
  * Called synchronously inside logPhiAccess — must be fast (no DB I/O).
+ *
+ * Anomaly types:
+ *   1. Brute-force login: 10+ failed attempts from same IP in 15 min
+ *   2. Bulk data export: any call/audit log export event
+ *   3. Off-hours PHI: clinical/transcript/analysis access outside 06:00-22:00 UTC
+ *   4. PHI access velocity: >50 PHI accesses by one user in 10 min
+ *   5. PHI access breadth: >20 unique resources by one user in 10 min
+ *
+ * When thresholds are exceeded, auto-creates a security incident via
+ * declareIncident() and logs a SECURITY_ALERT for SIEM forwarding.
  */
 function detectAnomalies(entry: AuditEntry & { timestamp: string }): void {
   // 1. Brute-force: 10+ failed logins in 15 min from same IP
@@ -191,6 +219,101 @@ function detectAnomalies(entry: AuditEntry & { timestamp: string }): void {
         "[SECURITY_ALERT] PHI access outside business hours (UTC)",
       );
     }
+  }
+
+  // 4 + 5. PHI access velocity and breadth tracking
+  if (isPhiEvent && entry.userId && entry.orgId) {
+    const userKey = `${entry.orgId}:${entry.userId}`;
+    const now = Date.now();
+    let tracker = phiAccessByUser.get(userKey);
+
+    if (!tracker || now - tracker.windowStart > PHI_ACCESS_WINDOW_MS) {
+      // Evict oldest if at capacity
+      if (!tracker && phiAccessByUser.size >= MAX_PHI_TRACKER_ENTRIES) {
+        const oldest = phiAccessByUser.keys().next().value;
+        if (oldest) phiAccessByUser.delete(oldest);
+      }
+      tracker = { count: 0, uniqueResources: new Set(), windowStart: now, alertedVelocity: false, alertedBreadth: false };
+    }
+
+    tracker.count++;
+    if (entry.resourceId) tracker.uniqueResources.add(entry.resourceId);
+    phiAccessByUser.set(userKey, tracker);
+
+    // 4. Velocity alert — one user accessing PHI too fast
+    if (tracker.count >= PHI_VELOCITY_THRESHOLD && !tracker.alertedVelocity) {
+      tracker.alertedVelocity = true;
+      logger.warn(
+        {
+          userId: entry.userId,
+          username: entry.username,
+          orgId: entry.orgId,
+          accessCount: tracker.count,
+          windowMinutes: Math.round(PHI_ACCESS_WINDOW_MS / 60_000),
+          _securityAlert: "phi_access_velocity",
+        },
+        "[SECURITY_ALERT] Excessive PHI access velocity — possible automated data extraction",
+      );
+      // Auto-create incident (fire-and-forget, non-blocking)
+      autoCreateIncident(entry.orgId, {
+        title: `Excessive PHI access velocity by ${entry.username || entry.userId}`,
+        description: `User accessed ${tracker.count} PHI records in ${Math.round(PHI_ACCESS_WINDOW_MS / 60_000)} minutes (threshold: ${PHI_VELOCITY_THRESHOLD}). IP: ${entry.ip || "unknown"}.`,
+        severity: "high",
+        declaredBy: "automated-breach-detection",
+        phiInvolved: true,
+      });
+    }
+
+    // 5. Breadth alert — one user accessing too many different records
+    if (tracker.uniqueResources.size >= PHI_BREADTH_THRESHOLD && !tracker.alertedBreadth) {
+      tracker.alertedBreadth = true;
+      logger.warn(
+        {
+          userId: entry.userId,
+          username: entry.username,
+          orgId: entry.orgId,
+          uniqueResources: tracker.uniqueResources.size,
+          windowMinutes: Math.round(PHI_ACCESS_WINDOW_MS / 60_000),
+          _securityAlert: "phi_access_breadth",
+        },
+        "[SECURITY_ALERT] Broad PHI access pattern — user accessed many different patient records",
+      );
+      autoCreateIncident(entry.orgId, {
+        title: `Broad PHI access pattern by ${entry.username || entry.userId}`,
+        description: `User accessed ${tracker.uniqueResources.size} unique patient/clinical records in ${Math.round(PHI_ACCESS_WINDOW_MS / 60_000)} minutes (threshold: ${PHI_BREADTH_THRESHOLD}). This may indicate unauthorized data harvesting.`,
+        severity: "high",
+        declaredBy: "automated-breach-detection",
+        phiInvolved: true,
+      });
+    }
+  }
+}
+
+/**
+ * Auto-create a security incident from anomaly detection.
+ * Fire-and-forget — never throws, never blocks the audit log write.
+ */
+function autoCreateIncident(
+  orgId: string,
+  data: { title: string; description: string; severity: string; declaredBy: string; phiInvolved: boolean },
+): void {
+  try {
+    // Lazy import to avoid circular dependency (incident-response imports audit-log)
+    import("./incident-response").then(({ declareIncident }) => {
+      declareIncident(orgId, {
+        title: data.title,
+        description: data.description,
+        severity: data.severity as "low" | "medium" | "high" | "critical",
+        declaredBy: data.declaredBy,
+        phiInvolved: data.phiInvolved,
+        affectedSystems: ["audit-log"],
+      });
+      logger.info({ orgId, title: data.title }, "Auto-created security incident from anomaly detection");
+    }).catch((err) => {
+      logger.error({ err, orgId }, "Failed to auto-create security incident");
+    });
+  } catch {
+    // Best-effort — never block the audit path
   }
 }
 

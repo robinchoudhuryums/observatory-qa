@@ -1576,8 +1576,8 @@ Longer-term improvements identified during codebase audits. Work on these increm
 ### HIPAA Compliance
 | Priority | Item | Notes |
 |----------|------|-------|
-| HIGH | **BAA management system** | Currently documentation-only (`BAA_TEMPLATE.md`). Need DB table to track BAA status, expiry dates, signatory info per sub-processor |
-| HIGH | **Automated breach detection** | Currently manual `declareIncident()` only. Add anomaly detection: unusual PHI access patterns, bulk exports, off-hours access |
+| ✅ Done | **BAA management system** | `claude/codebase-audit-evaluation-MhG8w` — `business_associate_agreements` table + CRUD routes + expiry alerting. Tracks vendor, signatory, PHI categories, expiry dates, renewal reminders |
+| ✅ Done | **Automated breach detection** | `claude/codebase-audit-evaluation-MhG8w` — PHI access velocity (50/10min) and breadth (20 unique resources/10min) tracking with auto-incident creation via `declareIncident()` |
 | MEDIUM | **S3/backup lifecycle purging** | Retention worker handles DB but not S3 object lifecycle, RDS backups, or cross-region replicas |
 | MEDIUM | **PHI access reporting UI** | Audit log data exists but no admin dashboard for "show who accessed patient X in the last 30 days" queries |
 | MEDIUM | **Audit log chain state memory** | Per-org `chainLocks` Map can hold 10K+ pending promises under load; no cleanup of completed entries. Move to Redis for multi-instance |
