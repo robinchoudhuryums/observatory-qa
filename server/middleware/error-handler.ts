@@ -38,7 +38,7 @@ export class AppError extends Error {
  *
  * Eliminates the need for try/catch in every route handler.
  */
-export function asyncHandler(fn: (req: Request, res: Response, next: NextFunction) => Promise<void>) {
+export function asyncHandler(fn: (req: Request, res: Response, next: NextFunction) => Promise<void | unknown>) {
   return (req: Request, res: Response, next: NextFunction): void => {
     fn(req, res, next).catch(next);
   };
