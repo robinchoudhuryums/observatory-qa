@@ -1625,6 +1625,10 @@ Longer-term improvements identified during codebase audits. Work on these increm
 | MEDIUM | **Org cache stale state** | `orgCache` in `auth.ts` has 30s TTL; suspended/MFA-required org changes not reflected for up to 30s. Reduce TTL or add explicit invalidation |
 | MEDIUM | **Account lockout eviction** | `loginAttempts` map evicts oldest entry when full; attacker can create many usernames to evict target's tracking before lockout applies |
 | MEDIUM | **Session absolute max too long** | 8-hour absolute session max exceeds NIST recommendation of 4-6 hours for healthcare; should be configurable per-org |
+| MEDIUM | **API key rotation not enforced** | No mandatory expiry; `staleDays` warning at 90+ days but no auto-revocation. Add 90-day mandatory rotation with 7-day grace period |
+| MEDIUM | **Session secret allows "dev-secret" in production** | `SESSION_SECRET === "dev-secret"` check only warns; should fail-fast if < 32 bytes or == "dev-secret" in production |
+| MEDIUM | **CSP `unsafe-inline` for styles** | `style-src 'unsafe-inline'` allows CSS injection for data exfiltration via Recharts/Framer Motion inline styles. Refactor to CSS classes |
+| LOW | **Audit chain verification not automated** | `verifyAuditChain()` available but not scheduled; should run daily with admin alerts on tampering |
 | LOW | **Bedrock TLS validation** | `requestHandler` cast to `any` bypasses TypeScript; certificate validation not explicitly enabled |
 | LOW | **Error message information disclosure** | Some routes include underlying error messages (e.g., URL fetch errors in onboarding) that could leak internal infrastructure details |
 
