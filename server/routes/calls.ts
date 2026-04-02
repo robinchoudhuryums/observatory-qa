@@ -295,8 +295,9 @@ export function registerCallRoutes(app: Express): void {
         }
         uploadHashLocks.add(hashLockKey);
 
+        let duplicate;
         try {
-          var duplicate = await storage.getCallByFileHash(orgId, fileHash);
+          duplicate = await storage.getCallByFileHash(orgId, fileHash);
         } catch (dupErr) {
           uploadHashLocks.delete(hashLockKey);
           throw dupErr;

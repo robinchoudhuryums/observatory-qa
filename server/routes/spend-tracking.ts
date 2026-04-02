@@ -27,7 +27,7 @@ function filterRecords(records: UsageRecord[], query: Record<string, any>): Usag
   return filtered;
 }
 
-function getCurrentMonthRecords(records: UsageRecord[]): UsageRecord[] {
+function _getCurrentMonthRecords(records: UsageRecord[]): UsageRecord[] {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   return records.filter((r) => new Date(r.timestamp) >= monthStart);

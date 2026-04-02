@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { storage } from "../storage";
 import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { logger } from "../services/logger";
-import { parsePagination, paginateArray } from "./helpers";
+import { parsePagination } from "./helpers";
 import { asyncHandler, AppError } from "../middleware/error-handler";
 
 export function registerFeedbackRoutes(app: Express) {

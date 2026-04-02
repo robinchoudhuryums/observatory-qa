@@ -9,14 +9,14 @@
  * 2. On call analysis: embed query → pgvector search → inject relevant chunks
  */
 import { randomUUID } from "crypto";
-import { sql, eq, and, inArray } from "drizzle-orm";
+import { sql, eq, and } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
-import { chunkDocument, type DocumentChunk } from "./chunker";
+import { chunkDocument } from "./chunker";
 import { generateEmbedding, generateEmbeddingsBatch, isEmbeddingAvailable } from "./embeddings";
 import { logger } from "./logger";
 import { detectPromptInjection } from "../utils/ai-guardrails";
 import { redactPhi } from "../utils/phi-redactor";
-import { logRagTrace, createRagTimer, type RagTrace } from "./rag-trace";
+import { logRagTrace, createRagTimer } from "./rag-trace";
 import { recordFaqQuery } from "./faq-analytics";
 import * as tables from "../db/schema";
 

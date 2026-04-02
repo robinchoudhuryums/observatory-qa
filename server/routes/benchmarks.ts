@@ -164,7 +164,7 @@ async function computeBenchmarks(): Promise<Map<string, IndustryBenchmark>> {
 
   function buildBenchmark(key: string, data: typeof allIndustryData): IndustryBenchmark {
     const sortedScores = data.allScores.slice().sort((a, b) => a - b);
-    const sortedOrgScores = data.orgScores.slice().sort((a, b) => a - b);
+    const _sortedOrgScores = data.orgScores.slice().sort((a, b) => a - b);
     const sortedSentiment = data.sentimentPositiveRates.slice().sort((a, b) => a - b);
     const sortedCompliance = data.compliance.slice().sort((a, b) => a - b);
     const sortedCX = data.customerExperience.slice().sort((a, b) => a - b);
