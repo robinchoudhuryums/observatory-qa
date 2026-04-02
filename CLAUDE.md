@@ -1669,10 +1669,10 @@ Longer-term improvements identified during codebase audits. Work on these increm
 ### UI/UX
 | Priority | Item | Notes |
 |----------|------|-------|
-| MEDIUM | **Dashboard query freshness** | No `staleTime`/`refetchInterval` on dashboard queries — data can be stale until window focus |
-| MEDIUM | **Accessibility audit** | Some ARIA labels present but no WAVE/axe-core audit done. Missing visible labels on some form elements |
-| MEDIUM | **ProtectedRoute stale permissions** | `useQuery` with `staleTime: Infinity` means role changes server-side aren't reflected until page reload |
-| MEDIUM | **WebSocket reconnection loop risk** | `connect` in dependency array of `use-websocket.ts` can cause infinite reconnection if `queryClient` identity changes |
+| ✅ Done | **Dashboard query freshness** | `claude/codebase-audit-evaluation-MhG8w` — staleTime: 30s + refetchInterval: 60s for auto-refresh |
+| ✅ Done | **Accessibility: sidebar ARIA labels** | `claude/codebase-audit-evaluation-MhG8w` — aria-label added to all 6 collapsible section toggles |
+| ✅ Done | **ProtectedRoute stale permissions** | `claude/codebase-audit-evaluation-MhG8w` — staleTime changed from Infinity to 60s |
+| ✅ Done | **WebSocket reconnection loop risk** | `claude/codebase-audit-evaluation-MhG8w` — connect stored in ref to break useEffect dependency |
 | LOW | **Large page decomposition** | `clinical-notes.tsx` (1.2K lines), `reports.tsx` (1.2K lines) could be broken into smaller components |
 | LOW | **Upload progress tracking** | No progress bar for large file uploads. `fetch()` doesn't support progress natively — need XMLHttpRequest or tus protocol |
 | LOW | **File upload dropzone missing maxSize** | `react-dropzone` config doesn't specify `maxSize`; validation only in `onDrop` callback |
