@@ -6,6 +6,9 @@ import { storage, normalizeAnalysis } from "../storage";
 import { requireAuth, requireRole, injectOrgContext, requireOrgContext, getTeamScopedEmployeeIds } from "../auth";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { upload, safeFloat, validateUUIDParam, acquireUploadSlot, releaseUploadSlot } from "./helpers";
+import { asyncHandler, AppError } from "../middleware/error-handler";
+
+const validateId = validateUUIDParam("id");
 import { enforceQuota, requireActiveSubscription, reportCallOverageToStripe } from "./billing";
 import { logger } from "../services/logger";
 import { CALL_CATEGORIES, type InsertCallAnalysis } from "@shared/schema";
@@ -31,13 +34,15 @@ export { invalidateRefDocCache } from "../services/call-processing";
  */
 async function analyzeAndStoreEditPatterns(orgId: string): Promise<void> {
   try {
-    // Sample up to 500 completed calls to find edited analyses
+    // Sample up to 500 completed calls — getCallsWithDetails already batch-loads
+    // analysis data via JOIN, so no individual getCallAnalysis() calls needed.
     const calls = await storage.getCallsWithDetails(orgId, { status: "completed", limit: 500 });
     let totalEdits = 0;
     const perfDeltas: number[] = [];
 
     for (const call of calls) {
-      const analysis = await storage.getCallAnalysis(orgId, call.id);
+      // Use the analysis already included in CallWithDetails (batch-loaded)
+      const analysis = call.analysis;
       const edits = Array.isArray(analysis?.manualEdits) ? (analysis.manualEdits as any[]) : [];
       if (edits.length === 0) continue;
       totalEdits += edits.length;
@@ -123,21 +128,22 @@ export function registerCallRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/calls/:id", requireAuth, injectOrgContext, async (req, res) => {
+  app.get("/api/calls/:id", requireAuth, injectOrgContext, validateId, async (req, res) => {
     try {
+      // Pre-compute team scope BEFORE fetching call details to avoid TOCTOU:
+      // returning 403 leaks existence of cross-team calls, 404 does not.
+      const teamIds = req.user?.role !== "admin" ? await getTeamScopedEmployeeIds(req.orgId!, req.user!) : null;
+
       const call = await storage.getCall(req.orgId!, req.params.id);
       if (!call) {
         res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call not found"));
         return;
       }
 
-      // Team scoping: verify caller has access to this call's employee
-      if (call.employeeId) {
-        const teamIds = req.user?.role !== "admin" ? await getTeamScopedEmployeeIds(req.orgId!, req.user!) : null;
-        if (teamIds !== null && !teamIds.has(call.employeeId)) {
-          res.status(403).json({ message: "Call belongs to an employee outside your team" });
-          return;
-        }
+      // Team scoping: return 404 (not 403) to avoid leaking call existence
+      if (call.employeeId && teamIds !== null && !teamIds.has(call.employeeId)) {
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call not found"));
+        return;
       }
 
       logPhiAccess({
@@ -363,7 +369,7 @@ export function registerCallRoutes(app: Express): void {
     },
   );
 
-  app.get("/api/calls/:id/audio", requireAuth, injectOrgContext, async (req, res) => {
+  app.get("/api/calls/:id/audio", requireAuth, injectOrgContext, validateId, async (req, res) => {
     try {
       const call = await storage.getCall(req.orgId!, req.params.id);
       if (!call) {
@@ -419,7 +425,7 @@ export function registerCallRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/calls/:id/transcript", requireAuth, injectOrgContext, async (req, res) => {
+  app.get("/api/calls/:id/transcript", requireAuth, injectOrgContext, validateId, async (req, res) => {
     try {
       logPhiAccess({
         ...auditContext(req),
@@ -439,7 +445,7 @@ export function registerCallRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/calls/:id/sentiment", requireAuth, injectOrgContext, async (req, res) => {
+  app.get("/api/calls/:id/sentiment", requireAuth, injectOrgContext, validateId, async (req, res) => {
     try {
       const sentiment = await storage.getSentimentAnalysis(req.orgId!, req.params.id);
       if (!sentiment) {
@@ -458,7 +464,7 @@ export function registerCallRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/calls/:id/analysis", requireAuth, injectOrgContext, async (req, res) => {
+  app.get("/api/calls/:id/analysis", requireAuth, injectOrgContext, validateId, async (req, res) => {
     try {
       const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
       if (!analysis) {
@@ -828,7 +834,7 @@ export function registerCallRoutes(app: Express): void {
     },
   );
 
-  app.delete("/api/calls/:id", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
+  app.delete("/api/calls/:id", requireAuth, injectOrgContext, requireRole("manager", "admin"), validateId, async (req, res) => {
     try {
       const callId = req.params.id;
 

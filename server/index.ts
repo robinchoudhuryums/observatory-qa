@@ -6,6 +6,7 @@ import { initTelemetry, shutdownTelemetry } from "./services/telemetry";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes/index";
 import { setupVite, serveStatic, log } from "./vite";
+import { globalErrorHandler } from "./middleware/error-handler";
 import { setupAuth } from "./auth";
 import { storage, initPostgresStorage } from "./storage";
 import { setupWebSocket } from "./services/websocket";
@@ -420,17 +421,10 @@ app.post("/api/clinical/style-learning/analyze", distributedRateLimit(60 * 1000,
   // Sentry error middleware: captures unhandled errors before the final handler
   app.use(sentryErrorMiddleware);
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-
-    if (status >= 500) {
-      logger.error({ status, err: message }, "Internal server error");
-      res.status(status).json({ message: "Internal Server Error" });
-    } else {
-      res.status(status).json({ message });
-    }
-  });
+  // Global error handler: handles AppError (structured) and unexpected errors.
+  // asyncHandler-wrapped routes throw errors that land here automatically,
+  // eliminating the need for try/catch boilerplate in route handlers.
+  app.use(globalErrorHandler);
 
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
