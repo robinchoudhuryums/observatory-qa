@@ -601,3 +601,37 @@ export type MarketingSourceMetrics = {
   costPerLead: number | null; // budget / totalCalls (if campaign has budget)
   roi: number | null; // (revenue - budget) / budget
 };
+
+// ─── Shared route-level validation schemas ────────────────────────────────
+// Moved from inline definitions in route files for frontend/backend reuse.
+
+/** Self-review on a call (agent rates their own performance) */
+export const selfReviewSchema = z.object({
+  score: z.number().min(0).max(10),
+  notes: z.string().max(2000).optional(),
+});
+
+/** Dispute a call analysis score */
+export const disputeSchema = z.object({
+  reason: z.string().min(10).max(2000),
+});
+
+/** Resolve a disputed call analysis */
+export const resolveDisputeSchema = z.object({
+  status: z.enum(["accepted", "rejected"]),
+  resolution: z.string().max(2000).optional(),
+  adjustedScore: z.number().min(0).max(10).optional(),
+});
+
+/** Create a referral letter from a call */
+export const callReferralSchema = z.object({
+  referToSpecialty: z.string().min(1).max(200),
+  referToProvider: z.string().max(200).optional(),
+  additionalContext: z.string().max(1000).optional(),
+});
+
+/** Coaching self-assessment by employee */
+export const selfAssessSchema = z.object({
+  score: z.number().min(0).max(10),
+  notes: z.string().max(2000).optional(),
+});

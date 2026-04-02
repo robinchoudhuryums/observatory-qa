@@ -404,15 +404,33 @@ export function registerClinicalRoutes(app: Express): void {
           ];
           const fieldsChanged = Object.keys(req.body).filter((k) => editableFields.includes(k));
 
+          // Determine amendment type: section_completion if adding content to previously-empty required sections
+          const requiredSections = ["subjective", "objective", "assessment", "plan"];
+          const isCompletingEmptySections = fieldsChanged.some((f) => {
+            return requiredSections.includes(f) && !cn[f] && req.body[f];
+          });
+          const amendmentType: "amendment" | "section_completion" =
+            isCompletingEmptySections ? "section_completion" : "amendment";
+
           const amendment = {
-            type: "amendment" as const,
+            type: amendmentType,
             reason: req.body.reason.trim(),
             amendedBy: req.user?.name || req.user?.username || "unknown",
             amendedById: req.user?.id,
             amendedAt: new Date().toISOString(),
             fieldsChanged,
             noteSnapshot: nonPhiSnapshot,
+            integrityHash: "",
           };
+          // Amendment chain integrity: SHA-256(prevHash + type + reason + amendedBy + amendedAt)
+          const { createHash } = await import("crypto");
+          const existingAmendments = analysis.clinicalNote.amendments || [];
+          const prevHash = existingAmendments.length > 0
+            ? (existingAmendments[existingAmendments.length - 1] as any).integrityHash || ""
+            : "";
+          amendment.integrityHash = createHash("sha256")
+            .update(`${prevHash}|${amendment.type}|${amendment.reason}|${amendment.amendedBy}|${amendment.amendedAt}`)
+            .digest("hex");
 
           if (!analysis.clinicalNote.amendments) {
             analysis.clinicalNote.amendments = [];

@@ -5,8 +5,8 @@
  * These extend the core call analysis with competitive features.
  */
 import type { Express } from "express";
-import { z } from "zod";
 import { requireAuth, requireRole, injectOrgContext } from "../auth";
+import { selfReviewSchema, disputeSchema, resolveDisputeSchema, callReferralSchema } from "@shared/schema";
 import { storage } from "../storage";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
@@ -64,10 +64,6 @@ export function registerCallInsightRoutes(app: Express): void {
   // POST: Agent submits a self-review for their own call
   app.post("/api/calls/:id/self-review", requireAuth, injectOrgContext, async (req, res) => {
     try {
-      const selfReviewSchema = z.object({
-        score: z.number().min(0).max(10),
-        notes: z.string().max(2000).optional(),
-      });
       const parsed = selfReviewSchema.safeParse(req.body);
       if (!parsed.success) {
         res.status(400).json({ message: "Invalid self-review data", errors: parsed.error.flatten() });
@@ -109,9 +105,6 @@ export function registerCallInsightRoutes(app: Express): void {
   // POST: Agent disputes a QA score
   app.post("/api/calls/:id/dispute", requireAuth, injectOrgContext, async (req, res) => {
     try {
-      const disputeSchema = z.object({
-        reason: z.string().min(10).max(2000),
-      });
       const parsed = disputeSchema.safeParse(req.body);
       if (!parsed.success) {
         res.status(400).json({ message: "Invalid dispute data", errors: parsed.error.flatten() });
@@ -163,12 +156,7 @@ export function registerCallInsightRoutes(app: Express): void {
     requireRole("manager", "admin"),
     async (req, res) => {
       try {
-        const resolveSchema = z.object({
-          status: z.enum(["accepted", "rejected"]),
-          resolution: z.string().max(2000).optional(),
-          adjustedScore: z.number().min(0).max(10).optional(),
-        });
-        const parsed = resolveSchema.safeParse(req.body);
+        const parsed = resolveDisputeSchema.safeParse(req.body);
         if (!parsed.success) {
           res.status(400).json({ message: "Invalid resolution data", errors: parsed.error.flatten() });
           return;
@@ -230,12 +218,7 @@ export function registerCallInsightRoutes(app: Express): void {
     requireRole("manager", "admin"),
     async (req, res) => {
       try {
-        const referralSchema = z.object({
-          referToSpecialty: z.string().min(1).max(200),
-          referToProvider: z.string().max(200).optional(),
-          additionalContext: z.string().max(1000).optional(),
-        });
-        const parsed = referralSchema.safeParse(req.body);
+        const parsed = callReferralSchema.safeParse(req.body);
         if (!parsed.success) {
           res.status(400).json({ message: "Invalid referral letter request", errors: parsed.error.flatten() });
           return;

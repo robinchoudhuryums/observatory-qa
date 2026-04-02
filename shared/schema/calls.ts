@@ -237,7 +237,7 @@ export const clinicalNoteSchema = z.object({
   amendments: z
     .array(
       z.object({
-        type: z.enum(["amendment", "addendum"]),
+        type: z.enum(["amendment", "addendum", "section_completion"]),
         reason: z.string(),
         amendedBy: z.string(),
         amendedById: z.string().optional(),

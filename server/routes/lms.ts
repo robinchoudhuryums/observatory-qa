@@ -15,7 +15,42 @@ import { aiProvider } from "../services/ai-factory";
 import { logger } from "../services/logger";
 import { withRetry, validateUUIDParam } from "./helpers";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
-import type { LearningModule, InsertLearningModule } from "@shared/schema";
+import type { LearningModule, InsertLearningModule, LearningPath } from "@shared/schema";
+import { logPhiAccess, auditContext } from "../services/audit-log";
+
+/**
+ * Notify assigned employees about a new learning path via email.
+ * Fire-and-forget — failures don't block path creation.
+ */
+async function notifyAssignedEmployees(
+  orgId: string,
+  path: LearningPath,
+  employeeIds: string[],
+  assignedByName: string,
+): Promise<void> {
+  const { sendEmail } = await import("../services/email");
+  for (const empId of employeeIds) {
+    try {
+      const employee = await storage.getEmployee(orgId, empId);
+      if (!employee?.email) continue;
+      await sendEmail({
+        to: employee.email,
+        subject: `New Learning Path Assigned: ${path.title}`,
+        text: `Hi ${employee.name},\n\n${assignedByName} has assigned you a learning path: "${path.title}".\n\n${path.description || ""}\n\nPlease log in to Observatory QA to get started.`,
+        html: `<p>Hi ${employee.name},</p><p><strong>${assignedByName}</strong> has assigned you a learning path: <strong>${path.title}</strong>.</p>${path.description ? `<p>${path.description}</p>` : ""}<p>Please log in to Observatory QA to get started.</p>`,
+      });
+    } catch {
+      // Individual email failure — continue with others
+    }
+  }
+  logPhiAccess({
+    event: "learning_path_assigned",
+    orgId,
+    resourceType: "learning_path",
+    resourceId: path.id,
+    detail: `Assigned to ${employeeIds.length} employee(s) by ${assignedByName}`,
+  });
+}
 
 /**
  * Detect circular dependencies in module prerequisites.
@@ -382,6 +417,14 @@ Respond with ONLY valid JSON (no markdown fences):
       estimatedMinutes,
       createdBy: (req.user as any)?.name || "unknown",
     });
+
+    // Send notification emails to assigned employees (fire-and-forget)
+    if (assignedTo && Array.isArray(assignedTo) && assignedTo.length > 0) {
+      notifyAssignedEmployees(orgId, path, assignedTo, (req.user as any)?.name || "Manager").catch((err) =>
+        logger.debug({ err, pathId: path.id }, "Learning path assignment notification failed (non-critical)"),
+      );
+    }
+
     res.status(201).json(path);
   });
 
