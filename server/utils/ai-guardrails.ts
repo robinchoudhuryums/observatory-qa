@@ -68,12 +68,22 @@ export function detectPromptInjection(input: string): InjectionCheckResult {
   let normalized = normalizeForDetection(truncated);
   // Decode HTML entities to catch &lt;system&gt; style bypasses
   normalized = decodeHtmlEntities(normalized);
-  // Strip HTML/XML comments that could wrap injections: <!-- <system> -->
-  normalized = normalized.replace(/<!--[\s\S]*?-->/g, " COMMENT_STRIPPED ");
 
+  // Check for injections BEFORE comment stripping — catches payloads
+  // hidden inside comments (e.g., <!-- <system> --> or <!-- ignore previous instructions -->)
   for (const { regex, label } of INJECTION_PATTERNS) {
     if (regex.test(normalized)) return { isInjection: true, pattern: label };
   }
+
+  // Also check after stripping comments in case the injection is
+  // split across a comment boundary
+  const commentStripped = normalized.replace(/<!--[\s\S]*?-->/g, " ");
+  if (commentStripped !== normalized) {
+    for (const { regex, label } of INJECTION_PATTERNS) {
+      if (regex.test(commentStripped)) return { isInjection: true, pattern: label };
+    }
+  }
+
   return { isInjection: false };
 }
 
