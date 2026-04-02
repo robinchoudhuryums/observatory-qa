@@ -89,6 +89,20 @@ export const apiKeyAuth: RequestHandler = async (req, res, next) => {
       req.apiKeyScopes = resourceScopes;
     }
 
+    // Warn on stale API keys (>90 days old) via response header
+    const STALE_KEY_DAYS = 90;
+    if (apiKey.createdAt) {
+      const ageMs = Date.now() - new Date(apiKey.createdAt).getTime();
+      const ageDays = Math.floor(ageMs / (24 * 60 * 60 * 1000));
+      if (ageDays > STALE_KEY_DAYS) {
+        res.setHeader("X-API-Key-Warning", `API key is ${ageDays} days old. Rotate for security.`);
+        logger.warn(
+          { apiKeyId: apiKey.id, apiKeyName: apiKey.name, ageDays, orgId: apiKey.orgId },
+          `API key "${apiKey.name}" is ${ageDays} days old — rotation recommended`,
+        );
+      }
+    }
+
     // Update last used (fire and forget)
     storage
       .updateApiKey(apiKey.orgId, apiKey.id, {

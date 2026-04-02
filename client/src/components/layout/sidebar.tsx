@@ -322,6 +322,7 @@ export default function Sidebar() {
               onClick={() => toggleSection("Analytics")}
               className="flex items-center justify-between w-full hover:text-foreground transition-colors cursor-pointer"
               aria-expanded={!collapsedSections["Analytics"]}
+              aria-label="Toggle Analytics section"
             >
               <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">Analytics</p>
               <RiArrowDownSLine
@@ -363,6 +364,7 @@ export default function Sidebar() {
               onClick={() => toggleSection("Management")}
               className="flex items-center justify-between w-full hover:text-foreground transition-colors cursor-pointer"
               aria-expanded={!collapsedSections["Management"]}
+              aria-label="Toggle Management section"
             >
               <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">Management</p>
               <RiArrowDownSLine
@@ -405,6 +407,7 @@ export default function Sidebar() {
               onClick={() => toggleSection("Channels")}
               className="flex items-center justify-between w-full hover:text-foreground transition-colors cursor-pointer"
               aria-expanded={!collapsedSections["Channels"]}
+              aria-label="Toggle Channels section"
             >
               <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">Channels</p>
               <RiArrowDownSLine
@@ -434,6 +437,7 @@ export default function Sidebar() {
               onClick={() => toggleSection("Engagement")}
               className="flex items-center justify-between w-full hover:text-foreground transition-colors cursor-pointer"
               aria-expanded={!collapsedSections["Engagement"]}
+              aria-label="Toggle Engagement section"
             >
               <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">Engagement</p>
               <RiArrowDownSLine
@@ -464,6 +468,7 @@ export default function Sidebar() {
                   onClick={() => toggleSection("Clinical")}
                   className="flex items-center justify-between w-full hover:text-foreground transition-colors cursor-pointer"
                   aria-expanded={!collapsedSections["Clinical"]}
+                  aria-label="Toggle Clinical section"
                 >
                   <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">
                     Clinical
@@ -515,6 +520,7 @@ export default function Sidebar() {
                   onClick={() => toggleSection("Admin")}
                   className="flex items-center justify-between w-full hover:text-foreground transition-colors cursor-pointer"
                   aria-expanded={!collapsedSections["Admin"]}
+                  aria-label="Toggle Admin section"
                 >
                   <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest flex items-center gap-1.5">
                     Admin

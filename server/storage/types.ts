@@ -558,6 +558,12 @@ export interface IStorage {
     totalEstimatedCostUsd: number;
     employeeCount: number;
   }>;
+
+  // BAA management (HIPAA §164.502(e)) — optional, only supported in PostgreSQL backend
+  listBusinessAssociateAgreements?(orgId: string): Promise<any[]>;
+  getBusinessAssociateAgreement?(orgId: string, id: string): Promise<any | undefined>;
+  createBusinessAssociateAgreement?(orgId: string, baa: any): Promise<any>;
+  updateBusinessAssociateAgreement?(orgId: string, id: string, updates: any): Promise<any | undefined>;
 }
 
 export interface UsageSummary {

@@ -25,6 +25,19 @@ const MEDICAID_PATTERN = /(?:medicaid|medi-cal)\s*(?:id|#|number)?[:\s]*[A-Z0-9]
 const ADDRESS_PATTERN =
   /\b\d{1,6}\s+(?:[A-Z][a-z]+\s+){1,3}(?:St(?:reet)?|Ave(?:nue)?|Blvd|Boulevard|Dr(?:ive)?|Rd|Road|Ln|Lane|Ct|Court|Way|Pl(?:ace)?|Cir(?:cle)?)\b\.?/gi;
 
+// NPI (National Provider Identifier): exactly 10 digits, often prefixed with "NPI"
+const NPI_LABELED_PATTERN = /(?:NPI|npi)[:\s#]*\d{10}\b/g;
+// Bare 10-digit NPI (Luhn-checkable but we match broadly with context guards)
+const NPI_BARE_PATTERN = /(?<=\b(?:provider|npi|physician|doctor|dr)\b[:\s#]{0,5})\d{10}\b/gi;
+
+// FHIR resource UUIDs — standard UUID format in clinical data contexts
+const FHIR_UUID_PATTERN =
+  /(?:(?:Patient|Encounter|Practitioner|Composition|DocumentReference|Observation|Condition|MedicationRequest|AllergyIntolerance)\/)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
+// Visit/encounter IDs (alphanumeric, 6-15 chars, often preceded by keyword)
+const ENCOUNTER_ID_PATTERN =
+  /(?:encounter|visit|admission|case)\s*(?:id|#|number|no)?[:\s#]*(?=[A-Z0-9\-]*\d)[A-Z0-9\-]{6,15}/gi;
+
 function isClinicalCode(match: string): boolean {
   if (/^[A-Z]\d{4}$/.test(match)) return true;
   if (/^[A-Z]\d{2,3}(?:\.\d{1,4})?$/.test(match)) return true;
@@ -47,6 +60,11 @@ export function redactPhi(text: string): string {
   result = result.replace(PHONE_PATTERN, REDACTED);
   result = result.replace(SSN_BARE, REDACTED);
   result = result.replace(ADDRESS_PATTERN, REDACTED);
+  // Provider and clinical identifiers
+  result = result.replace(NPI_LABELED_PATTERN, REDACTED);
+  result = result.replace(NPI_BARE_PATTERN, REDACTED);
+  result = result.replace(FHIR_UUID_PATTERN, REDACTED);
+  result = result.replace(ENCOUNTER_ID_PATTERN, REDACTED);
   return result;
 }
 

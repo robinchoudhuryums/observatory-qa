@@ -6,6 +6,9 @@ import { storage, normalizeAnalysis } from "../storage";
 import { requireAuth, requireRole, injectOrgContext, requireOrgContext, getTeamScopedEmployeeIds } from "../auth";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { upload, safeFloat, validateUUIDParam, acquireUploadSlot, releaseUploadSlot } from "./helpers";
+import { asyncHandler, AppError } from "../middleware/error-handler";
+
+const validateId = validateUUIDParam("id");
 import { enforceQuota, requireActiveSubscription, reportCallOverageToStripe } from "./billing";
 import { logger } from "../services/logger";
 import { CALL_CATEGORIES, type InsertCallAnalysis } from "@shared/schema";
@@ -14,6 +17,11 @@ import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import { processAudioFile, invalidateRefDocCache, cleanupFile } from "../services/call-processing";
 import { broadcastCallUpdate } from "../services/websocket";
 import path from "path";
+
+// In-flight upload dedup lock: prevents TOCTOU race where two concurrent
+// uploads with the same file hash both pass the duplicate check.
+// Key = `${orgId}:${fileHash}`, value = true while upload is in progress.
+const uploadHashLocks = new Set<string>();
 
 // Re-export invalidateRefDocCache for consumers that import from calls route
 export { invalidateRefDocCache } from "../services/call-processing";
@@ -26,13 +34,15 @@ export { invalidateRefDocCache } from "../services/call-processing";
  */
 async function analyzeAndStoreEditPatterns(orgId: string): Promise<void> {
   try {
-    // Sample up to 500 completed calls to find edited analyses
+    // Sample up to 500 completed calls — getCallsWithDetails already batch-loads
+    // analysis data via JOIN, so no individual getCallAnalysis() calls needed.
     const calls = await storage.getCallsWithDetails(orgId, { status: "completed", limit: 500 });
     let totalEdits = 0;
     const perfDeltas: number[] = [];
 
     for (const call of calls) {
-      const analysis = await storage.getCallAnalysis(orgId, call.id);
+      // Use the analysis already included in CallWithDetails (batch-loaded)
+      const analysis = call.analysis;
       const edits = Array.isArray(analysis?.manualEdits) ? (analysis.manualEdits as any[]) : [];
       if (edits.length === 0) continue;
       totalEdits += edits.length;
@@ -118,21 +128,22 @@ export function registerCallRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/calls/:id", requireAuth, injectOrgContext, async (req, res) => {
+  app.get("/api/calls/:id", requireAuth, injectOrgContext, validateId, async (req, res) => {
     try {
+      // Pre-compute team scope BEFORE fetching call details to avoid TOCTOU:
+      // returning 403 leaks existence of cross-team calls, 404 does not.
+      const teamIds = req.user?.role !== "admin" ? await getTeamScopedEmployeeIds(req.orgId!, req.user!) : null;
+
       const call = await storage.getCall(req.orgId!, req.params.id);
       if (!call) {
         res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call not found"));
         return;
       }
 
-      // Team scoping: verify caller has access to this call's employee
-      if (call.employeeId) {
-        const teamIds = req.user?.role !== "admin" ? await getTeamScopedEmployeeIds(req.orgId!, req.user!) : null;
-        if (teamIds !== null && !teamIds.has(call.employeeId)) {
-          res.status(403).json({ message: "Call belongs to an employee outside your team" });
-          return;
-        }
+      // Team scoping: return 404 (not 403) to avoid leaking call existence
+      if (call.employeeId && teamIds !== null && !teamIds.has(call.employeeId)) {
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call not found"));
+        return;
       }
 
       logPhiAccess({
@@ -150,12 +161,31 @@ export function registerCallRoutes(app: Express): void {
       ]);
 
       const analysis = normalizeAnalysis(rawAnalysis);
-      decryptClinicalNotePhi(analysis as Record<string, unknown> | null, {
-        userId: req.user?.id,
-        orgId: req.orgId,
-        resourceId: call.id,
-        resourceType: "call_analysis",
-      });
+
+      // Decrypt PHI fields — isolated catch so decryption failures get a clear
+      // HIPAA-specific error rather than a generic 500.
+      try {
+        decryptClinicalNotePhi(analysis as Record<string, unknown> | null, {
+          userId: req.user?.id,
+          orgId: req.orgId,
+          resourceId: call.id,
+          resourceType: "call_analysis",
+        });
+      } catch (decryptErr) {
+        logger.error({ err: decryptErr, callId: call.id }, "PHI decryption failed for call details");
+        logPhiAccess({
+          ...auditContext(req),
+          event: "phi_decryption_failure",
+          resourceType: "call_analysis",
+          resourceId: call.id,
+          detail: "Decryption failed — key mismatch or data corruption",
+        });
+        res.status(503).json(errorResponse(
+          ERROR_CODES.PHI_DECRYPTION_FAILED,
+          "Unable to decrypt clinical data. This may indicate an encryption key issue — contact your administrator.",
+        ));
+        return;
+      }
 
       res.json({
         ...call,
@@ -251,10 +281,30 @@ export function registerCallRoutes(app: Express): void {
         });
         // Read the buffer after hashing — still needed for AssemblyAI + S3 upload.
         const audioBuffer = await fs.promises.readFile(req.file.path);
-        const duplicate = await storage.getCallByFileHash(req.orgId!, fileHash);
-        if (duplicate) {
+        // Deduplication with TOCTOU race prevention: an in-memory lock ensures
+        // two concurrent uploads with the same hash can't both pass the check.
+        const hashLockKey = `${orgId}:${fileHash}`;
+        if (uploadHashLocks.has(hashLockKey)) {
           await cleanupFile(req.file.path);
-          releaseUploadSlot(req.orgId!);
+          releaseUploadSlot(orgId);
+          res.status(409).json({
+            message: "This file is currently being uploaded. Please wait.",
+            duplicate: true,
+          });
+          return;
+        }
+        uploadHashLocks.add(hashLockKey);
+
+        try {
+          var duplicate = await storage.getCallByFileHash(orgId, fileHash);
+        } catch (dupErr) {
+          uploadHashLocks.delete(hashLockKey);
+          throw dupErr;
+        }
+        if (duplicate) {
+          uploadHashLocks.delete(hashLockKey);
+          await cleanupFile(req.file.path);
+          releaseUploadSlot(orgId);
           res.status(409).json({
             message: "This file has already been uploaded.",
             existingCallId: duplicate.id,
@@ -263,15 +313,22 @@ export function registerCallRoutes(app: Express): void {
           return;
         }
 
-        const call = await storage.createCall(req.orgId!, {
-          orgId: req.orgId!,
-          employeeId: employeeId || undefined,
-          fileName: req.file.originalname,
-          filePath: req.file.path,
-          fileHash,
-          status: "processing",
-          callCategory: callCategory || undefined,
-        });
+        let call;
+        try {
+          call = await storage.createCall(req.orgId!, {
+            orgId: req.orgId!,
+            employeeId: employeeId || undefined,
+            fileName: req.file.originalname,
+            filePath: req.file.path,
+            fileHash,
+            status: "processing",
+            callCategory: callCategory || undefined,
+          });
+        } finally {
+          // Release hash lock once the call is created (or creation failed).
+          // The DB record now prevents future duplicates via getCallByFileHash.
+          uploadHashLocks.delete(hashLockKey);
+        }
         const originalName = req.file.originalname;
         const mimeType = req.file.mimetype || "audio/mpeg";
         const uploadUserId = req.user?.id;
@@ -312,7 +369,7 @@ export function registerCallRoutes(app: Express): void {
     },
   );
 
-  app.get("/api/calls/:id/audio", requireAuth, injectOrgContext, async (req, res) => {
+  app.get("/api/calls/:id/audio", requireAuth, injectOrgContext, validateId, async (req, res) => {
     try {
       const call = await storage.getCall(req.orgId!, req.params.id);
       if (!call) {
@@ -368,7 +425,7 @@ export function registerCallRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/calls/:id/transcript", requireAuth, injectOrgContext, async (req, res) => {
+  app.get("/api/calls/:id/transcript", requireAuth, injectOrgContext, validateId, async (req, res) => {
     try {
       logPhiAccess({
         ...auditContext(req),
@@ -388,7 +445,7 @@ export function registerCallRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/calls/:id/sentiment", requireAuth, injectOrgContext, async (req, res) => {
+  app.get("/api/calls/:id/sentiment", requireAuth, injectOrgContext, validateId, async (req, res) => {
     try {
       const sentiment = await storage.getSentimentAnalysis(req.orgId!, req.params.id);
       if (!sentiment) {
@@ -407,19 +464,35 @@ export function registerCallRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/calls/:id/analysis", requireAuth, injectOrgContext, async (req, res) => {
+  app.get("/api/calls/:id/analysis", requireAuth, injectOrgContext, validateId, async (req, res) => {
     try {
       const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
       if (!analysis) {
         res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
         return;
       }
-      decryptClinicalNotePhi(analysis as Record<string, unknown>, {
-        userId: req.user?.id,
-        orgId: req.orgId,
-        resourceId: req.params.id,
-        resourceType: "call_analysis",
-      });
+      try {
+        decryptClinicalNotePhi(analysis as Record<string, unknown>, {
+          userId: req.user?.id,
+          orgId: req.orgId,
+          resourceId: req.params.id,
+          resourceType: "call_analysis",
+        });
+      } catch (decryptErr) {
+        logger.error({ err: decryptErr, callId: req.params.id }, "PHI decryption failed for call analysis");
+        logPhiAccess({
+          ...auditContext(req),
+          event: "phi_decryption_failure",
+          resourceType: "call_analysis",
+          resourceId: req.params.id,
+          detail: "Decryption failed — key mismatch or data corruption",
+        });
+        res.status(503).json(errorResponse(
+          ERROR_CODES.PHI_DECRYPTION_FAILED,
+          "Unable to decrypt clinical data. This may indicate an encryption key issue — contact your administrator.",
+        ));
+        return;
+      }
       logPhiAccess({
         ...auditContext(req),
         event: "view_call_analysis",
@@ -761,7 +834,7 @@ export function registerCallRoutes(app: Express): void {
     },
   );
 
-  app.delete("/api/calls/:id", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
+  app.delete("/api/calls/:id", requireAuth, injectOrgContext, requireRole("manager", "admin"), validateId, async (req, res) => {
     try {
       const callId = req.params.id;
 

@@ -93,8 +93,14 @@ export function useWebSocket() {
     }
   }, [queryClient]);
 
+  // Store connect in a ref to avoid it as an effect dependency.
+  // This prevents infinite reconnection loops if queryClient identity
+  // changes (unlikely but defensive).
+  const connectRef = useRef(connect);
+  connectRef.current = connect;
+
   useEffect(() => {
-    connect();
+    connectRef.current();
     return () => {
       clearTimeout(reconnectTimer.current);
       if (wsRef.current) {
@@ -102,5 +108,5 @@ export function useWebSocket() {
         wsRef.current = null;
       }
     };
-  }, [connect]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- connectRef is stable
 }

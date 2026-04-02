@@ -1210,6 +1210,42 @@ export async function syncSchema(db: Database): Promise<void> {
       logger.warn({ err: e }, "RLS setup skipped for breach_reports"),
     );
 
+    // --- Business Associate Agreements (HIPAA §164.502(e)) ---
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS business_associate_agreements (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL REFERENCES organizations(id),
+        vendor_name VARCHAR(255) NOT NULL,
+        vendor_type VARCHAR(100) NOT NULL,
+        description TEXT,
+        contact_name VARCHAR(255),
+        contact_email VARCHAR(255),
+        status VARCHAR(30) NOT NULL DEFAULT 'active',
+        signed_at TIMESTAMP,
+        expires_at TIMESTAMP,
+        renewal_reminder_days INTEGER DEFAULT 30,
+        signed_by VARCHAR(255),
+        vendor_signatory VARCHAR(255),
+        document_url TEXT,
+        notes TEXT,
+        phi_categories JSONB DEFAULT '[]',
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS baa_org_idx ON business_associate_agreements (org_id)`,
+    );
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS baa_org_status_idx ON business_associate_agreements (org_id, status)`,
+    );
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS baa_expiry_idx ON business_associate_agreements (expires_at)`,
+    );
+    await addRlsPolicy(db, "business_associate_agreements").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for business_associate_agreements"),
+    );
+
     // ── One-time data migrations ─────────────────────────────────────────────
     // These use runOnceMigration() to ensure they execute exactly once even
     // across repeated server restarts. Add new one-time migrations here.

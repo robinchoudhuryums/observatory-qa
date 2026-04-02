@@ -157,7 +157,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/e2e/logout.spec.ts` — Logout flow
   - `tests/e2e/api-health.spec.ts` — Health endpoint
   - `tests/e2e/security.spec.ts` — Security boundaries (auth enforcement, RBAC escalation, CSRF, session fixation, rate limiting)
-- **E2E auth pattern**: Import `{ adminTest as test, expect } from "./fixtures"` (or `viewerTest`) for authenticated tests. Each test gets a fresh login — no shared storageState. Tests use `data-testid` selectors for stability.
+- **E2E auth pattern**: Import `{ adminTest as test, expect } from "./fixtures"` (or `viewerTest`) for authenticated tests. Each Playwright **worker** registers its own unique org via `/api/auth/register` (slug: `e2e-w{workerIndex}-{ts}`), preventing state pollution between parallel spec files. Falls back to env-var `admin:admin123` if registration fails. Tests use `data-testid` selectors for stability.
 
 ## Architecture
 
@@ -1559,7 +1559,7 @@ Longer-term improvements identified during codebase audits. Work on these increm
 ### Call Analysis
 | Priority | Item | Notes |
 |----------|------|-------|
-| HIGH | **Upload deduplication lock** | File hash TOCTOU race: two concurrent uploads with same hash can both create calls. Need atomic `getOrCreateCall()` or Redis lock |
+| ✅ Done | **Upload deduplication lock** | `claude/codebase-audit-evaluation-MhG8w` — in-memory hash lock set prevents concurrent uploads with same hash; lock released in finally after createCall |
 | MEDIUM | **Confidence-based prompt adjustment** | For low-confidence transcripts (<0.5), inject guidance asking AI to flag uncertain passages with `[UNCLEAR]` |
 | MEDIUM | **Prompt template caching** | Templates loaded fresh per call. Cache rendered system prompt by `{orgId}:{category}:{templateHash}:{ragHash}` to improve Bedrock prompt cache hit rate |
 | LOW | **Per-call cost attribution** | Track actual Bedrock input/output token counts from response metadata (currently estimated from text length) |
@@ -1576,10 +1576,11 @@ Longer-term improvements identified during codebase audits. Work on these increm
 ### HIPAA Compliance
 | Priority | Item | Notes |
 |----------|------|-------|
-| HIGH | **BAA management system** | Currently documentation-only (`BAA_TEMPLATE.md`). Need DB table to track BAA status, expiry dates, signatory info per sub-processor |
-| HIGH | **Automated breach detection** | Currently manual `declareIncident()` only. Add anomaly detection: unusual PHI access patterns, bulk exports, off-hours access |
+| ✅ Done | **BAA management system** | `claude/codebase-audit-evaluation-MhG8w` — `business_associate_agreements` table + CRUD routes + expiry alerting. Tracks vendor, signatory, PHI categories, expiry dates, renewal reminders |
+| ✅ Done | **Automated breach detection** | `claude/codebase-audit-evaluation-MhG8w` — PHI access velocity (50/10min) and breadth (20 unique resources/10min) tracking with auto-incident creation via `declareIncident()` |
 | MEDIUM | **S3/backup lifecycle purging** | Retention worker handles DB but not S3 object lifecycle, RDS backups, or cross-region replicas |
 | MEDIUM | **PHI access reporting UI** | Audit log data exists but no admin dashboard for "show who accessed patient X in the last 30 days" queries |
+| MEDIUM | **Audit log chain state memory** | Per-org `chainLocks` Map can hold 10K+ pending promises under load; no cleanup of completed entries. Move to Redis for multi-instance |
 | LOW | **Key escrow for PHI encryption** | No recovery path if `PHI_ENCRYPTION_KEY` is lost. Document or implement secure key backup via AWS Secrets Manager |
 
 ### LMS / Learning
@@ -1603,16 +1604,76 @@ Longer-term improvements identified during codebase audits. Work on these increm
 ### Architecture / Code Quality
 | Priority | Item | Notes |
 |----------|------|-------|
-| MEDIUM | **Route error handling standardization** | `asyncHandler()` + `AppError` pattern exists in `error-handler.ts` but used in <10% of routes. ~400 lines of duplicated try/catch boilerplate |
+| MEDIUM | **Route error handling standardization** | `asyncHandler()` + `AppError` pattern adopted in 10 route files (employees, access, health, benchmarks, dashboard, insights, feedback, export, spend-tracking, patient-journey); globalErrorHandler registered. ~260 remaining try/catch blocks across 25 route files can be incrementally converted |
 | MEDIUM | **Inline schema centralization** | ~80 lines of ad-hoc Zod schemas defined in route files. Move to `shared/schema` for frontend/backend reuse |
-| MEDIUM | **Large route file decomposition** | `clinical.ts` (1.8K lines), `admin.ts` (1.4K lines), `mfa.ts` (1.2K lines). Extract business logic to services |
-| LOW | **254 ESLint `no-unused-vars` warnings** | Spread across ~100 files, mostly unused function params. Tedious but reduces noise |
+| MEDIUM | **Large file decomposition** | Server done: `pg-storage.ts` 3,795→2,279 (-40%, prototype mixin to `pg-storage-features.ts`); `clinical.ts` 1,928→1,194 (-38%); `admin.ts` 1,380→625 (-55%). Remaining: `memory.ts` (1.6K), `sync-schema.ts` (1.4K). Client: `transcript-viewer.tsx` (1.3K), `clinical-notes.tsx` (1.2K), `reports.tsx` (1.2K) |
+| ✅ Done | **Team scoping TOCTOU fix** | `claude/codebase-audit-evaluation-MhG8w` — pre-compute team scope before fetch; return 404 instead of 403 to avoid leaking call existence |
+| LOW | **253 ESLint `no-unused-vars` warnings** | Spread across ~100 files, mostly unused function params. Tedious but reduces noise |
 | LOW | **OIDC state persistence** | OIDC state map is in-memory. Multi-instance deployments need Redis-backed state |
+| LOW | **Inconsistent UUID validation** | validateUUIDParam added to critical PHI routes (calls detail/audio/transcript/sentiment/analysis/delete, employees). ~30 non-PHI routes still missing — add incrementally |
+
+### Security
+| Priority | Item | Notes |
+|----------|------|-------|
+| ✅ Done | **Prompt injection tag soup bypass** | `claude/codebase-audit-evaluation-MhG8w` — HTML entity decoding, comment stripping, input truncation (10KB), 4 new tag patterns |
+| ✅ Done | **PHI redaction gaps** | `claude/codebase-audit-evaluation-MhG8w` — NPI numbers, FHIR resource UUIDs, encounter IDs added |
+| ✅ Done | **PHI decryption failure handling** | `claude/codebase-audit-evaluation-MhG8w` — returns 503 + OBS-PHI-001 + audit log event |
+| ✅ Done | **MFA recovery token race** | `claude/codebase-audit-evaluation-MhG8w` — atomic claim with rollback; multi-instance still needs Redis |
+| ✅ Done | **RAG topK unbounded** | `claude/codebase-audit-evaluation-MhG8w` — clamped to [1, 100] along with all other RAG config params |
+| ✅ Done | **Prompt injection regex DoS** | `claude/codebase-audit-evaluation-MhG8w` — input truncated to 10KB before pattern matching |
+| MEDIUM | **OIDC state in-memory** | OIDC state map is in-memory; multi-instance deployments lose state across servers. Move to Redis |
+| MEDIUM | **Org cache stale state** | `orgCache` in `auth.ts` has 30s TTL; suspended/MFA-required org changes not reflected for up to 30s. Reduce TTL or add explicit invalidation |
+| MEDIUM | **Account lockout eviction** | `loginAttempts` map evicts oldest entry when full; attacker can create many usernames to evict target's tracking before lockout applies |
+| MEDIUM | **Session absolute max too long** | 8-hour absolute session max exceeds NIST recommendation of 4-6 hours for healthcare; should be configurable per-org |
+| ✅ Done | **API key staleness warning** | `claude/codebase-audit-evaluation-MhG8w` — keys >90 days get X-API-Key-Warning header + warn log; auto-revocation is future work |
+| ✅ Done | **Session secret fail-fast** | `claude/codebase-audit-evaluation-MhG8w` — production startup fails if SESSION_SECRET is "dev-secret" or <32 chars |
+| MEDIUM | **CSP `unsafe-inline` for styles** | `style-src 'unsafe-inline'` allows CSS injection for data exfiltration via Recharts/Framer Motion inline styles. Refactor to CSS classes |
+| ✅ Done | **Audit chain verification automated** | Already scheduled: 120s post-startup + daily interval; logs HIPAA_ALERT on tampering |
+| LOW | **Bedrock TLS validation** | `requestHandler` cast to `any` bypasses TypeScript; certificate validation not explicitly enabled |
+| LOW | **Error message information disclosure** | Some routes include underlying error messages (e.g., URL fetch errors in onboarding) that could leak internal infrastructure details |
+
+### RAG Knowledge Base (continued)
+| Priority | Item | Notes |
+|----------|------|-------|
+| ✅ Done | **Empty embedding arrays corrupt pgvector** | `claude/codebase-audit-evaluation-MhG8w` — failed chunks stored as null; existing IS NOT NULL filter excludes them |
+| MEDIUM | **BM25 normalization overflow** | Hardcoded `log1p(3)` denominator can be exceeded by multi-term high-TF queries; combined score may exceed 1.0 |
+| ✅ Done | **Embedding cache FIFO→LRU** | `claude/codebase-audit-evaluation-MhG8w` — new LruCache utility used for embedding, refDoc, and orgProvider caches |
+| MEDIUM | **Silent RAG degradation** | When all chunks have failed embeddings, `searchRelevantChunks` returns `[]` silently; AI proceeds without RAG context with no user feedback |
+| LOW | **AI provider cache invalidation** | `orgProviderCache` in `ai-factory.ts` never invalidated when org changes `bedrockModel`; stale model used until restart |
+
+### Call Analysis (continued)
+| Priority | Item | Notes |
+|----------|------|-------|
+| ✅ Done | **Ref doc cache FIFO→LRU** | `claude/codebase-audit-evaluation-MhG8w` — uses shared LruCache utility |
+| ✅ Done | **analyzeAndStoreEditPatterns N+1 fix** | `claude/codebase-audit-evaluation-MhG8w` — uses call.analysis from CallWithDetails (already batch-loaded) instead of 500 individual queries |
+
+### Testing
+| Priority | Item | Notes |
+|----------|------|-------|
+| ✅ Done | **Coverage thresholds enforced** | `claude/codebase-audit-evaluation-MhG8w` — CI enforces `--check-coverage --lines 70 --functions 60 --branches 55` |
+| ✅ Done | **E2E test isolation** | `claude/codebase-audit-evaluation-MhG8w` — per-worker org registration via /api/auth/register; each Playwright worker gets unique org slug (e2e-w{index}-{ts}); falls back to env-var admin for backward compat |
+| ✅ Done | **AI provider mocks** | `claude/codebase-audit-evaluation-MhG8w` — MockBedrockProvider with switchable behaviors (success, rate_limit, timeout, server_error, unavailable, empty_response, malformed_json). 20 tests covering score clamping, default fields, error codes |
+| MEDIUM | **E2E tests use in-memory DB** | Playwright runs against MemStorage; doesn't catch PostgreSQL-specific failures |
+| MEDIUM | **Race condition tests need real DB** | Upload race tests only validate MemStorage; PostgreSQL row locking not tested |
+| MEDIUM | **No integration test suite** | Gap between unit tests (mocked storage) and E2E (browser); no HTTP-level integration tests against real PostgreSQL |
+
+### DevOps / Infrastructure
+| Priority | Item | Notes |
+|----------|------|-------|
+| ✅ Done | **Docker image push enabled** | `claude/codebase-audit-evaluation-MhG8w` — GHCR push on main merges with SHA + latest tags; artifact retention 7 days |
+| ✅ Done | **Schema sync validation** | `claude/codebase-audit-evaluation-MhG8w` — replaced grep-only CI check with TypeScript test that parses both schema.ts and sync-schema.ts, comparing columns per table (45 tests). CI build step now runs the test as a gate |
+| MEDIUM | **No canary deployment strategy** | All production traffic switches immediately; no gradual rollout or auto-rollback on error rate |
+| MEDIUM | **Blue-green deploy manual cutover** | `deploy/docker-deploy.sh` requires manual proxy reconfiguration |
+| MEDIUM | **Dependency audit not on PRs** | Weekly-only check; critical vulns can ship for days before detection |
 
 ### UI/UX
 | Priority | Item | Notes |
 |----------|------|-------|
-| MEDIUM | **Dashboard query freshness** | No `staleTime`/`refetchInterval` on dashboard queries — data can be stale until window focus |
-| MEDIUM | **Accessibility audit** | Some ARIA labels present but no WAVE/axe-core audit done. Missing visible labels on some form elements |
+| ✅ Done | **Dashboard query freshness** | `claude/codebase-audit-evaluation-MhG8w` — staleTime: 30s + refetchInterval: 60s for auto-refresh |
+| ✅ Done | **Accessibility: sidebar ARIA labels** | `claude/codebase-audit-evaluation-MhG8w` — aria-label added to all 6 collapsible section toggles |
+| ✅ Done | **ProtectedRoute stale permissions** | `claude/codebase-audit-evaluation-MhG8w` — staleTime changed from Infinity to 60s |
+| ✅ Done | **WebSocket reconnection loop risk** | `claude/codebase-audit-evaluation-MhG8w` — connect stored in ref to break useEffect dependency |
 | LOW | **Large page decomposition** | `clinical-notes.tsx` (1.2K lines), `reports.tsx` (1.2K lines) could be broken into smaller components |
 | LOW | **Upload progress tracking** | No progress bar for large file uploads. `fetch()` doesn't support progress natively — need XMLHttpRequest or tus protocol |
+| LOW | **File upload dropzone missing maxSize** | `react-dropzone` config doesn't specify `maxSize`; validation only in `onDrop` callback |
+| LOW | **Onboarding wizard step validation** | Users can proceed through steps without completing required fields |

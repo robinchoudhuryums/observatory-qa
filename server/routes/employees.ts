@@ -9,73 +9,54 @@ import { z } from "zod";
 import { logger } from "../services/logger";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import { parsePagination, paginateArray } from "./helpers";
+import { asyncHandler, AppError } from "../middleware/error-handler";
+import { validateUUIDParam } from "./helpers";
+
+const validateId = validateUUIDParam("id");
+
+const updateEmployeeSchema = z
+  .object({
+    name: z.string().min(1).optional(),
+    email: z.string().email().optional(),
+    role: z.string().optional(),
+    status: z.enum(["Active", "Inactive"]).optional(),
+    initials: z.string().max(2).optional(),
+    subTeam: z.string().optional(),
+  })
+  .strict();
 
 export function registerEmployeeRoutes(app: Express): void {
-  // Get all employees (paginated) — filtered by manager's subTeam if set
-  app.get("/api/employees", requireAuth, injectOrgContext, async (req, res) => {
-    try {
-      let employees = await storage.getAllEmployees(req.orgId!);
+  // Get all employees — filtered by manager's subTeam if set
+  app.get("/api/employees", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+    let employees = await storage.getAllEmployees(req.orgId!);
 
-      // Team-scoped filtering: managers with a subTeam see only their team
-      const teamEmployeeIds = req.user ? await getTeamScopedEmployeeIds(req.orgId!, req.user) : null;
-      if (teamEmployeeIds !== null) {
-        employees = employees.filter((e) => teamEmployeeIds.has(e.id));
-      }
-
-      res.json(employees);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to get employees");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get employees"));
+    const teamEmployeeIds = req.user ? await getTeamScopedEmployeeIds(req.orgId!, req.user) : null;
+    if (teamEmployeeIds !== null) {
+      employees = employees.filter((e) => teamEmployeeIds.has(e.id));
     }
-  });
+
+    res.json(employees);
+  }));
 
   // HIPAA: Only managers and admins can create employees
-  app.post("/api/employees", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
-    try {
-      const validatedData = insertEmployeeSchema.parse(req.body);
-      const employee = await storage.createEmployee(req.orgId!, validatedData);
-      res.status(201).json(employee);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        res.status(400).json({ message: "Invalid employee data", errors: error.errors });
-      } else {
-        logger.error({ err: error }, "Failed to create employee");
-        res.status(500).json(errorResponse(ERROR_CODES.EMP_CREATE_FAILED, "Failed to create employee"));
-      }
-    }
-  });
+  app.post("/api/employees", requireAuth, injectOrgContext, requireRole("manager", "admin"), asyncHandler(async (req, res) => {
+    const parsed = insertEmployeeSchema.safeParse(req.body);
+    if (!parsed.success) throw new AppError(400, "Invalid employee data", ERROR_CODES.VALIDATION_ERROR);
+    const employee = await storage.createEmployee(req.orgId!, parsed.data);
+    res.status(201).json(employee);
+  }));
 
   // HIPAA: Only managers and admins can update employees
-  const updateEmployeeSchema = z
-    .object({
-      name: z.string().min(1).optional(),
-      email: z.string().email().optional(),
-      role: z.string().optional(),
-      status: z.enum(["Active", "Inactive"]).optional(),
-      initials: z.string().max(2).optional(),
-      subTeam: z.string().optional(),
-    })
-    .strict();
+  app.patch("/api/employees/:id", requireAuth, injectOrgContext, requireRole("manager", "admin"), validateId, asyncHandler(async (req, res) => {
+    const parsed = updateEmployeeSchema.safeParse(req.body);
+    if (!parsed.success) throw new AppError(400, "Invalid update data", ERROR_CODES.VALIDATION_ERROR);
 
-  app.patch("/api/employees/:id", requireAuth, injectOrgContext, requireRole("manager", "admin"), async (req, res) => {
-    try {
-      const parsed = updateEmployeeSchema.safeParse(req.body);
-      if (!parsed.success) {
-        res.status(400).json({ message: "Invalid update data", errors: parsed.error.flatten() });
-        return;
-      }
-      const employee = await storage.getEmployee(req.orgId!, req.params.id);
-      if (!employee) {
-        res.status(404).json(errorResponse(ERROR_CODES.EMP_NOT_FOUND, "Employee not found"));
-        return;
-      }
-      const updated = await storage.updateEmployee(req.orgId!, req.params.id, parsed.data);
-      res.json(updated);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to update employee");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update employee"));
-    }
-  });
+    const employee = await storage.getEmployee(req.orgId!, req.params.id);
+    if (!employee) throw new AppError(404, "Employee not found", ERROR_CODES.EMP_NOT_FOUND);
+
+    const updated = await storage.updateEmployee(req.orgId!, req.params.id, parsed.data);
+    res.json(updated);
+  }));
 
   // HIPAA: Only admins can bulk import employees
   app.post("/api/employees/import-csv", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {

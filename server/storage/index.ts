@@ -113,7 +113,9 @@ export async function initPostgresStorage(): Promise<boolean> {
       logger.info({ bucket: process.env.S3_BUCKET }, "Audio blob storage: S3");
     }
 
-    storage = new PostgresStorage(db, blobClient);
+    // Feature methods are attached to PostgresStorage.prototype via
+    // pg-storage-features.ts side-effect import — cast to satisfy IStorage.
+    storage = new PostgresStorage(db, blobClient) as unknown as IStorage;
     logger.info("PostgreSQL storage backend initialized");
     return true;
   } catch (error) {

@@ -3,8 +3,8 @@ import { storage } from "../storage";
 import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { aiProvider, getBedrockCircuitState } from "../services/ai-factory";
 import { getRedis, getRedisStatus } from "../services/redis";
-import { logger } from "../services/logger";
 import { getMetricsSummary } from "../utils/request-metrics";
+import { asyncHandler, AppError } from "../middleware/error-handler";
 import { getFaqAnalytics, getKnowledgeBaseGaps } from "../services/faq-analytics";
 
 const startedAt = Date.now();
@@ -38,7 +38,7 @@ export function registerHealthRoutes(app: Express): void {
    * Used by Docker HEALTHCHECK, load balancers, and monitoring systems.
    * Each dependency check has a 3s timeout to prevent hanging.
    */
-  app.get("/api/health", async (_req, res) => {
+  app.get("/api/health", asyncHandler(async (_req, res) => {
     const checks: Record<string, { status: string; detail?: string; latencyMs?: number }> = {};
     let overall = true;
 
@@ -90,12 +90,8 @@ export function registerHealthRoutes(app: Express): void {
 
     // --- Job queues (BullMQ) ---
     if (redis) {
-      try {
-        // Check if BullMQ queues are reachable by testing Redis
-        checks.queues = { status: "ok", detail: "BullMQ active (Redis-backed)" };
-      } catch {
-        checks.queues = { status: "degraded", detail: "Queue backend unavailable" };
-      }
+      // BullMQ queues are reachable if Redis is up (verified above)
+      checks.queues = { status: "ok", detail: "BullMQ active (Redis-backed)" };
     } else {
       checks.queues = { status: "degraded", detail: "In-process fallback (no Redis)" };
     }
@@ -138,7 +134,7 @@ export function registerHealthRoutes(app: Express): void {
       startedAt: new Date(startedAt).toISOString(),
       cpu: { totalMs: Math.round(cpuTotalMs) },
     });
-  });
+  }));
 
   // ==================== READINESS CHECK (for orchestrators) ====================
 
@@ -148,14 +144,14 @@ export function registerHealthRoutes(app: Express): void {
    * Used by Kubernetes readinessProbe or load balancer health checks.
    * Stricter than /api/health — requires storage to be operational.
    */
-  app.get("/api/health/ready", async (_req, res) => {
+  app.get("/api/health/ready", asyncHandler(async (_req, res) => {
     try {
       await withTimeout(() => storage.listOrganizations(), 3000, "readiness");
       res.status(200).json({ ready: true });
     } catch {
       res.status(503).json({ ready: false, reason: "Storage not available" });
     }
-  });
+  }));
 
   // ==================== LIVENESS CHECK (for orchestrators) ====================
 
@@ -282,11 +278,9 @@ export function registerHealthRoutes(app: Express): void {
    * GET /api/health/faq-analytics?minCount=2&limit=50
    * Returns FAQ analytics for the authenticated user's org (top queries, knowledge base gaps).
    */
-  app.get("/api/health/faq-analytics", requireAuth, requireRole("admin"), injectOrgContext, (req, res) => {
+  app.get("/api/health/faq-analytics", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
     const orgId = req.orgId;
-    if (!orgId) {
-      return res.status(403).json({ message: "Organization context required" });
-    }
+    if (!orgId) throw new AppError(403, "Organization context required");
 
     const minCount = parseInt(req.query.minCount as string) || 2;
     const limit = parseInt(req.query.limit as string) || 50;
@@ -295,5 +289,5 @@ export function registerHealthRoutes(app: Express): void {
     const gaps = getKnowledgeBaseGaps(orgId, { minCount: 3, limit: 20 });
 
     res.json({ faqs, knowledgeBaseGaps: gaps });
-  });
+  }));
 }

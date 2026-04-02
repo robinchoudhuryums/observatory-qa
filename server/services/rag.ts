@@ -21,17 +21,22 @@ import { recordFaqQuery } from "./faq-analytics";
 import * as tables from "../db/schema";
 
 // Tunable RAG configuration via environment variables (with sensible defaults)
+/** Clamp a number to [min, max]. */
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
 const RAG_CONFIG = {
-  /** Number of top chunks to return from search */
-  topK: parseInt(process.env.RAG_SEARCH_TOP_K || "6", 10),
+  /** Number of top chunks to return from search (clamped to [1, 100]) */
+  topK: clamp(parseInt(process.env.RAG_SEARCH_TOP_K || "6", 10) || 6, 1, 100),
   /** Semantic (vector) score weight in hybrid search (0-1) */
-  semanticWeight: parseFloat(process.env.RAG_SEMANTIC_WEIGHT || "0.7"),
+  semanticWeight: clamp(parseFloat(process.env.RAG_SEMANTIC_WEIGHT || "0.7") || 0.7, 0, 1),
   /** BM25 keyword score weight in hybrid search (0-1) */
-  keywordWeight: parseFloat(process.env.RAG_KEYWORD_WEIGHT || "0.3"),
+  keywordWeight: clamp(parseFloat(process.env.RAG_KEYWORD_WEIGHT || "0.3") || 0.3, 0, 1),
   /** Minimum combined score to include a chunk in results */
-  minRelevanceScore: parseFloat(process.env.RAG_MIN_RELEVANCE_SCORE || "0.3"),
+  minRelevanceScore: clamp(parseFloat(process.env.RAG_MIN_RELEVANCE_SCORE || "0.3") || 0.3, 0, 1),
   /** Candidate multiplier: fetch topK * this many candidates, then rerank */
-  candidateMultiplier: parseInt(process.env.RAG_CANDIDATE_MULTIPLIER || "3", 10),
+  candidateMultiplier: clamp(parseInt(process.env.RAG_CANDIDATE_MULTIPLIER || "3", 10) || 3, 1, 10),
 };
 
 export interface RetrievedChunk {
@@ -114,19 +119,34 @@ export async function indexDocument(
     const texts = chunks.map((c) => c.text);
     const embeddings = await generateEmbeddingsBatch(texts);
 
-    // Store chunks with embeddings
-    const rows = chunks.map((chunk, i) => ({
-      id: randomUUID(),
-      orgId,
-      documentId: chunk.documentId,
-      chunkIndex: chunk.chunkIndex,
-      text: chunk.text,
-      sectionHeader: chunk.sectionHeader,
-      tokenCount: chunk.tokenCount,
-      charStart: chunk.charStart,
-      charEnd: chunk.charEnd,
-      embedding: embeddings[i],
-    }));
+    // Store chunks with embeddings — skip null embeddings (failed generation)
+    // to prevent empty/null vectors from corrupting pgvector cosine searches.
+    let failedEmbeddingCount = 0;
+    const rows = chunks.map((chunk, i) => {
+      const embedding = embeddings[i];
+      if (!embedding || embedding.length === 0) {
+        failedEmbeddingCount++;
+      }
+      return {
+        id: randomUUID(),
+        orgId,
+        documentId: chunk.documentId,
+        chunkIndex: chunk.chunkIndex,
+        text: chunk.text,
+        sectionHeader: chunk.sectionHeader,
+        tokenCount: chunk.tokenCount,
+        charStart: chunk.charStart,
+        charEnd: chunk.charEnd,
+        // Store null for failed embeddings — pgvector ignores NULL in cosine search
+        embedding: embedding && embedding.length > 0 ? embedding : null,
+      };
+    });
+    if (failedEmbeddingCount > 0) {
+      logger.warn(
+        { documentId, failed: failedEmbeddingCount, total: chunks.length },
+        "Some chunk embeddings failed — stored without vectors (excluded from search)",
+      );
+    }
 
     // Insert in batches of 100 to avoid exceeding query parameter limits
     for (let i = 0; i < rows.length; i += 100) {
