@@ -1559,7 +1559,7 @@ Longer-term improvements identified during codebase audits. Work on these increm
 ### Call Analysis
 | Priority | Item | Notes |
 |----------|------|-------|
-| HIGH | **Upload deduplication lock** | File hash TOCTOU race: two concurrent uploads with same hash can both create calls. Need atomic `getOrCreateCall()` or Redis lock |
+| ✅ Done | **Upload deduplication lock** | `claude/codebase-audit-evaluation-MhG8w` — in-memory hash lock set prevents concurrent uploads with same hash; lock released in finally after createCall |
 | MEDIUM | **Confidence-based prompt adjustment** | For low-confidence transcripts (<0.5), inject guidance asking AI to flag uncertain passages with `[UNCLEAR]` |
 | MEDIUM | **Prompt template caching** | Templates loaded fresh per call. Cache rendered system prompt by `{orgId}:{category}:{templateHash}:{ragHash}` to improve Bedrock prompt cache hit rate |
 | LOW | **Per-call cost attribution** | Track actual Bedrock input/output token counts from response metadata (currently estimated from text length) |
@@ -1615,36 +1615,36 @@ Longer-term improvements identified during codebase audits. Work on these increm
 ### Security
 | Priority | Item | Notes |
 |----------|------|-------|
-| HIGH | **Prompt injection tag soup bypass** | `ai-guardrails.ts` tag patterns don't catch HTML entities (`&lt;system&gt;`), comment-wrapped injections, or `</knowledge_source>` closing tags that break RAG XML framing |
-| HIGH | **PHI redaction gaps** | `phi-redactor.ts` missing NPI numbers (10 digits), FHIR resource UUIDs, visit/encounter IDs. These leak in RAG traces and clinical output |
-| HIGH | **PHI decryption failure handling** | When `decryptField()` throws (corrupted data/key mismatch), routes return generic 500; clinicians get no indication of data integrity issue. Should return 503 + alert admins |
-| HIGH | **MFA recovery token multi-instance race** | In-memory `recoveryStore` not atomic across instances; two concurrent requests can both consume same approved token. Move to Redis with SET NX |
-| MEDIUM | **RAG topK unbounded** | `RAG_SEARCH_TOP_K` env var parsed without bounds; setting to 1000 injects 200K+ tokens into prompt. Clamp to [1, 100] |
-| MEDIUM | **Prompt injection regex DoS** | `detectPromptInjection()` has no input length limit; 10MB crafted payload can hang regex. Truncate to 10KB before matching |
+| ✅ Done | **Prompt injection tag soup bypass** | `claude/codebase-audit-evaluation-MhG8w` — HTML entity decoding, comment stripping, input truncation (10KB), 4 new tag patterns |
+| ✅ Done | **PHI redaction gaps** | `claude/codebase-audit-evaluation-MhG8w` — NPI numbers, FHIR resource UUIDs, encounter IDs added |
+| ✅ Done | **PHI decryption failure handling** | `claude/codebase-audit-evaluation-MhG8w` — returns 503 + OBS-PHI-001 + audit log event |
+| ✅ Done | **MFA recovery token race** | `claude/codebase-audit-evaluation-MhG8w` — atomic claim with rollback; multi-instance still needs Redis |
+| ✅ Done | **RAG topK unbounded** | `claude/codebase-audit-evaluation-MhG8w` — clamped to [1, 100] along with all other RAG config params |
+| ✅ Done | **Prompt injection regex DoS** | `claude/codebase-audit-evaluation-MhG8w` — input truncated to 10KB before pattern matching |
 | MEDIUM | **OIDC state in-memory** | OIDC state map is in-memory; multi-instance deployments lose state across servers. Move to Redis |
 | MEDIUM | **Org cache stale state** | `orgCache` in `auth.ts` has 30s TTL; suspended/MFA-required org changes not reflected for up to 30s. Reduce TTL or add explicit invalidation |
 | MEDIUM | **Account lockout eviction** | `loginAttempts` map evicts oldest entry when full; attacker can create many usernames to evict target's tracking before lockout applies |
 | MEDIUM | **Session absolute max too long** | 8-hour absolute session max exceeds NIST recommendation of 4-6 hours for healthcare; should be configurable per-org |
-| MEDIUM | **API key rotation not enforced** | No mandatory expiry; `staleDays` warning at 90+ days but no auto-revocation. Add 90-day mandatory rotation with 7-day grace period |
-| MEDIUM | **Session secret allows "dev-secret" in production** | `SESSION_SECRET === "dev-secret"` check only warns; should fail-fast if < 32 bytes or == "dev-secret" in production |
+| ✅ Done | **API key staleness warning** | `claude/codebase-audit-evaluation-MhG8w` — keys >90 days get X-API-Key-Warning header + warn log; auto-revocation is future work |
+| ✅ Done | **Session secret fail-fast** | `claude/codebase-audit-evaluation-MhG8w` — production startup fails if SESSION_SECRET is "dev-secret" or <32 chars |
 | MEDIUM | **CSP `unsafe-inline` for styles** | `style-src 'unsafe-inline'` allows CSS injection for data exfiltration via Recharts/Framer Motion inline styles. Refactor to CSS classes |
-| LOW | **Audit chain verification not automated** | `verifyAuditChain()` available but not scheduled; should run daily with admin alerts on tampering |
+| ✅ Done | **Audit chain verification automated** | Already scheduled: 120s post-startup + daily interval; logs HIPAA_ALERT on tampering |
 | LOW | **Bedrock TLS validation** | `requestHandler` cast to `any` bypasses TypeScript; certificate validation not explicitly enabled |
 | LOW | **Error message information disclosure** | Some routes include underlying error messages (e.g., URL fetch errors in onboarding) that could leak internal infrastructure details |
 
 ### RAG Knowledge Base (continued)
 | Priority | Item | Notes |
 |----------|------|-------|
-| HIGH | **Empty embedding arrays corrupt pgvector** | Failed chunk embeddings stored as `[]` instead of null/zero-vectors; participate in cosine searches producing undefined distances |
+| ✅ Done | **Empty embedding arrays corrupt pgvector** | `claude/codebase-audit-evaluation-MhG8w` — failed chunks stored as null; existing IS NOT NULL filter excludes them |
 | MEDIUM | **BM25 normalization overflow** | Hardcoded `log1p(3)` denominator can be exceeded by multi-term high-TF queries; combined score may exceed 1.0 |
-| MEDIUM | **Embedding cache FIFO not LRU** | `embeddingCache` evicts first-inserted key, not least-recently-used; hot clinical codes re-embedded unnecessarily |
+| ✅ Done | **Embedding cache FIFO→LRU** | `claude/codebase-audit-evaluation-MhG8w` — new LruCache utility used for embedding, refDoc, and orgProvider caches |
 | MEDIUM | **Silent RAG degradation** | When all chunks have failed embeddings, `searchRelevantChunks` returns `[]` silently; AI proceeds without RAG context with no user feedback |
 | LOW | **AI provider cache invalidation** | `orgProviderCache` in `ai-factory.ts` never invalidated when org changes `bedrockModel`; stale model used until restart |
 
 ### Call Analysis (continued)
 | Priority | Item | Notes |
 |----------|------|-------|
-| MEDIUM | **Ref doc cache FIFO eviction** | `refDocCache` in `call-processing.ts` uses same FIFO eviction pattern as embedding cache; should be LRU |
+| ✅ Done | **Ref doc cache FIFO→LRU** | `claude/codebase-audit-evaluation-MhG8w` — uses shared LruCache utility |
 | MEDIUM | **analyzeAndStoreEditPatterns N+1** | Loads 500 calls then calls `getCallAnalysis()` per call in a loop; should batch-load analyses |
 
 ### Testing
