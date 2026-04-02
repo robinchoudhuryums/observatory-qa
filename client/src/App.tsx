@@ -23,7 +23,9 @@ const ROLE_LEVEL: Record<string, number> = { admin: 3, manager: 2, viewer: 1 };
 function ProtectedRoute({ minRole, children }: { minRole: string; children: React.ReactNode }) {
   const { data: user } = useQuery<AuthUser>({
     queryKey: ["/api/auth/me"],
-    staleTime: Infinity,
+    // Re-check permissions every 60 seconds so server-side role changes
+    // are reflected without requiring a full page reload.
+    staleTime: 60_000,
   });
   const userLevel = ROLE_LEVEL[user?.role || "viewer"] ?? 0;
   const requiredLevel = ROLE_LEVEL[minRole] ?? 0;
