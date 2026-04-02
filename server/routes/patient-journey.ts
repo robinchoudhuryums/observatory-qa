@@ -15,8 +15,7 @@
 import type { Express } from "express";
 import { storage } from "../storage";
 import { requireAuth, requireRole, injectOrgContext } from "../auth";
-import { logger } from "../services/logger";
-import { errorResponse, ERROR_CODES } from "../services/error-codes";
+import { asyncHandler, AppError } from "../middleware/error-handler";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 
 interface PatientJourney {
@@ -57,10 +56,9 @@ export function registerPatientJourneyRoutes(app: Express) {
    * GET /api/patient-journeys — List patient journeys for the org.
    * Groups calls by patient identity to build longitudinal views.
    */
-  app.get("/api/patient-journeys", requireAuth, requireRole("manager"), injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/patient-journeys", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId;
-      if (!orgId) return res.status(403).json({ message: "Organization context required" });
+      if (!orgId) throw new AppError(403, "Organization context required");
 
       logPhiAccess({
         ...auditContext(req),
@@ -201,21 +199,16 @@ export function registerPatientJourneyRoutes(app: Express) {
             ? Math.round((result.reduce((s, j) => s + j.touchpointCount, 0) / result.length) * 10) / 10
             : 0,
       });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to get patient journeys");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get patient journeys"));
-    }
-  });
+  }));
 
   /**
    * GET /api/patient-journeys/insights — Aggregate patient journey insights.
    * Shows retention patterns, sentiment trends across repeat visits, and
    * which employees handle the most returning patients.
    */
-  app.get("/api/patient-journeys/insights", requireAuth, requireRole("manager"), injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/patient-journeys/insights", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId;
-      if (!orgId) return res.status(403).json({ message: "Organization context required" });
+      if (!orgId) throw new AppError(403, "Organization context required");
 
       const [calls, revenues] = await Promise.all([
         storage.getCallSummaries(orgId, { status: "completed", limit: 1000 }),
@@ -308,9 +301,5 @@ export function registerPatientJourneyRoutes(app: Express) {
             avgSingleVisitRevenue > 0 ? Math.round((avgMultiVisitRevenue / avgSingleVisitRevenue) * 10) / 10 : null,
         },
       });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to get patient journey insights");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get insights"));
-    }
-  });
+  }));
 }

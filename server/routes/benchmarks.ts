@@ -13,7 +13,7 @@ import type { Express } from "express";
 import { storage } from "../storage";
 import { requireAuth, injectOrgContext } from "../auth";
 import { logger } from "../services/logger";
-import { errorResponse, ERROR_CODES } from "../services/error-codes";
+import { asyncHandler, AppError } from "../middleware/error-handler";
 
 // Cache benchmarks for 1 hour (expensive cross-org computation)
 let benchmarkCache: { data: Map<string, IndustryBenchmark>; computedAt: number } | null = null;
@@ -239,10 +239,9 @@ export function registerBenchmarkRoutes(app: Express) {
    * Returns the org's scores alongside anonymized industry percentiles.
    * No org-identifiable data is exposed — only aggregated statistics.
    */
-  app.get("/api/benchmarks", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/benchmarks", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId;
-      if (!orgId) return res.status(403).json({ message: "Organization context required" });
+      if (!orgId) throw new AppError(403, "Organization context required");
 
       const org = await storage.getOrganization(orgId);
       const industry = (org?.settings as any)?.industryType || "general";
@@ -308,19 +307,14 @@ export function registerBenchmarkRoutes(app: Express) {
             ? `Need 3+ ${industry} organizations for industry-specific benchmarks. Showing all-industry data.`
             : undefined,
       });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to get QA benchmarks");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get benchmarks"));
-    }
-  });
+  }));
 
   /**
    * GET /api/benchmarks/trends — Monthly percentile rank trend for this org.
    */
-  app.get("/api/benchmarks/trends", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/benchmarks/trends", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId;
-      if (!orgId) return res.status(403).json({ message: "Organization context required" });
+      if (!orgId) throw new AppError(403, "Organization context required");
 
       const calls = await storage.getCallSummaries(orgId, { status: "completed", limit: 1000 });
 
@@ -344,9 +338,5 @@ export function registerBenchmarkRoutes(app: Express) {
         }));
 
       res.json({ trend });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to get benchmark trends");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get trends"));
-    }
-  });
+  }));
 }
