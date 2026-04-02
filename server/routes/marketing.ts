@@ -8,7 +8,6 @@ import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
 import { requireAuth, requireRole } from "../auth";
 import { validateUUIDParam } from "./helpers";
-import type { MarketingSourceMetrics } from "@shared/schema";
 import { MARKETING_SOURCES } from "@shared/schema";
 import { asyncHandler, AppError } from "../middleware/error-handler";
 

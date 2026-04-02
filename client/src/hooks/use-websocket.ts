@@ -108,5 +108,5 @@ export function useWebSocket() {
         wsRef.current = null;
       }
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- connectRef is stable
+  }, []); // connectRef is stable — no deps needed
 }
