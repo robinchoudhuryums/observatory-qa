@@ -1650,7 +1650,7 @@ Longer-term improvements identified during codebase audits. Work on these increm
 ### Testing
 | Priority | Item | Notes |
 |----------|------|-------|
-| HIGH | **No coverage thresholds enforced** | c8 runs but doesn't fail on regression; coverage can degrade silently. Add `--check-coverage --lines=70` |
+| ✅ Done | **Coverage thresholds enforced** | `claude/codebase-audit-evaluation-MhG8w` — CI enforces `--check-coverage --lines 70 --functions 60 --branches 55` |
 | HIGH | **E2E tests share single admin account** | All Playwright tests use same `admin:admin123` — state pollution across parallel tests |
 | HIGH | **Missing AI provider mocks** | No mock for Bedrock API; cannot test rate limit, timeout, or malformed response handling |
 | MEDIUM | **E2E tests use in-memory DB** | Playwright runs against MemStorage; doesn't catch PostgreSQL-specific failures |
@@ -1660,7 +1660,7 @@ Longer-term improvements identified during codebase audits. Work on these increm
 ### DevOps / Infrastructure
 | Priority | Item | Notes |
 |----------|------|-------|
-| HIGH | **Docker image push disabled** | GHCR push set to `false`; deployments must rebuild from source; 1-day artifact retention |
+| ✅ Done | **Docker image push enabled** | `claude/codebase-audit-evaluation-MhG8w` — GHCR push on main merges with SHA + latest tags; artifact retention 7 days |
 | HIGH | **Schema sync validation is grep-only** | CI checks table names exist in `sync-schema.ts` but doesn't validate columns, indexes, or types match `schema.ts` |
 | MEDIUM | **No canary deployment strategy** | All production traffic switches immediately; no gradual rollout or auto-rollback on error rate |
 | MEDIUM | **Blue-green deploy manual cutover** | `deploy/docker-deploy.sh` requires manual proxy reconfiguration |
