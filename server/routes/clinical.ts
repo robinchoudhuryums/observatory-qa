@@ -404,15 +404,33 @@ export function registerClinicalRoutes(app: Express): void {
           ];
           const fieldsChanged = Object.keys(req.body).filter((k) => editableFields.includes(k));
 
+          // Determine amendment type: section_completion if adding content to previously-empty required sections
+          const requiredSections = ["subjective", "objective", "assessment", "plan"];
+          const isCompletingEmptySections = fieldsChanged.some((f) => {
+            return requiredSections.includes(f) && !cn[f] && req.body[f];
+          });
+          const amendmentType: "amendment" | "section_completion" =
+            isCompletingEmptySections ? "section_completion" : "amendment";
+
           const amendment = {
-            type: "amendment" as const,
+            type: amendmentType,
             reason: req.body.reason.trim(),
             amendedBy: req.user?.name || req.user?.username || "unknown",
             amendedById: req.user?.id,
             amendedAt: new Date().toISOString(),
             fieldsChanged,
             noteSnapshot: nonPhiSnapshot,
+            integrityHash: "",
           };
+          // Amendment chain integrity: SHA-256(prevHash + type + reason + amendedBy + amendedAt)
+          const { createHash } = await import("crypto");
+          const existingAmendments = analysis.clinicalNote.amendments || [];
+          const prevHash = existingAmendments.length > 0
+            ? (existingAmendments[existingAmendments.length - 1] as any).integrityHash || ""
+            : "";
+          amendment.integrityHash = createHash("sha256")
+            .update(`${prevHash}|${amendment.type}|${amendment.reason}|${amendment.amendedBy}|${amendment.amendedAt}`)
+            .digest("hex");
 
           if (!analysis.clinicalNote.amendments) {
             analysis.clinicalNote.amendments = [];
@@ -863,6 +881,75 @@ export function registerClinicalRoutes(app: Express): void {
       } catch (error) {
         logger.error({ err: error }, "Failed to validate clinical note");
         res.status(500).json({ message: "Failed to validate clinical note" });
+      }
+    },
+  );
+
+  // Batch revalidation: re-validate all clinical notes against current validation rules.
+  // Useful after schema/regex changes to identify notes that are now invalid.
+  app.post(
+    "/api/clinical/notes/batch-revalidate",
+    requireAuth,
+    injectOrgContext,
+    requireClinicalPlan(),
+    requireRole("admin"),
+    async (req, res) => {
+      try {
+        const allCalls = await storage.getAllCalls(req.orgId!);
+        const results: Array<{
+          callId: string;
+          valid: boolean;
+          warnings: string[];
+          completeness: number;
+        }> = [];
+
+        let processed = 0;
+        const MAX_BATCH = 200; // Cap to avoid timeout
+        for (const call of allCalls.slice(0, MAX_BATCH)) {
+          try {
+            const analysis = await storage.getCallAnalysis(req.orgId!, call.id);
+            if (!analysis?.clinicalNote) continue;
+
+            // Decrypt PHI for validation
+            const wrapper = { clinicalNote: { ...analysis.clinicalNote } } as Record<string, unknown>;
+            decryptClinicalNotePhi(wrapper, {
+              userId: req.user?.id,
+              orgId: req.orgId,
+              resourceId: call.id,
+              resourceType: "batch_revalidation",
+            });
+
+            const validation = validateClinicalNote((wrapper as any).clinicalNote);
+            results.push({
+              callId: call.id,
+              valid: validation.valid,
+              warnings: validation.warnings,
+              completeness: validation.weightedCompleteness,
+            });
+            processed++;
+          } catch {
+            // Skip individual failures
+          }
+        }
+
+        const invalidCount = results.filter((r) => !r.valid).length;
+        logPhiAccess({
+          ...auditContext(req),
+          event: "batch_clinical_revalidation",
+          resourceType: "clinical_note",
+          detail: `Revalidated ${processed} notes: ${invalidCount} invalid`,
+        });
+
+        res.json({
+          processed,
+          totalCalls: allCalls.length,
+          capped: allCalls.length > MAX_BATCH,
+          invalidCount,
+          results: results.filter((r) => !r.valid || r.warnings.length > 0), // Only return notes with issues
+        });
+      } catch (error) {
+        logger.error({ err: error }, "Failed to batch revalidate clinical notes");
+        res.status(500).json({ message: "Failed to batch revalidate clinical notes" });
       }
     },
   );

@@ -590,6 +590,169 @@ For questions, please contact our Privacy Officer.
 This notice is being provided pursuant to the Health Insurance Portability and Accountability Act (HIPAA).`;
 }
 
+// ─── Automated breach detection ──────────────────────────────────────────────
+// Analyzes audit log patterns for suspicious activity that may indicate a breach.
+// Run periodically (e.g., every 15 minutes from a scheduled job or startup interval).
+
+export interface BreachDetectionResult {
+  triggered: boolean;
+  alerts: Array<{
+    type: "bulk_phi_access" | "off_hours_access" | "unusual_export" | "failed_decryption_spike" | "brute_force";
+    severity: IncidentSeverity;
+    description: string;
+    userId?: string;
+    count: number;
+    windowMinutes: number;
+  }>;
+}
+
+/** Detection thresholds — configurable per-org in the future */
+const DETECTION_THRESHOLDS = {
+  /** PHI access events per user in 1 hour that triggers alert */
+  bulkPhiAccessPerUser: 100,
+  /** Failed decryption attempts in 1 hour (possible key tampering) */
+  failedDecryptionSpike: 10,
+  /** Export events per user in 1 hour */
+  unusualExportCount: 20,
+  /** Off-hours = 10 PM to 6 AM local (simplified: uses UTC) */
+  offHoursStart: 22,
+  offHoursEnd: 6,
+  /** PHI access during off-hours per user in 1 hour */
+  offHoursPhiThreshold: 10,
+};
+
+/**
+ * Analyze recent audit log entries for breach indicators.
+ * Returns alerts if any thresholds are exceeded.
+ *
+ * Call this from a scheduled interval (e.g., every 15 minutes).
+ */
+export async function detectBreachPatterns(orgId: string): Promise<BreachDetectionResult> {
+  const alerts: BreachDetectionResult["alerts"] = [];
+
+  try {
+    const { queryAuditLogs } = await import("./audit-log");
+    const windowMs = 60 * 60 * 1000; // 1 hour lookback
+    const since = new Date(Date.now() - windowMs);
+
+    const result = await queryAuditLogs({ orgId, from: since, limit: 200 });
+    const recentLogs = result.entries;
+
+    if (!recentLogs || recentLogs.length === 0) {
+      return { triggered: false, alerts: [] };
+    }
+
+    // Aggregate by user
+    const userPhiAccess = new Map<string, number>();
+    const userExports = new Map<string, number>();
+    const userDecryptFailures = new Map<string, number>();
+    const userOffHoursAccess = new Map<string, number>();
+
+    for (const entry of recentLogs) {
+      const userId = entry.userId || "unknown";
+      const event = entry.event || "";
+
+      // Count PHI access events per user
+      if (event.startsWith("view_") || event === "phi_decryption" || event.includes("clinical")) {
+        userPhiAccess.set(userId, (userPhiAccess.get(userId) || 0) + 1);
+      }
+
+      // Count export events
+      if (event.includes("export") || event.includes("fhir")) {
+        userExports.set(userId, (userExports.get(userId) || 0) + 1);
+      }
+
+      // Count decryption failures
+      if (event === "phi_decryption_failure") {
+        userDecryptFailures.set(userId, (userDecryptFailures.get(userId) || 0) + 1);
+      }
+
+      // Check off-hours access
+      const entryDate = new Date(entry.timestamp || "");
+      const hour = entryDate.getUTCHours();
+      const isOffHours = hour >= DETECTION_THRESHOLDS.offHoursStart || hour < DETECTION_THRESHOLDS.offHoursEnd;
+      if (isOffHours && (event.startsWith("view_") || event.includes("clinical"))) {
+        userOffHoursAccess.set(userId, (userOffHoursAccess.get(userId) || 0) + 1);
+      }
+    }
+
+    // Check thresholds and generate alerts
+    for (const [userId, count] of Array.from(userPhiAccess)) {
+      if (count >= DETECTION_THRESHOLDS.bulkPhiAccessPerUser) {
+        alerts.push({
+          type: "bulk_phi_access",
+          severity: "high",
+          description: `User ${userId} accessed ${count} PHI records in 1 hour (threshold: ${DETECTION_THRESHOLDS.bulkPhiAccessPerUser})`,
+          userId,
+          count,
+          windowMinutes: 60,
+        });
+      }
+    }
+
+    for (const [userId, count] of Array.from(userExports)) {
+      if (count >= DETECTION_THRESHOLDS.unusualExportCount) {
+        alerts.push({
+          type: "unusual_export",
+          severity: "high",
+          description: `User ${userId} performed ${count} data exports in 1 hour (threshold: ${DETECTION_THRESHOLDS.unusualExportCount})`,
+          userId,
+          count,
+          windowMinutes: 60,
+        });
+      }
+    }
+
+    for (const [userId, count] of Array.from(userDecryptFailures)) {
+      if (count >= DETECTION_THRESHOLDS.failedDecryptionSpike) {
+        alerts.push({
+          type: "failed_decryption_spike",
+          severity: "critical",
+          description: `${count} PHI decryption failures for user ${userId} in 1 hour — possible key tampering or data corruption`,
+          userId,
+          count,
+          windowMinutes: 60,
+        });
+      }
+    }
+
+    for (const [userId, count] of Array.from(userOffHoursAccess)) {
+      if (count >= DETECTION_THRESHOLDS.offHoursPhiThreshold) {
+        alerts.push({
+          type: "off_hours_access",
+          severity: "medium",
+          description: `User ${userId} accessed ${count} PHI records during off-hours (10 PM–6 AM UTC)`,
+          userId,
+          count,
+          windowMinutes: 60,
+        });
+      }
+    }
+
+    if (alerts.length > 0) {
+      logger.warn({ orgId, alertCount: alerts.length }, "Automated breach detection triggered");
+      // Auto-declare incident for critical alerts
+      for (const alert of alerts) {
+        if (alert.severity === "critical") {
+          declareIncident(orgId, {
+            title: `Auto-detected: ${alert.type}`,
+            description: alert.description,
+            severity: alert.severity,
+            declaredBy: "system:breach_detection",
+            phiInvolved: true,
+            estimatedAffectedRecords: alert.count,
+          });
+        }
+      }
+    }
+
+    return { triggered: alerts.length > 0, alerts };
+  } catch (err) {
+    logger.error({ err, orgId }, "Breach detection analysis failed");
+    return { triggered: false, alerts: [] };
+  }
+}
+
 function buildBreachNotificationHtml(report: BreachReport): string {
   return `<!DOCTYPE html>
 <html><body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">

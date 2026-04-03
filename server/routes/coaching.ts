@@ -3,6 +3,7 @@ import { storage } from "../storage";
 import { requireAuth, requireRole, injectOrgContext, getTeamScopedEmployeeIds } from "../auth";
 import { insertCoachingSessionSchema } from "@shared/schema";
 import { z } from "zod";
+import { selfAssessSchema } from "@shared/schema";
 import {
   generateRecommendations,
   saveRecommendations,
@@ -586,11 +587,6 @@ export function registerCoachingRoutes(app: Express): void {
   );
 
   // ==================== SELF-ASSESSMENT ====================
-
-  const selfAssessSchema = z.object({
-    score: z.number().min(0).max(10),
-    notes: z.string().optional(),
-  });
 
   // Employee submits self-assessment before seeing AI analysis
   app.post("/api/coaching/:id/self-assess", requireAuth, injectOrgContext, async (req, res) => {

@@ -546,6 +546,8 @@ export const documentChunks = pgTable(
     charStart: integer("char_start").notNull(),
     charEnd: integer("char_end").notNull(),
     embedding: vector("embedding", 1024), // Amazon Titan Embed V2 — 1024 dimensions
+    contentHash: varchar("content_hash", { length: 64 }), // SHA-256 of chunk text for deduplication
+    retrievalCount: integer("retrieval_count").default(0), // Per-chunk retrieval tracking
     createdAt: timestamp("created_at").defaultNow(),
   },
   (t) => [index("doc_chunks_org_id_idx").on(t.orgId), index("doc_chunks_document_id_idx").on(t.documentId)],
@@ -932,6 +934,7 @@ export const learningProgress = pgTable(
     status: varchar("status", { length: 20 }).notNull().default("not_started"),
     quizScore: integer("quiz_score"),
     quizAttempts: integer("quiz_attempts"),
+    quizVersionHash: varchar("quiz_version_hash", { length: 64 }), // SHA-256 of quiz questions at time of attempt
     timeSpentMinutes: integer("time_spent_minutes"),
     completedAt: timestamp("completed_at"),
     notes: text("notes"),
@@ -1006,6 +1009,33 @@ export const callAttributions = pgTable(
     index("call_attributions_source_idx").on(t.orgId, t.source),
     index("call_attributions_campaign_idx").on(t.orgId, t.campaignId),
   ],
+);
+
+// --- BAA Tracking (Business Associate Agreements — HIPAA §164.502(e)) ---
+export const baaRecords = pgTable(
+  "baa_records",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organizations.id),
+    vendorName: varchar("vendor_name", { length: 255 }).notNull(),
+    vendorType: varchar("vendor_type", { length: 100 }).notNull(), // e.g., "cloud_hosting", "transcription", "payment_processor"
+    signedDate: timestamp("signed_date"),
+    expiryDate: timestamp("expiry_date"),
+    renewalDate: timestamp("renewal_date"),
+    status: varchar("status", { length: 30 }).notNull().default("active"), // active, expired, pending, terminated
+    signatoryName: varchar("signatory_name", { length: 255 }),
+    signatoryTitle: varchar("signatory_title", { length: 255 }),
+    notes: text("notes"),
+    documentUrl: text("document_url"), // link to stored BAA document
+    phiCategories: jsonb("phi_categories").default([]), // e.g., ["audio_files", "transcripts", "clinical_notes"]
+    lastReviewedAt: timestamp("last_reviewed_at"),
+    lastReviewedBy: varchar("last_reviewed_by", { length: 255 }),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (t) => [index("baa_records_org_idx").on(t.orgId), index("baa_records_org_status_idx").on(t.orgId, t.status)],
 );
 
 // --- AUDIT LOGS (append-only, tamper-evident, HIPAA compliance) ---

@@ -298,10 +298,17 @@ export function buildFhirComposition(params: {
     sections.push(buildSection("Follow-up", note.followUp as string));
   }
 
-  // ICD-10 codes → FHIR diagnosis section
-  const icd10Codes = note.icd10Codes as Array<{ code: string; description: string }> | undefined;
+  // ICD-10 codes → FHIR diagnosis section with optional linkage
+  const icd10Codes = note.icd10Codes as Array<{ code: string; description: string; linkedDiagnosis?: string; isPrimary?: boolean }> | undefined;
   if (icd10Codes && icd10Codes.length > 0) {
-    const diagText = icd10Codes.map((c) => `${c.code}: ${c.description}`).join("\n");
+    const diagText = icd10Codes
+      .map((c) => {
+        let line = `${c.code}: ${c.description}`;
+        if (c.isPrimary) line = `[PRIMARY] ${line}`;
+        if (c.linkedDiagnosis) line += ` → ${c.linkedDiagnosis}`;
+        return line;
+      })
+      .join("\n");
     sections.push(buildSection("Diagnoses", diagText, "29548-5"));
   }
 

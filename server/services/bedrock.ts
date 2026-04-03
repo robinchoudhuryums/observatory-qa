@@ -156,6 +156,7 @@ export class BedrockProvider implements AIAnalysisProvider {
     callId: string,
     callCategory?: string,
     promptTemplate?: any,
+    options?: { transcriptConfidence?: number },
   ): Promise<CallAnalysis> {
     await this.ensureCredentials();
     if (!this.credentials || !this.client) {
@@ -164,7 +165,9 @@ export class BedrockProvider implements AIAnalysisProvider {
 
     // Split prompt into cacheable system prompt + dynamic user message
     const systemPrompt = buildSystemPrompt(callCategory, promptTemplate);
-    const userMessage = buildUserMessage(transcriptText, callCategory);
+    const userMessage = buildUserMessage(transcriptText, callCategory, {
+      transcriptConfidence: options?.transcriptConfidence,
+    });
 
     logger.info(
       { callId, model: this.model, systemPromptLen: systemPrompt.length, userMsgLen: userMessage.length },
@@ -204,6 +207,18 @@ export class BedrockProvider implements AIAnalysisProvider {
     const responseText = result.output?.message?.content?.[0]?.text || "";
 
     const analysis = parseJsonResponse(responseText, callId);
+
+    // Attach actual token usage from Bedrock response for accurate cost tracking
+    // (instead of estimating from text length)
+    const usage = result?.usage;
+    if (usage) {
+      (analysis as any)._tokenUsage = {
+        inputTokens: usage.inputTokens || 0,
+        outputTokens: usage.outputTokens || 0,
+        cacheReadTokens: (usage as any).cacheReadInputTokens || (usage as any).cacheReadInputTokenCount || 0,
+      };
+    }
+
     logger.info(
       { callId, performanceScore: analysis.performance_score, sentiment: analysis.sentiment },
       "Bedrock analysis complete",

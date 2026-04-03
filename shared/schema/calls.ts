@@ -139,6 +139,10 @@ export const clinicalNoteSchema = z.object({
         // ICD-10-CM: letter A-Z (including U for COVID-19 codes like U07.1), followed by 2 digits, optional decimal with 1-4 digits
         code: z.string().regex(/^[A-Z]\d{2}(\.\d{1,4})?$/, "Invalid ICD-10 format (e.g. U07.1, M54.5)"),
         description: z.string(),
+        /** Links this code to a specific diagnosis/assessment in the note (e.g., "Assessment #1: Low back pain") */
+        linkedDiagnosis: z.string().max(500).optional(),
+        /** Whether this is the primary diagnosis */
+        isPrimary: z.boolean().optional(),
       }),
     )
     .optional(),
@@ -233,7 +237,7 @@ export const clinicalNoteSchema = z.object({
   amendments: z
     .array(
       z.object({
-        type: z.enum(["amendment", "addendum"]),
+        type: z.enum(["amendment", "addendum", "section_completion"]),
         reason: z.string(),
         amendedBy: z.string(),
         amendedById: z.string().optional(),

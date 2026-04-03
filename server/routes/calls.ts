@@ -5,7 +5,7 @@ import { pipeline } from "stream/promises";
 import { storage, normalizeAnalysis } from "../storage";
 import { requireAuth, requireRole, injectOrgContext, requireOrgContext, getTeamScopedEmployeeIds } from "../auth";
 import { logPhiAccess, auditContext } from "../services/audit-log";
-import { upload, safeFloat, validateUUIDParam, acquireUploadSlot, releaseUploadSlot } from "./helpers";
+import { upload, safeFloat, validateUUIDParam, acquireUploadSlot, releaseUploadSlot, acquireUploadLock } from "./helpers";
 import { asyncHandler, AppError } from "../middleware/error-handler";
 
 const validateId = validateUUIDParam("id");
@@ -21,7 +21,7 @@ import path from "path";
 // In-flight upload dedup lock: prevents TOCTOU race where two concurrent
 // uploads with the same file hash both pass the duplicate check.
 // Key = `${orgId}:${fileHash}`, value = true while upload is in progress.
-const uploadHashLocks = new Set<string>();
+// Upload dedup lock moved to helpers.ts (acquireUploadLock) — supports Redis + in-memory fallback
 
 // Re-export invalidateRefDocCache for consumers that import from calls route
 export { invalidateRefDocCache } from "../services/call-processing";
@@ -257,6 +257,7 @@ export function registerCallRoutes(app: Express): void {
         const validCategories = CALL_CATEGORIES.map((c) => c.value);
         if (callCategory && !validCategories.includes(callCategory)) {
           await cleanupFile(req.file.path);
+          releaseUploadSlot(orgId);
           res.status(400).json({ message: `Invalid call category. Must be one of: ${validCategories.join(", ")}` });
           return;
         }
@@ -265,6 +266,7 @@ export function registerCallRoutes(app: Express): void {
           const employee = await storage.getEmployee(req.orgId!, employeeId);
           if (!employee) {
             await cleanupFile(req.file.path);
+            releaseUploadSlot(orgId);
             res.status(404).json(errorResponse(ERROR_CODES.EMP_NOT_FOUND, "Employee not found"));
             return;
           }
@@ -281,29 +283,9 @@ export function registerCallRoutes(app: Express): void {
         });
         // Read the buffer after hashing — still needed for AssemblyAI + S3 upload.
         const audioBuffer = await fs.promises.readFile(req.file.path);
-        // Deduplication with TOCTOU race prevention: an in-memory lock ensures
-        // two concurrent uploads with the same hash can't both pass the check.
-        const hashLockKey = `${orgId}:${fileHash}`;
-        if (uploadHashLocks.has(hashLockKey)) {
-          await cleanupFile(req.file.path);
-          releaseUploadSlot(orgId);
-          res.status(409).json({
-            message: "This file is currently being uploaded. Please wait.",
-            duplicate: true,
-          });
-          return;
-        }
-        uploadHashLocks.add(hashLockKey);
-
-        let duplicate;
-        try {
-          duplicate = await storage.getCallByFileHash(orgId, fileHash);
-        } catch (dupErr) {
-          uploadHashLocks.delete(hashLockKey);
-          throw dupErr;
-        }
+        // Deduplication: check DB for existing call with same file hash
+        const duplicate = await storage.getCallByFileHash(orgId, fileHash);
         if (duplicate) {
-          uploadHashLocks.delete(hashLockKey);
           await cleanupFile(req.file.path);
           releaseUploadSlot(orgId);
           res.status(409).json({
@@ -314,22 +296,30 @@ export function registerCallRoutes(app: Express): void {
           return;
         }
 
-        let call;
-        try {
-          call = await storage.createCall(req.orgId!, {
-            orgId: req.orgId!,
-            employeeId: employeeId || undefined,
-            fileName: req.file.originalname,
-            filePath: req.file.path,
-            fileHash,
-            status: "processing",
-            callCategory: callCategory || undefined,
+        // Acquire a short-lived lock on this file hash to prevent TOCTOU race:
+        // two concurrent uploads with the same file can both pass the duplicate
+        // check above, then both create calls. The lock ensures only one wins.
+        const lockKey = `upload-lock:${req.orgId}:${fileHash}`;
+        const lockAcquired = await acquireUploadLock(lockKey);
+        if (!lockAcquired) {
+          await cleanupFile(req.file.path);
+          releaseUploadSlot(req.orgId!);
+          res.status(409).json({
+            message: "This file is currently being uploaded by another request.",
+            duplicate: true,
           });
-        } finally {
-          // Release hash lock once the call is created (or creation failed).
-          // The DB record now prevents future duplicates via getCallByFileHash.
-          uploadHashLocks.delete(hashLockKey);
+          return;
         }
+
+        const call = await storage.createCall(req.orgId!, {
+          orgId: req.orgId!,
+          employeeId: employeeId || undefined,
+          fileName: req.file.originalname,
+          filePath: req.file.path,
+          fileHash,
+          status: "processing",
+          callCategory: callCategory || undefined,
+        });
         const originalName = req.file.originalname;
         const mimeType = req.file.mimetype || "audio/mpeg";
         const uploadUserId = req.user?.id;
@@ -581,7 +571,9 @@ export function registerCallRoutes(app: Express): void {
         await storage.updateCallAnalysis(req.orgId!, callId, updatedAnalysis);
 
         // Fire-and-forget: update edit pattern insights for this org
-        analyzeAndStoreEditPatterns(req.orgId!).catch(() => {});
+        analyzeAndStoreEditPatterns(req.orgId!).catch((err) => {
+          logger.debug({ err, orgId: req.orgId }, "Edit pattern analysis failed (non-critical)");
+        });
 
         logger.info(
           { callId, editedBy, reason, fields: editRecord.fieldsChanged },

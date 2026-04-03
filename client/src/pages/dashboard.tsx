@@ -42,6 +42,7 @@ export default function Dashboard() {
     queryKey: ["/api/calls", { status: "", sentiment: "", employee: "" }],
     staleTime: 30_000, // Consider data fresh for 30s
     refetchInterval: 60_000, // Auto-refresh every 60s for live dashboard feel
+    refetchOnWindowFocus: true,
   });
 
   // Lightweight employee count check for onboarding checklist

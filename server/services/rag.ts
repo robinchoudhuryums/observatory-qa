@@ -115,38 +115,91 @@ export async function indexDocument(
 
     logger.info({ documentId, chunkCount: chunks.length }, "Chunking complete, generating embeddings");
 
-    // Generate embeddings in batches
-    const texts = chunks.map((c) => c.text);
-    const embeddings = await generateEmbeddingsBatch(texts);
+    // Check for duplicate chunks by content hash — reuse existing embeddings
+    // to avoid redundant Bedrock API calls for identical text across documents.
+    const { createHash } = await import("crypto");
+    const chunkHashes = chunks.map((c) => createHash("sha256").update(c.text).digest("hex"));
 
-    // Store chunks with embeddings — skip null embeddings (failed generation)
-    // to prevent empty/null vectors from corrupting pgvector cosine searches.
-    let failedEmbeddingCount = 0;
-    const rows = chunks.map((chunk, i) => {
-      const embedding = embeddings[i];
-      if (!embedding || embedding.length === 0) {
-        failedEmbeddingCount++;
+    // Look up existing chunks with same content hash in this org — reuse embeddings
+    let existingEmbeddings = new Map<string, number[]>();
+    try {
+      const hashList = Array.from(new Set(chunkHashes));
+      if (hashList.length > 0) {
+        const existing = await db
+          .select({ contentHash: tables.documentChunks.contentHash, embedding: tables.documentChunks.embedding })
+          .from(tables.documentChunks)
+          .where(
+            and(
+              eq(tables.documentChunks.orgId, orgId),
+              sql`${tables.documentChunks.contentHash} = ANY(${hashList}::text[])`,
+              sql`${tables.documentChunks.embedding} IS NOT NULL`,
+            ),
+          )
+          .limit(hashList.length);
+        for (const row of existing) {
+          if (row.contentHash && row.embedding) {
+            existingEmbeddings.set(row.contentHash, row.embedding as number[]);
+          }
+        }
+        if (existingEmbeddings.size > 0) {
+          logger.info({ documentId, reused: existingEmbeddings.size }, "Reusing embeddings for duplicate chunks");
+        }
       }
-      return {
-        id: randomUUID(),
-        orgId,
-        documentId: chunk.documentId,
-        chunkIndex: chunk.chunkIndex,
-        text: chunk.text,
-        sectionHeader: chunk.sectionHeader,
-        tokenCount: chunk.tokenCount,
-        charStart: chunk.charStart,
-        charEnd: chunk.charEnd,
-        // Store null for failed embeddings — pgvector ignores NULL in cosine search
-        embedding: embedding && embedding.length > 0 ? embedding : null,
-      };
-    });
+    } catch {
+      // Non-fatal — proceed with fresh embeddings for all chunks
+    }
+
+    // Generate embeddings only for chunks that don't have a cached embedding
+    const textsToEmbed: string[] = [];
+    const embedIndexMap: number[] = [];
+    for (let i = 0; i < chunks.length; i++) {
+      if (!existingEmbeddings.has(chunkHashes[i])) {
+        embedIndexMap.push(i);
+        textsToEmbed.push(chunks[i].text);
+      }
+    }
+
+    const freshEmbeddings = textsToEmbed.length > 0 ? await generateEmbeddingsBatch(textsToEmbed) : [];
+
+    // Merge fresh + cached embeddings
+    const embeddings: (number[] | null)[] = new Array(chunks.length);
+    let freshIdx = 0;
+    let failedEmbeddingCount = 0;
+    for (let i = 0; i < chunks.length; i++) {
+      const cached = existingEmbeddings.get(chunkHashes[i]);
+      if (cached) {
+        embeddings[i] = cached;
+      } else {
+        const emb = freshEmbeddings[freshIdx++];
+        if (!emb || emb.length === 0) {
+          embeddings[i] = null;
+          failedEmbeddingCount++;
+        } else {
+          embeddings[i] = emb;
+        }
+      }
+    }
     if (failedEmbeddingCount > 0) {
       logger.warn(
         { documentId, failed: failedEmbeddingCount, total: chunks.length },
         "Some chunk embeddings failed — stored without vectors (excluded from search)",
       );
     }
+
+    // Store chunks with embeddings and content hash
+    const rows = chunks.map((chunk, i) => ({
+      id: randomUUID(),
+      orgId,
+      documentId: chunk.documentId,
+      chunkIndex: chunk.chunkIndex,
+      text: chunk.text,
+      sectionHeader: chunk.sectionHeader,
+      tokenCount: chunk.tokenCount,
+      charStart: chunk.charStart,
+      charEnd: chunk.charEnd,
+      embedding: embeddings[i],
+      contentHash: chunkHashes[i],
+    }));
 
     // Insert in batches of 100 to avoid exceeding query parameter limits
     for (let i = 0; i < rows.length; i += 100) {
@@ -309,7 +362,24 @@ export async function searchRelevantChunks(
   // Sort by combined score, filter out low-relevance chunks, and return top K
   results.sort((a, b) => b.score - a.score);
   const relevant = results.filter((r) => r.score >= RAG_CONFIG.minRelevanceScore);
-  const finalResults = relevant.slice(0, topK);
+
+  // Semantic deduplication: skip chunks with highly similar text to a higher-scored chunk.
+  // Uses simple text overlap check (cheaper than computing pairwise cosine similarity).
+  const DEDUP_SIMILARITY_THRESHOLD = 0.85; // 85% character overlap → consider duplicate
+  const deduplicated: typeof relevant = [];
+  for (const chunk of relevant) {
+    const isDuplicate = deduplicated.some((existing) => {
+      // Quick length check: if lengths differ by >30%, can't be >85% similar
+      const lenRatio = Math.min(chunk.text.length, existing.text.length) / Math.max(chunk.text.length, existing.text.length);
+      if (lenRatio < DEDUP_SIMILARITY_THRESHOLD) return false;
+      // Check if one text contains most of the other (overlapping chunks)
+      const shorter = chunk.text.length < existing.text.length ? chunk.text : existing.text;
+      const longer = chunk.text.length >= existing.text.length ? chunk.text : existing.text;
+      return longer.includes(shorter.slice(0, Math.floor(shorter.length * 0.8)));
+    });
+    if (!isDuplicate) deduplicated.push(chunk);
+  }
+  const finalResults = deduplicated.slice(0, topK);
 
   // Compute confidence for tracing and FAQ analytics
   const confidence = computeConfidence(finalResults);
@@ -400,14 +470,36 @@ export async function hasIndexedChunks(db: NodePgDatabase, orgId: string): Promi
  * Increment retrieval counts for documents whose chunks were used.
  * Fire-and-forget — does not block the caller.
  */
-export async function incrementRetrievalCounts(db: NodePgDatabase, documentIds: string[]): Promise<void> {
+/**
+ * Increment retrieval counts at both document and chunk level.
+ * Document-level: how often any chunk from this doc is retrieved.
+ * Chunk-level: how often this specific chunk is retrieved (shows which sections are most useful).
+ */
+export async function incrementRetrievalCounts(
+  db: NodePgDatabase,
+  documentIds: string[],
+  chunkIds?: string[],
+): Promise<void> {
   if (documentIds.length === 0) return;
-  const uniqueIds = Array.from(new Set(documentIds));
+  const uniqueDocIds = Array.from(new Set(documentIds));
   await db.execute(sql`
     UPDATE reference_documents
     SET retrieval_count = retrieval_count + 1
-    WHERE id = ANY(${uniqueIds}::text[])
+    WHERE id = ANY(${uniqueDocIds}::text[])
   `);
+
+  // Chunk-level tracking (optional — callers pass chunk IDs when available)
+  if (chunkIds && chunkIds.length > 0) {
+    const uniqueChunkIds = Array.from(new Set(chunkIds));
+    await db.execute(sql`
+      UPDATE document_chunks
+      SET retrieval_count = COALESCE(retrieval_count, 0) + 1
+      WHERE id = ANY(${uniqueChunkIds}::text[])
+    `).catch((err) => {
+      // Non-fatal — chunk retrieval tracking is analytics, not critical path
+      logger.debug({ err }, "Chunk retrieval count increment failed");
+    });
+  }
 }
 
 /**

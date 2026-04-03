@@ -167,21 +167,22 @@ async function extractTextFromFile(buffer: Buffer, mimeType: string): Promise<st
       return buffer.toString("utf-8").slice(0, 50000); // Cap at 50K chars
     }
 
-    // PDF: use pdf-parse for proper text extraction
+    // PDF: use pdf-parse for proper text extraction (with 5-second timeout to prevent hangs on malformed PDFs)
     if (mimeType === "application/pdf") {
       try {
         const { PDFParse } = await import("pdf-parse");
         const parser = new PDFParse({ data: buffer });
-        const result = await parser.getText();
+        const extractionTimeout = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("PDF extraction timed out after 5 seconds")), 5000),
+        );
+        const result = await Promise.race([parser.getText(), extractionTimeout]);
         const text = result.text || "";
         if (text.trim().length > 0) {
           return text.slice(0, 50000);
         }
-        // Empty result from parser — try regex fallback
         return extractPdfFallback(buffer);
       } catch (pdfErr) {
-        // Fallback to regex extraction for malformed PDFs
-        logger.warn({ err: pdfErr }, "pdf-parse failed, falling back to regex extraction");
+        logger.warn({ err: pdfErr }, "pdf-parse failed or timed out, falling back to regex extraction");
         return extractPdfFallback(buffer);
       }
     }

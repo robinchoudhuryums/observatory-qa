@@ -41,10 +41,20 @@ export async function syncSchema(db: Database): Promise<void> {
 
   try {
     // Set bypass_rls so DDL operations in syncSchema are not blocked by RLS.
-    // Uses is_local=false so it applies to the entire connection session (not a transaction).
-    await db.execute(sql`SELECT set_config('app.bypass_rls', 'true', false)`).catch(() => {
-      // Ignore — GUC may not exist yet before first RLS setup, or DB may not support it
-    });
+    await db.execute(sql`SELECT set_config('app.bypass_rls', 'true', false)`).catch(() => {});
+
+    // Validate pgvector extension — required for RAG vector search.
+    // Log a clear warning at startup if not available (instead of cryptic SQL errors later).
+    try {
+      const extResult = await db.execute(sql`SELECT extversion FROM pg_extension WHERE extname = 'vector'`);
+      if (extResult.rows.length > 0) {
+        logger.info({ version: (extResult.rows[0] as any).extversion }, "pgvector extension available");
+      } else {
+        logger.warn("pgvector extension NOT installed — RAG vector search will not work. Run: CREATE EXTENSION vector;");
+      }
+    } catch {
+      logger.warn("Could not check pgvector availability (non-fatal)");
+    }
 
     // Check if Drizzle migrations have been applied.
     // If so, the migration system owns the schema — skip idempotent DDL.
@@ -587,6 +597,9 @@ export async function syncSchema(db: Database): Promise<void> {
       });
     await db.execute(sql`CREATE INDEX IF NOT EXISTS doc_chunks_org_id_idx ON document_chunks (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS doc_chunks_document_id_idx ON document_chunks (document_id)`);
+    await addColumnIfNotExists(db, "document_chunks", "content_hash", "VARCHAR(64)");
+    await addColumnIfNotExists(db, "document_chunks", "retrieval_count", "INTEGER DEFAULT 0");
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS doc_chunks_content_hash_idx ON document_chunks (org_id, content_hash)`).catch(() => {});
     // HNSW vector index for fast cosine similarity search.
     // Without this, pgvector does sequential scan (O(n) per query).
     // HNSW provides approximate nearest neighbor with O(log n) performance.
@@ -998,6 +1011,7 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(
       sql`CREATE INDEX IF NOT EXISTS learning_progress_employee_idx ON learning_progress (org_id, employee_id)`,
     );
+    await addColumnIfNotExists(db, "learning_progress", "quiz_version_hash", "VARCHAR(64)");
 
     // --- Marketing Campaigns ---
     await db.execute(sql`
@@ -1057,6 +1071,34 @@ export async function syncSchema(db: Database): Promise<void> {
     // UNIQUE: one attribution per call per org (matches schema.ts definition)
     await db.execute(
       sql`CREATE UNIQUE INDEX IF NOT EXISTS call_attributions_call_idx ON call_attributions (org_id, call_id)`,
+    );
+
+    // --- BAA Records (HIPAA §164.502(e) Business Associate Agreements) ---
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS baa_records (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL REFERENCES organizations(id),
+        vendor_name VARCHAR(255) NOT NULL,
+        vendor_type VARCHAR(100) NOT NULL,
+        signed_date TIMESTAMPTZ,
+        expiry_date TIMESTAMPTZ,
+        renewal_date TIMESTAMPTZ,
+        status VARCHAR(30) NOT NULL DEFAULT 'active',
+        signatory_name VARCHAR(255),
+        signatory_title VARCHAR(255),
+        notes TEXT,
+        document_url TEXT,
+        phi_categories JSONB DEFAULT '[]',
+        last_reviewed_at TIMESTAMPTZ,
+        last_reviewed_by VARCHAR(255),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS baa_records_org_idx ON baa_records (org_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS baa_records_org_status_idx ON baa_records (org_id, status)`);
+    await addRlsPolicy(db, "baa_records").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for baa_records"),
     );
 
     // --- Revenue: time-to-convert tracking ---

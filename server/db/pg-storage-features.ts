@@ -1014,32 +1014,8 @@ P.deleteLearningPath = async function(orgId: string, id: string): Promise<void> 
 
   // --- LMS: Learning Progress ---
 P.upsertLearningProgress = async function(orgId: string, progress: InsertLearningProgress): Promise<LearningProgress> {
-    // Check if progress exists
-    const existing = await db(this)
-      .select()
-      .from(tables.learningProgress)
-      .where(
-        and(
-          eq(tables.learningProgress.orgId, orgId),
-          eq(tables.learningProgress.employeeId, progress.employeeId),
-          eq(tables.learningProgress.moduleId, progress.moduleId),
-        ),
-      );
-    if (existing[0]) {
-      const setClause: Record<string, unknown> = { updatedAt: new Date() };
-      if (progress.status) setClause.status = progress.status;
-      if (progress.quizScore !== undefined) setClause.quizScore = progress.quizScore;
-      if (progress.quizAttempts !== undefined) setClause.quizAttempts = progress.quizAttempts;
-      if (progress.timeSpentMinutes !== undefined) setClause.timeSpentMinutes = progress.timeSpentMinutes;
-      if (progress.completedAt) setClause.completedAt = new Date(progress.completedAt);
-      if (progress.notes !== undefined) setClause.notes = progress.notes;
-      const [row] = await db(this)
-        .update(tables.learningProgress)
-        .set(setClause)
-        .where(eq(tables.learningProgress.id, existing[0].id))
-        .returning();
-      return mapLearningProgress(row);
-    }
+    // Use INSERT ... ON CONFLICT DO UPDATE to prevent race condition where
+    // two concurrent requests both see "no record" and try to insert.
     const id = randomUUID();
     const [row] = await db(this)
       .insert(tables.learningProgress)
@@ -1050,10 +1026,23 @@ P.upsertLearningProgress = async function(orgId: string, progress: InsertLearnin
         moduleId: progress.moduleId,
         pathId: progress.pathId || null,
         status: progress.status || "not_started",
-        quizScore: progress.quizScore || null,
-        quizAttempts: progress.quizAttempts || null,
-        timeSpentMinutes: progress.timeSpentMinutes || null,
+        quizScore: progress.quizScore ?? null,
+        quizAttempts: progress.quizAttempts ?? null,
+        timeSpentMinutes: progress.timeSpentMinutes ?? null,
+        completedAt: progress.completedAt ? new Date(progress.completedAt) : null,
         notes: progress.notes || null,
+      })
+      .onConflictDoUpdate({
+        target: [tables.learningProgress.orgId, tables.learningProgress.employeeId, tables.learningProgress.moduleId],
+        set: {
+          ...(progress.status ? { status: progress.status } : {}),
+          ...(progress.quizScore !== undefined ? { quizScore: progress.quizScore } : {}),
+          ...(progress.quizAttempts !== undefined ? { quizAttempts: progress.quizAttempts } : {}),
+          ...(progress.timeSpentMinutes !== undefined ? { timeSpentMinutes: progress.timeSpentMinutes } : {}),
+          ...(progress.completedAt ? { completedAt: new Date(progress.completedAt) } : {}),
+          ...(progress.notes !== undefined ? { notes: progress.notes } : {}),
+          updatedAt: new Date(),
+        },
       })
       .returning();
     return mapLearningProgress(row);

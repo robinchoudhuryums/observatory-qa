@@ -10,6 +10,8 @@ import { requireAuth, requireRole } from "../auth";
 import { validateUUIDParam } from "./helpers";
 import { MARKETING_SOURCES } from "@shared/schema";
 import { asyncHandler, AppError } from "../middleware/error-handler";
+import { logger } from "../services/logger";
+import { errorResponse, ERROR_CODES } from "../services/error-codes";
 
 const VALID_SOURCES = new Set(MARKETING_SOURCES.map((s) => s.value));
 
@@ -590,5 +592,99 @@ export function registerMarketingRoutes(app: Express): void {
   /** GET /api/marketing/sources — List available marketing source types */
   app.get("/api/marketing/sources", requireAuth, (_req: Request, res: Response) => {
     res.json(MARKETING_SOURCES);
+  });
+
+  /**
+   * GET /api/marketing/cohort — Time-based cohort conversion analysis.
+   * Groups calls by month and tracks conversion rate over a configurable follow-up window.
+   * Example: "Of calls from January, what % converted within 90 days?"
+   */
+  app.get("/api/marketing/cohort", requireAuth, async (req: Request, res: Response) => {
+    const orgId = req.orgId;
+    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+
+    try {
+      const followUpDays = Math.min(Math.max(parseInt(req.query.days as string) || 90, 7), 365);
+      const months = Math.min(Math.max(parseInt(req.query.months as string) || 6, 1), 24);
+      const sourceFilter = req.query.source as string | undefined;
+
+      const [attributions, revenues] = await Promise.all([
+        storage.listCallAttributions(orgId),
+        storage.listCallRevenues(orgId),
+      ]);
+
+      const revenueByCall = new Map(revenues.map((r) => [r.callId, r]));
+
+      // Group attributions by month cohort
+      const cohorts = new Map<string, { total: number; converted: number; revenue: number; source: string }[]>();
+      const now = Date.now();
+
+      for (const attr of attributions) {
+        if (sourceFilter && attr.source !== sourceFilter) continue;
+        const created = attr.createdAt ? new Date(attr.createdAt) : null;
+        if (!created) continue;
+
+        const monthKey = `${created.getFullYear()}-${String(created.getMonth() + 1).padStart(2, "0")}`;
+        if (!cohorts.has(monthKey)) cohorts.set(monthKey, []);
+
+        // Only count conversion if it happened within the follow-up window
+        const rev = revenueByCall.get(attr.callId);
+        const convertedWithinWindow =
+          rev?.convertedAt &&
+          new Date(rev.convertedAt).getTime() - created.getTime() <= followUpDays * 24 * 60 * 60 * 1000;
+
+        // Also count if conversion status is "converted" even without convertedAt
+        const isConverted = convertedWithinWindow || (rev?.conversionStatus === "converted" && !rev.convertedAt);
+
+        cohorts.get(monthKey)!.push({
+          total: 1,
+          converted: isConverted ? 1 : 0,
+          revenue: isConverted ? (rev?.actualRevenue || rev?.estimatedRevenue || 0) : 0,
+          source: attr.source,
+        });
+      }
+
+      // Aggregate per month, sorted chronologically, limited to requested months
+      const sortedMonths = Array.from(cohorts.keys()).sort().slice(-months);
+      const result = sortedMonths.map((month) => {
+        const entries = cohorts.get(month) || [];
+        const total = entries.length;
+        const converted = entries.reduce((s, e) => s + e.converted, 0);
+        const revenue = entries.reduce((s, e) => s + e.revenue, 0);
+
+        // Per-source breakdown within the cohort
+        const bySource = new Map<string, { total: number; converted: number }>();
+        for (const e of entries) {
+          const existing = bySource.get(e.source) || { total: 0, converted: 0 };
+          existing.total++;
+          existing.converted += e.converted;
+          bySource.set(e.source, existing);
+        }
+
+        return {
+          month,
+          totalCalls: total,
+          convertedCalls: converted,
+          conversionRate: total > 0 ? Math.round((converted / total) * 100) : 0,
+          totalRevenue: Math.round(revenue * 100) / 100,
+          avgRevenuePerConversion: converted > 0 ? Math.round((revenue / converted) * 100) / 100 : 0,
+          bySource: Object.fromEntries(
+            Array.from(bySource.entries()).map(([source, data]) => [
+              source,
+              {
+                total: data.total,
+                converted: data.converted,
+                conversionRate: data.total > 0 ? Math.round((data.converted / data.total) * 100) : 0,
+              },
+            ]),
+          ),
+        };
+      });
+
+      res.json({ followUpDays, months: result });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to compute cohort analysis");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to compute cohort analysis"));
+    }
   });
 }

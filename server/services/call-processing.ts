@@ -40,6 +40,10 @@ import { LruCache } from "../utils/lru-cache";
 const REF_DOC_CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_REF_DOC_CACHE_ENTRIES = 1_000;
 
+// Prompt template cache — avoids DB lookup on every call for the same org+category
+const PROMPT_TEMPLATE_CACHE_TTL_MS = 5 * 60 * 1000;
+const promptTemplateCache = new Map<string, { template: any; expiresAt: number }>();
+
 type RefDocList = Array<{ name: string; category: string; extractedText?: string | null; id: string }>;
 
 const refDocCache = new LruCache<RefDocList>({ maxSize: MAX_REF_DOC_CACHE_ENTRIES, ttlMs: REF_DOC_CACHE_TTL_MS });
@@ -279,21 +283,28 @@ async function loadPromptTemplate(
 ): Promise<PromptTemplateConfig | undefined> {
   let template: PromptTemplateConfig | undefined;
 
-  // Load custom prompt template by category
+  // Load custom prompt template by category (cached to avoid DB hit per call)
   if (callCategory) {
-    try {
-      const tmpl = await storage.getPromptTemplateByCategory(orgId, callCategory);
-      if (tmpl) {
-        template = {
-          evaluationCriteria: tmpl.evaluationCriteria,
-          requiredPhrases: tmpl.requiredPhrases,
-          scoringWeights: tmpl.scoringWeights,
-          additionalInstructions: tmpl.additionalInstructions,
-        };
-        logger.info({ callId, templateName: tmpl.name }, "Using custom prompt template");
+    const cacheKey = `${orgId}:${callCategory}`;
+    const cached = promptTemplateCache.get(cacheKey);
+    if (cached && Date.now() < cached.expiresAt) {
+      template = cached.template ? { ...cached.template } : undefined;
+    } else {
+      try {
+        const tmpl = await storage.getPromptTemplateByCategory(orgId, callCategory);
+        if (tmpl) {
+          template = {
+            evaluationCriteria: tmpl.evaluationCriteria,
+            requiredPhrases: tmpl.requiredPhrases,
+            scoringWeights: tmpl.scoringWeights,
+            additionalInstructions: tmpl.additionalInstructions,
+          };
+          logger.info({ callId, templateName: tmpl.name }, "Using custom prompt template");
+        }
+        promptTemplateCache.set(cacheKey, { template: template || null, expiresAt: Date.now() + PROMPT_TEMPLATE_CACHE_TTL_MS });
+      } catch (err) {
+        logger.warn({ callId, err }, "Failed to load prompt template (using defaults)");
       }
-    } catch (err) {
-      logger.warn({ callId, err }, "Failed to load prompt template (using defaults)");
     }
   }
 
@@ -399,10 +410,11 @@ async function loadReferenceContext(
             score: Math.round(c.score * 1000) / 1000,
           }));
 
-          // Increment retrieval counts (fire-and-forget)
+          // Increment retrieval counts at document + chunk level (fire-and-forget)
           incrementRetrievalCounts(
             db as any,
             chunks.map((c) => c.documentId),
+            chunks.map((c) => c.id),
           ).catch((err) => {
             logger.debug({ err }, "Failed to increment retrieval counts");
           });
@@ -591,6 +603,7 @@ export async function continueAfterTranscription(
       clinicalSpecialty,
       noteFormat,
       transcriptText,
+      transcriptResponse.confidence,
     );
 
     // Warn if clinical call didn't produce a clinical note
@@ -672,8 +685,35 @@ export async function continueAfterTranscription(
 
     // Clinical note processing
     if (aiAnalysis?.clinical_note) {
-      analysis.clinicalNote = mapClinicalNote(aiAnalysis.clinical_note);
-      validateAndEncryptClinicalNote(callId, analysis.clinicalNote);
+      const cn = mapClinicalNote(aiAnalysis.clinical_note);
+      // Extract structured data (vitals, meds, allergies) from note sections
+      // BEFORE encryption — encrypted text can't be parsed for patterns.
+      try {
+        const { extractStructuredDataFromSections } = await import("./clinical-extraction");
+        const structuredData = extractStructuredDataFromSections({
+          objective: typeof cn.objective === "string" ? cn.objective : undefined,
+          subjective: typeof cn.subjective === "string" ? cn.subjective : undefined,
+          plan: Array.isArray(cn.plan) ? cn.plan.join("\n") : undefined,
+        });
+        if (Object.keys(structuredData).length > 0) {
+          cn.structuredData = structuredData;
+        }
+      } catch (extractErr) {
+        logger.debug({ err: extractErr, callId }, "Structured data extraction failed — non-fatal");
+      }
+      validateAndEncryptClinicalNote(callId, cn);
+      analysis.clinicalNote = cn;
+    } else if (clinicalSpecialty || noteFormat) {
+      // AI was expected to produce a clinical note but didn't — flag for retry
+      logger.warn(
+        { callId, clinicalSpecialty, noteFormat },
+        "AI analysis completed but no clinical_note field returned — flagging for retry",
+      );
+      const retryFlags = Array.isArray(analysis.flags) ? [...(analysis.flags as string[])] : [];
+      if (!retryFlags.includes("requires_clinical_retry")) {
+        retryFlags.push("requires_clinical_retry");
+      }
+      analysis.flags = retryFlags;
     }
 
     // Server-side flag enforcement
@@ -878,6 +918,7 @@ async function runAiAnalysis(
   clinicalSpecialty: string | undefined,
   noteFormat: string | undefined,
   transcriptText: string | undefined,
+  transcriptConfidence?: number,
 ) {
   broadcastCallUpdate(callId, "analyzing", { step: 4, totalSteps: 6, label: "Running AI analysis..." }, orgId);
 
@@ -898,7 +939,9 @@ async function runAiAnalysis(
 
   try {
     const result = await withBedrockProtection(orgId, () =>
-      withRetry(() => aiProvider.analyzeCallTranscript(transcriptText, callId, callCategory, promptTemplate), {
+      withRetry(() => aiProvider.analyzeCallTranscript(transcriptText, callId, callCategory, promptTemplate, {
+        transcriptConfidence,
+      }), {
         retries: 2,
         baseDelay: 2000,
         label: `AI analysis for ${callId}`,
@@ -1089,10 +1132,14 @@ async function postProcessing(
       (transcriptResponse.words?.[transcriptResponse.words.length - 1]?.end || 0) / 1000,
     );
     const assemblyaiCost = estimateAssemblyAICost(audioDuration);
-    const estimatedInputTokens = Math.ceil((transcriptResponse.text || "").length / 4) + 500;
-    const estimatedOutputTokens = 800;
+    // Use actual Bedrock token counts when available (from _tokenUsage attached by provider),
+    // fall back to text-length estimation when actual counts aren't available.
+    const actualTokens = (aiAnalysis as any)?._tokenUsage;
+    const inputTokens = actualTokens?.inputTokens || Math.ceil((transcriptResponse.text || "").length / 4) + 500;
+    const outputTokens = actualTokens?.outputTokens || 800;
+    const tokenSource = actualTokens ? "actual" : "estimated";
     const bedrockModel = process.env.BEDROCK_MODEL || "us.anthropic.claude-sonnet-4-6";
-    const bedrockCost = aiAnalysis ? estimateBedrockCost(bedrockModel, estimatedInputTokens, estimatedOutputTokens) : 0;
+    const bedrockCost = aiAnalysis ? estimateBedrockCost(bedrockModel, inputTokens, outputTokens) : 0;
 
     const spendRecord: UsageRecord = {
       id: randomUUID(),
@@ -1107,8 +1154,8 @@ async function postProcessing(
           ? {
               bedrock: {
                 model: bedrockModel,
-                estimatedInputTokens,
-                estimatedOutputTokens,
+                estimatedInputTokens: inputTokens,
+                estimatedOutputTokens: outputTokens,
                 estimatedCost: Math.round(bedrockCost * 10000) / 10000,
               },
             }

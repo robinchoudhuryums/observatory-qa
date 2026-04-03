@@ -7,7 +7,18 @@
  * PHI fields remain encrypted.
  *
  * Key management: Uses PHI_ENCRYPTION_KEY env var (64-char hex = 32 bytes).
- * In production, this should come from AWS KMS, HashiCorp Vault, or similar.
+ *
+ * KEY ESCROW / DISASTER RECOVERY:
+ * If PHI_ENCRYPTION_KEY is lost, ALL encrypted clinical data becomes permanently
+ * inaccessible. There is NO backdoor or recovery mechanism by design.
+ *
+ * Recommended key backup strategy:
+ *   1. Store the key in AWS Secrets Manager (primary): `aws secretsmanager create-secret --name observatory/phi-key --secret-string $PHI_ENCRYPTION_KEY`
+ *   2. Store a backup in a separate AWS account or region for cross-account redundancy
+ *   3. Document the key ID and rotation procedure in your organization's runbook
+ *   4. For key rotation: set PHI_ENCRYPTION_KEY to the new key and PHI_ENCRYPTION_KEY_PREV
+ *      to the old key. The system will decrypt with either key but encrypt with the new one.
+ *      After all records are re-encrypted, remove PHI_ENCRYPTION_KEY_PREV.
  *
  * Format: base64(iv:ciphertext:authTag) — all in one string for DB storage.
  */
