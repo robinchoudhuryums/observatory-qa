@@ -10,6 +10,8 @@ import { requireAuth, requireRole } from "../auth";
 import { validateUUIDParam } from "./helpers";
 import { MARKETING_SOURCES } from "@shared/schema";
 import { asyncHandler, AppError } from "../middleware/error-handler";
+import { logger } from "../services/logger";
+import { errorResponse, ERROR_CODES } from "../services/error-codes";
 
 const VALID_SOURCES = new Set(MARKETING_SOURCES.map((s) => s.value));
 
