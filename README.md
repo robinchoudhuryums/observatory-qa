@@ -19,7 +19,7 @@ AI-powered call quality analysis and clinical documentation for healthcare and c
 - **Provider style learning** — AI analyzes provider's past notes to learn formatting preferences (abbreviation level, section emphasis, common phrases)
 - **Clinical note templates** — 10+ specialty-specific templates (dental, behavioral health, pediatrics, cardiology, dermatology, etc.)
 - **EHR integration** — Open Dental (bidirectional), Eaglesoft (read-focused) — patient lookup, appointment sync, clinical note push
-- **RAG knowledge base** — upload company docs (handbooks, scripts, SOPs), AI references them during analysis
+- **RAG knowledge base** — upload company docs (handbooks, scripts, SOPs), AI references them during analysis. Adaptive query-type weights (template lookups vs coaching questions vs compliance), domain synonym expansion per industry vertical, table-aware chunking, page-level citations, two-tier embedding cache (LRU + Redis), confidence reconciliation (LLM vs retrieval scores), cross-org anonymized FAQ pattern detection
 - **Custom evaluation templates** — per-call-category scoring criteria, required phrases, weighted scoring. Ships with industry-specific defaults for 5 verticals (general, dental, medical, behavioral health, veterinary) — 19 templates total, auto-seeded on org creation with reset-to-defaults option
 - **Call pattern discovery** — TF-IDF topic clustering discovers recurring call patterns with trend detection (rising/stable/declining), helping managers identify training gaps and emerging issues
 - **Agent comparison** — side-by-side comparison of up to 5 agents with radar chart sub-scores, sentiment breakdown, and call stats

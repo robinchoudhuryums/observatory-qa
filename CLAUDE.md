@@ -152,6 +152,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/bedrock-batch.test.ts` — Bedrock batch inference (shouldUseBatchMode, isBatchAvailable, org settings validation, 15 tests)
   - `tests/prompt-injection-pipeline.test.ts` — Transcript injection detection + output guardrails + orphan recovery (16 tests)
   - `tests/remaining-adaptations.test.ts` — Performance snapshots, SSRF validation, scheduled reports (21 tests)
+  - `tests/rag-ums-adaptations.test.ts` — RAG improvements adapted from ums-knowledge-reference: adaptive query-type weights, confidence reconciliation, domain synonym expansion, table-aware chunking, page tracking, cross-org FAQ patterns (39 tests)
 - **E2E test files** (12 specs):
   - `tests/e2e/fixtures.ts` — **Per-worker auth fixtures** (`adminTest`, `viewerTest`) — each worker registers unique org via `/api/auth/register`; falls back to env-var admin
   - `tests/e2e/auth.spec.ts` — Login, landing page
@@ -438,11 +439,14 @@ Every data entity has an `orgId` field. All storage methods take `orgId` as the 
 ### RAG (Retrieval-Augmented Generation) System
 Reference documents uploaded by orgs are processed through:
 1. **Text extraction** — extracted on upload (PDF/text content)
-2. **Chunking** (`chunker.ts`) — sliding window with overlap (400 tokens, 80 token overlap), natural break detection (paragraph > sentence > line via `lastIndexOf`), section header tracking. Configurable `charsPerToken` ratio: 3.5 for medical/dental (clinical codes are dense), 4.0 for general text. Minimum step of 40 chars prevents micro-chunks
-3. **Embedding** (`embeddings.ts`) — Amazon Titan Embed V2 via Bedrock (1024 dimensions, raw REST + SigV4)
+2. **Chunking** (`chunker.ts`) — sliding window with overlap (400 tokens, 80 token overlap), natural break detection (paragraph > sentence > line via `lastIndexOf`), section header tracking (markdown, ALL CAPS, numbered "1.2.3", colon-suffixed), **table preservation** (pipe/tab-delimited tables kept as single chunks), **page number tracking** (via form feed markers). Configurable `charsPerToken` ratio: 3.5 for medical/dental (clinical codes are dense), 4.0 for general text. Minimum step of 40 chars prevents micro-chunks
+3. **Embedding** (`embeddings.ts`) — Amazon Titan Embed V2 via Bedrock (1024 dimensions, raw REST + SigV4). **Two-tier cache**: in-memory LRU (200 entries) + Redis shared cache (1-hour TTL) for multi-instance cost reduction
 4. **Storage** — chunks + embeddings stored in `document_chunks` table (pgvector)
-5. **Retrieval** (`rag.ts`) — hybrid search: pgvector cosine similarity (HNSW index) + BM25 keyword boosting with log-linear normalization, weighted scoring (70% semantic, 30% keyword, tunable via env vars), minimum relevance score threshold (0.3) filters low-quality chunks
-6. **Injection** — relevant chunks formatted and injected into the AI analysis prompt
+5. **Retrieval** (`rag.ts`) — hybrid search: pgvector cosine similarity (HNSW index) + BM25 keyword boosting with log-linear normalization. **Adaptive query-type weights**: queries classified as `template_lookup` (40/60 semantic/keyword), `compliance_question` (55/45), `coaching_question` (75/25), or `general` (70/30). **Domain synonym expansion** per industry vertical (dental, medical, behavioral health, veterinary) for improved BM25 recall on abbreviations. Minimum relevance score threshold (0.3) filters low-quality chunks
+6. **Injection** — relevant chunks formatted with XML `<knowledge_source>` tags (prompt injection defense) and injected into the AI analysis prompt
+7. **Confidence reconciliation** — retrieval scores reconciled with LLM-stated confidence tags: downgrades overconfident LLM responses when retrieval is weak, upgrades conservative responses when retrieval is strong (`reconcileConfidence()`)
+8. **Observability** (`rag-trace.ts`) — per-query traces with timing breakdown (embedding/retrieval/rerank), per-chunk IDs and scores, query type classification, weight tracking, confidence reconciliation status
+9. **FAQ analytics** (`faq-analytics.ts`) — per-org query frequency tracking with knowledge base gap detection. **Cross-org anonymized patterns** for platform-level intelligence (requires 3+ orgs asking same question to prevent de-anonymization)
 
 RAG requires: PostgreSQL with pgvector extension + AWS credentials for Titan embeddings. Document indexing can run via BullMQ worker or in-process fallback.
 
@@ -1239,6 +1243,21 @@ Server serves both API and static frontend from the same process.
 
 ## In-Progress Work (resume here in a new session)
 
+### Branch: `claude/evaluate-qa-rag-integration-MrMze`
+
+#### ✅ Completed & committed: RAG improvements adapted from ums-knowledge-reference
+Cross-repository evaluation: identified patterns from the single-tenant UMS Knowledge Reference RAG tool that can improve Observatory QA's multi-tenant RAG subsystem. Implemented 8 improvements:
+
+- **Adaptive query-type weights** (`rag.ts`) — `classifyQueryType()` classifies RAG queries into 4 types (template_lookup, compliance_question, coaching_question, general) with type-specific semantic/keyword weight balances. Auto-applied in `searchRelevantChunks()` unless caller overrides
+- **Confidence score reconciliation** (`rag.ts`) — `reconcileConfidence()` cross-checks LLM confidence tags against retrieval effective scores. Enhanced `computeConfidence()`: 65/35 top/avg blending (was 60/40), single-result 15% penalty, thresholds recalibrated to 0.42/0.30/0.15
+- **RAG trace observability** (`rag-trace.ts`) — `RagTrace` interface expanded with `queryType`, `semanticWeight`, `keywordWeight`, `retrievedChunkIds[]`, `retrievalScores[]`, `confidenceReconciled`, `inputTokens`, `outputTokens` for per-query debugging
+- **Domain synonym expansion** (`rag.ts`) — 5 industry-specific synonym maps (dental: 13 groups, medical: 16, behavioral health: 13, veterinary: 8, general: 10). Bidirectional lookup via `expandQueryWithSynonyms()`. Only single-token synonyms appended to reduce BM25 noise
+- **Table-aware chunking** (`chunker.ts`) — Tables (pipe/tab-delimited, ≥2 rows) preserved as single chunks to maintain row/column relationships. Tables >3x chunk size split normally. `preserveTables` option (default: true)
+- **Page number tracking** (`chunker.ts`) — `pageNumber` field on `DocumentChunk`. Form feed markers (`\f`) map char offsets to 1-indexed page numbers. Enhanced section header detection: numbered sections ("1.2.3 Title") and colon-suffixed headers ("Coverage Criteria:")
+- **Embedding Redis cache** (`embeddings.ts`) — Two-tier cache: L1 in-memory LRU + L2 Redis (1-hour TTL, `emb:titan:` prefix). Redis promotion to L1 on hit. Fire-and-forget writes. Graceful fallback when Redis unavailable
+- **Cross-org FAQ patterns** (`faq-analytics.ts`) — `getCrossOrgFaqPatterns()` aggregates query patterns across all tenants with 3-org minimum for anonymization. Surfaces common knowledge gaps for platform intelligence
+- **39 new tests** (`tests/rag-ums-adaptations.test.ts`) — query classification, adaptive weights, confidence reconciliation, synonym expansion (all 5 verticals), table preservation, page tracking, cross-org FAQ patterns, industry token ratios
+
 ### Branch: `claude/codebase-audit-evaluation-MhG8w`
 
 #### ✅ Completed & committed: Comprehensive codebase audit
@@ -1623,6 +1642,22 @@ Patterns adapted from the single-tenant Call Analyzer (assemblyai_tool) for mult
 | 3 | **Confidence as first-class filter** | ✅ Done | `claude/review-qa-assemblyai-integration-5NlvX` — Dashboard metrics include avgConfidence + dataQuality breakdown (high/medium/low/none). Top performers include avgConfidence. `GET /api/dashboard/low-confidence` endpoint. Insights summary includes avgConfidence + lowConfidenceRate. Weekly digest includes dataQuality stats. 8 tests |
 | 4 | **Call clustering / pattern discovery** | ✅ Done | `claude/review-qa-assemblyai-integration-5NlvX` — TF-IDF cosine similarity on topics/keywords/summary terms. Agglomerative clustering with trend detection (rising/stable/declining). `GET /api/insights/clusters` endpoint with days/minSize/maxClusters/employeeId params. No schema changes (uses existing analysis data). 15 tests |
 | 5 | **Bedrock batch inference mode** | ✅ Done | `claude/review-qa-assemblyai-integration-5NlvX` — Per-org `batchMode` setting (realtime/batch/hybrid). Pending items saved to S3, `GET /api/batch/status` and `POST /api/batch/flush` admin routes. Pipeline branches in `continueAfterTranscription` with graceful fallback to realtime. `@aws-sdk/client-bedrock` for job management. 15 tests |
+
+### UMS Knowledge Reference RAG Adaptation Roadmap
+Patterns adapted from the ums-knowledge-reference RAG tool for Observatory QA's multi-tenant SaaS context:
+
+| Priority | Feature | Status | Notes |
+|----------|---------|--------|-------|
+| HIGH | **Adaptive query-type weights** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — Queries classified as `template_lookup` (40/60 S/K), `compliance_question` (55/45), `coaching_question` (75/25), `general` (70/30). `classifyQueryType()` and `getAdaptiveWeights()` in rag.ts. Weights auto-applied in `searchRelevantChunks()` |
+| HIGH | **Confidence score reconciliation** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — `reconcileConfidence()` cross-checks LLM-stated confidence (`[CONFIDENCE: HIGH/PARTIAL/LOW]` tag) against retrieval effective score. Downgrades overconfident LLM when retrieval < 0.30, upgrades conservative LLM when retrieval ≥ 0.42. Enhanced `computeConfidence()`: 65/35 top/avg blending (was 60/40), single-result 15% penalty |
+| HIGH | **RAG trace observability** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — Enhanced `RagTrace` interface: `queryType`, `semanticWeight`, `keywordWeight`, `retrievedChunkIds[]`, `retrievalScores[]`, `confidenceReconciled`, `inputTokens`, `outputTokens`. Per-query debugging now shows which chunks were used and why |
+| MEDIUM | **Domain synonym expansion** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — 5 industry synonym maps (dental: 13 groups, medical: 16, behavioral health: 13, veterinary: 8, general: 10). Bidirectional lookup. `expandQueryWithSynonyms()` boosts BM25 recall on abbreviations (e.g., "cpap" ↔ "c-pap", "crown" ↔ "cap"). Only single-token synonyms appended to avoid noise |
+| MEDIUM | **Table-aware chunking** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — Tables (pipe/tab-delimited) detected and preserved as single chunks. Tables >3x chunk size fall back to normal splitting. `preserveTables` option (default: true). Tables extracted before sliding window, then non-table segments chunked normally |
+| MEDIUM | **Page number tracking** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — `pageNumber` field on `DocumentChunk`. Form feed (`\f`) markers map char offsets to page numbers (1-indexed). PDFs with page markers get citations like "Page 3, Section: Coverage Criteria" |
+| MEDIUM | **Embedding Redis cache** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — Two-tier cache: L1 in-memory LRU (200 entries, same instance) + L2 Redis (1-hour TTL, shared across instances). Redis promotion to L1 on hit. Fire-and-forget Redis writes. Graceful fallback when Redis unavailable |
+| MEDIUM | **Cross-org FAQ patterns** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — `getCrossOrgFaqPatterns()` aggregates query patterns across all tenants. Requires 3+ orgs asking same question for anonymization. Surfaces common knowledge gaps for platform-level intelligence (informing default templates, onboarding suggestions) |
+| LOW | **Structured reference short-circuit** | Planned | Skip full RAG pipeline for pure metadata lookups (template names, scoring criteria). Adapted from UMS's query classification that routes structured queries directly to reference data |
+| LOW | **Query reformulation** | Planned | For future conversational KB interface: reformulate follow-up questions into standalone queries using conversation history (last 4 turns verbatim, older summarized) |
 
 ## Improvement Backlog (Multi-Sprint)
 
