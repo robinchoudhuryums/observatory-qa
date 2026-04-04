@@ -929,4 +929,76 @@ export function registerAdminRoutes(app: Express): void {
       res.status(500).json({ message: "Failed to delete BAA record" });
     }
   });
+
+  // ==================== BATCH INFERENCE MANAGEMENT ====================
+
+  /**
+   * Get batch mode status and pending items for the org.
+   */
+  app.get("/api/batch/status", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    try {
+      const { isBatchAvailable, listPendingItems } = await import("../services/bedrock-batch");
+      const org = await storage.getOrganization(req.orgId!);
+      const settings = org?.settings as any;
+
+      const pendingItems = await listPendingItems(req.orgId!);
+
+      res.json({
+        batchMode: settings?.batchMode || "realtime",
+        batchAvailable: isBatchAvailable(),
+        pendingCount: pendingItems.length,
+        pendingItems: pendingItems.map((item) => ({
+          callId: item.callId,
+          callCategory: item.callCategory,
+          timestamp: item.timestamp,
+        })),
+      });
+    } catch (error) {
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get batch status"));
+    }
+  });
+
+  /**
+   * Flush pending batch items — immediately submit a batch job for all pending items.
+   */
+  app.post("/api/batch/flush", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
+    try {
+      const { listPendingItems, createBatchInput, submitBatchJob, cleanupPendingItems, isBatchAvailable } =
+        await import("../services/bedrock-batch");
+
+      if (!isBatchAvailable()) {
+        return res.status(503).json({ message: "Batch inference not configured (missing S3_BUCKET or BEDROCK_BATCH_ROLE_ARN)" });
+      }
+
+      const orgId = req.orgId!;
+      const items = await listPendingItems(orgId);
+
+      if (items.length === 0) {
+        return res.json({ message: "No pending items to flush", jobId: null });
+      }
+
+      const org = await storage.getOrganization(orgId);
+      const model = (org?.settings as any)?.bedrockModel;
+      const { s3Uri, batchId } = await createBatchInput(orgId, items, model);
+      const job = await submitBatchJob(orgId, s3Uri, batchId, items.map((i) => i.callId), model);
+
+      await cleanupPendingItems(orgId, items.map((i) => i.callId));
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "batch_inference_flushed",
+        resourceType: "batch_job",
+        detail: `Submitted batch job ${job.jobId} with ${items.length} calls`,
+      });
+
+      res.json({
+        message: `Batch job submitted with ${items.length} calls`,
+        jobId: job.jobId,
+        callCount: items.length,
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Failed to flush batch items");
+      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to submit batch job"));
+    }
+  });
 }
