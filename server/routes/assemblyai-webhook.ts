@@ -16,13 +16,17 @@ export function registerAssemblyAIWebhookRoutes(app: Express): void {
   // Note: This endpoint is registered BEFORE auth middleware — it is public
   // but protected by the shared webhook secret token.
   app.post("/api/webhooks/assemblyai", async (req, res) => {
-    // Verify the shared secret token
-    const expectedToken = process.env.ASSEMBLYAI_WEBHOOK_SECRET || process.env.SESSION_SECRET;
-    const receivedToken = req.headers["x-assembly-webhook-token"];
+    // Verify the shared secret token.
+    // Trim both sides — accidental whitespace in env vars causes length mismatch
+    // and rejects valid webhooks without any useful error signal.
+    const expectedToken = (process.env.ASSEMBLYAI_WEBHOOK_SECRET || process.env.SESSION_SECRET || "").trim();
+    const receivedToken = typeof req.headers["x-assembly-webhook-token"] === "string"
+      ? req.headers["x-assembly-webhook-token"].trim()
+      : "";
 
     const tokenMismatch =
       expectedToken &&
-      (typeof receivedToken !== "string" ||
+      (!receivedToken ||
         receivedToken.length !== expectedToken.length ||
         !timingSafeEqual(Buffer.from(receivedToken), Buffer.from(expectedToken)));
     if (tokenMismatch) {

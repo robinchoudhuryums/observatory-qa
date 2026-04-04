@@ -421,6 +421,12 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
         const agentLabels = Object.entries(speakerRoleMap)
           .filter(([, role]) => role === "agent")
           .map(([label]) => label);
+        // If no speaker has the "agent" role (e.g., role map only has "customer"),
+        // fall back to the first speaker in the map as a reasonable default.
+        if (agentLabels.length === 0) {
+          const firstSpeaker = Object.keys(speakerRoleMap)[0];
+          if (firstSpeaker) agentLabels.push(firstSpeaker);
+        }
         const agentTime = words
           .filter((w: TranscriptWord) => w.speaker && agentLabels.includes(w.speaker))
           .reduce((sum: number, w: TranscriptWord) => sum + (w.end - w.start), 0);
@@ -572,7 +578,9 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
 
     // --- Per-speaker talk percentages ---
     const speakerTime: Record<string, number> = {};
+    let unlabeledWordCount = 0;
     for (const w of words) {
+      if (!w.speaker) unlabeledWordCount++;
       const speaker = w.speaker || "unknown";
       speakerTime[speaker] = (speakerTime[speaker] || 0) + (w.end - w.start);
     }
@@ -581,6 +589,9 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
       totalTalkTime > 0 ? Math.round(((speakerTime["A"] || 0) / totalTalkTime) * 100) : undefined;
     const speakerBTalkPercent =
       totalTalkTime > 0 ? Math.round(((speakerTime["B"] || 0) / totalTalkTime) * 100) : undefined;
+
+    // Warn when >10% of words have no speaker label — metrics will be inaccurate
+    const unlabeledPercent = words.length > 0 ? Math.round((unlabeledWordCount / words.length) * 100) : 0;
 
     return {
       talkSpeedWpm,
@@ -593,6 +604,7 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
       avgResponseTimeMs,
       speakerATalkPercent,
       speakerBTalkPercent,
+      ...(unlabeledPercent > 10 ? { unlabeledSpeakerPercent: unlabeledPercent } : {}),
     };
   }
 }
