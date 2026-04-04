@@ -452,6 +452,9 @@ export interface ProcessAudioOptions {
   userId?: string;
   clinicalSpecialty?: string;
   noteFormat?: string;
+  /** ISO 639-1 language code (e.g., "en", "es"). When non-English, AssemblyAI
+   *  sentiment analysis is skipped to save ~12% on transcription costs. */
+  language?: string;
 }
 
 export async function processAudioFile(opts: ProcessAudioOptions): Promise<void> {
@@ -466,6 +469,7 @@ export async function processAudioFile(opts: ProcessAudioOptions): Promise<void>
     userId,
     clinicalSpecialty,
     noteFormat,
+    language,
   } = opts;
 
   logger.info({ callId }, "Starting audio processing");
@@ -484,6 +488,7 @@ export async function processAudioFile(opts: ProcessAudioOptions): Promise<void>
       wordBoost: settings?.customVocabulary?.length ? settings.customVocabulary : undefined,
       piiRedaction: settings?.piiRedaction,
       languageDetection: true,
+      language: language || (settings as any)?.primaryLanguage || undefined,
       // Only use webhooks when APP_BASE_URL is set (not in dev without tunnel)
       ...(appBaseUrl
         ? {
@@ -596,7 +601,61 @@ export async function continueAfterTranscription(
   }
 
   try {
-    // Step 4: AI analysis
+    // --- Batch mode check: defer AI analysis if org has batch mode enabled ---
+    const { shouldUseBatchMode, savePendingBatchItem, isBatchAvailable } = await import("./bedrock-batch");
+    const orgForBatch = await storage.getOrganization(orgId);
+    const orgBatchSettings = orgForBatch?.settings as OrgSettings | undefined;
+    if (shouldUseBatchMode(orgBatchSettings as any, resolvedCallCategory)) {
+      try {
+        // Build the prompt that would normally go to Bedrock
+        const { buildSystemPrompt, buildUserMessage } = await import("./ai-prompts");
+        const batchPrompt = buildSystemPrompt(resolvedCallCategory) + "\n\n" + buildUserMessage(transcriptText, callId);
+
+        await savePendingBatchItem({
+          orgId,
+          callId,
+          prompt: batchPrompt,
+          callCategory: resolvedCallCategory,
+          uploadedBy: userId,
+          timestamp: new Date().toISOString(),
+        });
+
+        // Store transcript/sentiment with defaults (analysis will be filled by batch)
+        const { transcript, sentiment, analysis } = assemblyAIService.processTranscriptData(
+          transcriptResponse,
+          null, // no AI analysis yet
+          callId,
+          orgId,
+          (orgBatchSettings as any)?.defaultSpeakerRoles,
+        );
+
+        await Promise.allSettled([
+          storage.createTranscript(orgId, transcript),
+          storage.createSentimentAnalysis(orgId, sentiment),
+          storage.createCallAnalysis(orgId, analysis),
+        ]);
+
+        await storage.updateCall(orgId, callId, {
+          status: "completed",
+          tags: ["awaiting_batch_analysis"],
+        });
+
+        broadcastCallUpdate(
+          callId,
+          "completed",
+          { step: 4, totalSteps: 6, label: "Queued for batch analysis (results within 24h)" },
+          orgId,
+        );
+        logger.info({ callId, orgId }, "Call deferred to batch analysis (50% cost savings)");
+        if (filePath) await cleanupFile(filePath);
+        return;
+      } catch (batchErr) {
+        logger.warn({ callId, err: batchErr }, "Batch mode failed — falling back to real-time analysis");
+        // Fall through to synchronous analysis
+      }
+    }
+
+    // Step 4: AI analysis (real-time)
     const aiAnalysis = await runAiAnalysis(
       orgId,
       callId,

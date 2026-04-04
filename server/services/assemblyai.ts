@@ -179,6 +179,10 @@ export interface TranscriptionOptions {
     substitution?: "hash" | "entity_name";
   };
   languageDetection?: boolean;
+  /** ISO 639-1 language code (e.g., "en", "es"). When provided and non-English,
+   *  sentiment_analysis is disabled to save ~12% on AssemblyAI costs (sentiment
+   *  accuracy drops significantly for non-English audio). */
+  language?: string;
 }
 
 export interface LeMURResponse {
@@ -235,13 +239,21 @@ export class AssemblyAIService {
     const piiPolicies = piiOpts?.policies && piiOpts.policies.length > 0 ? piiOpts.policies : defaultPiiPolicies;
     const piiSub = piiOpts?.substitution ?? "hash";
 
+    // Skip sentiment analysis for explicitly non-English audio — saves ~12% on
+    // AssemblyAI cost and avoids unreliable sentiment data. AI analysis (Bedrock)
+    // still provides its own sentiment scoring regardless.
+    const isNonEnglish = options?.language ? !options.language.toLowerCase().startsWith("en") : false;
+    if (isNonEnglish) {
+      logger.info({ language: options!.language }, "Non-English language specified — disabling AssemblyAI sentiment analysis (cost optimization)");
+    }
+
     const body: Record<string, unknown> = {
       audio_url: audioUrl,
       speech_model: "best",
       speaker_labels: true,
       punctuate: true,
       format_text: true,
-      sentiment_analysis: true,
+      sentiment_analysis: !isNonEnglish,
       // PII/PHI auto-redaction
       redact_pii: piiEnabled,
       ...(piiEnabled

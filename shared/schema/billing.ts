@@ -321,6 +321,7 @@ export const promptTemplateSchema = z.object({
     .optional(),
   additionalInstructions: z.string().optional(),
   isActive: z.boolean().default(true),
+  isDefault: z.boolean().default(false),
   updatedAt: z.string().optional(),
   updatedBy: z.string().optional(),
 });
@@ -638,6 +639,15 @@ export type DashboardMetrics = {
   avgSentiment: number;
   avgTranscriptionTime: number;
   avgPerformanceScore: number;
+  /** Average confidence score across all analyzed calls (0-1). Null if no calls have confidence data. */
+  avgConfidence?: number | null;
+  /** Data quality breakdown: count of calls by confidence level. */
+  dataQuality?: {
+    highConfidence: number;   // >= 0.7
+    mediumConfidence: number; // >= 0.4 and < 0.7
+    lowConfidence: number;    // < 0.4
+    noConfidence: number;     // null/missing confidence score
+  };
 };
 
 export type SentimentDistribution = {
@@ -652,6 +662,8 @@ export type TopPerformer = {
   role?: string;
   avgPerformanceScore: number | null;
   totalCalls: number;
+  /** Average confidence score for this performer's calls. */
+  avgConfidence?: number | null;
 };
 
 /** Audit log entry shape for the audit log viewer */

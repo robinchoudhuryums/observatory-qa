@@ -79,7 +79,7 @@ npx vite build         # Frontend-only build (quick verification)
 - **Unit tests**: Node.js built-in `test` module via `tsx` — `npm run test`
 - **E2E tests**: Playwright (Chromium) — `npm run test:e2e` or `npm run test:e2e:ui`
 - **Location**: `tests/` (unit), `tests/e2e/` (E2E)
-- **Unit test files** (65 files, 1298 tests):
+- **Unit test files** (72 files, 1414 tests):
   - `tests/schema.test.ts` — Zod schema validation (orgId on all entities, organization schemas)
   - `tests/ai-provider.test.ts` — AI provider utilities (parseJsonResponse, buildAnalysisPrompt, smartTruncate)
   - `tests/routes.test.ts` — API route handler tests
@@ -145,6 +145,13 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/audit-fixes.test.ts` — Audit fix verification (prompt injection, PHI redaction, LRU cache, RAG config, upload dedup, output guardrails)
   - `tests/schema-column-coverage.test.ts` — Schema sync column-level validation (Drizzle vs sync-schema DDL)
   - `tests/bedrock-mock.test.ts` — AI provider mock tests (score clamping, error codes, behavior switching)
+  - `tests/language-sentiment-skip.test.ts` — Language-aware sentiment skipping (non-English cost optimization, 8 tests)
+  - `tests/default-templates.test.ts` — Default industry template seeding (JSON validation, scoring weights, org isolation, 33 tests)
+  - `tests/confidence-filter.test.ts` — Confidence as first-class filter (dashboard metrics, data quality breakdown, boundary values, MemStorage, 8 tests)
+  - `tests/call-clustering.test.ts` — Call clustering (TF-IDF, cosine similarity, agglomerative clustering, trend detection, 15 tests)
+  - `tests/bedrock-batch.test.ts` — Bedrock batch inference (shouldUseBatchMode, isBatchAvailable, org settings validation, 15 tests)
+  - `tests/prompt-injection-pipeline.test.ts` — Transcript injection detection + output guardrails + orphan recovery (16 tests)
+  - `tests/remaining-adaptations.test.ts` — Performance snapshots, SSRF validation, scheduled reports (21 tests)
 - **E2E test files** (12 specs):
   - `tests/e2e/fixtures.ts` — **Per-worker auth fixtures** (`adminTest`, `viewerTest`) — each worker registers unique org via `/api/auth/register`; falls back to env-var admin
   - `tests/e2e/auth.spec.ts` — Login, landing page
@@ -173,7 +180,8 @@ client/src/components/       # UI components
   tables/                    #   Data tables (calls-table)
   transcripts/               #   Transcript viewer
   search/                    #   Search components (employee-filter, call-card)
-  upload/                    #   File upload (file-upload)
+  upload/                    #   File upload (file-upload) with before-unload warning
+  audio/                     #   Audio components (audio-waveform: canvas-based amplitude visualization with click-to-seek)
   layout/                    #   Layout (sidebar)
   lib/                       #   Utilities (confirm-dialog, error-boundary)
   branding-provider.tsx      #   Per-org branding context
@@ -280,6 +288,8 @@ server/services/             # Business logic & integrations (30 files)
   rag-trace.ts               #   RAG pipeline observability: per-query timing breakdown, confidence metrics, injection audit trail
   faq-analytics.ts           #   FAQ detection from RAG query patterns: query normalization, gap analysis, confidence distribution
   embedding-provider.ts      #   EmbeddingProvider interface for swappable embedding models (default: Titan Embed V2)
+  performance-snapshots.ts   #   Longitudinal performance analytics with AI narrative summaries (employee/team/company snapshots)
+  scheduled-reports.ts       #   Periodic report generation (weekly/monthly) with top/bottom performer rankings
 
 server/middleware/           # Express middleware
   waf.ts                     #   Web Application Firewall (request filtering, bot detection)
@@ -287,7 +297,8 @@ server/middleware/           # Express middleware
   correlation-id.ts          #   Per-request correlation ID via AsyncLocalStorage
 
 server/utils/                # Shared server utilities (ported from UMS knowledge base tool)
-  url-validation.ts          #   SSRF prevention: blocks private IPs, cloud metadata, non-HTTP protocols
+  url-validation.ts          #   SSRF prevention: blocks private IPs, cloud metadata, non-HTTP protocols (legacy, see also url-validator.ts)
+  url-validator.ts           #   Comprehensive SSRF URL validation: protocol enforcement, hostname blocklist, private IP blocking, DNS rebinding prevention
   ai-guardrails.ts           #   Prompt injection detection (25 patterns + NFKD Unicode normalization + HTML entity decoding + comment stripping), output safety checks, 10KB input truncation
   phi-redactor.ts            #   PHI regex scrubber (SSN, phone, email, MRN, addresses, NPI, FHIR UUIDs, encounter IDs; preserves clinical codes)
   request-metrics.ts         #   In-memory per-route latency percentiles (p50/p95/p99, 10-min window)
@@ -1601,6 +1612,17 @@ See `HEALTHCARE_EXPANSION_PLAN.md` for the full 4-phase healthcare expansion roa
 - **Super-admin role**: Platform-level admin (not org-scoped) for managing all organizations — `SUPER_ADMIN_USERS` env var
 - **PostgreSQL migration**: Move remaining S3-only deployments to PostgreSQL for better query performance and transactional integrity
 - **Spanish language support**: Multilingual clinical note generation
+
+### Call Analyzer Adaptation Roadmap
+Patterns adapted from the single-tenant Call Analyzer (assemblyai_tool) for multi-tenant SaaS:
+
+| Phase | Feature | Status | Notes |
+|-------|---------|--------|-------|
+| 1 | **Language-aware sentiment skipping** | ✅ Done | `claude/review-qa-assemblyai-integration-5NlvX` — Non-English audio skips AssemblyAI sentiment_analysis (~12% cost savings). Upload API accepts optional `language` field; also reads org `primaryLanguage` setting. 8 tests |
+| 2 | **Default industry templates** | ✅ Done | `claude/review-qa-assemblyai-integration-5NlvX` — 19 templates across 5 verticals (general/4, dental/5, medical/4, behavioral_health/3, veterinary/3). `is_default` column on prompt_templates. Auto-seeded on org creation with industry fallback to general. `POST /api/prompt-templates/reset-defaults` route. 33 tests |
+| 3 | **Confidence as first-class filter** | ✅ Done | `claude/review-qa-assemblyai-integration-5NlvX` — Dashboard metrics include avgConfidence + dataQuality breakdown (high/medium/low/none). Top performers include avgConfidence. `GET /api/dashboard/low-confidence` endpoint. Insights summary includes avgConfidence + lowConfidenceRate. Weekly digest includes dataQuality stats. 8 tests |
+| 4 | **Call clustering / pattern discovery** | ✅ Done | `claude/review-qa-assemblyai-integration-5NlvX` — TF-IDF cosine similarity on topics/keywords/summary terms. Agglomerative clustering with trend detection (rising/stable/declining). `GET /api/insights/clusters` endpoint with days/minSize/maxClusters/employeeId params. No schema changes (uses existing analysis data). 15 tests |
+| 5 | **Bedrock batch inference mode** | ✅ Done | `claude/review-qa-assemblyai-integration-5NlvX` — Per-org `batchMode` setting (realtime/batch/hybrid). Pending items saved to S3, `GET /api/batch/status` and `POST /api/batch/flush` admin routes. Pipeline branches in `continueAfterTranscription` with graceful fallback to realtime. `@aws-sdk/client-bedrock` for job management. 15 tests |
 
 ## Improvement Backlog (Multi-Sprint)
 

@@ -152,6 +152,15 @@ export const orgSettingsSchema = z.object({
     .optional(),
   // Custom vocabulary — word boost list for better transcription of org-specific terms
   customVocabulary: z.array(z.string().min(1).max(200).trim()).max(1000).optional(),
+  // Primary language for the org's calls (ISO 639-1, e.g., "en", "es").
+  // When non-English, AssemblyAI sentiment analysis is skipped (~12% cost savings).
+  primaryLanguage: z.string().max(10).optional(),
+  // Batch inference mode: "realtime" (default), "batch" (50% cost savings, 24h turnaround),
+  // or "hybrid" (per-category choice via call upload override).
+  batchMode: z.enum(["realtime", "batch", "hybrid"]).optional(),
+  // Confidence threshold for data quality filtering (0-1, default 0.5).
+  // Calls below this threshold are flagged as low-confidence in dashboards.
+  confidenceThreshold: z.number().min(0).max(1).optional(),
   // Co-signature requirements (clinical documentation)
   requiresCosignature: z.boolean().optional(), // all notes require co-signature
   cosignatureRoles: z.array(z.string()).optional(), // ["admin", "manager"] can co-sign

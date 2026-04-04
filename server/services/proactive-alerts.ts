@@ -161,6 +161,12 @@ export async function generateWeeklyDigest(orgId: string): Promise<WeeklyDigest>
   const reviewQueue = await getManagerReviewQueue(orgId);
   const needsAttention = reviewQueue.filter((a) => a.needsAttention);
 
+  // Data quality: low-confidence calls this week
+  const lowConfidenceCalls = thisWeek.filter((c) => {
+    const conf = Number(c.analysis?.confidenceScore);
+    return !isNaN(conf) && conf > 0 && conf < 0.5;
+  });
+
   return {
     period: { from: weekAgo.toISOString(), to: now.toISOString() },
     totalCalls,
@@ -175,6 +181,10 @@ export async function generateWeeklyDigest(orgId: string): Promise<WeeklyDigest>
       trend: a.trendLabel,
       reason: a.avgScore < 5 ? "Low score" : a.flagCount >= 3 ? "Recurring flags" : "Declining trend",
     })),
+    dataQuality: {
+      lowConfidenceCount: lowConfidenceCalls.length,
+      lowConfidenceRate: totalCalls > 0 ? Math.round((lowConfidenceCalls.length / totalCalls) * 100) / 100 : 0,
+    },
   };
 }
 
@@ -256,4 +266,9 @@ export interface WeeklyDigest {
   topPerformers: Array<{ employeeId: string; name: string; avgScore: number; callCount: number }>;
   bottomPerformers: Array<{ employeeId: string; name: string; avgScore: number; callCount: number }>;
   agentsNeedingAttention: Array<{ name: string; avgScore: number; trend: string; reason: string }>;
+  /** Data quality summary for the week. */
+  dataQuality?: {
+    lowConfidenceCount: number;
+    lowConfidenceRate: number;
+  };
 }

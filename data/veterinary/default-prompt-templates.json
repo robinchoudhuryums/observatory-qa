@@ -1,0 +1,32 @@
+[
+  {
+    "callCategory": "inbound",
+    "name": "Veterinary Front Desk Inbound QA",
+    "evaluationCriteria": "Evaluate the front desk staff on:\n1. Warm greeting — friendly tone, identified the practice by name\n2. Pet and owner identification — confirmed pet name, species, owner's last name\n3. Reason for visit determined — wellness exam, sick visit, emergency, surgery follow-up\n4. Urgency assessment — identified potentially emergent situations (difficulty breathing, seizures, toxin ingestion, trauma, bloat)\n5. Appointment scheduling — offered appropriate visit type and time, mentioned fasting if needed for labs/surgery\n6. Cost estimate discussed when asked — provided range without guaranteeing exact cost\n7. Pre-visit instructions — bring vaccination records, stool sample, keep pet fasted if applicable\n8. Compassionate tone — especially for callers with sick or aging pets",
+    "requiredPhrases": [
+      { "phrase": "pet's name", "label": "Pet Identification", "severity": "required" },
+      { "phrase": "when did this start", "label": "Symptom Onset Question", "severity": "recommended" },
+      { "phrase": "Is there anything else", "label": "Closing Offer", "severity": "recommended" }
+    ],
+    "scoringWeights": { "compliance": 25, "customerExperience": 30, "communication": 25, "resolution": 20 },
+    "additionalInstructions": "Veterinary calls often involve emotionally distressed pet owners. The 'customerExperience' score should reflect empathy and patience. Flag any call where the staff member was dismissive of the owner's concerns about their pet. Emergency triage is critical — flag as 'agent_misconduct:improper_triage' if a potentially life-threatening situation (toxin ingestion, GDV/bloat, difficulty breathing, uncontrolled bleeding) was not treated as urgent."
+  },
+  {
+    "callCategory": "outbound",
+    "name": "Veterinary Outbound Call QA",
+    "evaluationCriteria": "Evaluate the staff on outbound call quality:\n1. Identified themselves and the practice clearly\n2. Confirmed they were speaking with the pet owner\n3. Purpose clearly stated — wellness reminder, post-surgery check-in, lab results, vaccination due\n4. Lab/test results communicated clearly in owner-friendly language\n5. Recommendations explained — next steps, medication changes, follow-up needed\n6. Cost discussed transparently when applicable\n7. Appointment scheduled or callback arranged\n8. Compassionate delivery — especially for difficult news (abnormal results, chronic conditions)",
+    "requiredPhrases": [
+      { "phrase": "calling about", "label": "Purpose Statement", "severity": "recommended" },
+      { "phrase": "any questions", "label": "Invite Questions", "severity": "recommended" }
+    ],
+    "scoringWeights": { "compliance": 20, "customerExperience": 30, "communication": 30, "resolution": 20 },
+    "additionalInstructions": "Track the call outcome: APPOINTMENT_SCHEDULED, CALLBACK_REQUESTED, OWNER_DECLINED, VOICEMAIL_LEFT, WRONG_NUMBER. For lab result callbacks, note whether the staff member explained findings in understandable terms or just read technical values. Wellness reminder calls should emphasize preventive care benefits."
+  },
+  {
+    "callCategory": "clinical_encounter",
+    "name": "Veterinary Clinical Encounter QA",
+    "evaluationCriteria": "Evaluate the veterinary encounter on:\n1. Patient and owner greeted warmly — pet addressed by name\n2. History gathered — presenting complaint, duration, changes in behavior/appetite/energy\n3. Physical exam findings communicated to owner in understandable terms\n4. Diagnostic plan explained — what tests are recommended and why, with cost estimate\n5. Treatment options presented — including alternatives at different price points when applicable\n6. Client education — home care instructions, medication administration, warning signs to watch for\n7. Prognosis discussed honestly and compassionately\n8. Follow-up plan established — recheck appointment, phone update, or monitoring instructions\n9. Informed consent obtained for procedures and diagnostics",
+    "scoringWeights": { "compliance": 25, "customerExperience": 30, "communication": 30, "resolution": 15 },
+    "additionalInstructions": "Veterinary encounters involve both clinical quality and client communication. The owner must understand the diagnosis and treatment plan well enough to administer medications and monitor at home. Note if cost was discussed transparently — financial stress is a major factor in treatment compliance for veterinary patients."
+  }
+]

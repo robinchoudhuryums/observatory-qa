@@ -4,6 +4,7 @@ import { requireAuth, injectOrgContext } from "../auth";
 import { safeFloat } from "./helpers";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { asyncHandler } from "../middleware/error-handler";
+import { getCallClusters } from "../services/call-clustering";
 
 /** Maximum calls to process for analytics to prevent memory exhaustion. */
 const MAX_ANALYTICS_CALLS = 10_000;
@@ -125,7 +126,46 @@ export function registerInsightRoutes(app: Express): void {
             ? completed.filter((c) => c.sentiment?.overallSentiment === "negative").length / completed.length
             : 0,
         escalationRate: completed.length > 0 ? escalationPatterns.length / completed.length : 0,
+        /** Average confidence across all analyzed calls (0-1). */
+        avgConfidence:
+          completed.length > 0
+            ? Math.round(
+                (completed.reduce((sum, c) => sum + safeFloat(c.analysis?.confidenceScore, 0), 0) / completed.length) *
+                  100,
+              ) / 100
+            : 0,
+        lowConfidenceRate:
+          completed.length > 0 ? Math.round((lowConfidenceCalls.length / completed.length) * 100) / 100 : 0,
       },
+    });
+  }));
+
+  // ==================== CALL PATTERN CLUSTERS ====================
+
+  /**
+   * Discover recurring call patterns via TF-IDF topic clustering.
+   * Groups calls by topic similarity and surfaces trends.
+   */
+  app.get("/api/insights/clusters", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+    const orgId = req.orgId!;
+    const days = Math.min(Math.max(parseInt(String(req.query.days)) || 30, 1), 90);
+    const minSize = Math.min(Math.max(parseInt(String(req.query.minSize)) || 2, 2), 50);
+    const maxClusters = Math.min(Math.max(parseInt(String(req.query.maxClusters)) || 10, 1), 50);
+    const employeeId = typeof req.query.employeeId === "string" ? req.query.employeeId : undefined;
+
+    const clusters = await getCallClusters(orgId, { days, employeeId, minClusterSize: minSize, maxClusters });
+
+    logPhiAccess({
+      ...auditContext(req),
+      event: "view_call_clusters",
+      resourceType: "insights",
+      detail: `${clusters.length} clusters found (${days} days, minSize=${minSize})`,
+    });
+
+    res.json({
+      clusters,
+      totalClusters: clusters.length,
+      params: { days, minSize, maxClusters, employeeId },
     });
   }));
 
@@ -439,5 +479,168 @@ export function registerInsightRoutes(app: Express): void {
       totalAnalyzed: calls.length,
       categories,
     });
+  }));
+
+  // ==================== AGENT COMPARISON ====================
+
+  /**
+   * Side-by-side comparison of up to 5 agents.
+   * Returns sub-score radar data, sentiment breakdown, and call stats per agent.
+   */
+  app.get("/api/insights/compare", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+    const orgId = req.orgId!;
+    const employeeIdsParam = typeof req.query.employeeIds === "string" ? req.query.employeeIds : "";
+    const employeeIds = employeeIdsParam.split(",").map((id) => id.trim()).filter(Boolean).slice(0, 5);
+
+    if (employeeIds.length < 2) {
+      return res.status(400).json({ message: "Provide at least 2 employee IDs (comma-separated)" });
+    }
+
+    const allCalls = await storage.getCallSummaries(orgId, { status: "completed" });
+    const employees = await storage.getAllEmployees(orgId);
+    const empMap = new Map(employees.map((e) => [e.id, e]));
+
+    const comparison = employeeIds.map((empId) => {
+      const emp = empMap.get(empId);
+      const empCalls = allCalls.filter((c) => c.employeeId === empId && c.analysis);
+
+      const scores = empCalls.map((c) => parseFloat(String(c.analysis?.performanceScore || "0"))).filter((s) => s > 0);
+      const avgScore = scores.length > 0 ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) / 100 : null;
+
+      // Sub-score averages for radar chart
+      const subScoreSums = { compliance: 0, customerExperience: 0, communication: 0, resolution: 0 };
+      let subCount = 0;
+      for (const c of empCalls) {
+        const ss = (c.analysis as any)?.subScores;
+        if (ss && typeof ss === "object") {
+          subScoreSums.compliance += Number(ss.compliance) || 0;
+          subScoreSums.customerExperience += Number(ss.customerExperience || ss.customer_experience) || 0;
+          subScoreSums.communication += Number(ss.communication) || 0;
+          subScoreSums.resolution += Number(ss.resolution) || 0;
+          subCount++;
+        }
+      }
+
+      const sentimentCounts = { positive: 0, neutral: 0, negative: 0 };
+      for (const c of empCalls) {
+        const s = c.sentiment?.overallSentiment;
+        if (s === "positive") sentimentCounts.positive++;
+        else if (s === "negative") sentimentCounts.negative++;
+        else sentimentCounts.neutral++;
+      }
+
+      return {
+        employeeId: empId,
+        name: emp?.name || "Unknown",
+        role: emp?.role || "",
+        callCount: empCalls.length,
+        avgScore,
+        subScores: subCount > 0 ? {
+          compliance: Math.round((subScoreSums.compliance / subCount) * 100) / 100,
+          customerExperience: Math.round((subScoreSums.customerExperience / subCount) * 100) / 100,
+          communication: Math.round((subScoreSums.communication / subCount) * 100) / 100,
+          resolution: Math.round((subScoreSums.resolution / subCount) * 100) / 100,
+        } : null,
+        sentiment: sentimentCounts,
+      };
+    });
+
+    logPhiAccess({ ...auditContext(req), event: "view_agent_comparison", resourceType: "insights" });
+    res.json({ agents: comparison });
+  }));
+
+  // ==================== ACTIVITY HEATMAP ====================
+
+  /**
+   * 24-hour x 7-day heatmap data for call volume or performance.
+   * Returns a grid of { dayOfWeek, hour, value } entries.
+   */
+  app.get("/api/insights/heatmap", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+    const orgId = req.orgId!;
+    const mode = req.query.mode === "performance" ? "performance" : "volume";
+    const employeeId = typeof req.query.employeeId === "string" ? req.query.employeeId : undefined;
+    const days = Math.min(Math.max(parseInt(String(req.query.days)) || 30, 7), 90);
+
+    const cutoff = new Date(Date.now() - days * 86400000);
+    let calls = await storage.getCallSummaries(orgId, { status: "completed" });
+    calls = calls.filter((c) => c.uploadedAt && new Date(c.uploadedAt) >= cutoff);
+    if (employeeId) calls = calls.filter((c) => c.employeeId === employeeId);
+
+    // Build 7x24 grid
+    const grid: Array<{ dayOfWeek: number; hour: number; callCount: number; avgScore: number | null }> = [];
+
+    for (let day = 0; day < 7; day++) {
+      for (let hour = 0; hour < 24; hour++) {
+        const slotCalls = calls.filter((c) => {
+          const d = new Date(c.uploadedAt!);
+          return d.getDay() === day && d.getHours() === hour;
+        });
+
+        const scores = slotCalls
+          .map((c) => parseFloat(String(c.analysis?.performanceScore || "")))
+          .filter((s) => !isNaN(s) && s > 0);
+
+        grid.push({
+          dayOfWeek: day,
+          hour,
+          callCount: slotCalls.length,
+          avgScore: scores.length > 0 ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10 : null,
+        });
+      }
+    }
+
+    logPhiAccess({ ...auditContext(req), event: "view_activity_heatmap", resourceType: "insights" });
+    res.json({ mode, days, grid });
+  }));
+
+  // ==================== PERFORMANCE SNAPSHOTS ====================
+
+  /**
+   * Generate a performance snapshot for an employee or company.
+   */
+  app.post("/api/insights/snapshots", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+    const orgId = req.orgId!;
+    const { level, targetId, periodDays } = req.body;
+
+    if (!level || !["employee", "company"].includes(level)) {
+      return res.status(400).json({ message: "level must be 'employee' or 'company'" });
+    }
+
+    const days = Math.min(Math.max(parseInt(periodDays) || 30, 7), 90);
+    const periodEnd = new Date();
+    const periodStart = new Date(Date.now() - days * 86400000);
+
+    const { generateEmployeeSnapshot, generateCompanySnapshot } = await import("../services/performance-snapshots");
+
+    let snapshot;
+    if (level === "employee") {
+      if (!targetId) return res.status(400).json({ message: "targetId required for employee snapshots" });
+      snapshot = await generateEmployeeSnapshot(orgId, targetId, periodStart, periodEnd);
+    } else {
+      snapshot = await generateCompanySnapshot(orgId, periodStart, periodEnd);
+    }
+
+    logPhiAccess({
+      ...auditContext(req),
+      event: "generate_performance_snapshot",
+      resourceType: "performance_snapshot",
+      resourceId: snapshot.id,
+    });
+    res.status(201).json(snapshot);
+  }));
+
+  /**
+   * Get historical snapshots for a target.
+   */
+  app.get("/api/insights/snapshots", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+    const orgId = req.orgId!;
+    const level = (req.query.level as string) || "company";
+    const targetId = (req.query.targetId as string) || orgId;
+    const limit = Math.min(Math.max(parseInt(String(req.query.limit)) || 10, 1), 50);
+
+    const { getSnapshots: getSnaps } = await import("../services/performance-snapshots");
+    const snapshots = getSnaps(orgId, level as any, targetId, limit);
+
+    res.json({ snapshots, count: snapshots.length });
   }));
 }

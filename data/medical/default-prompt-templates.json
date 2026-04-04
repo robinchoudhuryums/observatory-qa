@@ -1,0 +1,39 @@
+[
+  {
+    "callCategory": "inbound",
+    "name": "Medical Office Inbound QA",
+    "evaluationCriteria": "Evaluate the front desk/triage staff on:\n1. Patient identity verification (full name, DOB, or account number)\n2. HIPAA compliance — verified caller's identity before sharing any PHI\n3. Appropriate triage — distinguished routine scheduling from urgent/emergent needs\n4. Insurance verification or confirmation of insurance on file\n5. Appointment scheduling efficiency — offered appropriate visit type and provider\n6. Pre-visit instructions communicated (fasting, bring medications list, arrive early, etc.)\n7. Empathetic, professional tone — especially with anxious or distressed callers\n8. Accurate message-taking when provider was unavailable",
+    "requiredPhrases": [
+      { "phrase": "verify your date of birth", "label": "Patient Identity Verification", "severity": "required" },
+      { "phrase": "confirm your insurance", "label": "Insurance Verification", "severity": "recommended" },
+      { "phrase": "Is there anything else I can help you with", "label": "Closing Offer", "severity": "recommended" }
+    ],
+    "scoringWeights": { "compliance": 35, "customerExperience": 25, "communication": 25, "resolution": 15 },
+    "additionalInstructions": "Compliance is weighted heavily for medical calls due to HIPAA requirements. Flag any instance where PHI was discussed without proper identity verification. Note if urgent symptoms (chest pain, difficulty breathing, severe bleeding) were appropriately escalated to clinical staff or directed to 911."
+  },
+  {
+    "callCategory": "outbound",
+    "name": "Medical Office Outbound QA",
+    "evaluationCriteria": "Evaluate the staff on:\n1. Patient identity verification before discussing any health information\n2. Clear purpose stated — appointment reminder, lab results callback, referral follow-up, etc.\n3. HIPAA-compliant voicemail — limited to callback request, no PHI disclosed\n4. Medication/treatment instructions communicated clearly when applicable\n5. Follow-up appointment scheduling if needed\n6. Patient questions addressed or escalated appropriately\n7. Documentation — noted outcome of call in patient record",
+    "requiredPhrases": [
+      { "phrase": "verify your date of birth", "label": "Identity Verification", "severity": "required" },
+      { "phrase": "call us back", "label": "Callback Instructions", "severity": "recommended" }
+    ],
+    "scoringWeights": { "compliance": 35, "customerExperience": 25, "communication": 25, "resolution": 15 },
+    "additionalInstructions": "Pay special attention to voicemail messages — they must NOT contain any PHI (diagnosis, test results, medication names). Only the patient's name and a callback number are permissible. Flag voicemails that disclose health information as 'agent_misconduct:hipaa_voicemail_phi'."
+  },
+  {
+    "callCategory": "clinical_encounter",
+    "name": "Clinical Encounter QA",
+    "evaluationCriteria": "Evaluate the clinical encounter on:\n1. Patient identification and chief complaint clearly established\n2. History of present illness explored (onset, duration, severity, associated symptoms)\n3. Relevant medical/surgical/family/social history reviewed\n4. Review of systems conducted as appropriate\n5. Physical exam findings communicated to patient in understandable terms\n6. Assessment and plan clearly explained — diagnosis, treatment options, expected outcomes\n7. Patient education provided — medications, lifestyle modifications, warning signs\n8. Follow-up plan established — next appointment, referrals, lab orders\n9. Patient questions addressed — teach-back method used when appropriate\n10. Informed consent obtained for procedures if applicable",
+    "scoringWeights": { "compliance": 30, "customerExperience": 25, "communication": 30, "resolution": 15 },
+    "additionalInstructions": "Clinical encounters are evaluated on both clinical thoroughness and patient communication. The 'compliance' score reflects medical documentation standards. Note if the provider used jargon without explanation, rushed through the visit, or failed to address the patient's primary concern."
+  },
+  {
+    "callCategory": "telemedicine",
+    "name": "Telemedicine Visit QA",
+    "evaluationCriteria": "Evaluate the telemedicine encounter on:\n1. Technical setup — provider confirmed audio/video working, patient could hear/see clearly\n2. Patient identity verification — confirmed name, DOB, and location (for state licensing)\n3. Informed consent for telemedicine obtained or confirmed\n4. Clinical assessment adapted for virtual format — asked patient to show affected areas, take vitals if available\n5. Limitations acknowledged — clearly stated when in-person visit is needed\n6. Prescription management — e-prescribing with pharmacy confirmation\n7. Follow-up plan — clear instructions for when to seek in-person care\n8. Technical difficulties handled gracefully — fallback to phone if video fails",
+    "scoringWeights": { "compliance": 30, "customerExperience": 25, "communication": 30, "resolution": 15 },
+    "additionalInstructions": "Telemedicine has unique compliance requirements: patient location must be confirmed (interstate licensing), informed consent must be documented, and the provider must acknowledge limitations of virtual assessment. Flag encounters where the provider failed to establish the patient's physical location."
+  }
+]

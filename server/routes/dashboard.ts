@@ -77,6 +77,38 @@ export function registerDashboardRoutes(app: Express): void {
     res.json(distribution);
   }));
 
+  // Low-confidence calls (most recent calls with confidence below threshold)
+  app.get("/api/dashboard/low-confidence", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+    const orgId = req.orgId!;
+    const org = await storage.getOrganization(orgId);
+    const threshold = (org?.settings as any)?.confidenceThreshold ?? 0.5;
+    const limitParam = Math.min(safeInt(req.query.limit, 10), 50);
+
+    const allCalls = await storage.getCallSummaries(orgId, { status: "completed" });
+    const lowConfidence = allCalls
+      .filter((c) => {
+        const conf = parseFloat(c.analysis?.confidenceScore || "");
+        return !isNaN(conf) && conf > 0 && conf < threshold;
+      })
+      .sort((a, b) => {
+        const confA = parseFloat(a.analysis?.confidenceScore || "1");
+        const confB = parseFloat(b.analysis?.confidenceScore || "1");
+        return confA - confB; // lowest confidence first
+      })
+      .slice(0, limitParam)
+      .map((c) => ({
+        callId: c.id,
+        fileName: c.fileName,
+        uploadedAt: c.uploadedAt,
+        confidenceScore: parseFloat(c.analysis?.confidenceScore || "0"),
+        performanceScore: parseFloat(c.analysis?.performanceScore || "0"),
+        employeeId: c.employeeId,
+      }));
+
+    logPhiAccess({ ...auditContext(req), event: "view_low_confidence_calls", resourceType: "calls" });
+    res.json({ threshold, calls: lowConfidence, count: lowConfidence.length });
+  }));
+
   // Top performers (cached 60s per org)
   app.get("/api/dashboard/performers", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
     const limit = Math.min(safeInt(req.query.limit, 3), 100);
