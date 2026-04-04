@@ -290,6 +290,7 @@ export const promptTemplates = pgTable(
     scoringWeights: jsonb("scoring_weights"),
     additionalInstructions: text("additional_instructions"),
     isActive: boolean("is_active").notNull().default(true),
+    isDefault: boolean("is_default").notNull().default(false),
     updatedAt: timestamp("updated_at").defaultNow(),
     updatedBy: varchar("updated_by", { length: 255 }),
   },

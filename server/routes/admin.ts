@@ -112,6 +112,78 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
+  // Reset prompt templates to industry defaults — deletes all existing templates
+  // and re-seeds from the default template files for the org's industry type.
+  app.post(
+    "/api/prompt-templates/reset-defaults",
+    requireAuth,
+    injectOrgContext,
+    requireRole("admin"),
+    async (req, res) => {
+      try {
+        const orgId = req.orgId!;
+        const org = await storage.getOrganization(orgId);
+        const industry = (org?.settings as any)?.industryType || "general";
+
+        // Delete all existing templates for this org
+        const existing = await storage.getAllPromptTemplates(orgId);
+        for (const tmpl of existing) {
+          await storage.deletePromptTemplate(orgId, tmpl.id);
+        }
+
+        // Re-seed from industry defaults (with general fallback)
+        const { readFile } = await import("fs/promises");
+        const { join } = await import("path");
+        const templateDirs = [industry];
+        if (industry !== "general") templateDirs.push("general");
+
+        let seeded = 0;
+        for (const dir of templateDirs) {
+          try {
+            const templatesPath = join(process.cwd(), "data", dir, "default-prompt-templates.json");
+            const rawTemplates = await readFile(templatesPath, "utf-8");
+            const templates = JSON.parse(rawTemplates) as Array<{
+              callCategory: string;
+              name: string;
+              evaluationCriteria: string;
+              requiredPhrases?: unknown;
+              scoringWeights?: unknown;
+              additionalInstructions?: string;
+            }>;
+            for (const tmpl of templates) {
+              await storage.createPromptTemplate(orgId, {
+                orgId,
+                callCategory: tmpl.callCategory,
+                name: tmpl.name,
+                evaluationCriteria: tmpl.evaluationCriteria,
+                requiredPhrases: tmpl.requiredPhrases as any,
+                scoringWeights: tmpl.scoringWeights as any,
+                additionalInstructions: tmpl.additionalInstructions || undefined,
+                isActive: true,
+                isDefault: true,
+              });
+            }
+            seeded = templates.length;
+            break;
+          } catch {
+            if (dir === industry && templateDirs.length > 1) continue;
+          }
+        }
+
+        logPhiAccess({
+          ...auditContext(req),
+          event: "prompt_templates_reset_to_defaults",
+          resourceType: "prompt_template",
+          detail: `Deleted ${existing.length} templates, seeded ${seeded} defaults (industry: ${industry})`,
+        });
+        const newTemplates = await storage.getAllPromptTemplates(orgId);
+        res.json({ message: "Templates reset to defaults", count: seeded, templates: newTemplates });
+      } catch (error) {
+        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to reset templates"));
+      }
+    },
+  );
+
   // Bulk re-analysis: re-analyze recent calls using updated prompt template
   app.post("/api/calls/reanalyze", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
     try {
