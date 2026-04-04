@@ -125,6 +125,16 @@ export function registerInsightRoutes(app: Express): void {
             ? completed.filter((c) => c.sentiment?.overallSentiment === "negative").length / completed.length
             : 0,
         escalationRate: completed.length > 0 ? escalationPatterns.length / completed.length : 0,
+        /** Average confidence across all analyzed calls (0-1). */
+        avgConfidence:
+          completed.length > 0
+            ? Math.round(
+                (completed.reduce((sum, c) => sum + safeFloat(c.analysis?.confidenceScore, 0), 0) / completed.length) *
+                  100,
+              ) / 100
+            : 0,
+        lowConfidenceRate:
+          completed.length > 0 ? Math.round((lowConfidenceCalls.length / completed.length) * 100) / 100 : 0,
       },
     });
   }));
