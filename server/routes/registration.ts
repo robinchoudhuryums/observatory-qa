@@ -144,34 +144,51 @@ export function registerRegistrationRoutes(app: Express): void {
       // Sync seat count to Stripe (fire-and-forget — no subscription yet for new orgs, no-op)
       syncSeatUsage(org.id).catch(() => {});
 
-      // Auto-seed default prompt templates based on industry type
-      if (industryType === "dental") {
-        try {
-          const templatesPath = join(process.cwd(), "data", "dental", "default-prompt-templates.json");
-          const rawTemplates = await readFile(templatesPath, "utf-8");
-          const templates = JSON.parse(rawTemplates) as Array<{
-            callCategory: string;
-            name: string;
-            evaluationCriteria: string;
-            requiredPhrases?: unknown;
-            scoringWeights?: unknown;
-            additionalInstructions?: string;
-          }>;
-          for (const tmpl of templates) {
-            await storage.createPromptTemplate(org.id, {
-              orgId: org.id,
-              callCategory: tmpl.callCategory,
-              name: tmpl.name,
-              evaluationCriteria: tmpl.evaluationCriteria,
-              requiredPhrases: tmpl.requiredPhrases as any,
-              scoringWeights: tmpl.scoringWeights as any,
-              additionalInstructions: tmpl.additionalInstructions || undefined,
-              isActive: true,
-            });
+      // Auto-seed default prompt templates based on industry type.
+      // Each industry has a curated set of templates in data/<industry>/default-prompt-templates.json.
+      // Falls back to "general" templates if the specific industry file is not found.
+      {
+        const industry = industryType || "general";
+        const templateDirs = [industry];
+        // Always include general templates as a fallback for industries without their own
+        if (industry !== "general") templateDirs.push("general");
+
+        let seeded = false;
+        for (const dir of templateDirs) {
+          try {
+            const templatesPath = join(process.cwd(), "data", dir, "default-prompt-templates.json");
+            const rawTemplates = await readFile(templatesPath, "utf-8");
+            const templates = JSON.parse(rawTemplates) as Array<{
+              callCategory: string;
+              name: string;
+              evaluationCriteria: string;
+              requiredPhrases?: unknown;
+              scoringWeights?: unknown;
+              additionalInstructions?: string;
+            }>;
+            for (const tmpl of templates) {
+              await storage.createPromptTemplate(org.id, {
+                orgId: org.id,
+                callCategory: tmpl.callCategory,
+                name: tmpl.name,
+                evaluationCriteria: tmpl.evaluationCriteria,
+                requiredPhrases: tmpl.requiredPhrases as any,
+                scoringWeights: tmpl.scoringWeights as any,
+                additionalInstructions: tmpl.additionalInstructions || undefined,
+                isActive: true,
+                isDefault: true,
+              });
+            }
+            logger.info({ orgId: org.id, industry: dir, count: templates.length }, "Auto-seeded default prompt templates");
+            seeded = true;
+            break; // Use the first matching industry directory
+          } catch (seedErr) {
+            // File not found for this industry — try next in the fallback chain
+            if (dir === industry && templateDirs.length > 1) continue;
+            if (!seeded) {
+              logger.warn({ err: seedErr, orgId: org.id, industry: dir }, "Failed to seed default templates — continuing without them");
+            }
           }
-          logger.info({ orgId: org.id, count: templates.length }, "Auto-seeded dental prompt templates");
-        } catch (seedErr) {
-          logger.warn({ err: seedErr, orgId: org.id }, "Failed to seed dental templates — continuing without them");
         }
       }
 
