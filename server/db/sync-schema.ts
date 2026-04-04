@@ -298,13 +298,21 @@ export async function syncSchema(db: Database): Promise<void> {
       .catch(() => {
         logger.warn("Failed to create analysis summary full-text search index");
       });
-    // GIN index for JSONB topics search
+    // GIN index for JSONB topics containment queries (@>)
     await db
       .execute(
         sql`CREATE INDEX IF NOT EXISTS analyses_topics_gin_idx ON call_analyses USING GIN (topics jsonb_path_ops)`,
       )
       .catch(() => {
         logger.warn("Failed to create topics GIN index");
+      });
+    // GIN tsvector index for full-text search on topics::text (used by searchCalls)
+    await db
+      .execute(
+        sql`CREATE INDEX IF NOT EXISTS analyses_topics_search_idx ON call_analyses USING GIN (to_tsvector('english', coalesce(topics::text, '')))`,
+      )
+      .catch(() => {
+        logger.warn("Failed to create topics full-text search index");
       });
     await addRlsPolicy(db, "call_analyses").catch((e) =>
       logger.warn({ err: e }, "RLS setup skipped for call_analyses"),

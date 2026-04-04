@@ -129,26 +129,48 @@ export class BedrockProvider implements AIAnalysisProvider {
       throw new Error("Bedrock provider not configured — no AWS credentials available");
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), BEDROCK_TIMEOUT_MS);
-    try {
-      const command = new ConverseCommand({
-        modelId: this.model,
-        messages: [{ role: "user", content: [{ text: prompt }] }],
-        inferenceConfig: { temperature: 0.4, maxTokens: 2048 },
-      });
+    // Retry with exponential backoff for transient failures (429, 5xx, timeout).
+    // All callers (coaching plans, insurance narratives, reports, referral letters)
+    // benefit without needing individual withRetry() wrappers.
+    const MAX_RETRIES = 2;
+    const BASE_DELAY_MS = 1000;
+    let lastErr: any;
 
-      const result = await this.client.send(command, { abortSignal: controller.signal });
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), BEDROCK_TIMEOUT_MS);
+      try {
+        const command = new ConverseCommand({
+          modelId: this.model,
+          messages: [{ role: "user", content: [{ text: prompt }] }],
+          inferenceConfig: { temperature: 0.4, maxTokens: 2048 },
+        });
 
-      this.logTokenUsage(result, "generateText");
-      return result.output?.message?.content?.[0]?.text || "";
-    } catch (err: any) {
-      // HIPAA: Truncate error to avoid leaking PHI in logs
-      const statusCode = err?.$metadata?.httpStatusCode || "unknown";
-      throw new Error(`Bedrock API error (${statusCode}): ${(err?.message || "").substring(0, 200)}`);
-    } finally {
-      clearTimeout(timeout);
+        const result = await this.client.send(command, { abortSignal: controller.signal });
+
+        this.logTokenUsage(result, "generateText");
+        return result.output?.message?.content?.[0]?.text || "";
+      } catch (err: any) {
+        lastErr = err;
+        clearTimeout(timeout);
+        const statusCode = err?.$metadata?.httpStatusCode;
+        const isRetryable = statusCode === 429 || (statusCode >= 500 && statusCode < 600)
+          || err?.name === "AbortError" || err?.name === "TimeoutError";
+
+        if (isRetryable && attempt < MAX_RETRIES) {
+          const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+          logger.warn({ attempt: attempt + 1, statusCode, delay }, "Bedrock generateText transient failure — retrying");
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+        // Non-retryable or retries exhausted
+        // HIPAA: Truncate error to avoid leaking PHI in logs
+        throw new Error(`Bedrock API error (${statusCode || "unknown"}): ${(err?.message || "").substring(0, 200)}`);
+      } finally {
+        clearTimeout(timeout);
+      }
     }
+    throw lastErr; // Should never reach here, but TypeScript needs it
   }
 
   async analyzeCallTranscript(
