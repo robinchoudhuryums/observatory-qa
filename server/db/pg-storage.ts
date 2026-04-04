@@ -572,18 +572,23 @@ export class PostgresStorage {
 
   async getCallSummaries(
     orgId: string,
-    filters: { status?: string; sentiment?: string; employee?: string } = {},
+    filters: { status?: string; sentiment?: string; employee?: string; limit?: number; offset?: number } = {},
   ): Promise<CallSummary[]> {
     // Same as getCallsWithDetails but skips transcript table entirely
     const conditions = [eq(tables.calls.orgId, orgId)];
     if (filters.status) conditions.push(eq(tables.calls.status, filters.status));
     if (filters.employee) conditions.push(eq(tables.calls.employeeId, filters.employee));
 
-    const callRows = await this.db
+    // Apply query-level limit to prevent OOM on large orgs (export routes can have 100K+ calls)
+    const queryLimit = filters.limit ?? 50_000; // Hard cap: never load more than 50K rows
+    let query = this.db
       .select()
       .from(tables.calls)
       .where(and(...conditions))
-      .orderBy(desc(tables.calls.uploadedAt));
+      .orderBy(desc(tables.calls.uploadedAt))
+      .limit(queryLimit);
+    if (filters.offset) query = query.offset(filters.offset) as typeof query;
+    const callRows = await query;
 
     if (callRows.length === 0) return [];
 

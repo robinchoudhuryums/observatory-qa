@@ -179,6 +179,8 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(
       sql`CREATE INDEX IF NOT EXISTS calls_org_employee_status_idx ON calls (org_id, employee_id, status)`,
     );
+    // Index for AssemblyAI webhook lookups (getCallByAssemblyAiId)
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS calls_assembly_ai_id_idx ON calls (assembly_ai_id)`);
     await addRlsPolicy(db, "calls").catch((e) => logger.warn({ err: e }, "RLS setup skipped for calls"));
 
     // Multi-channel support columns

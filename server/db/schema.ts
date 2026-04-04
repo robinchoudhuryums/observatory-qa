@@ -139,6 +139,7 @@ export const calls = pgTable(
     index("calls_email_thread_idx").on(t.orgId, t.emailThreadId),
     index("calls_org_status_uploaded_idx").on(t.orgId, t.status, t.uploadedAt),
     index("calls_org_employee_status_idx").on(t.orgId, t.employeeId, t.status),
+    index("calls_assembly_ai_id_idx").on(t.assemblyAiId),
   ],
 );
 
