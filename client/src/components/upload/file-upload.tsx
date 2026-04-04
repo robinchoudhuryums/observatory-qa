@@ -6,6 +6,7 @@ import { HelpTip } from "@/components/ui/help-tip";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
+import { useBeforeUnload } from "@/hooks/use-before-unload";
 import { CALL_CATEGORIES } from "@shared/schema";
 import type { Employee } from "@shared/schema";
 import {
@@ -47,6 +48,10 @@ export default function FileUpload() {
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([]);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Warn before navigating away while files are uploading or processing
+  const hasActiveUploads = uploadFiles.some((f) => f.status === "uploading" || f.status === "processing");
+  useBeforeUnload(hasActiveUploads);
 
   // Listen for WebSocket call updates via the shared connection (dispatched by useWebSocket hook)
   useEffect(() => {
