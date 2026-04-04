@@ -48,6 +48,9 @@ export function recordFaqQuery(
   confidenceScore: number,
   confidenceLevel: string,
 ): void {
+  // Guard against NaN/Infinity from failed embedding operations — would corrupt avgConfidence
+  if (!Number.isFinite(confidenceScore)) return;
+
   let orgData = orgFaqData.get(orgId);
   if (!orgData) {
     orgData = new Map();
