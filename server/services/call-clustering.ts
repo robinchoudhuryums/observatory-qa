@@ -93,7 +93,7 @@ function buildTfIdf(calls: CallSummary[]): TermFrequency[] {
       tf.set(term, (tf.get(term) || 0) + 1);
     }
     docTerms.push({ callId: call.id, terms: tf, uploadedAt: call.uploadedAt || "" });
-    for (const term of tf.keys()) {
+    for (const term of Array.from(tf.keys())) {
       docFreq.set(term, (docFreq.get(term) || 0) + 1);
     }
   }
@@ -101,7 +101,7 @@ function buildTfIdf(calls: CallSummary[]): TermFrequency[] {
   // Apply IDF weighting
   const N = calls.length;
   for (const dt of docTerms) {
-    for (const [term, count] of dt.terms) {
+    for (const [term, count] of Array.from(dt.terms)) {
       const idf = Math.log(N / (docFreq.get(term) || 1));
       dt.terms.set(term, count * idf);
     }
@@ -115,12 +115,12 @@ function buildTfIdf(calls: CallSummary[]): TermFrequency[] {
  */
 function cosineSimilarity(a: Map<string, number>, b: Map<string, number>): number {
   let dot = 0, magA = 0, magB = 0;
-  for (const [term, valA] of a) {
+  for (const [term, valA] of Array.from(a)) {
     const valB = b.get(term) || 0;
     dot += valA * valB;
     magA += valA * valA;
   }
-  for (const valB of b.values()) {
+  for (const valB of Array.from(b.values())) {
     magB += valB * valB;
   }
   const mag = Math.sqrt(magA) * Math.sqrt(magB);
@@ -167,7 +167,7 @@ function clusterCalls(
 function getClusterTopTerms(docs: TermFrequency[], limit = 5): string[] {
   const aggregate = new Map<string, number>();
   for (const doc of docs) {
-    for (const [term, score] of doc.terms) {
+    for (const [term, score] of Array.from(doc.terms)) {
       aggregate.set(term, (aggregate.get(term) || 0) + score);
     }
   }
@@ -246,10 +246,10 @@ export async function getCallClusters(
   const results: TopicCluster[] = [];
   let clusterIdx = 0;
 
-  for (const [, docs] of rawClusters) {
+  for (const [, docs] of Array.from(rawClusters)) {
     if (docs.length < minSize) continue;
 
-    const callIds = docs.map((d) => d.callId);
+    const callIds = docs.map((d: TermFrequency) => d.callId);
     const clusterCalls = callIds.map((id) => callMap.get(id)).filter(Boolean) as CallSummary[];
 
     // Average performance score
@@ -284,8 +284,8 @@ export async function getCallClusters(
 
     // Recent calls (last 7 days)
     const recentCallIds = docs
-      .filter((d) => new Date(d.uploadedAt).getTime() >= sevenDaysAgo)
-      .map((d) => d.callId);
+      .filter((d: TermFrequency) => new Date(d.uploadedAt).getTime() >= sevenDaysAgo)
+      .map((d: TermFrequency) => d.callId);
 
     results.push({
       id: `cluster-${clusterIdx}`,
