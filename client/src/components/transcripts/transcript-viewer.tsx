@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Link } from "wouter";
 import { useBeforeUnload } from "@/hooks/use-before-unload";
+import { useToast } from "@/hooks/use-toast";
 import { toDisplayString } from "@/lib/display-utils";
 import type { CallWithDetails, AuthUser } from "@shared/schema";
 import { getQueryFn } from "@/lib/queryClient";
@@ -82,6 +83,7 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
   const [playbackRate, setPlaybackRate] = useState(1);
   const audioRef = useRef<HTMLAudioElement>(null);
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   // Current user context — needed for HIPAA-compliant audit trail on corrections
   const { data: currentUser } = useQuery<AuthUser>({
@@ -175,8 +177,8 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message || "Failed to save corrections");
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || `Failed to save corrections (HTTP ${res.status})`);
       }
       return res.json();
     },
@@ -185,6 +187,10 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
       setShowCorrectionMode(false);
       setPendingCorrections(new Map());
       setEditingWordIndex(null);
+      toast({ title: "Corrections saved", description: "Transcript corrections have been applied." });
+    },
+    onError: (error) => {
+      toast({ title: "Save Failed", description: error.message, variant: "destructive" });
     },
   });
 
@@ -738,6 +744,17 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
                             className={`inline-block ${confClass} ${corrClass}`}
                             title={showConfidence ? `Confidence: ${(word.confidence * 100).toFixed(0)}%` : undefined}
                             onClick={() => handleWordClick(wordIndex, isPending ? correctedText! : word.text)}
+                            {...(showCorrectionMode ? {
+                              role: "button" as const,
+                              tabIndex: 0,
+                              "aria-label": `${isPending ? "Edit correction for" : "Correct"} "${word.text}"`,
+                              onKeyDown: (e: React.KeyboardEvent) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  handleWordClick(wordIndex, isPending ? correctedText! : word.text);
+                                }
+                              },
+                            } : {})}
                           >
                             {isPending ? (
                               <>

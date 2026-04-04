@@ -321,6 +321,8 @@ export default function FileUpload() {
                       onClick={() => updateFile(index, { detailsOpen: !fileData.detailsOpen })}
                       className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors shrink-0"
                       aria-expanded={fileData.detailsOpen}
+                      aria-controls={`upload-details-${index}`}
+                      aria-label={`Toggle upload details for ${fileData.file.name}`}
                     >
                       <RiSettings3Line className="w-3.5 h-3.5" />
                       <span className="hidden sm:inline">Details</span>
@@ -357,7 +359,7 @@ export default function FileUpload() {
 
               {/* Collapsible call details (progressive disclosure) */}
               {fileData.status === "pending" && fileData.detailsOpen && (
-                <div className="flex flex-wrap gap-2 pt-1 pl-11">
+                <div id={`upload-details-${index}`} className="flex flex-wrap gap-2 pt-1 pl-11">
                   <Select onValueChange={(value) => updateFile(index, { callCategory: value })}>
                     <SelectTrigger className="h-8 w-36 text-xs">
                       <SelectValue placeholder="Call type" />
