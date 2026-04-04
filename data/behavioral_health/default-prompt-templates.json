@@ -1,0 +1,32 @@
+[
+  {
+    "callCategory": "inbound",
+    "name": "Behavioral Health Intake Call QA",
+    "evaluationCriteria": "Evaluate the intake coordinator on:\n1. Warm, non-judgmental greeting — created a safe space from the first moment\n2. Assessed urgency — asked about suicidal ideation, self-harm, or crisis (when appropriate)\n3. Gathered basic information — reason for seeking services, insurance, availability\n4. Explained services offered — therapy types, group programs, medication management\n5. Set expectations — waitlist timeline, first appointment process, what to bring\n6. Confidentiality explained — informed about privacy protections and exceptions (duty to warn)\n7. Provided crisis resources — gave crisis hotline number even for non-urgent callers\n8. Followed up on referral source — how they heard about the practice",
+    "requiredPhrases": [
+      { "phrase": "988", "label": "Crisis Hotline Reference (988 Suicide & Crisis Lifeline)", "severity": "recommended" },
+      { "phrase": "confidential", "label": "Confidentiality Assurance", "severity": "required" },
+      { "phrase": "what brings you in", "label": "Open-Ended Intake Question", "severity": "recommended" }
+    ],
+    "scoringWeights": { "compliance": 30, "customerExperience": 35, "communication": 25, "resolution": 10 },
+    "additionalInstructions": "Behavioral health intake calls require exceptional sensitivity. The 'customerExperience' score is weighted highest because callers are often vulnerable and may not call back if they feel judged or dismissed. Flag any instance where the staff member was dismissive of the caller's concerns, used stigmatizing language, or failed to assess for safety when the caller mentioned distress."
+  },
+  {
+    "callCategory": "outbound",
+    "name": "Behavioral Health Follow-Up QA",
+    "evaluationCriteria": "Evaluate the staff on follow-up call quality:\n1. Identified themselves and practice clearly\n2. Confirmed patient identity before discussing any health information\n3. Checked in on the patient's well-being — genuine, not scripted\n4. Appointment reminder or rescheduling handled smoothly\n5. Medication adherence check (if applicable) — asked without judgment\n6. Addressed barriers to treatment — transportation, cost, scheduling conflicts\n7. Safety check — assessed current risk level when appropriate\n8. Voicemail was HIPAA-compliant — no mention of behavioral health diagnosis or treatment details",
+    "requiredPhrases": [
+      { "phrase": "verify your date of birth", "label": "Identity Verification", "severity": "required" },
+      { "phrase": "how have you been", "label": "Wellness Check-In", "severity": "recommended" }
+    ],
+    "scoringWeights": { "compliance": 30, "customerExperience": 30, "communication": 25, "resolution": 15 },
+    "additionalInstructions": "Behavioral health follow-up calls carry extra HIPAA sensitivity — 42 CFR Part 2 protects substance use disorder records with stricter confidentiality than standard HIPAA. Voicemails must NOT mention the practice's behavioral health specialty, diagnosis, or treatment. Flag violations as 'agent_misconduct:hipaa_behavioral_health_disclosure'."
+  },
+  {
+    "callCategory": "clinical_encounter",
+    "name": "Therapy Session QA",
+    "evaluationCriteria": "Evaluate the therapy session on:\n1. Therapeutic rapport — provider demonstrated warmth, empathy, and genuine interest\n2. Session structure — had a clear focus/agenda while remaining flexible\n3. Evidence-based techniques applied — identifiable therapeutic modality (CBT, DBT, MI, etc.)\n4. Patient engagement — provider encouraged patient participation and self-reflection\n5. Progress monitoring — referenced treatment goals, assessed symptom changes\n6. Safety assessment — evaluated risk when clinically indicated\n7. Homework/between-session tasks — assigned actionable steps for continued progress\n8. Session summary — reviewed key insights and next steps before closing\n9. Documentation quality — session notes capture presenting concerns, interventions used, and plan",
+    "scoringWeights": { "compliance": 25, "customerExperience": 30, "communication": 30, "resolution": 15 },
+    "additionalInstructions": "Therapy session evaluation should respect the therapeutic relationship. The 'resolution' score for therapy is about progress toward treatment goals, not single-session problem-solving. Note the therapeutic modality used (CBT, DBT, psychodynamic, EMDR, motivational interviewing) and whether interventions were appropriate for the presenting concern."
+  }
+]

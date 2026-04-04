@@ -1,0 +1,39 @@
+[
+  {
+    "callCategory": "inbound",
+    "name": "Inbound Call QA",
+    "evaluationCriteria": "Evaluate the agent on:\n1. Professional greeting — identified themselves and the company\n2. Active listening — acknowledged the caller's concern before responding\n3. Accurate information provided — gave correct answers or escalated when unsure\n4. Problem resolution — resolved the issue on this call (first-call resolution)\n5. Hold/transfer handling — explained reason before hold, checked back within 2 minutes\n6. Call control — kept the conversation focused without being dismissive\n7. Closing — summarized next steps, confirmed caller satisfaction, offered additional help\n8. Compliance — followed company policies and scripts where applicable",
+    "requiredPhrases": [
+      { "phrase": "Thank you for calling", "label": "Professional Greeting", "severity": "recommended" },
+      { "phrase": "Is there anything else I can help you with", "label": "Closing Offer", "severity": "recommended" },
+      { "phrase": "Let me verify", "label": "Verification Step", "severity": "recommended" }
+    ],
+    "scoringWeights": { "compliance": 25, "customerExperience": 25, "communication": 25, "resolution": 25 },
+    "additionalInstructions": "Track whether the issue was resolved on this call (FCR). Note if the caller had to repeat their issue to multiple people. Flag any instance where the agent gave incorrect information or made promises outside their authority."
+  },
+  {
+    "callCategory": "outbound",
+    "name": "Outbound Call QA",
+    "evaluationCriteria": "Evaluate the agent on:\n1. Professional introduction — clearly stated name, company, and purpose of call\n2. Permission to continue — asked if it was a good time to talk\n3. Clear value proposition — explained why the call benefits the customer\n4. Objection handling — addressed concerns without being pushy\n5. Accurate information — product/service details were correct\n6. Call objective achieved — appointment set, information delivered, or issue resolved\n7. Next steps communicated — clear follow-up plan agreed upon\n8. Compliance — followed do-not-call rules, disclosed required information",
+    "requiredPhrases": [
+      { "phrase": "my name is", "label": "Self-Introduction", "severity": "required" },
+      { "phrase": "is this a good time", "label": "Permission to Continue", "severity": "recommended" }
+    ],
+    "scoringWeights": { "compliance": 25, "customerExperience": 30, "communication": 25, "resolution": 20 },
+    "additionalInstructions": "Track the outcome: APPOINTMENT_SET, CALLBACK_SCHEDULED, INFORMATION_DELIVERED, DECLINED, VOICEMAIL_LEFT, WRONG_NUMBER. Note if the agent was overly aggressive or used high-pressure tactics, which should negatively impact the customer experience score."
+  },
+  {
+    "callCategory": "internal",
+    "name": "Internal Communication QA",
+    "evaluationCriteria": "Evaluate the internal communication on:\n1. Clear purpose — stated the reason for the call upfront\n2. Preparation — had relevant information ready before calling\n3. Collaboration — listened to the other party's input and perspective\n4. Actionable outcomes — clear decisions or action items were established\n5. Professional tone — respectful even in disagreements\n6. Efficiency — stayed on topic, respected time constraints\n7. Follow-up — summarized agreed actions and ownership\n8. Confidentiality — did not discuss sensitive matters inappropriately",
+    "scoringWeights": { "compliance": 15, "customerExperience": 25, "communication": 35, "resolution": 25 },
+    "additionalInstructions": "Internal calls are evaluated more on communication efficiency and collaboration quality. The 'customerExperience' sub-score here measures interpersonal professionalism between colleagues."
+  },
+  {
+    "callCategory": "vendor",
+    "name": "Vendor/Partner Call QA",
+    "evaluationCriteria": "Evaluate the staff member on:\n1. Professional representation — represented the company well\n2. Negotiation effectiveness — pursued favorable terms without damaging the relationship\n3. Clear requirements communication — articulated needs and specifications accurately\n4. Documentation — noted key agreements, pricing, timelines, and commitments\n5. Follow-up plan — established clear next steps and deadlines\n6. Escalation awareness — knew when to involve management for decisions beyond their authority\n7. Confidentiality — did not disclose proprietary or sensitive company information unnecessarily",
+    "scoringWeights": { "compliance": 20, "customerExperience": 25, "communication": 30, "resolution": 25 },
+    "additionalInstructions": "The 'customerExperience' sub-score here measures relationship management with the vendor/partner. Note any agreements made that may need management approval. Flag if sensitive pricing, volume, or strategic information was shared unnecessarily."
+  }
+]
