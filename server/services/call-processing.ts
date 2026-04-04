@@ -452,6 +452,9 @@ export interface ProcessAudioOptions {
   userId?: string;
   clinicalSpecialty?: string;
   noteFormat?: string;
+  /** ISO 639-1 language code (e.g., "en", "es"). When non-English, AssemblyAI
+   *  sentiment analysis is skipped to save ~12% on transcription costs. */
+  language?: string;
 }
 
 export async function processAudioFile(opts: ProcessAudioOptions): Promise<void> {
@@ -466,6 +469,7 @@ export async function processAudioFile(opts: ProcessAudioOptions): Promise<void>
     userId,
     clinicalSpecialty,
     noteFormat,
+    language,
   } = opts;
 
   logger.info({ callId }, "Starting audio processing");
@@ -484,6 +488,7 @@ export async function processAudioFile(opts: ProcessAudioOptions): Promise<void>
       wordBoost: settings?.customVocabulary?.length ? settings.customVocabulary : undefined,
       piiRedaction: settings?.piiRedaction,
       languageDetection: true,
+      language: language || (settings as any)?.primaryLanguage || undefined,
       // Only use webhooks when APP_BASE_URL is set (not in dev without tunnel)
       ...(appBaseUrl
         ? {

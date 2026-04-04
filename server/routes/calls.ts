@@ -251,7 +251,7 @@ export function registerCallRoutes(app: Express): void {
           return;
         }
 
-        const { employeeId, callCategory, clinicalSpecialty, noteFormat } = req.body;
+        const { employeeId, callCategory, clinicalSpecialty, noteFormat, language } = req.body;
 
         // Validate callCategory against allowed values
         const validCategories = CALL_CATEGORIES.map((c) => c.value);
@@ -343,6 +343,7 @@ export function registerCallRoutes(app: Express): void {
           userId: uploadUserId,
           clinicalSpecialty,
           noteFormat,
+          language,
         }).catch(async (error) => {
           logger.error({ callId: call.id, err: error }, "Failed to process call");
           try {

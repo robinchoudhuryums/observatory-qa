@@ -79,7 +79,7 @@ npx vite build         # Frontend-only build (quick verification)
 - **Unit tests**: Node.js built-in `test` module via `tsx` — `npm run test`
 - **E2E tests**: Playwright (Chromium) — `npm run test:e2e` or `npm run test:e2e:ui`
 - **Location**: `tests/` (unit), `tests/e2e/` (E2E)
-- **Unit test files** (65 files, 1298 tests):
+- **Unit test files** (68 files, 1347 tests):
   - `tests/schema.test.ts` — Zod schema validation (orgId on all entities, organization schemas)
   - `tests/ai-provider.test.ts` — AI provider utilities (parseJsonResponse, buildAnalysisPrompt, smartTruncate)
   - `tests/routes.test.ts` — API route handler tests
@@ -145,6 +145,9 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/audit-fixes.test.ts` — Audit fix verification (prompt injection, PHI redaction, LRU cache, RAG config, upload dedup, output guardrails)
   - `tests/schema-column-coverage.test.ts` — Schema sync column-level validation (Drizzle vs sync-schema DDL)
   - `tests/bedrock-mock.test.ts` — AI provider mock tests (score clamping, error codes, behavior switching)
+  - `tests/language-sentiment-skip.test.ts` — Language-aware sentiment skipping (non-English cost optimization, 8 tests)
+  - `tests/default-templates.test.ts` — Default industry template seeding (JSON validation, scoring weights, org isolation, 33 tests)
+  - `tests/confidence-filter.test.ts` — Confidence as first-class filter (dashboard metrics, data quality breakdown, boundary values, MemStorage, 8 tests)
 - **E2E test files** (12 specs):
   - `tests/e2e/fixtures.ts` — **Per-worker auth fixtures** (`adminTest`, `viewerTest`) — each worker registers unique org via `/api/auth/register`; falls back to env-var admin
   - `tests/e2e/auth.spec.ts` — Login, landing page
@@ -1601,6 +1604,17 @@ See `HEALTHCARE_EXPANSION_PLAN.md` for the full 4-phase healthcare expansion roa
 - **Super-admin role**: Platform-level admin (not org-scoped) for managing all organizations — `SUPER_ADMIN_USERS` env var
 - **PostgreSQL migration**: Move remaining S3-only deployments to PostgreSQL for better query performance and transactional integrity
 - **Spanish language support**: Multilingual clinical note generation
+
+### Call Analyzer Adaptation Roadmap
+Patterns adapted from the single-tenant Call Analyzer (assemblyai_tool) for multi-tenant SaaS:
+
+| Phase | Feature | Status | Notes |
+|-------|---------|--------|-------|
+| 1 | **Language-aware sentiment skipping** | ✅ Done | `claude/review-qa-assemblyai-integration-5NlvX` — Non-English audio skips AssemblyAI sentiment_analysis (~12% cost savings). Upload API accepts optional `language` field; also reads org `primaryLanguage` setting. 8 tests |
+| 2 | **Default industry templates** | ✅ Done | `claude/review-qa-assemblyai-integration-5NlvX` — 19 templates across 5 verticals (general/4, dental/5, medical/4, behavioral_health/3, veterinary/3). `is_default` column on prompt_templates. Auto-seeded on org creation with industry fallback to general. `POST /api/prompt-templates/reset-defaults` route. 33 tests |
+| 3 | **Confidence as first-class filter** | ✅ Done | `claude/review-qa-assemblyai-integration-5NlvX` — Dashboard metrics include avgConfidence + dataQuality breakdown (high/medium/low/none). Top performers include avgConfidence. `GET /api/dashboard/low-confidence` endpoint. Insights summary includes avgConfidence + lowConfidenceRate. Weekly digest includes dataQuality stats. 8 tests |
+| 4 | **Call clustering / pattern discovery** | Planned | Reuse pgvector + Titan embeddings for per-org call-level k-means clustering. Surface recurring patterns ("top 5 call types your team struggles with") |
+| 5 | **Bedrock batch inference mode** | Planned | Per-org toggle: collect prompts as JSONL, submit to Bedrock Batch API every 15 min. 50% cost reduction, 24h turnaround. Tier-aware defaults (Starter=batch, Pro/Enterprise=choice) |
 
 ## Improvement Backlog (Multi-Sprint)
 
