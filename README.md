@@ -22,17 +22,23 @@ AI-powered call quality analysis and clinical documentation for healthcare and c
 - **RAG knowledge base** — upload company docs (handbooks, scripts, SOPs), AI references them during analysis
 - **Custom evaluation templates** — per-call-category scoring criteria, required phrases, weighted scoring. Ships with industry-specific defaults for 5 verticals (general, dental, medical, behavioral health, veterinary) — 19 templates total, auto-seeded on org creation with reset-to-defaults option
 - **Call pattern discovery** — TF-IDF topic clustering discovers recurring call patterns with trend detection (rising/stable/declining), helping managers identify training gaps and emerging issues
+- **Agent comparison** — side-by-side comparison of up to 5 agents with radar chart sub-scores, sentiment breakdown, and call stats
+- **Activity heatmap** — 24-hour x 7-day grid showing call volume or avg performance by time slot, employee-filterable
+- **Performance snapshots** — longitudinal analytics with AI narrative summaries that reference prior periods to identify trajectories, improvements, and coaching effectiveness
+- **Audio waveform display** — canvas-based amplitude visualization with click-to-seek for call playback
+- **SSRF protection** — comprehensive URL validation (protocol, hostname blocklist, private IP blocking, DNS rebinding prevention) for webhooks and external integrations
 - **A/B model testing** — compare AI models side-by-side with cost and latency tracking
 - **Batch inference mode** — per-org toggle for Bedrock Batch API (50% AI cost reduction, 24h turnaround). Realtime/batch/hybrid modes with graceful fallback. Admin dashboard for pending items and manual flush
 - **Spend tracking** — per-call cost breakdown for transcription and AI analysis
 - **Coaching system** — create coaching sessions from call analysis, track action plans with AI-generated coaching plans, effectiveness tracking (pre/post scores), self-assessment workflow, org-scoped coaching templates, and automation rules that trigger sessions based on call outcomes
 - **Role-based access** — viewer / manager / admin with hierarchical permissions. Department/team scoping for managers (subTeam field limits visibility to own team's calls, employees, and coaching). Viewer self-service coaching (`GET /api/coaching/my`)
-- **Resource-level call sharing** — time-limited shareable links for external reviewers (compliance consultants, auditors); configurable 1h–30d expiry; PHI/clinical notes stripped from shared views
+- **Resource-level call sharing** — time-limited shareable links for external reviewers (compliance consultants, auditors); configurable 1h-30d expiry; PHI/clinical notes stripped from shared views
 - **API key resource scopes** — keys can be scoped to specific resources (`calls:read`, `employees:read`, etc.) instead of broad read/write/admin; enforced per-route via `checkApiKeyScope()` middleware; `write` implies `read`
 - **SSO** — SAML 2.0 + OIDC single sign-on (Enterprise plan). IDP-initiated login, group-to-role mapping, per-org session limits, SLO sync logout, certificate rotation workflow with dual-cert support
 - **SCIM 2.0** — Automated user lifecycle management (Enterprise plan). Okta/Azure AD provisioning: create users when they join, deactivate when they leave. Bearer token auth, full Users CRUD, ServiceProviderConfig endpoint
 - **MFA** — TOTP + WebAuthn/Passkeys (FIDO2, phishing-resistant). Trusted device management ("remember this device 30 days"). Email OTP fallback for clinical staff without smartphones. Emergency recovery workflow (email-verified + admin-approved bypass). Per-org enforcement with configurable grace period (default 7 days)
 - **Billing** — Stripe integration with Free / Starter ($79/mo) / Professional ($199/mo) / Enterprise ($999/mo) tiers, per-call overage pricing, Clinical Documentation add-on ($49/mo for Starter)
+- **Transcript prompt injection detection** — bidirectional guardrails detect score manipulation, instruction override, and role hijacking in call transcripts before AI analysis, plus output-side anomaly detection for injection bypass signs. Flags for review, never blocks analysis
 - **HIPAA compliant** — session timeouts, session fixation prevention, audit logging (PHI access on all sensitive endpoints), MFA, PHI field encryption (AES-256-GCM), PostgreSQL Row-Level Security (RLS) on all tenant-scoped tables, per-org KMS envelope encryption, org-scoped rate limiting, data retention, GDPR/CCPA data export and right-to-erasure
 - **Learning Management System** — AI-generated training courses from call analysis, lesson tracking
 - **Marketing attribution** — UTM parameter tracking, campaign source/medium, ROI calculation
@@ -52,7 +58,7 @@ AI-powered call quality analysis and clinical documentation for healthcare and c
 ## Tech Stack
 
 | Layer | Technology |
-|-------|----------|
+|-------|-----------|
 | Frontend | React 18, TypeScript, Vite, TailwindCSS, shadcn/ui, Recharts, Wouter, TanStack Query |
 | Backend | Express.js, TypeScript (ESM), Node.js |
 | Database | PostgreSQL + Drizzle ORM (recommended) or S3 JSON files |
@@ -156,7 +162,7 @@ shared/
 
 data/dental/          # Dental-specific reference data (CDT codes, prompt templates)
 deploy/ec2/           # EC2 deployment (Caddy, systemd, bootstrap script)
-tests/                # 62 unit test files (Node test runner)
+tests/                # 65 unit test files (Node test runner)
 tests/e2e/            # 12 Playwright E2E spec files
 ```
 
@@ -167,7 +173,7 @@ tests/e2e/            # 12 Playwright E2E spec files
 | `npm run dev` | Dev server with Vite HMR (port 5000) |
 | `npm run build` | Production build (Vite frontend + esbuild backend) |
 | `npm run start` | Start production server |
-| `npm run test` | Run unit test suite (1179 tests) |
+| `npm run test` | Run unit test suite (1298 tests) |
 | `npm run test:coverage` | Run tests with c8 coverage (text + lcov) |
 | `npm run test:e2e` | Run Playwright E2E tests |
 | `npm run test:e2e:ui` | Open Playwright interactive UI |
@@ -262,7 +268,7 @@ Observatory QA implements healthcare-grade security controls:
 npm run test
 ```
 
-65 unit test files (1298 tests) covering schemas, routes, multi-tenancy, RBAC, billing, API keys, clinical workflows, EHR, PHI encryption, SSO, speaker detection, RAG pipeline, clinical amendments, load simulation, schema column coverage, AI provider mocks, and more. Uses Node.js built-in test runner via tsx. Plus 13 Playwright E2E specs for browser-level testing (including security boundary tests).
+65 unit test files (1298 tests) covering schemas, routes, multi-tenancy, RBAC, billing, API keys, clinical workflows, EHR, PHI encryption, SSO, speaker detection, RAG pipeline, clinical amendments, load simulation, schema column coverage, AI provider mocks, performance snapshots, SSRF validation, and more. Uses Node.js built-in test runner via tsx. Plus 13 Playwright E2E specs for browser-level testing (including security boundary tests).
 
 ### E2E Tests (Playwright)
 ```bash
