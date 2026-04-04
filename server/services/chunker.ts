@@ -100,6 +100,7 @@ function findSectionHeader(text: string, pos: number): string | null {
   let lastPos = -1;
 
   for (const pattern of headerPatterns) {
+    pattern.lastIndex = 0; // Reset — regex with /g flag retains lastIndex across calls
     let match;
     while ((match = pattern.exec(before)) !== null) {
       if (match.index > lastPos) {

@@ -13,8 +13,14 @@ import { asyncHandler } from "../middleware/error-handler";
 
 function escapeCsvField(value: unknown): string {
   if (value == null) return "";
-  const str = String(value);
-  if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+  let str = String(value);
+  // CSV formula injection prevention: cells starting with =, +, -, @, tab, or CR
+  // can execute formulas in Excel/Google Sheets. Prefix with a single quote to force
+  // text interpretation. See OWASP CSV Injection guidelines.
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`;
+  }
+  if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("'")) {
     return `"${str.replace(/"/g, '""')}"`;
   }
   return str;

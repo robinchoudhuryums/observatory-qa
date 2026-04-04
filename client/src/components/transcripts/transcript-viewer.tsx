@@ -7,7 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Link } from "wouter";
 import { useBeforeUnload } from "@/hooks/use-before-unload";
 import { toDisplayString } from "@/lib/display-utils";
-import type { CallWithDetails } from "@shared/schema";
+import type { CallWithDetails, AuthUser } from "@shared/schema";
+import { getQueryFn } from "@/lib/queryClient";
 import {
   RiPlayLine,
   RiPauseLine,
@@ -81,6 +82,13 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
   const [playbackRate, setPlaybackRate] = useState(1);
   const audioRef = useRef<HTMLAudioElement>(null);
   const queryClient = useQueryClient();
+
+  // Current user context — needed for HIPAA-compliant audit trail on corrections
+  const { data: currentUser } = useQuery<AuthUser>({
+    queryKey: ["/api/auth/me"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
+    staleTime: Infinity,
+  });
 
   const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
@@ -393,7 +401,7 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
   const handleSaveCorrections = () => {
     const words = call?.transcript?.words as TranscriptWord[] | undefined;
     if (!words || pendingCorrections.size === 0) return;
-    const user = "Manager"; // We don't have user context in the component; use a placeholder
+    const user = currentUser?.name || currentUser?.username || "Unknown";
     const now = new Date().toISOString();
     const corrections = Array.from(pendingCorrections.entries()).map(([wordIndex, corrected]) => ({
       wordIndex,
