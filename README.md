@@ -21,7 +21,9 @@ AI-powered call quality analysis and clinical documentation for healthcare and c
 - **EHR integration** — Open Dental (bidirectional), Eaglesoft (read-focused) — patient lookup, appointment sync, clinical note push
 - **RAG knowledge base** — upload company docs (handbooks, scripts, SOPs), AI references them during analysis
 - **Custom evaluation templates** — per-call-category scoring criteria, required phrases, weighted scoring. Ships with industry-specific defaults for 5 verticals (general, dental, medical, behavioral health, veterinary) — 19 templates total, auto-seeded on org creation with reset-to-defaults option
+- **Call pattern discovery** — TF-IDF topic clustering discovers recurring call patterns with trend detection (rising/stable/declining), helping managers identify training gaps and emerging issues
 - **A/B model testing** — compare AI models side-by-side with cost and latency tracking
+- **Batch inference mode** — per-org toggle for Bedrock Batch API (50% AI cost reduction, 24h turnaround). Realtime/batch/hybrid modes with graceful fallback. Admin dashboard for pending items and manual flush
 - **Spend tracking** — per-call cost breakdown for transcription and AI analysis
 - **Coaching system** — create coaching sessions from call analysis, track action plans with AI-generated coaching plans, effectiveness tracking (pre/post scores), self-assessment workflow, org-scoped coaching templates, and automation rules that trigger sessions based on call outcomes
 - **Role-based access** — viewer / manager / admin with hierarchical permissions. Department/team scoping for managers (subTeam field limits visibility to own team's calls, employees, and coaching). Viewer self-service coaching (`GET /api/coaching/my`)
@@ -50,7 +52,7 @@ AI-powered call quality analysis and clinical documentation for healthcare and c
 ## Tech Stack
 
 | Layer | Technology |
-|-------|------------|
+|-------|----------|
 | Frontend | React 18, TypeScript, Vite, TailwindCSS, shadcn/ui, Recharts, Wouter, TanStack Query |
 | Backend | Express.js, TypeScript (ESM), Node.js |
 | Database | PostgreSQL + Drizzle ORM (recommended) or S3 JSON files |
