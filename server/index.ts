@@ -299,6 +299,10 @@ app.use("/api/clinical", distributedRateLimit(60 * 1000, 40, true) as any);
 app.use("/api/ehr", distributedRateLimit(60 * 1000, 20, true) as any);
 // Style learning is computationally expensive — stricter limit
 app.post("/api/clinical/style-learning/analyze", distributedRateLimit(60 * 1000, 3, true) as any);
+// Admin endpoints: moderate limits (org-scoped) to prevent DoS and abuse
+app.use("/api/admin", distributedRateLimit(60 * 1000, 60, true) as any);
+// Super-admin: tighter limits (IP-only, no org context)
+app.use("/api/super-admin", distributedRateLimit(60 * 1000, 30) as any);
 
 (async () => {
   // --- Pre-flight environment validation ---

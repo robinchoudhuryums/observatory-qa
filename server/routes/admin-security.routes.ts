@@ -5,8 +5,9 @@
  * Extracted from admin.ts to keep route files under ~800 lines.
  */
 import type { Express } from "express";
+import { z } from "zod";
 import { storage } from "../storage";
-import { requireAuth, requireRole, injectOrgContext } from "../auth";
+import { requireAuth, requireRole, injectOrgContext, invalidateOrgCache } from "../auth";
 import { logger } from "../services/logger";
 import { queryAuditLogs, exportAuditLogs, verifyAuditChain, logPhiAccess, auditContext } from "../services/audit-log";
 import { safeInt } from "./helpers";
@@ -21,6 +22,54 @@ import {
   getIncident, listIncidents,
   createBreachReport, updateBreachReport, listBreachReports, getBreachReport,
 } from "../services/incident-response";
+
+// ─── Zod schemas for incident/breach endpoints ───────────────────────────────
+
+const incidentCreateSchema = z.object({
+  title: z.string().min(1).max(500),
+  description: z.string().min(1).max(5000),
+  severity: z.enum(["critical", "high", "medium", "low"]),
+  affectedSystems: z.array(z.string().max(200)).max(50).optional(),
+  estimatedAffectedRecords: z.number().int().min(0).optional(),
+  phiInvolved: z.boolean().optional(),
+});
+
+const incidentUpdateSchema = z.object({
+  title: z.string().min(1).max(500).optional(),
+  description: z.string().min(1).max(5000).optional(),
+  severity: z.enum(["critical", "high", "medium", "low"]).optional(),
+}).strict();
+
+const timelineEntrySchema = z.object({
+  description: z.string().min(1).max(2000),
+});
+
+const actionItemCreateSchema = z.object({
+  description: z.string().min(1).max(2000),
+  assignedTo: z.string().max(255).optional(),
+  dueDate: z.string().max(30).optional(),
+});
+
+const actionItemUpdateSchema = z.object({
+  status: z.enum(["open", "in_progress", "completed"]),
+});
+
+const breachReportCreateSchema = z.object({
+  title: z.string().min(1).max(500),
+  description: z.string().min(1).max(5000),
+  incidentId: z.string().optional(),
+  affectedIndividuals: z.number().int().min(0),
+  phiTypes: z.array(z.string().max(200)).min(1).max(50),
+  correctiveActions: z.array(z.string().max(1000)).max(50).optional(),
+});
+
+const breachReportUpdateSchema = z.object({
+  notificationStatus: z.enum(["not_required", "pending", "individuals_notified", "hhs_notified", "complete"]).optional(),
+  individualsNotifiedAt: z.string().optional(),
+  hhsNotifiedAt: z.string().optional(),
+  mediaNotifiedAt: z.string().optional(),
+  correctiveActions: z.array(z.string().max(1000)).max(50).optional(),
+});
 
 export function registerAdminSecurityRoutes(app: Express): void {
   // ============================================================
@@ -186,19 +235,14 @@ export function registerAdminSecurityRoutes(app: Express): void {
   });
 
   app.post("/api/admin/incidents", requireAuth, requireRole("admin"), injectOrgContext, (req, res) => {
-    const { title, description, severity, affectedSystems, estimatedAffectedRecords, phiInvolved } = req.body;
-    if (!title || !description || !severity) {
-      res.status(400).json({ message: "title, description, and severity are required" });
+    const parsed = incidentCreateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Invalid incident data", errors: parsed.error.flatten() });
       return;
     }
     const incident = declareIncident(req.orgId!, {
-      title,
-      description,
-      severity,
+      ...parsed.data,
       declaredBy: req.user!.username,
-      affectedSystems,
-      estimatedAffectedRecords,
-      phiInvolved,
     });
     res.status(201).json(incident);
   });
@@ -213,12 +257,12 @@ export function registerAdminSecurityRoutes(app: Express): void {
   });
 
   app.post("/api/admin/incidents/:id/timeline", requireAuth, requireRole("admin"), injectOrgContext, (req, res) => {
-    const { description } = req.body;
-    if (!description) {
-      res.status(400).json({ message: "description is required" });
+    const parsed = timelineEntrySchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Invalid timeline entry", errors: parsed.error.flatten() });
       return;
     }
-    const incident = addTimelineEntry(req.orgId!, req.params.id, description, req.user!.username);
+    const incident = addTimelineEntry(req.orgId!, req.params.id, parsed.data.description, req.user!.username);
     if (!incident) {
       res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Incident not found"));
       return;
@@ -227,7 +271,12 @@ export function registerAdminSecurityRoutes(app: Express): void {
   });
 
   app.patch("/api/admin/incidents/:id", requireAuth, requireRole("admin"), injectOrgContext, (req, res) => {
-    const incident = updateIncident(req.orgId!, req.params.id, req.body);
+    const parsed = incidentUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Invalid update data", errors: parsed.error.flatten() });
+      return;
+    }
+    const incident = updateIncident(req.orgId!, req.params.id, parsed.data);
     if (!incident) {
       res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Incident not found"));
       return;
@@ -236,12 +285,12 @@ export function registerAdminSecurityRoutes(app: Express): void {
   });
 
   app.post("/api/admin/incidents/:id/action-items", requireAuth, requireRole("admin"), injectOrgContext, (req, res) => {
-    const { description, assignedTo, dueDate } = req.body;
-    if (!description) {
-      res.status(400).json({ message: "description is required" });
+    const parsed = actionItemCreateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Invalid action item data", errors: parsed.error.flatten() });
       return;
     }
-    const incident = addActionItem(req.orgId!, req.params.id, { description, assignedTo, dueDate });
+    const incident = addActionItem(req.orgId!, req.params.id, parsed.data);
     if (!incident) {
       res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Incident not found"));
       return;
@@ -255,12 +304,12 @@ export function registerAdminSecurityRoutes(app: Express): void {
     requireRole("admin"),
     injectOrgContext,
     (req, res) => {
-      const { status } = req.body;
-      if (!status) {
-        res.status(400).json({ message: "status is required" });
+      const parsed = actionItemUpdateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ message: "Invalid status", errors: parsed.error.flatten() });
         return;
       }
-      const incident = updateActionItem(req.orgId!, req.params.incidentId, req.params.itemId, status);
+      const incident = updateActionItem(req.orgId!, req.params.incidentId, req.params.itemId, parsed.data.status);
       if (!incident) {
         res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Incident or action item not found"));
         return;
@@ -285,25 +334,25 @@ export function registerAdminSecurityRoutes(app: Express): void {
   });
 
   app.post("/api/admin/breach-reports", requireAuth, requireRole("admin"), injectOrgContext, (req, res) => {
-    const { title, description, incidentId, affectedIndividuals, phiTypes, correctiveActions } = req.body;
-    if (!title || !description || affectedIndividuals === undefined || !phiTypes?.length) {
-      res.status(400).json({ message: "title, description, affectedIndividuals, and phiTypes are required" });
+    const parsed = breachReportCreateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Invalid breach report data", errors: parsed.error.flatten() });
       return;
     }
     const report = createBreachReport(req.orgId!, {
-      title,
-      description,
-      incidentId,
+      ...parsed.data,
       reportedBy: req.user!.username,
-      affectedIndividuals,
-      phiTypes,
-      correctiveActions,
     });
     res.status(201).json(report);
   });
 
   app.patch("/api/admin/breach-reports/:id", requireAuth, requireRole("admin"), injectOrgContext, (req, res) => {
-    const report = updateBreachReport(req.orgId!, req.params.id, req.body);
+    const parsed = breachReportUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: "Invalid update data", errors: parsed.error.flatten() });
+      return;
+    }
+    const report = updateBreachReport(req.orgId!, req.params.id, parsed.data);
     if (!report) {
       res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Breach report not found"));
       return;
@@ -505,6 +554,7 @@ export function registerAdminSecurityRoutes(app: Express): void {
 
       // 1. Mark org as deleted immediately to block further API access
       await storage.updateOrganization(orgId, { status: "deleted" } as any);
+      invalidateOrgCache(orgId);
 
       // 2. Bulk delete all org data (transactional in PostgreSQL, best-effort otherwise)
       const deletionResult = await storage.deleteOrgData(orgId);
@@ -557,6 +607,7 @@ export function registerAdminSecurityRoutes(app: Express): void {
       await storage.updateOrganization(req.orgId!, {
         settings: { ...(org.settings as any), customVocabulary: cleaned },
       });
+      invalidateOrgCache(req.orgId!);
 
       logger.info({ orgId: req.orgId, wordCount: cleaned.length }, "Custom vocabulary updated");
       res.json({ vocabulary: cleaned, count: cleaned.length });

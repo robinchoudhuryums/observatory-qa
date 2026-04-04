@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { storage } from "../storage";
-import { requireAuth, requireSuperAdmin, unlockAccount } from "../auth";
+import { requireAuth, requireSuperAdmin, unlockAccount, invalidateOrgCache } from "../auth";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { invalidateOrgDek } from "../services/org-encryption";
@@ -177,6 +177,7 @@ export function registerSuperAdminRoutes(app: Express): void {
       }
 
       const updated = await storage.updateOrganization(req.params.id, updates as any);
+      invalidateOrgCache(req.params.id);
 
       // Audit log
       logPhiAccess({
@@ -407,6 +408,7 @@ export function registerSuperAdminRoutes(app: Express): void {
       const currentSettings = (org.settings || {}) as Record<string, unknown>;
       delete currentSettings.encryptedDataKey;
       await storage.updateOrganization(org.id, { settings: currentSettings as any });
+      invalidateOrgCache(org.id);
 
       logPhiAccess({
         ...auditContext(req),

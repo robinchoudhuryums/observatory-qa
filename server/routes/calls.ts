@@ -5,7 +5,7 @@ import { pipeline } from "stream/promises";
 import { storage, normalizeAnalysis } from "../storage";
 import { requireAuth, requireRole, injectOrgContext, requireOrgContext, getTeamScopedEmployeeIds } from "../auth";
 import { logPhiAccess, auditContext } from "../services/audit-log";
-import { upload, safeFloat, validateUUIDParam, acquireUploadSlot, releaseUploadSlot, acquireUploadLock } from "./helpers";
+import { upload, safeFloat, validateUUIDParam, acquireUploadSlot, releaseUploadSlot, acquireUploadLock, releaseUploadLock } from "./helpers";
 import { asyncHandler, AppError } from "../middleware/error-handler";
 
 const validateId = validateUUIDParam("id");
@@ -320,6 +320,9 @@ export function registerCallRoutes(app: Express): void {
           status: "processing",
           callCategory: callCategory || undefined,
         });
+        // Release the dedup lock now — the DB record prevents future duplicates via getCallByFileHash.
+        // Without this, the lock TTL (30s) blocks re-uploads even after successful creation.
+        releaseUploadLock(lockKey).catch(() => {}); // fire-and-forget
         const originalName = req.file.originalname;
         const mimeType = req.file.mimetype || "audio/mpeg";
         const uploadUserId = req.user?.id;

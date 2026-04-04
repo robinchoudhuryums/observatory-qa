@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { storage } from "../storage";
-import { requireAuth, requireRole, injectOrgContext, hashPassword, validatePasswordComplexity } from "../auth";
+import { requireAuth, requireRole, injectOrgContext, hashPassword, validatePasswordComplexity, invalidateOrgCache } from "../auth";
 import { aiProvider } from "../services/ai-factory";
 import { assemblyAIService } from "../services/assemblyai";
 import { broadcastCallUpdate } from "../services/websocket";
@@ -510,6 +510,7 @@ export function registerAdminRoutes(app: Express): void {
       }
 
       const updated = await storage.updateOrganization(req.orgId!, { settings: updatedSettings });
+      invalidateOrgCache(req.orgId!);
 
       // Audit log for HIPAA — track all org configuration changes
       const changedFields = Object.keys(parsed.data);
@@ -573,6 +574,7 @@ export function registerAdminRoutes(app: Express): void {
         scimTokenPrefix: prefix,
       };
       await storage.updateOrganization(req.orgId!, { settings: updatedSettings });
+      invalidateOrgCache(req.orgId!);
 
       logPhiAccess({
         ...auditContext(req),
@@ -612,6 +614,7 @@ export function registerAdminRoutes(app: Express): void {
         scimTokenPrefix: undefined,
       };
       await storage.updateOrganization(req.orgId!, { settings: updatedSettings });
+      invalidateOrgCache(req.orgId!);
 
       logPhiAccess({
         ...auditContext(req),
