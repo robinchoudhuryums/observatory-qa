@@ -339,3 +339,93 @@ export function shouldUseBatchMode(
   // For now, hybrid defaults to realtime (orgs configure via per-call override)
   return false;
 }
+
+// ==================== ORPHAN RECOVERY ====================
+
+const ORPHAN_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+/**
+ * Recover orphaned calls stuck in awaiting_batch_analysis state.
+ *
+ * A call becomes "orphaned" when:
+ * - Its batch job failed or was never submitted
+ * - The pending S3 item was lost
+ * - The scheduler crashed between submission and result processing
+ *
+ * Recovery strategy: if a call has been awaiting_batch_analysis for over
+ * ORPHAN_THRESHOLD_MS (2 hours) and has no matching pending item in S3,
+ * mark it as failed so it's visible to admins for manual retry.
+ *
+ * Multi-tenant: operates per-org, scanning only the given org's calls.
+ */
+export async function recoverOrphanedBatchCalls(orgId: string): Promise<number> {
+  const { storage } = await import("../storage");
+  const { broadcastCallUpdate } = await import("./websocket");
+
+  const allCalls = await storage.getCallSummaries(orgId, { status: "completed" });
+
+  // Find calls tagged as awaiting_batch_analysis
+  const awaitingCalls = allCalls.filter((c) => {
+    const tags = Array.isArray(c.tags) ? c.tags : [];
+    return tags.includes("awaiting_batch_analysis");
+  });
+
+  if (awaitingCalls.length === 0) return 0;
+
+  // Check which ones have pending S3 items
+  const pendingItems = await listPendingItems(orgId);
+  const pendingCallIds = new Set(pendingItems.map((i) => i.callId));
+
+  let recovered = 0;
+  for (const call of awaitingCalls) {
+    const age = Date.now() - new Date(call.uploadedAt || Date.now()).getTime();
+    if (age > ORPHAN_THRESHOLD_MS && !pendingCallIds.has(call.id)) {
+      // This call has been waiting too long and has no pending item — mark as failed
+      try {
+        await storage.updateCall(orgId, call.id, {
+          status: "failed",
+          tags: ["orphaned_batch_analysis"],
+        });
+        broadcastCallUpdate(call.id, "failed", { label: "Batch analysis timed out — retry available" }, orgId);
+        recovered++;
+      } catch (err) {
+        logger.warn({ callId: call.id, err }, "Failed to recover orphaned call");
+      }
+    }
+  }
+
+  if (recovered > 0) {
+    logger.warn(
+      { orgId, recovered, total: awaitingCalls.length },
+      `Recovered ${recovered} orphaned call(s) stuck in awaiting_batch_analysis`,
+    );
+  }
+
+  return recovered;
+}
+
+/**
+ * Run orphan recovery for all orgs that have batch mode enabled.
+ * Designed to be called periodically (e.g., every 30 minutes via setInterval or BullMQ).
+ */
+export async function recoverAllOrphans(): Promise<number> {
+  const { storage } = await import("../storage");
+
+  try {
+    const orgs = await storage.listOrganizations();
+    let totalRecovered = 0;
+
+    for (const org of orgs) {
+      const settings = org.settings as any;
+      if (settings?.batchMode === "batch" || settings?.batchMode === "hybrid") {
+        const recovered = await recoverOrphanedBatchCalls(org.id);
+        totalRecovered += recovered;
+      }
+    }
+
+    return totalRecovered;
+  } catch (err) {
+    logger.warn({ err }, "Orphan recovery sweep failed");
+    return 0;
+  }
+}
