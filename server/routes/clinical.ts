@@ -139,13 +139,26 @@ export function registerClinicalRoutes(app: Express): void {
       // Managers and admins see the full note for clinical/QA workflows.
       const currentUserRole = req.user?.role;
       if (currentUserRole === "viewer") {
-        const phiFields = [
+        const redactedText = "[Restricted — manager or admin access required]";
+        const phiTextFields = [
           "subjective", "objective", "assessment", "plan", "hpiText",
-          "reviewOfSystems", "differentialDiagnoses", "amendments",
+          "reviewOfSystems", "differentialDiagnoses", "followUp",
         ];
-        for (const field of phiFields) {
+        // Also redact structured/coded fields that reveal clinical details:
+        // diagnostic codes, medications, vitals, edit history, amendments
+        const phiStructuredFields = [
+          "amendments", "editHistory", "structuredData",
+          "icd10Codes", "cptCodes", "cdtCodes",
+          "toothNumbers", "periodontalFindings", "treatmentPhases",
+        ];
+        for (const field of phiTextFields) {
           if (field in enriched) {
-            (enriched as Record<string, unknown>)[field] = "[Restricted — manager or admin access required]";
+            (enriched as Record<string, unknown>)[field] = redactedText;
+          }
+        }
+        for (const field of phiStructuredFields) {
+          if (field in enriched) {
+            (enriched as Record<string, unknown>)[field] = undefined;
           }
         }
       }

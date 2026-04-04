@@ -364,9 +364,12 @@ export function buildFhirComposition(params: {
     ],
   };
 
-  // Link to Patient if available (US Core requires subject on Composition)
+  // US Core requires subject on Composition — use patient reference if available,
+  // otherwise add a placeholder unknown patient to satisfy FHIR R4 validation.
   if (patientId) {
     composition.subject = { reference: `Patient/${patientId}` };
+  } else {
+    composition.subject = { display: "Unknown patient (no EHR link)" };
   }
 
   // Link to Encounter

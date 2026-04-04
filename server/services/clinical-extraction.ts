@@ -119,6 +119,41 @@ function extractVitals(text: string): ExtractedVitals | undefined {
 
   // Return undefined if no vitals were extracted
   if (Object.keys(vitals).length === 0) return undefined;
+
+  // Validate physiological ranges — reject garbage values that would corrupt analytics.
+  // Ranges are intentionally wide to accommodate edge cases (pediatric, geriatric, critical care).
+  if (vitals.bloodPressureSystolic !== undefined && (vitals.bloodPressureSystolic < 40 || vitals.bloodPressureSystolic > 300)) {
+    delete vitals.bloodPressureSystolic;
+    delete vitals.bloodPressureDiastolic; // BP pair is meaningless if systolic is invalid
+  }
+  if (vitals.bloodPressureDiastolic !== undefined && (vitals.bloodPressureDiastolic < 20 || vitals.bloodPressureDiastolic > 200)) {
+    delete vitals.bloodPressureSystolic;
+    delete vitals.bloodPressureDiastolic;
+  }
+  if (vitals.heartRate !== undefined && (vitals.heartRate < 20 || vitals.heartRate > 300)) {
+    delete vitals.heartRate;
+  }
+  if (vitals.respiratoryRate !== undefined && (vitals.respiratoryRate < 4 || vitals.respiratoryRate > 60)) {
+    delete vitals.respiratoryRate;
+  }
+  if (vitals.temperature !== undefined) {
+    const unit = vitals.temperatureUnit || "F";
+    const tooLow = unit === "C" ? 30 : 85;
+    const tooHigh = unit === "C" ? 44 : 110;
+    if (vitals.temperature < tooLow || vitals.temperature > tooHigh) {
+      delete vitals.temperature;
+      delete vitals.temperatureUnit;
+    }
+  }
+  if (vitals.oxygenSaturation !== undefined && (vitals.oxygenSaturation < 50 || vitals.oxygenSaturation > 100)) {
+    delete vitals.oxygenSaturation;
+  }
+  if (vitals.bmi !== undefined && (vitals.bmi < 10 || vitals.bmi > 80)) {
+    delete vitals.bmi;
+  }
+
+  // Re-check after range filtering
+  if (Object.keys(vitals).length === 0) return undefined;
   return vitals;
 }
 

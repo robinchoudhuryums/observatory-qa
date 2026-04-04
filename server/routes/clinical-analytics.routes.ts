@@ -58,13 +58,20 @@ export function registerClinicalAnalyticsRoutes(app: Express, requireClinicalPla
           });
         }
 
+        const totalAttempted = (noteRows || []).filter((r: any) => r.clinicalNote?.providerAttested).length;
+        const skippedDecryptionFailures = totalAttempted - attestedNotes.length;
+
         const result = analyzeProviderStyle(req.orgId!, userId, attestedNotes);
 
         if (!result) {
+          const detail = skippedDecryptionFailures > 0
+            ? ` (${skippedDecryptionFailures} note(s) skipped due to decryption failures — check PHI encryption key)`
+            : "";
           res.json({
             success: false,
-            message: `Need at least 3 attested notes for style analysis (found ${attestedNotes.length})`,
+            message: `Need at least 3 attested notes for style analysis (found ${attestedNotes.length})${detail}`,
             noteCount: attestedNotes.length,
+            skippedDecryptionFailures,
           });
           return;
         }
