@@ -153,6 +153,23 @@ All statistics sourced from 2023-2026 research with direct links.
 
 ---
 
+## 10. AI Cost Optimization (Batch Inference Mode)
+
+| Statistic | Source |
+|-----------|--------|
+| **50% cost reduction on AI analysis** with Bedrock Batch Inference — save half your AI spend by opting into asynchronous processing (results within 24 hours) | Internal benchmarking: assemblyai_tool Call Analyzer production data |
+| **Contact centers process 60-80% of calls non-urgently** — next-day QA review is standard practice, making batch mode a natural fit | [NICE](https://www.nice.com/glossary/what-is-a-quality-management-dispute) |
+| **AI infrastructure costs account for 15-25% of SaaS COGS** in AI-native products; halving inference spend directly improves unit economics | Industry estimate |
+
+**Observatory angle:** "Save 50% on AI analysis if you don't need real-time results." Batch mode collects call analysis requests and processes them in bulk via AWS Bedrock Batch API — same analysis quality, half the cost. Ideal for practices that review QA scores next-day, run weekly coaching sessions, or process high call volumes on budget-conscious plans. Toggle per-org: real-time for urgent compliance monitoring, batch for routine QA review.
+
+**Positioning by tier:**
+- **Starter ($79/mo):** Batch mode enabled by default — maximize value on a lean budget
+- **Professional ($199/mo):** Choice of real-time or batch per call category (e.g., real-time for compliance-sensitive Medicare calls, batch for routine scheduling calls)
+- **Enterprise ($999/mo):** Full flexibility — real-time, batch, or hybrid with custom scheduling windows
+
+---
+
 ## Suggested Marketing Headlines
 
 Based on the data above, here are high-impact headlines for landing pages and ads:
