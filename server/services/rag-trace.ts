@@ -2,8 +2,14 @@
  * RAG Observability Tracing
  *
  * Per-query trace logging with retrieval scores, timing breakdown,
- * and confidence levels. Traces are logged as structured JSON via
- * the existing Pino logger.
+ * chunk-level detail, and confidence levels. Traces are logged as
+ * structured JSON via the existing Pino logger.
+ *
+ * Enhanced with granular fields adapted from ums-knowledge-reference:
+ * - Per-chunk IDs and scores for retrieval debugging
+ * - Query type classification tracking
+ * - Semantic/keyword weight tracking
+ * - Token count tracking (when available from Bedrock response)
  *
  * Ported from ums-knowledge-reference, adapted for multi-tenant context.
  */
@@ -14,17 +20,33 @@ export interface RagTrace {
   orgId: string;
   /** Must be PHI-redacted by the caller before passing to logRagTrace. */
   queryTextRedacted: string;
+  /** Query type classification (template_lookup, compliance_question, coaching_question, general) */
+  queryType?: string;
+  /** Semantic weight used for this query */
+  semanticWeight?: number;
+  /** Keyword weight used for this query */
+  keywordWeight?: number;
   embeddingTimeMs: number;
   retrievalTimeMs: number;
   rerankTimeMs: number;
   totalTimeMs: number;
   candidateCount: number;
   returnedCount: number;
+  /** IDs of chunks returned to the caller (for retrieval debugging) */
+  retrievedChunkIds?: string[];
+  /** Per-chunk scores parallel to retrievedChunkIds */
+  retrievalScores?: number[];
   topScore: number;
   avgScore: number;
   confidenceLevel: string;
   confidenceScore: number;
+  /** Whether confidence was reconciled (LLM vs retrieval disagreement) */
+  confidenceReconciled?: boolean;
   injectionBlocked: boolean;
+  /** Bedrock input token count (when available) */
+  inputTokens?: number;
+  /** Bedrock output token count (when available) */
+  outputTokens?: number;
   timestamp: string;
 }
 
@@ -35,7 +57,7 @@ export interface RagTrace {
 export function logRagTrace(trace: RagTrace): void {
   logger.info(
     { ragTrace: trace },
-    `RAG trace: ${trace.returnedCount} chunks (${trace.confidenceLevel}) in ${trace.totalTimeMs}ms`,
+    `RAG trace: ${trace.returnedCount} chunks (${trace.confidenceLevel}${trace.queryType ? `, ${trace.queryType}` : ""}) in ${trace.totalTimeMs}ms`,
   );
 }
 

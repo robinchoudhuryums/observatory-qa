@@ -18,6 +18,8 @@ import {
   removeDocumentChunks,
   searchRelevantChunks,
   formatRetrievedContext,
+  classifyQueryRoute,
+  getStructuredAnswer,
   hasIndexedChunks,
   getDocumentChunks,
   getKnowledgeBaseAnalytics,
@@ -618,6 +620,21 @@ export function registerOnboardingRoutes(app: Express): void {
         return res.status(503).json({ message: "Database not available" });
       }
 
+      // Structured reference short-circuit: skip RAG for pure metadata queries
+      const queryRoute = classifyQueryRoute(query);
+      if (queryRoute === "structured") {
+        const structured = await getStructuredAnswer(db as any, orgId, query);
+        if (structured) {
+          return res.json({
+            chunks: [],
+            formattedContext: structured.answer,
+            source: "structured",
+            confidence: structured.confidence,
+          });
+        }
+        // Fall through to RAG if structured answer not found
+      }
+
       // Get all active document IDs for this org
       const docs = await storage.listReferenceDocuments(orgId);
       const activeDocIds = docs.filter((d) => d.isActive).map((d) => d.id);
@@ -631,6 +648,7 @@ export function registerOnboardingRoutes(app: Express): void {
       res.json({
         chunks,
         formattedContext: formatRetrievedContext(chunks),
+        source: queryRoute === "hybrid" ? "hybrid" : "rag",
       });
     } catch (error: any) {
       if (error?.code === "RAG_INJECTION_BLOCKED") {

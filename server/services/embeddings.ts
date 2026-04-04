@@ -13,6 +13,7 @@ import { fromEnv, fromInstanceMetadata } from "@aws-sdk/credential-providers";
 import type { AwsCredentialIdentityProvider } from "@aws-sdk/types";
 import { logger } from "./logger";
 import type { EmbeddingProvider } from "./embedding-provider";
+import { getRedis } from "./redis";
 
 const EMBED_MODEL = "amazon.titan-embed-text-v2:0";
 const EMBED_DIMENSIONS = 1024;
@@ -20,11 +21,18 @@ const MAX_INPUT_CHARS = 8000;
 const BATCH_SIZE = 20; // Concurrent embeddings per batch
 const EMBED_TIMEOUT_MS = 30_000; // 30 seconds
 
-// --- Embedding cache (deduplicates identical queries, LRU eviction) ---
+// --- Embedding cache (two-tier: in-memory LRU + optional Redis) ---
+// Adapted from ums-knowledge-reference's dual-cache strategy.
+// In-memory LRU handles single-instance hot queries (200 entries, ~800KB).
+// Redis (when available) provides a shared cache across multi-instance
+// deployments, so identical queries from different app instances avoid
+// redundant Bedrock API calls.
 import { LruCache } from "../utils/lru-cache";
 
 const CACHE_MAX_SIZE = 200;
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const REDIS_CACHE_TTL_SECONDS = 3600; // 1 hour
+const REDIS_KEY_PREFIX = "emb:titan:";
 
 const embeddingCache = new LruCache<number[]>({ maxSize: CACHE_MAX_SIZE, ttlMs: CACHE_TTL_MS });
 
@@ -33,6 +41,37 @@ setInterval(() => embeddingCache.prune(), 10 * 60 * 1000).unref();
 
 function getCacheKey(text: string): string {
   return createHash("sha256").update(text.slice(0, MAX_INPUT_CHARS)).digest("hex");
+}
+
+/**
+ * Try to get an embedding from Redis cache (shared across instances).
+ * Returns null on miss or if Redis is unavailable.
+ */
+async function getRedisCache(key: string): Promise<number[] | null> {
+  const redis = getRedis();
+  if (!redis) return null;
+  try {
+    const cached = await redis.get(`${REDIS_KEY_PREFIX}${key}`);
+    if (!cached) return null;
+    const parsed = JSON.parse(cached) as number[];
+    if (Array.isArray(parsed) && parsed.length === EMBED_DIMENSIONS) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null; // Non-fatal — fall through to Bedrock
+  }
+}
+
+/**
+ * Store an embedding in Redis cache (fire-and-forget).
+ */
+function setRedisCache(key: string, embedding: number[]): void {
+  const redis = getRedis();
+  if (!redis) return;
+  redis.set(`${REDIS_KEY_PREFIX}${key}`, JSON.stringify(embedding), "EX", REDIS_CACHE_TTL_SECONDS).catch(() => {
+    // Non-fatal — cache miss just means a Bedrock call next time
+  });
 }
 
 /**
@@ -91,11 +130,18 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     );
   }
 
-  // Check cache first (deduplicates identical queries within TTL)
+  // Check L1 cache (in-memory LRU — same instance)
   const cacheKey = getCacheKey(inputText);
   const cached = embeddingCache.get(cacheKey);
   if (cached) {
     return cached;
+  }
+
+  // Check L2 cache (Redis — shared across instances)
+  const redisCached = await getRedisCache(cacheKey);
+  if (redisCached) {
+    embeddingCache.set(cacheKey, redisCached); // Promote to L1
+    return redisCached;
   }
 
   const body = JSON.stringify({
@@ -150,8 +196,9 @@ export async function generateEmbedding(text: string): Promise<number[]> {
       throw new Error("Embedding contains NaN or Infinity values — aborting to prevent pgvector corruption");
     }
 
-    // Cache the result (LRU eviction handles capacity)
+    // Cache the result in both L1 (in-memory) and L2 (Redis)
     embeddingCache.set(cacheKey, embedding);
+    setRedisCache(cacheKey, embedding);
 
     return embedding;
   } catch (err: any) {

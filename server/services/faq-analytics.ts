@@ -165,3 +165,66 @@ export function getKnowledgeBaseGaps(
       lowConfidenceRate: e.count > 0 ? Math.round((e.lowConfidenceCount / e.count) * 100) / 100 : 0,
     }));
 }
+
+/**
+ * Get cross-org (anonymized) FAQ patterns for platform-level intelligence.
+ * Adapted from ums-knowledge-reference's FAQ dashboard concept, extended
+ * for multi-tenant SaaS to identify common knowledge gaps across the platform.
+ *
+ * No org-identifiable data is exposed — only normalized query keys with
+ * aggregate counts and confidence levels across all tenants.
+ *
+ * Useful for:
+ * - Identifying common knowledge gaps across the platform
+ * - Suggesting default knowledge base content for new orgs
+ * - Informing default evaluation template improvements
+ *
+ * Requires minimum 3 orgs asking the same question to prevent de-anonymization.
+ */
+export function getCrossOrgFaqPatterns(
+  options?: { minOrgs?: number; minTotalCount?: number; limit?: number },
+): Array<{
+  normalizedKey: string;
+  orgCount: number;
+  totalCount: number;
+  avgConfidence: number;
+  lowConfidenceRate: number;
+}> {
+  const minOrgs = options?.minOrgs ?? 3;
+  const minTotalCount = options?.minTotalCount ?? 5;
+  const limit = options?.limit ?? 30;
+
+  // Aggregate across all orgs by normalized key
+  const crossOrgMap = new Map<
+    string,
+    { orgSet: Set<string>; totalCount: number; totalConfidence: number; lowConfidenceCount: number }
+  >();
+
+  for (const [orgId, orgData] of Array.from(orgFaqData)) {
+    for (const [key, entry] of Array.from(orgData)) {
+      let agg = crossOrgMap.get(key);
+      if (!agg) {
+        agg = { orgSet: new Set(), totalCount: 0, totalConfidence: 0, lowConfidenceCount: 0 };
+        crossOrgMap.set(key, agg);
+      }
+      agg.orgSet.add(orgId);
+      agg.totalCount += entry.count;
+      agg.totalConfidence += entry.totalConfidence;
+      agg.lowConfidenceCount += entry.lowConfidenceCount;
+    }
+  }
+
+  return Array.from(crossOrgMap.entries())
+    .filter(([, agg]) => agg.orgSet.size >= minOrgs && agg.totalCount >= minTotalCount)
+    .sort((a, b) => b[1].totalCount - a[1].totalCount)
+    .slice(0, limit)
+    .map(([key, agg]) => ({
+      normalizedKey: key,
+      orgCount: agg.orgSet.size,
+      totalCount: agg.totalCount,
+      avgConfidence:
+        agg.totalCount > 0 ? Math.round((agg.totalConfidence / agg.totalCount) * 100) / 100 : 0,
+      lowConfidenceRate:
+        agg.totalCount > 0 ? Math.round((agg.lowConfidenceCount / agg.totalCount) * 100) / 100 : 0,
+    }));
+}

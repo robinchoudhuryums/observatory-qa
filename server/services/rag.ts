@@ -54,6 +54,198 @@ export interface RAGSearchOptions {
   topK?: number;
   semanticWeight?: number;
   keywordWeight?: number;
+  /** Override automatic query type classification */
+  queryType?: QueryType;
+}
+
+// --- Adaptive query-type classification (adapted from ums-knowledge-reference) ---
+// Different query types benefit from different semantic/keyword weight balances.
+// Exact-match lookups (codes, template names) need more keyword weight;
+// conceptual questions benefit from more semantic weight.
+
+export type QueryType = "template_lookup" | "compliance_question" | "coaching_question" | "general";
+
+/**
+ * Classify a RAG query to determine optimal search weights.
+ * Adapted from UMS's code_lookup/coverage_question/general classification,
+ * re-targeted for Observatory QA's call analysis verticals.
+ */
+export function classifyQueryType(query: string): QueryType {
+  const q = query.toLowerCase();
+
+  // Template/criteria lookups — need exact keyword matching
+  const templatePatterns = [
+    /\b(?:template|scoring\s+criteria|evaluation\s+criteria|required\s+phrases?)\b/,
+    /\b(?:prompt\s+template|call\s+categor(?:y|ies)|scoring\s+weight)\b/,
+    /\b(?:what\s+(?:is|are)\s+the\s+(?:criteria|requirements|template))\b/,
+  ];
+  if (templatePatterns.some((p) => p.test(q))) return "template_lookup";
+
+  // Compliance questions — balanced (need terms + context)
+  const compliancePatterns = [
+    /\b(?:compliance|hipaa|regulation|policy|guideline|protocol|procedure|standard)\b/,
+    /\b(?:required|mandatory|must|shall|prohibited)\b/,
+    /\b(?:audit|documentation\s+requirement|retention|consent)\b/,
+  ];
+  if (compliancePatterns.some((p) => p.test(q))) return "compliance_question";
+
+  // Coaching questions — high semantic weight (conceptual)
+  const coachingPatterns = [
+    /\b(?:coach(?:ing)?|improv(?:e|ement)|feedback|training|development)\b/,
+    /\b(?:best\s+practices?|recommendation|how\s+(?:to|should|can|do))\b/,
+    /\b(?:performance|quality|customer\s+(?:service|experience))\b/,
+  ];
+  if (coachingPatterns.some((p) => p.test(q))) return "coaching_question";
+
+  return "general";
+}
+
+/**
+ * Get adaptive semantic/keyword weights based on query type.
+ * Adapted from UMS's getAdaptiveWeights().
+ */
+export function getAdaptiveWeights(queryType: QueryType): { semantic: number; keyword: number } {
+  switch (queryType) {
+    case "template_lookup":
+      return { semantic: 0.4, keyword: 0.6 }; // Exact terms matter most
+    case "compliance_question":
+      return { semantic: 0.55, keyword: 0.45 }; // Balanced — need both terms and context
+    case "coaching_question":
+      return { semantic: 0.75, keyword: 0.25 }; // Conceptual understanding
+    case "general":
+    default:
+      return { semantic: 0.7, keyword: 0.3 }; // Default: favor semantic
+  }
+}
+
+// --- Structured reference short-circuit (adapted from ums-knowledge-reference) ---
+// Certain queries can be answered directly from structured data (prompt templates,
+// document metadata, evaluation criteria) without the full RAG pipeline
+// (embed → search → rerank). This saves 2-4 seconds and reduces Bedrock costs.
+
+export type QueryRoute = "structured" | "hybrid" | "rag";
+
+/**
+ * Classify whether a query can be short-circuited via structured data lookup.
+ * Adapted from UMS's query route classification.
+ *
+ * - "structured": Pure metadata lookup (skip RAG entirely)
+ * - "hybrid": Has structured elements but also needs RAG context
+ * - "rag": Full RAG pipeline needed
+ */
+export function classifyQueryRoute(query: string): QueryRoute {
+  const q = query.toLowerCase();
+
+  // Structured patterns — can be answered from DB metadata alone
+  const structuredPatterns = [
+    /^(?:what|list|show)\s+(?:are|is)\s+(?:the\s+)?(?:evaluation|scoring)\s+(?:criteria|weights?|template)/,
+    /^(?:what|list|show)\s+(?:are|is)\s+(?:the\s+)?(?:required\s+phrases?|call\s+categor(?:y|ies))/,
+    /^(?:what|list|show)\s+(?:are|is)\s+(?:the\s+)?(?:prompt\s+templates?)\b/,
+    /^(?:how\s+many|count)\s+(?:documents?|templates?|categories)/,
+  ];
+
+  // Hybrid patterns — structured data + RAG context needed
+  const hybridPatterns = [
+    /\b(?:scoring\s+criteria|evaluation\s+criteria)\b.*\b(?:about|for|regarding)\b/,
+    /\b(?:template|category)\b.*\b(?:and|with|including)\b.*\b(?:document|handbook|policy)\b/,
+  ];
+
+  // Check structured first (most restrictive)
+  if (structuredPatterns.some((p) => p.test(q))) return "structured";
+  if (hybridPatterns.some((p) => p.test(q))) return "hybrid";
+  return "rag";
+}
+
+/**
+ * Answer a query directly from structured data without the RAG pipeline.
+ * Returns formatted context from prompt templates and document metadata.
+ *
+ * This is the "short-circuit" path: no embedding, no vector search, no Bedrock call.
+ */
+export async function getStructuredAnswer(
+  db: NodePgDatabase,
+  orgId: string,
+  queryText: string,
+): Promise<{
+  answer: string;
+  source: "structured";
+  confidence: "high";
+} | null> {
+  const q = queryText.toLowerCase();
+
+  try {
+    // Template/criteria queries → return from prompt_templates table
+    if (/(?:criteria|template|scoring|required\s+phrase|call\s+categor)/.test(q)) {
+      const templates = await db
+        .select({
+          callCategory: tables.promptTemplates.callCategory,
+          evaluationCriteria: tables.promptTemplates.evaluationCriteria,
+          requiredPhrases: tables.promptTemplates.requiredPhrases,
+          scoringWeights: tables.promptTemplates.scoringWeights,
+        })
+        .from(tables.promptTemplates)
+        .where(eq(tables.promptTemplates.orgId, orgId))
+        .limit(20);
+
+      if (templates.length === 0) return null;
+
+      const lines = templates.map((t) => {
+        const parts = [`**${t.callCategory || "General"}**`];
+        if (t.evaluationCriteria) parts.push(`Criteria: ${(t.evaluationCriteria as string).slice(0, 300)}`);
+        if (t.scoringWeights) {
+          const w = t.scoringWeights as Record<string, number>;
+          parts.push(`Weights: ${Object.entries(w).map(([k, v]) => `${k}=${v}`).join(", ")}`);
+        }
+        if (t.requiredPhrases) {
+          const phrases = t.requiredPhrases as Array<{ phrase: string }>;
+          if (phrases.length > 0) {
+            parts.push(`Required phrases: ${phrases.map((p) => p.phrase).join("; ")}`);
+          }
+        }
+        return parts.join("\n");
+      });
+
+      return {
+        answer: `Here are the evaluation templates configured for your organization:\n\n${lines.join("\n\n---\n\n")}`,
+        source: "structured",
+        confidence: "high",
+      };
+    }
+
+    // Document count/list queries → return from reference_documents table
+    if (/(?:document|how\s+many|count)/.test(q)) {
+      const docs = await db
+        .select({
+          name: tables.referenceDocuments.name,
+          category: tables.referenceDocuments.category,
+          indexingStatus: tables.referenceDocuments.indexingStatus,
+          retrievalCount: tables.referenceDocuments.retrievalCount,
+        })
+        .from(tables.referenceDocuments)
+        .where(and(eq(tables.referenceDocuments.orgId, orgId), eq(tables.referenceDocuments.isActive, true)))
+        .limit(50);
+
+      if (docs.length === 0) {
+        return {
+          answer: "No documents are currently in your knowledge base. Upload documents via the admin panel to enable RAG-powered analysis.",
+          source: "structured",
+          confidence: "high",
+        };
+      }
+
+      const summary = docs.map((d) => `- **${d.name}** (${d.category || "uncategorized"}) — ${d.indexingStatus}, retrieved ${d.retrievalCount || 0} times`).join("\n");
+
+      return {
+        answer: `Your knowledge base contains ${docs.length} active document(s):\n\n${summary}`,
+        source: "structured",
+        confidence: "high",
+      };
+    }
+  } catch (err) {
+    logger.debug({ err }, "Structured answer lookup failed — falling through to RAG");
+  }
+
+  return null;
 }
 
 /**
@@ -240,9 +432,14 @@ export async function searchRelevantChunks(
   options: RAGSearchOptions = {},
 ): Promise<RetrievedChunk[]> {
   const topK = options.topK ?? RAG_CONFIG.topK;
-  const semanticWeight = options.semanticWeight ?? RAG_CONFIG.semanticWeight;
-  const keywordWeight = options.keywordWeight ?? RAG_CONFIG.keywordWeight;
   const timer = createRagTimer();
+
+  // Adaptive weights: classify query type, then use type-specific weights
+  // unless the caller explicitly overrides via options.
+  const queryType = options.queryType ?? classifyQueryType(queryText);
+  const adaptiveDefaults = getAdaptiveWeights(queryType);
+  const semanticWeight = options.semanticWeight ?? adaptiveDefaults.semantic;
+  const keywordWeight = options.keywordWeight ?? adaptiveDefaults.keyword;
 
   if (!isEmbeddingAvailable() || documentIds.length === 0) {
     return [];
@@ -335,12 +532,16 @@ export async function searchRelevantChunks(
         )
       : 500;
 
+  // Expand query with industry synonyms for BM25 (not for embedding — embedding
+  // handles semantic similarity; this handles lexical gaps like "cpap" vs "c-pap")
+  const expandedQuery = expandQueryWithSynonyms(queryText);
+
   // Apply BM25-style keyword boosting with dynamic avgDocLen
   const results: RetrievedChunk[] = (candidates.rows as any[]).map((row) => {
     // Clamp semantic score to [0,1] — pgvector cosine can return negatives
     const rawSemantic = parseFloat(row.semantic_score) || 0;
     const semanticScore = Math.max(0, Math.min(1, rawSemantic));
-    const kwScore = Math.max(0, bm25Score(queryText, row.text, { avgDocLen }));
+    const kwScore = Math.max(0, bm25Score(expandedQuery, row.text, { avgDocLen }));
     // Normalize by weight sum so custom configs (e.g., 0.5+0.5 or 0.6+0.6) produce [0,1] scores
     const weightSum = semanticWeight + keywordWeight || 1;
     const combinedScore = (semanticWeight * semanticScore + keywordWeight * kwScore) / weightSum;
@@ -406,18 +607,24 @@ export async function searchRelevantChunks(
   recordFaqQuery(orgId, queryText, confidence.score, confidence.level);
 
   // Log RAG trace with PHI-redacted query
+  const avgScore = finalResults.length > 0 ? finalResults.reduce((sum, c) => sum + c.score, 0) / finalResults.length : 0;
   logRagTrace({
     traceId: randomUUID(),
     orgId,
     queryTextRedacted: redactPhi(queryText),
+    queryType,
+    semanticWeight,
+    keywordWeight,
     embeddingTimeMs: timer.elapsed("embedding"),
     retrievalTimeMs: timer.elapsed("retrieval"),
     rerankTimeMs: timer.elapsed("rerank"),
     totalTimeMs: timer.total(),
     candidateCount: candidates.rows.length,
     returnedCount: finalResults.length,
+    retrievedChunkIds: finalResults.map((c) => c.id),
+    retrievalScores: finalResults.map((c) => Math.round(c.score * 1000) / 1000),
     topScore: finalResults.length > 0 ? finalResults[0].score : 0,
-    avgScore: finalResults.length > 0 ? finalResults.reduce((sum, c) => sum + c.score, 0) / finalResults.length : 0,
+    avgScore,
     confidenceLevel: confidence.level,
     confidenceScore: confidence.score,
     injectionBlocked: false,
@@ -631,6 +838,168 @@ export async function getKnowledgeBaseAnalytics(
   };
 }
 
+// --- Domain synonym expansion (adapted from ums-knowledge-reference) ---
+// Bidirectional synonym maps per industry vertical. When a query contains
+// a term, its synonyms are appended to boost BM25 recall on abbreviations
+// and alternate phrasings. The embedding handles semantic similarity;
+// this handles lexical gaps (e.g., "w/c" vs "wheelchair").
+
+const DENTAL_SYNONYMS: ReadonlyMap<string, readonly string[]> = new Map([
+  ["crown", ["cap", "restoration", "prosthetic"]],
+  ["filling", ["restoration", "composite", "amalgam"]],
+  ["extraction", ["pull", "exodontia", "removal"]],
+  ["prophylaxis", ["prophy", "cleaning", "dental cleaning"]],
+  ["radiograph", ["xray", "x-ray", "film", "image"]],
+  ["periodontal", ["perio", "gum", "gingival"]],
+  ["endodontic", ["endo", "root canal", "rct"]],
+  ["orthodontic", ["ortho", "braces", "aligner"]],
+  ["denture", ["prosthesis", "partial", "full denture"]],
+  ["implant", ["dental implant", "fixture", "abutment"]],
+  ["cdt", ["dental code", "procedure code"]],
+  ["sealant", ["pit and fissure sealant", "preventive sealant"]],
+  ["fluoride", ["fluoride treatment", "topical fluoride", "varnish"]],
+]);
+
+const MEDICAL_SYNONYMS: ReadonlyMap<string, readonly string[]> = new Map([
+  ["wheelchair", ["wc", "w/c", "power wheelchair", "manual wheelchair"]],
+  ["cpap", ["c-pap", "continuous positive airway pressure"]],
+  ["oxygen", ["o2", "supplemental oxygen", "home oxygen"]],
+  ["diabetes", ["dm", "dm2", "type 2 diabetes", "diabetic"]],
+  ["hypertension", ["htn", "high blood pressure", "elevated bp"]],
+  ["medication", ["med", "meds", "prescription", "rx"]],
+  ["diagnosis", ["dx", "diagnoses", "condition"]],
+  ["treatment", ["tx", "therapy", "intervention"]],
+  ["history", ["hx", "medical history", "past history"]],
+  ["symptoms", ["sx", "presenting complaints", "chief complaint"]],
+  ["patient", ["pt", "client", "individual"]],
+  ["hospital", ["facility", "inpatient", "acute care"]],
+  ["outpatient", ["op", "ambulatory", "clinic"]],
+  ["discharge", ["dc", "d/c", "released"]],
+  ["referral", ["consult", "consultation", "refer"]],
+  ["vitals", ["vital signs", "bp", "hr", "rr", "temp", "spo2"]],
+]);
+
+const BEHAVIORAL_HEALTH_SYNONYMS: ReadonlyMap<string, readonly string[]> = new Map([
+  ["therapy", ["counseling", "psychotherapy", "session"]],
+  ["depression", ["mdd", "depressive disorder", "depressed mood"]],
+  ["anxiety", ["gad", "anxious", "generalized anxiety"]],
+  ["substance", ["substance use", "sud", "addiction", "chemical dependency"]],
+  ["ptsd", ["post-traumatic", "trauma", "traumatic stress"]],
+  ["medication management", ["med management", "psychiatric medication", "psychopharmacology"]],
+  ["cbt", ["cognitive behavioral", "cognitive therapy"]],
+  ["emdr", ["eye movement", "desensitization", "reprocessing"]],
+  ["assessment", ["evaluation", "intake", "diagnostic assessment"]],
+  ["crisis", ["crisis intervention", "emergency", "suicidal ideation", "si"]],
+  ["soap", ["soap note", "subjective objective assessment plan"]],
+  ["dap", ["dap note", "data assessment plan"]],
+  ["birp", ["birp note", "behavior intervention response plan"]],
+]);
+
+const VETERINARY_SYNONYMS: ReadonlyMap<string, readonly string[]> = new Map([
+  ["spay", ["ovariohysterectomy", "ohe", "sterilization"]],
+  ["neuter", ["castration", "orchiectomy"]],
+  ["vaccination", ["vaccine", "vax", "immunization", "booster"]],
+  ["heartworm", ["hw", "dirofilaria", "heartworm disease"]],
+  ["flea", ["flea treatment", "ectoparasite", "flea tick"]],
+  ["dental", ["dental cleaning", "dental prophy", "oral health"]],
+  ["blood work", ["cbc", "chemistry panel", "lab work", "blood panel"]],
+  ["radiograph", ["xray", "x-ray", "imaging"]],
+]);
+
+const GENERAL_SYNONYMS: ReadonlyMap<string, readonly string[]> = new Map([
+  ["cancellation", ["cancel", "cancelled", "no show", "no-show"]],
+  ["appointment", ["appt", "visit", "booking", "scheduled"]],
+  ["insurance", ["coverage", "benefits", "plan", "carrier"]],
+  ["copay", ["co-pay", "copayment", "co-payment"]],
+  ["deductible", ["out of pocket", "oop", "patient responsibility"]],
+  ["preauthorization", ["prior auth", "pre-auth", "precertification"]],
+  ["complaint", ["concern", "issue", "problem", "grievance"]],
+  ["satisfaction", ["csat", "nps", "experience", "happy"]],
+  ["escalation", ["escalate", "supervisor", "manager"]],
+  ["hold time", ["wait time", "on hold", "queue"]],
+]);
+
+/** Get the synonym map for an industry type (falls back to general). */
+function getSynonymMap(industryType?: string): ReadonlyMap<string, readonly string[]> {
+  const maps: ReadonlyMap<string, readonly string[]>[] = [GENERAL_SYNONYMS];
+  switch (industryType) {
+    case "dental":
+      maps.push(DENTAL_SYNONYMS, MEDICAL_SYNONYMS);
+      break;
+    case "medical":
+      maps.push(MEDICAL_SYNONYMS);
+      break;
+    case "behavioral_health":
+      maps.push(BEHAVIORAL_HEALTH_SYNONYMS, MEDICAL_SYNONYMS);
+      break;
+    case "veterinary":
+      maps.push(VETERINARY_SYNONYMS);
+      break;
+  }
+  // Merge all maps into one
+  const merged = new Map<string, readonly string[]>();
+  for (const map of maps) {
+    for (const [key, synonyms] of Array.from(map)) {
+      merged.set(key, synonyms);
+    }
+  }
+  return merged;
+}
+
+/**
+ * Build a bidirectional synonym lookup from a synonym map.
+ * If "cpap" maps to ["c-pap", "continuous positive airway pressure"],
+ * then "c-pap" also maps to ["cpap"].
+ */
+function buildBidirectionalLookup(
+  synonymMap: ReadonlyMap<string, readonly string[]>,
+): Map<string, string[]> {
+  const lookup = new Map<string, string[]>();
+  for (const [key, synonyms] of Array.from(synonymMap)) {
+    // key → all synonyms
+    const existing = lookup.get(key) || [];
+    for (const syn of synonyms) {
+      if (!existing.includes(syn)) existing.push(syn);
+    }
+    lookup.set(key, existing);
+
+    // each synonym → key (bidirectional)
+    for (const syn of synonyms) {
+      const synLower = syn.toLowerCase();
+      const synExisting = lookup.get(synLower) || [];
+      if (!synExisting.includes(key)) synExisting.push(key);
+      lookup.set(synLower, synExisting);
+    }
+  }
+  return lookup;
+}
+
+/**
+ * Expand a query with synonyms for improved BM25 recall.
+ * Only appends single-token synonyms to avoid noise.
+ */
+export function expandQueryWithSynonyms(query: string, industryType?: string): string {
+  const synonymMap = getSynonymMap(industryType);
+  const lookup = buildBidirectionalLookup(synonymMap);
+  const queryLower = query.toLowerCase();
+  const terms = queryLower.split(/\s+/);
+  const expansions: string[] = [];
+
+  for (const term of terms) {
+    const synonyms = lookup.get(term);
+    if (synonyms) {
+      for (const syn of synonyms) {
+        // Only add single-token synonyms (multi-word ones add noise to BM25)
+        if (!syn.includes(" ") && !terms.includes(syn) && !expansions.includes(syn)) {
+          expansions.push(syn);
+        }
+      }
+    }
+  }
+
+  return expansions.length > 0 ? `${query} ${expansions.join(" ")}` : query;
+}
+
 // --- BM25-style keyword scoring (simplified, no corpus IDF) ---
 
 function bm25Score(
@@ -717,6 +1086,11 @@ function tokenize(text: string): string[] {
   return Array.from(new Set([...standard, ...codes, ...hyphenated]));
 }
 
+/**
+ * Compute retrieval confidence from chunk scores.
+ * Used as the baseline; can be reconciled with LLM-stated confidence
+ * via reconcileConfidence().
+ */
 export function computeConfidence(chunks: RetrievedChunk[]): {
   score: number;
   level: "high" | "partial" | "low" | "none";
@@ -724,13 +1098,91 @@ export function computeConfidence(chunks: RetrievedChunk[]): {
   if (chunks.length === 0) return { score: 0, level: "none" };
   const topScore = chunks[0].score;
   const avgScore = chunks.reduce((sum, c) => sum + c.score, 0) / chunks.length;
-  const blended = 0.6 * topScore + 0.4 * avgScore;
+
+  // Effective score: 65% top + 35% avg (adapted from UMS).
+  // A single strong match lifts confidence more than average.
+  let effective = topScore * 0.65 + avgScore * 0.35;
+
+  // Penalize thin evidence: only 1 result means low confidence in retrieval
+  if (chunks.length <= 1 && effective > 0) {
+    effective *= 0.85;
+  }
+
   let level: "high" | "partial" | "low" | "none";
-  if (blended >= 0.7) level = "high";
-  else if (blended >= 0.45) level = "partial";
-  else if (blended >= 0.3) level = "low";
+  if (effective >= 0.42) level = "high";
+  else if (effective >= 0.30) level = "partial";
+  else if (effective >= 0.15) level = "low";
   else level = "none";
-  return { score: Math.round(blended * 100) / 100, level };
+  return { score: Math.round(effective * 100) / 100, level };
+}
+
+/**
+ * Reconcile LLM-stated confidence with retrieval scores.
+ * Adapted from UMS's parseConfidence() reconciliation logic.
+ *
+ * The LLM may be overconfident (hallucinating with weak retrieval) or
+ * underconfident (conservative despite strong retrieval). This function
+ * cross-checks both signals to produce a more trustworthy result.
+ *
+ * @param llmConfidence - Confidence tag from LLM output (e.g., "[CONFIDENCE: HIGH]")
+ * @param retrievalConfidence - Score from computeConfidence()
+ * @returns Reconciled confidence level and cleaned answer text
+ */
+export function reconcileConfidence(
+  llmText: string,
+  retrievalConfidence: { score: number; level: "high" | "partial" | "low" | "none" },
+): {
+  level: "high" | "partial" | "low" | "none";
+  score: number;
+  cleanedText: string;
+  reconciled: boolean;
+} {
+  // Parse [CONFIDENCE: HIGH/PARTIAL/LOW] tag from LLM output
+  const tagMatch = llmText.match(/\[CONFIDENCE:\s*(HIGH|PARTIAL|LOW)\]/i);
+  const cleanedText = llmText.replace(/\[CONFIDENCE:\s*(?:HIGH|PARTIAL|LOW)\]/gi, "").trim();
+
+  if (!tagMatch) {
+    // No LLM tag — use retrieval confidence directly
+    return {
+      level: retrievalConfidence.level,
+      score: retrievalConfidence.score,
+      cleanedText,
+      reconciled: false,
+    };
+  }
+
+  const llmLevel = tagMatch[1].toLowerCase() as "high" | "partial" | "low";
+  let finalLevel: "high" | "partial" | "low" | "none" = llmLevel;
+  let reconciled = false;
+  const rScore = retrievalConfidence.score;
+
+  // Downgrade: LLM says HIGH but retrieval is weak → prevent hallucination trust
+  if (llmLevel === "high" && rScore < 0.30) {
+    finalLevel = "partial";
+    reconciled = true;
+  }
+
+  // Hard downgrade: LLM says HIGH/PARTIAL but retrieval is very weak
+  if ((llmLevel === "high" || llmLevel === "partial") && rScore < 0.15) {
+    finalLevel = "low";
+    reconciled = true;
+  }
+
+  // Upgrade: LLM says PARTIAL but retrieval is strong → model may be conservative
+  if (llmLevel === "partial" && rScore >= 0.42) {
+    const topScore = retrievalConfidence.score / 0.65; // approximate topScore from effective
+    if (topScore >= 0.50) {
+      finalLevel = "high";
+      reconciled = true;
+    }
+  }
+
+  return {
+    level: finalLevel,
+    score: rScore,
+    cleanedText,
+    reconciled,
+  };
 }
 
 export function validateConversationHistory(
@@ -745,4 +1197,62 @@ export function validateConversationHistory(
     trimmed = trimmed.slice(1);
   }
   return trimmed;
+}
+
+/**
+ * Reformulate a follow-up question into a standalone query using conversation context.
+ * Adapted from UMS's query reformulation strategy.
+ *
+ * When users ask follow-up questions like "What about that?" or "And the coverage?",
+ * the query needs prior context to make sense for embedding and search.
+ *
+ * Strategy:
+ * - Last 4 turns kept verbatim
+ * - Older turns summarized into a topic list
+ * - Returns a standalone query that can be embedded and searched independently
+ *
+ * This is a lightweight client-side reformulation (no LLM call). For production
+ * conversational interfaces, consider an LLM-based reformulation step.
+ */
+export function reformulateWithContext(
+  currentQuery: string,
+  conversationHistory: Array<{ role: string; content: string }>,
+): string {
+  if (!conversationHistory || conversationHistory.length === 0) return currentQuery;
+
+  // Detect if the query is a follow-up (short, contains pronouns/references)
+  const isFollowUp =
+    currentQuery.length < 80 &&
+    /\b(?:that|this|those|these|it|they|them|the same|above|previous|also|more|what about|and the|how about)\b/i.test(
+      currentQuery,
+    );
+
+  if (!isFollowUp) return currentQuery;
+
+  // Extract topics from recent conversation
+  const recentTurns = conversationHistory.slice(-4);
+  const olderTurns = conversationHistory.slice(0, -4);
+
+  // Build topic context from older turns
+  let topicContext = "";
+  if (olderTurns.length > 0) {
+    const topics = olderTurns
+      .filter((t) => t.role === "user")
+      .map((t) => t.content.slice(0, 100).replace(/[?!.]+$/, ""))
+      .join("; ");
+    if (topics) {
+      topicContext = `Context: previously discussed ${topics}. `;
+    }
+  }
+
+  // Extract the most recent user question for context
+  const lastUserTurn = recentTurns.filter((t) => t.role === "user").pop();
+  const lastContext = lastUserTurn ? lastUserTurn.content.slice(0, 200) : "";
+
+  // Reformulate: prepend context to the follow-up
+  if (lastContext) {
+    return `${topicContext}Regarding "${lastContext}": ${currentQuery}`;
+  }
+
+  return `${topicContext}${currentQuery}`;
 }
