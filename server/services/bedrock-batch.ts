@@ -91,9 +91,9 @@ export async function listPendingItems(orgId?: string): Promise<PendingBatchItem
     for (const key of keys) {
       if (!key.endsWith(".json")) continue;
       try {
-        const data = await s3.downloadJson(key);
+        const data = await s3.downloadJson<PendingBatchItem>(key);
         if (data && data.orgId && data.callId) {
-          items.push(data as PendingBatchItem);
+          items.push(data);
         }
       } catch (err) {
         logger.warn({ key, err }, "Failed to read pending batch item");

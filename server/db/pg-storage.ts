@@ -1955,6 +1955,7 @@ export class PostgresStorage {
       scoringWeights: row.scoringWeights as any,
       additionalInstructions: row.additionalInstructions,
       isActive: row.isActive,
+      isDefault: row.isDefault ?? false,
       updatedAt: toISOString(row.updatedAt),
       updatedBy: row.updatedBy,
     };

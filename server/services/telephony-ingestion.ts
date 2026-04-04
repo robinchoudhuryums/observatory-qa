@@ -88,7 +88,7 @@ export async function ingestRecording(
 
   try {
     // Create the call record
-    const call = await storage.createCall({
+    const call = await storage.createCall(orgId, {
       orgId,
       fileName: `telephony-${externalId}.mp3`,
       status: "pending",
