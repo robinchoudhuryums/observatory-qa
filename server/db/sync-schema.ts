@@ -351,10 +351,13 @@ export async function syncSchema(db: Database): Promise<void> {
         scoring_weights JSONB,
         additional_instructions TEXT,
         is_active BOOLEAN NOT NULL DEFAULT true,
+        is_default BOOLEAN NOT NULL DEFAULT false,
         updated_at TIMESTAMP DEFAULT NOW(),
         updated_by VARCHAR(255)
       )
     `);
+    // Add is_default column for existing tables (idempotent)
+    await db.execute(sql`ALTER TABLE prompt_templates ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT false`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS prompt_templates_org_id_idx ON prompt_templates (org_id)`);
     await db.execute(
       sql`CREATE INDEX IF NOT EXISTS prompt_templates_org_category_idx ON prompt_templates (org_id, call_category)`,
