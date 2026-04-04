@@ -287,6 +287,9 @@ export default function Dashboard() {
             <button
               className="w-full flex items-center gap-3 px-4 py-2.5 text-left"
               onClick={() => setFlagsExpanded(!flagsExpanded)}
+              aria-expanded={flagsExpanded}
+              aria-controls="flagged-calls-panel"
+              aria-label={`Flagged calls: ${badCalls.length} need attention, ${goodCalls.length} exceptional`}
             >
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 {badCalls.length > 0 && (
@@ -311,7 +314,7 @@ export default function Dashboard() {
               />
             </button>
             {flagsExpanded && (
-              <div className="px-4 pb-3 pt-0 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div id="flagged-calls-panel" className="px-4 pb-3 pt-0 grid grid-cols-1 md:grid-cols-2 gap-3">
                 {badCalls.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
                     {badCalls.slice(0, 5).map((c) => (

@@ -38,8 +38,8 @@ export default function Upload() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Upload failed");
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Upload failed (HTTP ${response.status})`);
       }
 
       toast({ title: "Recording Uploaded", description: "Your recording is now being processed." });

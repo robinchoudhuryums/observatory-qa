@@ -568,6 +568,7 @@ function SsoLoginSection() {
         <Input
           type="text"
           placeholder="Organization slug (e.g. acme-healthcare)"
+          aria-label="Organization slug for SSO login"
           value={orgSlug}
           onChange={(e) => {
             setOrgSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""));

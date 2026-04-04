@@ -572,18 +572,23 @@ export class PostgresStorage {
 
   async getCallSummaries(
     orgId: string,
-    filters: { status?: string; sentiment?: string; employee?: string } = {},
+    filters: { status?: string; sentiment?: string; employee?: string; limit?: number; offset?: number } = {},
   ): Promise<CallSummary[]> {
     // Same as getCallsWithDetails but skips transcript table entirely
     const conditions = [eq(tables.calls.orgId, orgId)];
     if (filters.status) conditions.push(eq(tables.calls.status, filters.status));
     if (filters.employee) conditions.push(eq(tables.calls.employeeId, filters.employee));
 
-    const callRows = await this.db
+    // Apply query-level limit to prevent OOM on large orgs (export routes can have 100K+ calls)
+    const queryLimit = filters.limit ?? 50_000; // Hard cap: never load more than 50K rows
+    let query = this.db
       .select()
       .from(tables.calls)
       .where(and(...conditions))
-      .orderBy(desc(tables.calls.uploadedAt));
+      .orderBy(desc(tables.calls.uploadedAt))
+      .limit(queryLimit);
+    if (filters.offset) query = query.offset(filters.offset) as typeof query;
+    const callRows = await query;
 
     if (callRows.length === 0) return [];
 
@@ -832,11 +837,18 @@ export class PostgresStorage {
 
   // --- Dashboard metrics (single consolidated query) ---
   async getDashboardMetrics(orgId: string): Promise<DashboardMetrics> {
+    // Single query using LEFT JOINs instead of 3 correlated subqueries.
+    // Each subquery scanned its table independently; this touches calls once
+    // and aggregates sentiment + analysis via the call_id foreign key.
     const [row] = (await this.db.execute(sql`
       SELECT
-        (SELECT count(*)::int FROM ${tables.calls} WHERE ${tables.calls.orgId} = ${orgId}) AS call_count,
-        (SELECT coalesce(avg(cast(${tables.sentimentAnalyses.overallScore} as float)) * 10, 0) FROM ${tables.sentimentAnalyses} WHERE ${tables.sentimentAnalyses.orgId} = ${orgId}) AS avg_sentiment,
-        (SELECT coalesce(avg(cast(${tables.callAnalyses.performanceScore} as float)), 0) FROM ${tables.callAnalyses} WHERE ${tables.callAnalyses.orgId} = ${orgId}) AS avg_performance
+        count(c.id)::int AS call_count,
+        coalesce(avg(cast(s.overall_score as float)) * 10, 0) AS avg_sentiment,
+        coalesce(avg(cast(a.performance_score as float)), 0) AS avg_performance
+      FROM calls c
+      LEFT JOIN sentiment_analyses s ON s.call_id = c.id
+      LEFT JOIN call_analyses a ON a.call_id = c.id
+      WHERE c.org_id = ${orgId}
     `)) as any;
 
     return {
@@ -1018,7 +1030,10 @@ export class PostgresStorage {
         ),
       );
 
-    // Search analysis summaries and topics — uses analyses_summary_search_idx GIN index
+    // Search analysis summaries and topics — uses GIN tsvector indexes.
+    // Topics search: use tsvector on topics::text (GIN-indexed) for queries >=2 chars,
+    // ILIKE fallback only for single-char queries. The jsonb_path_ops GIN index
+    // does NOT support ILIKE — casting to text bypassed it entirely.
     const matchingAnalyses = await this.db
       .select({ callId: tables.callAnalyses.callId })
       .from(tables.callAnalyses)
@@ -1029,7 +1044,9 @@ export class PostgresStorage {
             useFullText
               ? sql`to_tsvector('english', coalesce(${tables.callAnalyses.summary}, '')) @@ ${tsQuery}`
               : ilike(tables.callAnalyses.summary, pattern),
-            sql`${tables.callAnalyses.topics}::text ILIKE ${pattern}`,
+            useFullText
+              ? sql`to_tsvector('english', coalesce(${tables.callAnalyses.topics}::text, '')) @@ ${tsQuery}`
+              : sql`${tables.callAnalyses.topics}::text ILIKE ${pattern}`,
           ),
         ),
       );

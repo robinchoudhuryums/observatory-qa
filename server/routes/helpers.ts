@@ -221,3 +221,18 @@ export async function acquireUploadLock(lockKey: string, ttlMs = 30_000): Promis
   memLocks.set(lockKey, now + ttlMs);
   return true;
 }
+
+/** Release an upload dedup lock early (call after createCall succeeds). */
+export async function releaseUploadLock(lockKey: string): Promise<void> {
+  try {
+    const { getRedis } = await import("../services/redis");
+    const redis = getRedis();
+    if (redis?.status === "ready") {
+      await redis.del(lockKey);
+      return;
+    }
+  } catch {
+    // Redis unavailable — fall through to in-memory
+  }
+  memLocks.delete(lockKey);
+}

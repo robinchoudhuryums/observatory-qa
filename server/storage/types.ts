@@ -175,11 +175,12 @@ export function calculateSentimentDistribution(
 /** Apply standard call filters (status, sentiment, employee) */
 export function applyCallFilters<
   T extends { status?: string; employeeId?: string; sentiment?: { overallSentiment?: string } },
->(calls: T[], filters: { status?: string; sentiment?: string; employee?: string }): T[] {
+>(calls: T[], filters: { status?: string; sentiment?: string; employee?: string; limit?: number; offset?: number }): T[] {
   let result = calls;
   if (filters.status) result = result.filter((c) => c.status === filters.status);
   if (filters.sentiment) result = result.filter((c) => c.sentiment?.overallSentiment === filters.sentiment);
   if (filters.employee) result = result.filter((c) => c.employeeId === filters.employee);
+  if (filters.limit) result = result.slice(filters.offset || 0, (filters.offset || 0) + filters.limit);
   return result;
 }
 

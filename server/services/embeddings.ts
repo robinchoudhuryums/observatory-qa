@@ -131,7 +131,8 @@ export async function generateEmbedding(text: string): Promise<number[]> {
         // Only retry on throttling (429) or server errors (5xx), not client errors
         if (status && status < 500 && status !== 429) throw retryErr;
         if (attempt < 2) {
-          const delay = Math.pow(2, attempt) * 1000; // 1s, 2s
+          // Jitter prevents thundering herd when many orgs index concurrently
+          const delay = Math.pow(2, attempt) * 1000 + Math.random() * 500;
           await new Promise((r) => setTimeout(r, delay));
         }
       }

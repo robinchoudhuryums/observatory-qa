@@ -8,11 +8,11 @@
  * Ported from ums-knowledge-reference, adapted for multi-tenant context.
  */
 import { logger } from "./logger";
-import { redactPhi } from "../utils/phi-redactor";
 
 export interface RagTrace {
   traceId: string;
   orgId: string;
+  /** Must be PHI-redacted by the caller before passing to logRagTrace. */
   queryTextRedacted: string;
   embeddingTimeMs: number;
   retrievalTimeMs: number;
@@ -29,16 +29,12 @@ export interface RagTrace {
 }
 
 /**
- * Log a RAG query trace with PHI-redacted query text.
+ * Log a RAG query trace. Expects queryTextRedacted to already be PHI-redacted
+ * by the caller (rag.ts passes redactPhi(queryText) before calling this).
  */
 export function logRagTrace(trace: RagTrace): void {
   logger.info(
-    {
-      ragTrace: {
-        ...trace,
-        queryTextRedacted: redactPhi(trace.queryTextRedacted),
-      },
-    },
+    { ragTrace: trace },
     `RAG trace: ${trace.returnedCount} chunks (${trace.confidenceLevel}) in ${trace.totalTimeMs}ms`,
   );
 }

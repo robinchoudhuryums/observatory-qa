@@ -13,8 +13,14 @@ import { asyncHandler } from "../middleware/error-handler";
 
 function escapeCsvField(value: unknown): string {
   if (value == null) return "";
-  const str = String(value);
-  if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+  let str = String(value);
+  // CSV formula injection prevention: cells starting with =, +, -, @, tab, or CR
+  // can execute formulas in Excel/Google Sheets. Prefix with a single quote to force
+  // text interpretation. See OWASP CSV Injection guidelines.
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`;
+  }
+  if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("'")) {
     return `"${str.replace(/"/g, '""')}"`;
   }
   return str;
@@ -34,8 +40,7 @@ export function registerExportRoutes(app: Express): void {
    */
   app.get("/api/export/performance", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
     const employees = await storage.getAllEmployees(req.orgId!);
-    const rawCalls = await storage.getCallSummaries(req.orgId!, {});
-    const calls = rawCalls.slice(-MAX_EXPORT_ROWS);
+    const calls = await storage.getCallSummaries(req.orgId!, { limit: MAX_EXPORT_ROWS });
 
     // Build per-employee performance stats
     const empStats = new Map<
@@ -121,13 +126,11 @@ export function registerExportRoutes(app: Express): void {
    * Includes: call date, employee, score, flags, summary.
    */
   app.get("/api/export/flagged", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
-    const rawCalls = await storage.getCallSummaries(req.orgId!, { status: "completed" });
-    const flaggedCalls = rawCalls
-      .filter((c) => {
-        const flags = (c.analysis as any)?.flags;
-        return Array.isArray(flags) && flags.length > 0;
-      })
-      .slice(-MAX_EXPORT_ROWS);
+    const rawCalls = await storage.getCallSummaries(req.orgId!, { status: "completed", limit: MAX_EXPORT_ROWS });
+    const flaggedCalls = rawCalls.filter((c) => {
+      const flags = (c.analysis as any)?.flags;
+      return Array.isArray(flags) && flags.length > 0;
+    });
 
     const employees = await storage.getAllEmployees(req.orgId!);
     const empMap = new Map(employees.map((e) => [e.id, e.name]));
@@ -165,7 +168,7 @@ export function registerExportRoutes(app: Express): void {
    * Includes: overall distribution, per-employee sentiment breakdown.
    */
   app.get("/api/export/sentiment", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
-    const calls = await storage.getCallSummaries(req.orgId!, {});
+    const calls = await storage.getCallSummaries(req.orgId!, { limit: MAX_EXPORT_ROWS });
     const employees = await storage.getAllEmployees(req.orgId!);
     const empMap = new Map(employees.map((e) => [e.id, e]));
 
@@ -225,7 +228,7 @@ export function registerExportRoutes(app: Express): void {
    * Includes: top topics, top complaints, escalation patterns summary.
    */
   app.get("/api/export/insights", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
-    const calls = await storage.getCallSummaries(req.orgId!, {});
+    const calls = await storage.getCallSummaries(req.orgId!, { limit: MAX_EXPORT_ROWS });
 
     // Extract topics and complaints from analyses
     const topicCounts = new Map<string, number>();
@@ -321,7 +324,7 @@ export function registerExportRoutes(app: Express): void {
   app.get("/api/export/calls", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
     const { from, to, employeeId, status } = req.query;
 
-    const filters: { status?: string; employee?: string } = {};
+    const filters: { status?: string; employee?: string; limit?: number } = { limit: MAX_EXPORT_ROWS };
     if (status && typeof status === "string") filters.status = status;
     if (employeeId && typeof employeeId === "string") filters.employee = employeeId;
 

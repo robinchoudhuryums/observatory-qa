@@ -266,8 +266,10 @@ export function parseJsonResponse(text: string, callId: string): CallAnalysis {
       ];
       if (validFlags.includes(f)) return true;
       if (f.startsWith("missing_required_phrase:")) return true;
-      // Allow custom flags but log unknown ones
-      if (f.length > 0 && f.length < 100) return true;
+      // Allow custom flags with safe format: lowercase alphanumeric + underscores + hyphens,
+      // optional colon-separated prefix (e.g., "custom:high_urgency"). Reject arbitrary strings
+      // that could break downstream filters, analytics queries, or UI rendering.
+      if (f.length > 0 && f.length < 100 && /^[a-z0-9][a-z0-9_-]*(?::[a-z0-9_-]+)?$/.test(f)) return true;
       return false;
     }),
     detected_agent_name: typeof raw.detected_agent_name === "string" ? raw.detected_agent_name : null,

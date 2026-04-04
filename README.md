@@ -243,7 +243,7 @@ EC2 deploy script (`deploy/ec2/deploy.sh`) includes automatic rollback on health
 Observatory QA implements healthcare-grade security controls:
 
 - **Encryption**: TLS in transit (Caddy/Render), encrypted at rest (EBS, S3 SSE, PostgreSQL)
-- **Access control**: Role-based permissions, 15-min session idle timeout, account lockout after 5 failed attempts, MFA (TOTP)
+- **Access control**: Role-based permissions, 15-min session idle timeout, account lockout after 5 failed attempts, MFA (TOTP + WebAuthn/Passkeys), rate limiting on all admin + data endpoints
 - **Audit logging**: Tamper-evident structured JSON logs with integrity hashes for all PHI access
 - **PHI encryption**: AES-256-GCM application-level field encryption for sensitive data
 - **Data retention**: Auto-purge calls per org policy (configurable, default 90 days)
@@ -260,7 +260,7 @@ Observatory QA implements healthcare-grade security controls:
 npm run test
 ```
 
-62 unit test files (1179 tests) covering schemas, routes, multi-tenancy, RBAC, billing, API keys, clinical workflows, EHR, PHI encryption, SSO, speaker detection, RAG pipeline, clinical amendments, load simulation, and more. Uses Node.js built-in test runner via tsx. Plus 13 Playwright E2E specs for browser-level testing (including security boundary tests).
+65 unit test files (1298 tests) covering schemas, routes, multi-tenancy, RBAC, billing, API keys, clinical workflows, EHR, PHI encryption, SSO, speaker detection, RAG pipeline, clinical amendments, load simulation, schema column coverage, AI provider mocks, and more. Uses Node.js built-in test runner via tsx. Plus 13 Playwright E2E specs for browser-level testing (including security boundary tests).
 
 ### E2E Tests (Playwright)
 ```bash

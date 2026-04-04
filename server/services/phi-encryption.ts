@@ -76,6 +76,10 @@ function getPrevKey(): Buffer | null {
 /** Inner decrypt — tries one specific key. Throws on failure. */
 function decryptWithKey(payload: string, key: Buffer): string {
   const packed = Buffer.from(payload, "base64");
+  const minLength = IV_LENGTH + AUTH_TAG_LENGTH; // iv (12) + authTag (16) = 28; ciphertext may be 0 for empty strings
+  if (packed.length < minLength) {
+    throw new Error(`Invalid encrypted payload: ${packed.length} bytes is below minimum ${minLength} (corrupt or truncated data)`);
+  }
   const iv = packed.subarray(0, IV_LENGTH);
   const authTag = packed.subarray(packed.length - AUTH_TAG_LENGTH);
   const ciphertext = packed.subarray(IV_LENGTH, packed.length - AUTH_TAG_LENGTH);

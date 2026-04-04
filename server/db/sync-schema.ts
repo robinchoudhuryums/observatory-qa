@@ -179,6 +179,8 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(
       sql`CREATE INDEX IF NOT EXISTS calls_org_employee_status_idx ON calls (org_id, employee_id, status)`,
     );
+    // Index for AssemblyAI webhook lookups (getCallByAssemblyAiId)
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS calls_assembly_ai_id_idx ON calls (assembly_ai_id)`);
     await addRlsPolicy(db, "calls").catch((e) => logger.warn({ err: e }, "RLS setup skipped for calls"));
 
     // Multi-channel support columns
@@ -296,13 +298,21 @@ export async function syncSchema(db: Database): Promise<void> {
       .catch(() => {
         logger.warn("Failed to create analysis summary full-text search index");
       });
-    // GIN index for JSONB topics search
+    // GIN index for JSONB topics containment queries (@>)
     await db
       .execute(
         sql`CREATE INDEX IF NOT EXISTS analyses_topics_gin_idx ON call_analyses USING GIN (topics jsonb_path_ops)`,
       )
       .catch(() => {
         logger.warn("Failed to create topics GIN index");
+      });
+    // GIN tsvector index for full-text search on topics::text (used by searchCalls)
+    await db
+      .execute(
+        sql`CREATE INDEX IF NOT EXISTS analyses_topics_search_idx ON call_analyses USING GIN (to_tsvector('english', coalesce(topics::text, '')))`,
+      )
+      .catch(() => {
+        logger.warn("Failed to create topics full-text search index");
       });
     await addRlsPolicy(db, "call_analyses").catch((e) =>
       logger.warn({ err: e }, "RLS setup skipped for call_analyses"),
@@ -1010,6 +1020,10 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS learning_progress_org_idx ON learning_progress (org_id)`);
     await db.execute(
       sql`CREATE INDEX IF NOT EXISTS learning_progress_employee_idx ON learning_progress (org_id, employee_id)`,
+    );
+    // Unique constraint required for INSERT ON CONFLICT DO UPDATE in upsertLearningProgress
+    await db.execute(
+      sql`CREATE UNIQUE INDEX IF NOT EXISTS learning_progress_unique_idx ON learning_progress (org_id, employee_id, module_id)`,
     );
     await addColumnIfNotExists(db, "learning_progress", "quiz_version_hash", "VARCHAR(64)");
 

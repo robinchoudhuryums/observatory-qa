@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { storage } from "../storage";
-import { requireAuth, requireRole, injectOrgContext, hashPassword, validatePasswordComplexity } from "../auth";
+import { requireAuth, requireRole, injectOrgContext, hashPassword, validatePasswordComplexity, invalidateOrgCache } from "../auth";
 import { aiProvider } from "../services/ai-factory";
 import { assemblyAIService } from "../services/assemblyai";
 import { broadcastCallUpdate } from "../services/websocket";
@@ -331,26 +331,33 @@ export function registerAdminRoutes(app: Express): void {
         return res.status(404).json(errorResponse(ERROR_CODES.ADMIN_USER_NOT_FOUND, "User not found"));
       }
 
-      // HIPAA: If password was changed, invalidate all sessions for the target user
+      // HIPAA: If password was changed, invalidate all sessions for the target user.
+      // Uses SCAN instead of KEYS to avoid blocking Redis on large session stores.
       if (password) {
         const redis = getRedis();
         if (redis) {
           try {
-            const sessionKeys = await redis.keys("sess:*");
-            for (const key of sessionKeys) {
-              const sessionData = await redis.get(key);
-              if (sessionData) {
+            let cursor = "0";
+            let deleted = 0;
+            do {
+              const [nextCursor, keys] = await redis.scan(cursor, "MATCH", "sess:*", "COUNT", 100);
+              cursor = nextCursor;
+              for (const key of keys) {
                 try {
-                  const parsed = JSON.parse(sessionData);
-                  if (parsed?.passport?.user === req.params.id) {
-                    await redis.del(key);
+                  const sessionData = await redis.get(key);
+                  if (sessionData) {
+                    const parsed = JSON.parse(sessionData);
+                    if (parsed?.passport?.user === req.params.id) {
+                      await redis.del(key);
+                      deleted++;
+                    }
                   }
                 } catch {
                   /* skip unparseable sessions */
                 }
               }
-            }
-            logger.info({ targetUserId: req.params.id }, "Invalidated sessions after password change");
+            } while (cursor !== "0");
+            logger.info({ targetUserId: req.params.id, sessionsInvalidated: deleted }, "Invalidated sessions after password change");
           } catch (err) {
             logger.warn({ err, targetUserId: req.params.id }, "Failed to invalidate sessions after password change");
           }
@@ -503,6 +510,7 @@ export function registerAdminRoutes(app: Express): void {
       }
 
       const updated = await storage.updateOrganization(req.orgId!, { settings: updatedSettings });
+      invalidateOrgCache(req.orgId!);
 
       // Audit log for HIPAA — track all org configuration changes
       const changedFields = Object.keys(parsed.data);
@@ -566,6 +574,7 @@ export function registerAdminRoutes(app: Express): void {
         scimTokenPrefix: prefix,
       };
       await storage.updateOrganization(req.orgId!, { settings: updatedSettings });
+      invalidateOrgCache(req.orgId!);
 
       logPhiAccess({
         ...auditContext(req),
@@ -605,6 +614,7 @@ export function registerAdminRoutes(app: Express): void {
         scimTokenPrefix: undefined,
       };
       await storage.updateOrganization(req.orgId!, { settings: updatedSettings });
+      invalidateOrgCache(req.orgId!);
 
       logPhiAccess({
         ...auditContext(req),

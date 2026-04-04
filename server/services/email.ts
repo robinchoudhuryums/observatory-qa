@@ -87,7 +87,10 @@ export function initEmail(): boolean {
  * Non-blocking — failures are logged but never throw.
  */
 export async function sendEmail(options: EmailOptions): Promise<boolean> {
-  const { to, text, html } = options;
+  const { text, html } = options;
+  // Strip CRLF from header-injectable fields to prevent email header injection.
+  // Subject injection is well-known; `to` injection can add Bcc/Cc headers.
+  const to = options.to.replace(/[\r\n]/g, "");
   const subject = options.subject.replace(/[\r\n]/g, "");
 
   if (!transporter) {
@@ -164,18 +167,21 @@ function wrapWithDarkMode(innerHtml: string): string {
 // --- Email templates ---
 
 export function buildPasswordResetEmail(resetUrl: string, userName: string, orgName: string): EmailOptions {
-  const subject = `Password Reset — ${orgName}`;
+  const safeName = sanitizeParam(userName);
+  const safeOrg = sanitizeParam(orgName);
+  const safeUrl = sanitizeParam(resetUrl);
+  const subject = `Password Reset — ${safeOrg}`;
   const text = [
-    `Hi ${userName},`,
+    `Hi ${safeName},`,
     "",
-    `You requested a password reset for your ${orgName} account.`,
+    `You requested a password reset for your ${safeOrg} account.`,
     "",
     `Click the link below to reset your password (valid for 1 hour):`,
-    resetUrl,
+    safeUrl,
     "",
     "If you didn't request this, you can safely ignore this email.",
     "",
-    `— ${orgName} Team`,
+    `— ${safeOrg} Team`,
   ].join("\n");
 
   const html = wrapWithDarkMode(`
@@ -199,16 +205,20 @@ export function buildInvitationEmail(
   invitedByName: string,
   role: string,
 ): EmailOptions {
-  const subject = `You're invited to ${orgName}`;
+  const safeOrg = sanitizeParam(orgName);
+  const safeBy = sanitizeParam(invitedByName);
+  const safeRole = sanitizeParam(role);
+  const safeUrl = sanitizeParam(inviteUrl);
+  const subject = `You're invited to ${safeOrg}`;
   const text = [
-    `${invitedByName} has invited you to join ${orgName} as a ${role}.`,
+    `${safeBy} has invited you to join ${safeOrg} as a ${safeRole}.`,
     "",
     `Click the link below to accept your invitation:`,
-    inviteUrl,
+    safeUrl,
     "",
     "This invitation expires in 7 days.",
     "",
-    `— ${orgName} Team`,
+    `— ${safeOrg} Team`,
   ].join("\n");
 
   const html = wrapWithDarkMode(`
@@ -493,4 +503,9 @@ export function buildTrialEndingEmail(orgName: string, trialEndDate: Date, dashb
 
 function escapeHtml(str: string): string {
   return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+/** Strip CRLF from dynamic values used in plaintext email bodies to prevent header injection. */
+function sanitizeParam(str: string): string {
+  return str.replace(/[\r\n]/g, " ").trim();
 }

@@ -219,6 +219,16 @@ export function registerApiKeyRoutes(app: Express): void {
         ? resourceScopes.filter((s: string) => typeof s === "string" && SCOPE_PATTERN.test(s))
         : [];
 
+      // Reject mixing broad permissions with resource scopes — the broad permission
+      // would silently override scopes, which is confusing and a privilege escalation risk.
+      if (broadPerms.length > 0 && scopePerms.length > 0) {
+        return res.status(400).json({
+          message: "Cannot mix broad permissions (read/write/admin) with resource scopes (e.g. calls:read). Use one or the other.",
+          broadPermissions: broadPerms,
+          resourceScopes: scopePerms,
+        });
+      }
+
       let perms: string[] = [...broadPerms, ...scopePerms];
       // Default to read if nothing valid was supplied
       if (perms.length === 0) perms = ["read"];

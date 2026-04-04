@@ -70,6 +70,7 @@ import { type IStorage, applyCallFilters, calculateDashboardMetrics, calculateSe
  */
 /** Maximum items to keep in unbounded in-memory collections. */
 const MEM_USAGE_EVENTS_MAX = 10_000;
+const MEM_AUDIO_FILES_MAX = 200; // Cap audio buffers (~200 files × ~5 MB avg = ~1 GB max)
 const MEM_CLEANUP_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 
 export class MemStorage implements IStorage {
@@ -104,6 +105,12 @@ export class MemStorage implements IStorage {
     // Cap usage events to prevent unbounded growth
     if (this.usageEvents.length > MEM_USAGE_EVENTS_MAX) {
       this.usageEvents = this.usageEvents.slice(-MEM_USAGE_EVENTS_MAX);
+    }
+    // Cap audio file buffers — evict oldest entries (FIFO by insertion order)
+    if (this.audioFiles.size > MEM_AUDIO_FILES_MAX) {
+      const excess = this.audioFiles.size - MEM_AUDIO_FILES_MAX;
+      const keys = Array.from(this.audioFiles.keys()).slice(0, excess);
+      for (const key of keys) this.audioFiles.delete(key);
     }
   }
 

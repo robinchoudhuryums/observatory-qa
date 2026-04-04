@@ -189,7 +189,9 @@ export async function autoAssignEmployee(
   if (!normalized) return { reason: "no_name" };
 
   const allEmployees = await storage.getAllEmployees(orgId);
-  const activeEmployees = allEmployees.filter((emp) => !emp.status || emp.status === "Active");
+  // Require explicit "Active" status — don't treat missing/null status as active,
+  // which could assign calls to archived or deactivated employees.
+  const activeEmployees = allEmployees.filter((emp) => emp.status === "Active");
 
   // Phase 1: Exact full-name match (highest confidence)
   const exactMatch = activeEmployees.find((emp) => emp.name.toLowerCase().trim() === normalized);
@@ -720,13 +722,28 @@ export async function continueAfterTranscription(
     const rawFlags: string[] = Array.isArray(analysis.flags) ? [...(analysis.flags as string[])] : [];
     analysis.flags = enforceServerFlags(rawFlags, confidence.score, safeFloat(analysis.performanceScore));
 
-    // Step 6: Store results
+    // Step 6: Store results — use allSettled to avoid losing all data when one write fails.
+    // A missing sentiment row is recoverable; losing all three results is not.
     broadcastCallUpdate(callId, "saving", { step: 6, totalSteps: 6, label: "Saving results..." }, orgId);
-    await Promise.all([
+    const [transcriptResult, sentimentResult, analysisResult] = await Promise.allSettled([
       storage.createTranscript(orgId, transcript),
       storage.createSentimentAnalysis(orgId, sentiment),
       storage.createCallAnalysis(orgId, analysis),
     ]);
+    const storageFailed: string[] = [];
+    if (transcriptResult.status === "rejected") storageFailed.push("transcript");
+    if (sentimentResult.status === "rejected") storageFailed.push("sentiment");
+    if (analysisResult.status === "rejected") storageFailed.push("analysis");
+    if (storageFailed.length > 0) {
+      logger.error(
+        { callId, orgId, failedComponents: storageFailed },
+        `Partial storage failure: ${storageFailed.join(", ")} failed to save`,
+      );
+      // If all three failed, this is unrecoverable — rethrow the first error
+      if (storageFailed.length === 3) {
+        throw (transcriptResult as PromiseRejectedResult).reason;
+      }
+    }
 
     // Auto-assign employee
     const currentCall = await storage.getCall(orgId, callId);

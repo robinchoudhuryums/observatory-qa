@@ -307,6 +307,22 @@ export async function searchRelevantChunks(
   timer.mark("retrieval");
 
   if (!candidates.rows || candidates.rows.length === 0) {
+    // Distinguish "no relevant chunks" from "all embeddings failed" — the latter
+    // means the org's knowledge base is silently degraded and admin should re-index.
+    const totalChunks = await db.execute(sql`
+      SELECT count(*)::int AS total, count(embedding)::int AS with_embedding
+      FROM document_chunks
+      WHERE org_id = ${orgId} AND document_id = ANY(${documentIds}::text[])
+    `);
+    const row = (totalChunks.rows[0] as any) || {};
+    const total = parseInt(row.total) || 0;
+    const withEmb = parseInt(row.with_embedding) || 0;
+    if (total > 0 && withEmb === 0) {
+      logger.warn(
+        { orgId, totalChunks: total },
+        "RAG search returned 0 results — all chunks have NULL embeddings. Re-index documents to fix",
+      );
+    }
     return [];
   }
 
@@ -325,7 +341,9 @@ export async function searchRelevantChunks(
     const rawSemantic = parseFloat(row.semantic_score) || 0;
     const semanticScore = Math.max(0, Math.min(1, rawSemantic));
     const kwScore = Math.max(0, bm25Score(queryText, row.text, { avgDocLen }));
-    const combinedScore = semanticWeight * semanticScore + keywordWeight * kwScore;
+    // Normalize by weight sum so custom configs (e.g., 0.5+0.5 or 0.6+0.6) produce [0,1] scores
+    const weightSum = semanticWeight + keywordWeight || 1;
+    const combinedScore = (semanticWeight * semanticScore + keywordWeight * kwScore) / weightSum;
     // NaN guard: if score computation fails, fall back to semantic-only
     const safeScore = Number.isFinite(combinedScore) ? Math.max(0, combinedScore) : semanticScore;
 

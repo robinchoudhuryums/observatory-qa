@@ -412,32 +412,29 @@ P.updateGamificationProfile = async function(
     employeeId: string,
     updates: { totalPoints?: number; currentStreak?: number; longestStreak?: number; lastActivityDate?: string },
   ) {
-    const existing = await db(this)
-      .select()
-      .from(tables.gamificationProfiles)
-      .where(and(eq(tables.gamificationProfiles.orgId, orgId), eq(tables.gamificationProfiles.employeeId, employeeId)));
-    if (existing[0]) {
-      const dbUpdates: Record<string, unknown> = { updatedAt: new Date() };
-      if (updates.totalPoints !== undefined) dbUpdates.totalPoints = updates.totalPoints;
-      if (updates.currentStreak !== undefined) dbUpdates.currentStreak = updates.currentStreak;
-      if (updates.longestStreak !== undefined) dbUpdates.longestStreak = updates.longestStreak;
-      if (updates.lastActivityDate !== undefined) dbUpdates.lastActivityDate = updates.lastActivityDate;
-      await db(this)
-        .update(tables.gamificationProfiles)
-        .set(dbUpdates)
-        .where(
-          and(eq(tables.gamificationProfiles.orgId, orgId), eq(tables.gamificationProfiles.employeeId, employeeId)),
-        );
-    } else {
-      await db(this).insert(tables.gamificationProfiles).values({
+    // Use INSERT ... ON CONFLICT DO UPDATE to prevent race condition where
+    // two concurrent calls both see "no record" and try to insert.
+    await db(this)
+      .insert(tables.gamificationProfiles)
+      .values({
         orgId,
         employeeId,
-        totalPoints: updates.totalPoints || 0,
-        currentStreak: updates.currentStreak || 0,
-        longestStreak: updates.longestStreak || 0,
+        totalPoints: updates.totalPoints ?? 0,
+        currentStreak: updates.currentStreak ?? 0,
+        longestStreak: updates.longestStreak ?? 0,
         lastActivityDate: updates.lastActivityDate || null,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: [tables.gamificationProfiles.orgId, tables.gamificationProfiles.employeeId],
+        set: {
+          ...(updates.totalPoints !== undefined ? { totalPoints: updates.totalPoints } : {}),
+          ...(updates.currentStreak !== undefined ? { currentStreak: updates.currentStreak } : {}),
+          ...(updates.longestStreak !== undefined ? { longestStreak: updates.longestStreak } : {}),
+          ...(updates.lastActivityDate !== undefined ? { lastActivityDate: updates.lastActivityDate } : {}),
+          updatedAt: new Date(),
+        },
       });
-    }
   }
 
 P.getLeaderboard = async function(orgId: string, limit = 20) {
@@ -447,20 +444,26 @@ P.getLeaderboard = async function(orgId: string, limit = 20) {
       .where(eq(tables.gamificationProfiles.orgId, orgId))
       .orderBy(desc(tables.gamificationProfiles.totalPoints))
       .limit(limit);
-    const result = [];
-    for (const r of rows) {
-      const badgeCount = await db(this)
-        .select({ count: sql<number>`count(*)` })
-        .from(tables.employeeBadges)
-        .where(and(eq(tables.employeeBadges.orgId, orgId), eq(tables.employeeBadges.employeeId, r.employeeId)));
-      result.push({
-        employeeId: r.employeeId,
-        totalPoints: r.totalPoints,
-        currentStreak: r.currentStreak,
-        badgeCount: Number(badgeCount[0]?.count || 0),
-      });
-    }
-    return result;
+    if (rows.length === 0) return [];
+
+    // Batch-load badge counts in a single query instead of N+1 (was 1 query per row)
+    const employeeIds = rows.map((r) => r.employeeId);
+    const badgeCounts = await db(this)
+      .select({
+        employeeId: tables.employeeBadges.employeeId,
+        count: sql<number>`count(*)`,
+      })
+      .from(tables.employeeBadges)
+      .where(and(eq(tables.employeeBadges.orgId, orgId), inArray(tables.employeeBadges.employeeId, employeeIds)))
+      .groupBy(tables.employeeBadges.employeeId);
+    const badgeMap = new Map(badgeCounts.map((b) => [b.employeeId, Number(b.count)]));
+
+    return rows.map((r) => ({
+      employeeId: r.employeeId,
+      totalPoints: r.totalPoints,
+      currentStreak: r.currentStreak,
+      badgeCount: badgeMap.get(r.employeeId) || 0,
+    }));
   }
 
   // ===================== INSURANCE NARRATIVES =====================

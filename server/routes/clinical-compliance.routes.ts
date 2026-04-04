@@ -33,16 +33,31 @@ export function registerClinicalComplianceRoutes(app: Express, requireClinicalPl
           resourceId: req.params.callId,
         });
 
+        let decryptionFailures = 0;
         const amendments = (analysis.clinicalNote.amendments || []).map((a: any) => {
           if (a.content && typeof a.content === "string" && a.content.startsWith("enc_v1:")) {
             try {
               return { ...a, content: decryptField(a.content) };
-            } catch {
+            } catch (decryptErr) {
+              decryptionFailures++;
+              logger.warn(
+                { callId: req.params.callId, amendedAt: a.amendedAt, err: decryptErr },
+                "Amendment content decryption failed — possible key mismatch or data corruption",
+              );
               return { ...a, content: "[Decryption failed — content unavailable]" };
             }
           }
           return a;
         });
+        if (decryptionFailures > 0) {
+          logPhiAccess({
+            ...auditContext(req),
+            event: "phi_decryption_failure",
+            resourceType: "clinical_amendment",
+            resourceId: req.params.callId,
+            detail: `${decryptionFailures} amendment(s) failed to decrypt`,
+          });
+        }
 
         res.json({ amendments, count: amendments.length });
       } catch (error) {
@@ -230,6 +245,12 @@ export function registerClinicalComplianceRoutes(app: Express, requireClinicalPl
     async (req, res) => {
       try {
         const { npiNumber, role } = req.body;
+
+        // Validate NPI format if provided (same check as attestation endpoint)
+        if (npiNumber && !/^\d{10}$/.test(npiNumber)) {
+          res.status(400).json({ message: "NPI must be exactly 10 digits" });
+          return;
+        }
 
         const analysis = await storage.getCallAnalysis(req.orgId!, req.params.callId);
         if (!analysis?.clinicalNote) {
