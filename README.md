@@ -50,7 +50,7 @@ AI-powered call quality analysis and clinical documentation for healthcare and c
 ## Tech Stack
 
 | Layer | Technology |
-|-------|-----------|
+|-------|------------|
 | Frontend | React 18, TypeScript, Vite, TailwindCSS, shadcn/ui, Recharts, Wouter, TanStack Query |
 | Backend | Express.js, TypeScript (ESM), Node.js |
 | Database | PostgreSQL + Drizzle ORM (recommended) or S3 JSON files |
