@@ -4,6 +4,7 @@ import { requireAuth, injectOrgContext } from "../auth";
 import { safeFloat } from "./helpers";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { asyncHandler } from "../middleware/error-handler";
+import { getCallClusters } from "../services/call-clustering";
 
 /** Maximum calls to process for analytics to prevent memory exhaustion. */
 const MAX_ANALYTICS_CALLS = 10_000;
@@ -136,6 +137,35 @@ export function registerInsightRoutes(app: Express): void {
         lowConfidenceRate:
           completed.length > 0 ? Math.round((lowConfidenceCalls.length / completed.length) * 100) / 100 : 0,
       },
+    });
+  }));
+
+  // ==================== CALL PATTERN CLUSTERS ====================
+
+  /**
+   * Discover recurring call patterns via TF-IDF topic clustering.
+   * Groups calls by topic similarity and surfaces trends.
+   */
+  app.get("/api/insights/clusters", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+    const orgId = req.orgId!;
+    const days = Math.min(Math.max(parseInt(String(req.query.days)) || 30, 1), 90);
+    const minSize = Math.min(Math.max(parseInt(String(req.query.minSize)) || 2, 2), 50);
+    const maxClusters = Math.min(Math.max(parseInt(String(req.query.maxClusters)) || 10, 1), 50);
+    const employeeId = typeof req.query.employeeId === "string" ? req.query.employeeId : undefined;
+
+    const clusters = await getCallClusters(orgId, { days, employeeId, minClusterSize: minSize, maxClusters });
+
+    logPhiAccess({
+      ...auditContext(req),
+      event: "view_call_clusters",
+      resourceType: "insights",
+      detail: `${clusters.length} clusters found (${days} days, minSize=${minSize})`,
+    });
+
+    res.json({
+      clusters,
+      totalClusters: clusters.length,
+      params: { days, minSize, maxClusters, employeeId },
     });
   }));
 
