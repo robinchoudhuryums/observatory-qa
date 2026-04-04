@@ -140,7 +140,7 @@ export function normalizeAnalysis(analysis: CallAnalysis | undefined): CallAnaly
 export function calculateDashboardMetrics(
   totalCalls: number,
   sentiments: Array<{ overallScore?: string | number | null }>,
-  analyses: Array<{ performanceScore?: string | number | null }>,
+  analyses: Array<{ performanceScore?: string | number | null; confidenceScore?: string | number | null }>,
 ): DashboardMetrics {
   const avgSentiment =
     sentiments.length > 0
@@ -150,11 +150,36 @@ export function calculateDashboardMetrics(
     analyses.length > 0
       ? analyses.reduce((sum, a) => sum + parseFloat(String(a.performanceScore || "0")), 0) / analyses.length
       : 0;
+
+  // Confidence data quality breakdown
+  let highConfidence = 0, mediumConfidence = 0, lowConfidence = 0, noConfidence = 0;
+  let confSum = 0, confCount = 0;
+  for (const a of analyses) {
+    const conf = parseFloat(String(a.confidenceScore || ""));
+    if (isNaN(conf) || conf === 0) {
+      noConfidence++;
+    } else if (conf >= 0.7) {
+      highConfidence++;
+      confSum += conf;
+      confCount++;
+    } else if (conf >= 0.4) {
+      mediumConfidence++;
+      confSum += conf;
+      confCount++;
+    } else {
+      lowConfidence++;
+      confSum += conf;
+      confCount++;
+    }
+  }
+
   return {
     totalCalls,
     avgSentiment: Math.round(avgSentiment * 100) / 100,
     avgPerformanceScore: Math.round(avgPerformanceScore * 100) / 100,
     avgTranscriptionTime: 2.3,
+    avgConfidence: confCount > 0 ? Math.round((confSum / confCount) * 100) / 100 : null,
+    dataQuality: { highConfidence, mediumConfidence, lowConfidence, noConfidence },
   };
 }
 
