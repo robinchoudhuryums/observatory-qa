@@ -79,7 +79,7 @@ npx vite build         # Frontend-only build (quick verification)
 - **Unit tests**: Node.js built-in `test` module via `tsx` — `npm run test`
 - **E2E tests**: Playwright (Chromium) — `npm run test:e2e` or `npm run test:e2e:ui`
 - **Location**: `tests/` (unit), `tests/e2e/` (E2E)
-- **Unit test files** (65 files, 1297 tests):
+- **Unit test files** (65 files, 1298 tests):
   - `tests/schema.test.ts` — Zod schema validation (orgId on all entities, organization schemas)
   - `tests/ai-provider.test.ts` — AI provider utilities (parseJsonResponse, buildAnalysisPrompt, smartTruncate)
   - `tests/routes.test.ts` — API route handler tests
@@ -1521,90 +1521,74 @@ Server serves both API and static frontend from the same process.
 - API paths (`/api/marketing/*`) unchanged for backward compatibility
 - Positioned as "where do calls come from?" rather than a marketing attribution product
 
-### Branch: `claude/audit-observatory-codebase-0eONS`
+### Branch: `claude/audit-observatory-codebase-0eONS` (PR #47)
 
-#### ✅ Completed & committed: Security hardening (P0)
-- **Timing-safe token comparison** — `assemblyai-webhook.ts` and `scim.ts` now use `crypto.timingSafeEqual()` instead of `===`/`!==` for webhook token and SCIM token hash comparison (prevents timing attacks)
-- **Webhook replay prevention** — AssemblyAI webhook handler now rejects callbacks for calls not in `processing`/`pending` state, preventing replay attacks on already-completed calls
-- **Org status fail-closed** — `injectOrgContext` in `auth.ts` now returns 503 in production when org status lookup fails (was fail-open, allowing requests through during DB issues)
-- **All tests passing** — fixed 85 previously-failing tests (root cause: missing `typescript-eslint` dev dependency); 1179/1179 tests pass, 0 TypeScript errors
+#### ✅ Completed (prior sessions): Security, DB, CI/CD, Clinical, RAG, Call Analysis, HIPAA, LMS, Lead Tracking, Code Cleanup
+See earlier sections in this file for full details of prior work on this branch. Summary: timing-safe comparisons, webhook replay prevention, org status fail-closed, unbounded query caps, JSONB GIN indexes, DEK cache security, schema validation, CI workflows, E2E security tests, ICD-10/CPT fixes, FHIR expansion, HNSW vector index, BM25 fix, embedding retry, RAG XML framing, talk time ratio fix, confidence scoring, incident persistence, breach notifications, LMS quiz validation, UTM capture, logger consolidation, dead code removal.
 
-#### ✅ Completed & committed: Database & query hardening (P1)
-- **Unbounded query protection** — added `QUERY_HARD_CAP` (5000) limits to `getAllEmployees()`, `getAllCalls()`, `listReferenceDocuments()`, `listLearningModules()` in pg-storage.ts (prevents OOM on large orgs)
-- **SQL-level JSONB filtering** — `getReferenceDocumentsForCategory()` now uses `@>` JSONB containment operator with GIN index instead of loading all docs into memory
-- **GIN index** — `ref_docs_applies_to_gin_idx` on `reference_documents.applies_to` for efficient category filtering
-- **DEK cache security** — reduced TTL from 30 minutes to 5 minutes; added `Buffer.fill(0)` key zeroing on eviction; periodic cleanup interval for expired entries
+#### ✅ Completed & committed: Comprehensive codebase audit fixes (current session — 47 fixes across 15 commits)
 
-#### ✅ Completed & committed: Data isolation fixes (P2)
-- **Password reset safety** — documented cross-tenant lookup behavior; token is bound to specific `userId + orgId` so no cross-tenant password change is possible
-- **Schema validation hardening** — added hex color regex validation for branding colors; domain format validation for `emailDomain`; max-length constraints on `departments` (100), `callCategories` (50), `callPartyTypes` (20), `customVocabulary` (1000 terms, 200 chars each); string min/max on all array items
+**Security fixes (P0-P1):**
+- **CSV injection** — `export.ts`: prefix formula characters (`=`, `+`, `-`, `@`, tab, CR) with single quote to prevent Excel/Sheets formula execution
+- **Chunker regex lastIndex** — `chunker.ts`: reset `pattern.lastIndex = 0` on global regex in `findSectionHeader()` (was missing section headers after first pattern)
+- **Transcript audit trail** — `transcript-viewer.tsx`: replaced hardcoded `"Manager"` with actual user from `/api/auth/me` for HIPAA-compliant correction audit
+- **PHI decryption buffer** — `phi-encryption.ts`: validate buffer length >= IV + authTag before slicing (prevents silent corruption from truncated payloads)
+- **Email CRLF injection** — `email.ts`: sanitize `to` field + add `sanitizeParam()` for plaintext template variables (userName, resetUrl, orgName)
+- **API key scope mixing** — `api-keys.ts`: reject creation of keys mixing broad (`admin`) and scoped (`calls:read`) permissions (was silently ignoring scopes)
+- **Flag validation** — `ai-types.ts`: tighten custom AI flags from "any string <100 chars" to `/^[a-z0-9][a-z0-9_-]*(?::[a-z0-9_-]+)?$/`
+- **Webhook secret whitespace** — `assemblyai-webhook.ts`: trim both expected and received tokens before comparison
 
-#### ✅ Completed & committed: CI/CD improvements (P3)
-- **ESLint warning budget** — tightened from 280 to 260; all `no-console` warnings resolved via eslint-disable-line on bootstrap/CLI code; remaining 260 are all `no-unused-vars`
-- **Missing dev dependency** — installed `typescript-eslint` (was referenced in eslint.config.js but not in devDependencies)
-- **Nightly CI workflow** — `.github/workflows/nightly.yml`: full test + coverage + security audit + secret scanning, creates GitHub issue on failure
-- **Weekly dependency check** — `.github/workflows/dependency-check.yml`: npm audit + outdated packages + license compliance, creates issue with findings
-- **Automated PR review** — `.github/workflows/pr-review.yml`: lint + type check + tests + PR size check + auto-labeling based on changed files
-- **E2E security tests** — `tests/e2e/security.spec.ts`: cross-org data access prevention, role escalation, CSRF, session fixation, auth enforcement, rate limiting
-- **Deploy auto-rollback** — `deploy/ec2/deploy.sh`: saves previous SHA before deploy; auto-rollback on health check failure; hard-fail on missing env vars in production; `--force` flag to skip pre-flight
+**Security fixes (P2-P3):**
+- **Redis KEYS → SCAN** — `admin.ts`: replace blocking `redis.keys("sess:*")` with non-blocking `redis.scan()` in batches of 100 for session invalidation
+- **Clinical print XSS** — `clinical-notes.tsx`: replace `innerHTML` with `cloneNode(true)` in print window
+- **Speaker detection i18n** — `assemblyai.ts`: `[\w]+` → `[^\s,.]+` so accented/international names match
+- **Zod validation on incidents/breach** — `admin-security.routes.ts`: 7 Zod schemas for all incident/breach/action-item endpoints (severity enum, numeric bounds, max lengths)
+- **Admin rate limiting** — `index.ts`: `distributedRateLimit(60s, 60)` on `/api/admin/*`, `(60s, 30)` on `/api/super-admin/*`
+- **Upload JSON.parse safety** — `upload.tsx`: `.catch(() => ({}))` fallback on error response parsing
 
-#### ✅ Completed & committed: Clinical Documentation improvements
-- **ICD-10 regex fix** — schema now accepts U-prefix codes (U07.1 for COVID-19); was rejecting valid ICD-10-CM codes starting with U
-- **CPT modifier support** — regex updated to accept hyphen-separated modifiers (e.g. 99213-25 for distinct procedural service)
-- **Attestation validation gate** — `POST /api/clinical/notes/:callId/attest` now validates completeness before allowing attestation; blocks notes with `weightedCompleteness < 4.0` or validation failures
-- **Addendum content decryption** — `GET /api/clinical/notes/:callId/amendments` now decrypts encrypted addendum content before returning (was returning `enc_v1:base64...` to client)
-- **Plan field normalization** — `mapClinicalNote()` now converts AI string responses to array for `plan` field (schema requires array but AI sometimes returns string)
-- **FHIR Composition profile fix** — changed profile from `us-core-documentreference` (wrong resource type) to `us-core-clinical-note` (correct for Composition)
-- **FHIR resource expansion** — added `buildFhirPatient()` (demographics from EHR), `buildFhirPractitioner()` (NPI, name from attesting provider), `buildFhirEncounter()` (encounter date, specialty, participant). Bundle now includes Patient + Practitioner + Encounter + Composition + DocumentReference with proper inter-resource references (`subject`, `participant`, `author`). EHR patient data auto-loaded when configured
-- **Style learning** — verified already working correctly: route decrypts PHI fields before passing to `analyzeProviderStyle()` (fixed in prior session)
+**Performance fixes:**
+- **Gamification upsert** — `pg-storage-features.ts`: `INSERT ON CONFLICT DO UPDATE` replaces check-then-act race condition
+- **Leaderboard N+1** — `pg-storage-features.ts`: batch badge counts via `GROUP BY` (21 queries → 2)
+- **Export OOM** — `pg-storage.ts` + `export.ts`: push `limit` to DB query instead of post-slicing (50K hard cap)
+- **Assembly AI ID index** — `schema.ts` + `sync-schema.ts`: new index for webhook handler lookup
+- **Dashboard metrics** — `pg-storage.ts`: single LEFT JOIN query replaces 3 correlated subqueries
+- **Topics search** — `pg-storage.ts` + `sync-schema.ts`: `to_tsvector` + GIN index replaces `ILIKE` on JSONB text cast
+- **Learning progress UNIQUE** — `sync-schema.ts`: unique index on `(org_id, employee_id, module_id)` for upsert
+- **LMS progress upsert** — `pg-storage-features.ts`: `INSERT ON CONFLICT DO UPDATE` replaces race-prone select-then-insert
 
-#### ✅ Completed & committed: RAG Feature improvements
-- **HNSW vector index** — `doc_chunks_embedding_hnsw_idx` added to sync-schema.ts; pgvector cosine search goes from O(n) sequential scan to O(log n) approximate nearest neighbor. Critical for orgs with 10K+ chunks
-- **BM25 normalization fix** — was dividing score by query term count (penalizing multi-term queries); replaced with log-linear scaling `log1p(score) / log1p(3)` which preserves ranking consistency regardless of query length
-- **Embedding batch partial failure handling** — `generateEmbeddingsBatch()` now uses `Promise.allSettled()` instead of `Promise.all()`; individual chunk failures no longer abort the entire batch. Failed chunks get empty embeddings and are logged
-- **Embedding retry with backoff** — `generateEmbedding()` now retries transient failures (429 throttling, 5xx server errors) up to 2 times with exponential backoff (1s, 2s)
-- **RAG context XML framing** — `formatRetrievedContext()` now wraps each chunk in `<knowledge_source>` XML tags with doc/category/section attributes; prevents prompt injection via malicious document content
-- **Tunable RAG config** — search parameters (topK, semanticWeight, keywordWeight, minRelevanceScore, candidateMultiplier) now configurable via environment variables (`RAG_SEARCH_TOP_K`, `RAG_SEMANTIC_WEIGHT`, etc.) with backward-compatible defaults
+**Data integrity & correctness:**
+- **Org cache invalidation** — `admin.ts`, `super-admin.ts`, `admin-security.routes.ts`: `invalidateOrgCache()` after all 7 `updateOrganization()` call sites (closes 30s authorization bypass after suspension)
+- **Upload lock release** — `helpers.ts` + `calls.ts`: explicit `releaseUploadLock()` after `createCall()` success (was waiting for 30s TTL)
+- **MemStorage audio cap** — `memory.ts`: 200-entry FIFO cap on audioFiles Map (prevents OOM in dev)
+- **Auto-assignment** — `call-processing.ts`: require explicit `status === "Active"` (missing status no longer treated as active)
+- **Talk time ratio** — `assemblyai.ts`: fall back to first speaker when no "agent" role in role map (was returning 0%)
+- **Unlabeled speaker tracking** — `assemblyai.ts`: expose `unlabeledSpeakerPercent` when >10% words lack speaker labels
+- **Pipeline storage resilience** — `call-processing.ts`: `Promise.allSettled` for transcript/sentiment/analysis writes (partial failure doesn't lose all results)
 
-#### ✅ Completed & committed: Call Analysis improvements
-- **Talk time ratio fix** — was using raw speaker label "A" regardless of role mapping; now uses `speakerRoleMap` to identify agent speaker labels, moved calculation after role detection to avoid forward-reference
-- **Webhook empty transcript guard** — `continueAfterTranscription()` now checks transcript length (<10 chars) and short-circuits with `empty_transcript` tag; prevents webhook-delivered empty transcripts from being sent to AI analysis
-- **Confidence scoring fix** — failed AI analysis now applies 25% confidence penalty (was only 7.5%); calls with default scores are clearly flagged as low_confidence
-- **Configurable analysis thresholds** — `enforceServerFlags()` now accepts optional `AnalysisThresholds` (lowConfidence, lowScore, exceptionalScore); defaults preserved for backward compat; per-org overrides via `org.settings.analysisThresholds`
-- **AI response field logging** — `parseJsonResponse()` now logs individual missing sub-scores (`sub_scores.compliance`, etc.) with field count; helps audit AI data quality over time
-- **Structured AI error codes** — JSON parse failures now include `errorCode` ("AI_NO_JSON", "AI_MALFORMED_JSON") in log context and error objects; distinguishes truncation from hallucination
+**RAG improvements:**
+- **Score normalization** — `rag.ts`: divide by weight sum so custom configs produce [0,1] scores
+- **FAQ NaN guard** — `faq-analytics.ts`: skip recording when confidenceScore is NaN/Infinity
+- **Double PHI redaction removed** — `rag-trace.ts`: eliminated redundant `redactPhi()` (caller already redacts)
+- **Embedding jitter** — `embeddings.ts`: random 0-500ms jitter on retry backoff (prevents thundering herd)
+- **Degradation detection** — `rag.ts`: warns when 0 candidates returned because all chunks have NULL embeddings
 
-#### ✅ Completed & committed: HIPAA Compliance hardening
-- **Incident/breach DB persistence** — `security_incidents` and `breach_reports` tables with RLS policies; incident-response.ts now persists all creates/updates to PostgreSQL (falls back to in-memory without DB)
-- **Breach notification emails** — `sendBreachNotificationEmails()` sends HIPAA §164.404 compliant notification emails to affected individuals via existing email service; auto-updates breach report status and audit logs
-- **Viewer PHI field filtering** — `GET /api/clinical/notes/:callId` now strips PHI content (subjective, objective, assessment, plan, HPI, amendments) for viewer role; managers and admins see full notes. Enforces HIPAA minimum necessary access principle
-- **Incident audit logging** — `declareIncident()` and `createBreachReport()` now log to HIPAA audit trail via `logPhiAccess()`
-- **Breach notification text/HTML templates** — HIPAA-compliant notification letter content covering what happened, what information was involved, corrective actions, and what individuals can do
+**Clinical documentation improvements:**
+- **Viewer PHI filtering expanded** — `clinical.ts`: redact ICD-10/CPT/CDT codes, structuredData, editHistory, toothNumbers, periodontalFindings, treatmentPhases (not just text fields)
+- **Cosign NPI validation** — `clinical-compliance.routes.ts`: `/^\d{10}$/` check (was validated on attestation but not cosignature)
+- **Vital signs range validation** — `clinical-extraction.ts`: discard values outside physiological ranges (BP, HR, RR, Temp, SpO2, BMI)
+- **Style learning decryption context** — `clinical-analytics.routes.ts`: report skipped decryption failures in response
+- **FHIR subject fallback** — `fhir.ts`: placeholder `{ display: "Unknown patient" }` when no EHR link (US Core requires subject)
+- **Amendment decryption audit** — `clinical-compliance.routes.ts`: log each failure + fire `phi_decryption_failure` audit event
 
-#### ✅ Completed & committed: LMS improvements
-- **Quiz answer validation** — quiz submission now validates answer count matches question count and each answer is a valid index within the options array; returns specific error codes (`OBS-LMS-ANSWER-MISMATCH`, `OBS-LMS-INVALID-ANSWER`)
-- **Module deletion cascade** — deleting a module now checks for dependent prerequisites (returns 409 with list), removes module from all learning paths, prevents orphaned references
-- **Path module validation** — learning path creation now validates all module IDs exist in the organization before creating the path
-- **Quiz deadline enforcement** — quiz submission now checks learning path deadline; rejects with `OBS-LMS-DEADLINE-PASSED` if overdue
-- **Schema length constraints** — added max lengths to title (500), description (5K), content (500K), quiz questions (1K), options (500 each, 2-10 per question, max 100 questions), tags (50 chars, max 20), estimatedMinutes (1-600)
+**UI/UX improvements:**
+- **Dashboard a11y** — `dashboard.tsx`: `aria-expanded`, `aria-controls`, descriptive `aria-label` on flagged calls toggle
+- **Transcript keyboard nav** — `transcript-viewer.tsx`: `role="button"`, `tabIndex`, Enter/Space handler on correctable words
+- **Upload details a11y** — `file-upload.tsx`: `aria-label` + `aria-controls` on details toggle
+- **Correction toast** — `transcript-viewer.tsx`: toast notifications on save success/failure + JSON.parse safety
+- **SSO slug a11y** — `auth.tsx`: `aria-label` on organization slug input
 
-#### ✅ Completed & committed: Lead Tracking improvements
-- **Attribution update fix** — `updateCallAttribution()` in pg-storage.ts was missing `detectionMethod`, `confidence`, and `attributedBy` fields; updates to these fields were silently dropped
-- **Campaign budget validation** — campaign creation now validates budget >= 0 and startDate <= endDate
-- **Confidence bounds check** — attribution confidence must be 0-1 range; rejects out-of-bounds values
-- **costPerLead div-by-zero** — metrics endpoint now checks `data.calls > 0` before dividing budget by calls (was producing `Infinity` for zero-call campaigns)
-- **UTM parameter capture** — new `utmSource`, `utmMedium`, `utmCampaign`, `utmContent`, `utmTerm` fields on CallAttribution schema + DB + pg-storage; auto-maps UTM source to marketing source enum (google→google_ads, facebook→facebook_ads, etc.); `detectionMethod: "utm"` with 0.95 confidence
-- **Time-to-convert tracking** — new `convertedAt` field on CallRevenue; auto-set when `conversionStatus` changes to "converted"; `daysToConvert` computed in revenue list response
-- **Date-range filtering on metrics** — `GET /api/marketing/metrics` now accepts `?startDate=...&endDate=...` to filter attribution data by date range
-- **Per-pattern confidence scores** — source detection now assigns different confidence per pattern (e.g., "googled" = 0.9, "found online" = 0.5); 7 new source patterns added (phone_directory, email_campaign, community_event, social_organic)
-
-#### ✅ Completed & committed: Code cleanup & deduplication
-- **Legacy logger consolidation** — `server/logger.ts` replaced with re-export from `server/services/logger.ts` (28 services now get correlation ID injection automatically)
-- **Dashboard metrics deduplication** — extracted `calculateDashboardMetrics()` and `calculateSentimentDistribution()` into `server/storage/types.ts`; eliminates triplicated math in memory.ts, cloud.ts, pg-storage.ts
-- **Dead code removal** — removed deprecated `POWER_MOBILITY_SUBTEAMS` export (zero production callers)
-- **ESLint no-console fixes** — all 11 no-console warnings resolved via eslint-disable-line on bootstrap/CLI code
-- **Dead frontend code removal** — deleted unused i18n module (275 lines, English+Spanish translations never imported), removed `prefersReducedMotion()`, unused icon imports from 3 dashboard components, dead `index` prop from CallCard
-- **ESLint budget** — tightened from 280 to 254 across cleanup rounds
+**Bedrock reliability:**
+- **generateText retry** — `bedrock.ts`: 2 retries with exponential backoff + jitter for transient failures (429, 5xx, timeout). All callers benefit automatically
 
 ## Future Plans / Roadmap
 See `HEALTHCARE_EXPANSION_PLAN.md` for the full 4-phase healthcare expansion roadmap.
@@ -1631,60 +1615,73 @@ Longer-term improvements identified during codebase audits. Work on these increm
 | ✅ Done | **Clinical note retry on AI failure** | `claude/audit-observatory-codebase-0eONS` — when AI returns no `clinical_note`, call gets `requires_clinical_retry` flag for admin review |
 | ✅ Done | **Amendment chain integrity** | `claude/audit-observatory-codebase-0eONS` — SHA-256 hash chain on amendments; each amendment's `integrityHash` includes previous hash for tamper detection |
 | ✅ Done | **Cosignature version conflict detection** | `claude/audit-observatory-codebase-0eONS` — cosign endpoint verifies no post-attestation amendments exist; optimistic locking via version check |
-| LOW | **ICD-10/diagnosis linkage** | `icd10Codes` array has no association to which assessment/diagnosis each code corresponds — needed for accurate FHIR coding |
-| LOW | **Amendment subtypes** | Add `type: "amendment" | "addendum" | "section_completion"` to distinguish corrections from completions in audit trail |
-| LOW | **Batch clinical note revalidation** | Endpoint to re-validate notes against updated validation rules (useful after schema/regex changes) |
+| ✅ Done | **ICD-10/diagnosis linkage** | `claude/audit-observatory-codebase-0eONS` — `linkedDiagnosis` and `isPrimary` fields; FHIR export shows linkage |
+| ✅ Done | **Amendment subtypes** | `claude/audit-observatory-codebase-0eONS` — `section_completion` type auto-detected |
+| ✅ Done | **Batch clinical note revalidation** | `claude/audit-observatory-codebase-0eONS` — `POST /api/clinical/notes/batch-revalidate` (max 200 notes) |
+| ✅ Done | **Vital signs range validation** | `claude/audit-codebase-ZbYgc` — physiological range checks on extracted BP, HR, RR, Temp, SpO2, BMI |
+| ✅ Done | **Cosign NPI validation** | `claude/audit-codebase-ZbYgc` — `/^\d{10}$/` regex on cosignature NPI (was only on attestation) |
+| ✅ Done | **Viewer PHI filtering expanded** | `claude/audit-codebase-ZbYgc` — redact codes, structuredData, editHistory, dental fields for viewer role |
+| ✅ Done | **FHIR subject fallback** | `claude/audit-codebase-ZbYgc` — placeholder patient display text when no EHR link |
+| ✅ Done | **Amendment decryption audit** | `claude/audit-codebase-ZbYgc` — per-failure logging + HIPAA audit event |
 
 ### Call Analysis
 | Priority | Item | Notes |
 |----------|------|-------|
-| ✅ Done | **Upload deduplication lock** | `claude/codebase-audit-evaluation-MhG8w` — in-memory hash lock set prevents concurrent uploads with same hash; lock released in finally after createCall |
-| MEDIUM | **Confidence-based prompt adjustment** | For low-confidence transcripts (<0.5), inject guidance asking AI to flag uncertain passages with `[UNCLEAR]` |
-| MEDIUM | **Prompt template caching** | Templates loaded fresh per call. Cache rendered system prompt by `{orgId}:{category}:{templateHash}:{ragHash}` to improve Bedrock prompt cache hit rate |
-| LOW | **Per-call cost attribution** | Track actual Bedrock input/output token counts from response metadata (currently estimated from text length) |
+| ✅ Done | **Upload deduplication lock** | `claude/audit-codebase-ZbYgc` — Redis SET NX lock with explicit release after createCall; in-memory fallback |
+| ✅ Done | **Confidence-based prompt adjustment** | `claude/audit-observatory-codebase-0eONS` — low-confidence transcripts inject [UNCLEAR] guidance |
+| ✅ Done | **Prompt template caching** | `claude/audit-observatory-codebase-0eONS` — 5-min TTL cache by orgId:category |
+| ✅ Done | **Per-call cost attribution** | `claude/audit-observatory-codebase-0eONS` — actual Bedrock token counts from response metadata |
+| ✅ Done | **Pipeline storage resilience** | `claude/audit-codebase-ZbYgc` — Promise.allSettled for transcript/sentiment/analysis writes |
+| ✅ Done | **Flag validation tightened** | `claude/audit-codebase-ZbYgc` — custom flags restricted to safe alphanumeric pattern |
+| ✅ Done | **Auto-assignment safety** | `claude/audit-codebase-ZbYgc` — require explicit Active status; handle missing agent in role map |
+| ✅ Done | **Unlabeled speaker tracking** | `claude/audit-codebase-ZbYgc` — expose unlabeledSpeakerPercent when >10% words lack labels |
 
 ### RAG Knowledge Base
 | Priority | Item | Notes |
 |----------|------|-------|
-| MEDIUM | **Chunk deduplication** | Identical text chunks across documents generate duplicate embeddings. Track content hash to reuse existing embeddings |
-| MEDIUM | **Semantic deduplication of results** | If two retrieved chunks are >0.95 cosine similar, only return the higher-scored one to reduce redundancy in context |
-| MEDIUM | **PDF extraction timeout** | `pdf-parse` can hang on malformed PDFs. Add 5-second extraction timeout with `Promise.race()` |
-| LOW | **Chunk-level retrieval tracking** | `retrieval_count` increments per-document, not per-chunk. Per-chunk tracking would show which sections are most useful |
-| LOW | **pgvector availability check** | No explicit check that pgvector extension is installed before attempting vector queries. Add startup validation |
+| ✅ Done | **Chunk deduplication** | `claude/audit-observatory-codebase-0eONS` — content hash per chunk, reuse embeddings for identical text |
+| ✅ Done | **Semantic deduplication of results** | `claude/audit-observatory-codebase-0eONS` — 85% text overlap filter |
+| ✅ Done | **PDF extraction timeout** | `claude/audit-observatory-codebase-0eONS` — 5s Promise.race with regex fallback |
+| ✅ Done | **Chunk-level retrieval tracking** | `claude/audit-observatory-codebase-0eONS` — retrieval_count column on document_chunks |
+| ✅ Done | **pgvector availability check** | `claude/audit-observatory-codebase-0eONS` — startup validation logs version or warning |
+| ✅ Done | **Score normalization** | `claude/audit-codebase-ZbYgc` — divide by weight sum so custom configs produce [0,1] scores |
+| ✅ Done | **FAQ NaN guard** | `claude/audit-codebase-ZbYgc` — skip recording when confidenceScore is NaN/Infinity |
+| ✅ Done | **Embedding retry jitter** | `claude/audit-codebase-ZbYgc` — random 0-500ms jitter prevents thundering herd |
+| ✅ Done | **Silent degradation detection** | `claude/audit-codebase-ZbYgc` — warns when all chunks have NULL embeddings |
 
 ### HIPAA Compliance
 | Priority | Item | Notes |
 |----------|------|-------|
 | ✅ Done | **BAA management system** | `claude/codebase-audit-evaluation-MhG8w` — `business_associate_agreements` table + CRUD routes + expiry alerting. Tracks vendor, signatory, PHI categories, expiry dates, renewal reminders |
 | ✅ Done | **Automated breach detection** | `claude/codebase-audit-evaluation-MhG8w` — PHI access velocity (50/10min) and breadth (20 unique resources/10min) tracking with auto-incident creation via `declareIncident()` |
-| MEDIUM | **S3/backup lifecycle purging** | Retention worker handles DB but not S3 object lifecycle, RDS backups, or cross-region replicas |
-| MEDIUM | **PHI access reporting UI** | Audit log data exists but no admin dashboard for "show who accessed patient X in the last 30 days" queries |
+| ✅ Done | **S3/backup lifecycle purging** | `claude/audit-observatory-codebase-0eONS` — retention worker now purges orphaned S3 audio files |
+| ✅ Done | **PHI access reporting UI** | `claude/audit-observatory-codebase-0eONS` — `GET /api/admin/phi-access-report` with user summary, date range |
 | MEDIUM | **Audit log chain state memory** | Per-org `chainLocks` Map can hold 10K+ pending promises under load; no cleanup of completed entries. Move to Redis for multi-instance |
-| LOW | **Key escrow for PHI encryption** | No recovery path if `PHI_ENCRYPTION_KEY` is lost. Document or implement secure key backup via AWS Secrets Manager |
+| ✅ Done | **Key escrow for PHI encryption** | `claude/audit-observatory-codebase-0eONS` — documented AWS Secrets Manager backup + rotation procedure |
 
 ### LMS / Learning
 | Priority | Item | Notes |
 |----------|------|-------|
-| MEDIUM | **Progress upsert race condition** | `select` then `insert/update` pattern vulnerable to concurrent requests. Use PostgreSQL `INSERT ... ON CONFLICT DO UPDATE` |
-| MEDIUM | **Quiz question versioning** | If module content changes, old progress doesn't reflect what was actually answered. Store quiz version hash with progress |
-| MEDIUM | **N+1 query in path progress** | `getLearningModule()` called per module in a path. Add batch method `getLearningModulesByIds()` |
-| LOW | **Learning path assignment notifications** | `assignedTo` array stored but no notification when assigned, no audit log |
-| LOW | **Bulk progress operations** | Manager can't bulk mark employees complete, reset progress, or bulk assign paths |
-| LOW | **Stats endpoint optimization** | Loads all modules + all employees + per-employee progress. Need SQL-level aggregation |
+| ✅ Done | **Progress upsert race condition** | `claude/audit-codebase-ZbYgc` — `INSERT ON CONFLICT DO UPDATE` + unique constraint in sync-schema |
+| ✅ Done | **Quiz question versioning** | `claude/audit-observatory-codebase-0eONS` — SHA-256 hash stored with progress |
+| ✅ Done | **N+1 query in path progress** | `claude/audit-observatory-codebase-0eONS` — batch-fetch via listLearningModules |
+| ✅ Done | **Learning path assignment notifications** | `claude/audit-observatory-codebase-0eONS` — email + audit log |
+| ✅ Done | **Bulk progress operations** | `claude/audit-observatory-codebase-0eONS` — bulk complete/reset/assign (max 200) |
+| ✅ Done | **Stats endpoint optimization** | `claude/audit-observatory-codebase-0eONS` — SQL-level COUNT/AVG FILTER aggregation |
 
 ### Lead Tracking
 | Priority | Item | Notes |
 |----------|------|-------|
 | ✅ Done | **UTM parameter capture** | `claude/audit-observatory-codebase-0eONS` — utmSource/Medium/Campaign/Content/Term fields, auto-mapping, 0.95 confidence |
 | MEDIUM | **CRM webhook integration** | No outbound webhooks to Salesforce/HubSpot when call-to-appointment conversion is tracked |
-| LOW | **Cohort conversion analysis** | Basic per-source metrics exist but no time-based cohort analysis (e.g., "calls from January → conversion rate over 90 days") |
+| ✅ Done | **Cohort conversion analysis** | `claude/audit-observatory-codebase-0eONS` — `GET /api/marketing/cohort` with monthly cohorts, per-source breakdown |
 | ✅ Done | **Time-to-convert metrics** | `claude/audit-observatory-codebase-0eONS` — `convertedAt` field, auto-set on conversion, `daysToConvert` in API |
 
 ### Architecture / Code Quality
 | Priority | Item | Notes |
 |----------|------|-------|
-| MEDIUM | **Route error handling standardization** | `asyncHandler()` + `AppError` pattern adopted in 10 route files (employees, access, health, benchmarks, dashboard, insights, feedback, export, spend-tracking, patient-journey); globalErrorHandler registered. ~260 remaining try/catch blocks across 25 route files can be incrementally converted |
-| MEDIUM | **Inline schema centralization** | ~80 lines of ad-hoc Zod schemas defined in route files. Move to `shared/schema` for frontend/backend reuse |
+| MEDIUM | **Route error handling standardization** | `asyncHandler()` + `AppError` pattern adopted in 12+ route files; globalErrorHandler registered. ~250 remaining try/catch blocks across ~23 route files can be incrementally converted |
+| ✅ Done | **Inline schema centralization** | `claude/audit-observatory-codebase-0eONS` — selfReview, dispute, resolveDispute, callReferral, selfAssess schemas moved to `shared/schema/features.ts`; incident/breach/action-item schemas added to `admin-security.routes.ts` |
 | MEDIUM | **Large file decomposition** | Server done: `pg-storage.ts` 3,795→2,279 (-40%, prototype mixin to `pg-storage-features.ts`); `clinical.ts` 1,928→1,194 (-38%); `admin.ts` 1,380→625 (-55%). Remaining: `memory.ts` (1.6K), `sync-schema.ts` (1.4K). Client: `transcript-viewer.tsx` (1.3K), `clinical-notes.tsx` (1.2K), `reports.tsx` (1.2K) |
 | ✅ Done | **Team scoping TOCTOU fix** | `claude/codebase-audit-evaluation-MhG8w` — pre-compute team scope before fetch; return 404 instead of 403 to avoid leaking call existence |
 | LOW | **253 ESLint `no-unused-vars` warnings** | Spread across ~100 files, mostly unused function params. Tedious but reduces noise |
@@ -1701,7 +1698,7 @@ Longer-term improvements identified during codebase audits. Work on these increm
 | ✅ Done | **RAG topK unbounded** | `claude/codebase-audit-evaluation-MhG8w` — clamped to [1, 100] along with all other RAG config params |
 | ✅ Done | **Prompt injection regex DoS** | `claude/codebase-audit-evaluation-MhG8w` — input truncated to 10KB before pattern matching |
 | MEDIUM | **OIDC state in-memory** | OIDC state map is in-memory; multi-instance deployments lose state across servers. Move to Redis |
-| MEDIUM | **Org cache stale state** | `orgCache` in `auth.ts` has 30s TTL; suspended/MFA-required org changes not reflected for up to 30s. Reduce TTL or add explicit invalidation |
+| ✅ Done | **Org cache stale state** | `claude/audit-codebase-ZbYgc` — `invalidateOrgCache()` called after all 7 `updateOrganization()` sites in admin, super-admin, admin-security routes |
 | MEDIUM | **Account lockout eviction** | `loginAttempts` map evicts oldest entry when full; attacker can create many usernames to evict target's tracking before lockout applies |
 | MEDIUM | **Session absolute max too long** | 8-hour absolute session max exceeds NIST recommendation of 4-6 hours for healthcare; should be configurable per-org |
 | ✅ Done | **API key staleness warning** | `claude/codebase-audit-evaluation-MhG8w` — keys >90 days get X-API-Key-Warning header + warn log; auto-revocation is future work |
@@ -1715,9 +1712,9 @@ Longer-term improvements identified during codebase audits. Work on these increm
 | Priority | Item | Notes |
 |----------|------|-------|
 | ✅ Done | **Empty embedding arrays corrupt pgvector** | `claude/codebase-audit-evaluation-MhG8w` — failed chunks stored as null; existing IS NOT NULL filter excludes them |
-| MEDIUM | **BM25 normalization overflow** | Hardcoded `log1p(3)` denominator can be exceeded by multi-term high-TF queries; combined score may exceed 1.0 |
+| ✅ Done | **BM25 normalization overflow** | `claude/audit-codebase-ZbYgc` — score normalization divides by weight sum; combined score stays in [0,1] |
 | ✅ Done | **Embedding cache FIFO→LRU** | `claude/codebase-audit-evaluation-MhG8w` — new LruCache utility used for embedding, refDoc, and orgProvider caches |
-| MEDIUM | **Silent RAG degradation** | When all chunks have failed embeddings, `searchRelevantChunks` returns `[]` silently; AI proceeds without RAG context with no user feedback |
+| ✅ Done | **Silent RAG degradation** | `claude/audit-codebase-ZbYgc` — warns when 0 candidates returned because all chunks have NULL embeddings |
 | LOW | **AI provider cache invalidation** | `orgProviderCache` in `ai-factory.ts` never invalidated when org changes `bedrockModel`; stale model used until restart |
 
 ### Call Analysis (continued)
@@ -1752,7 +1749,12 @@ Longer-term improvements identified during codebase audits. Work on these increm
 | ✅ Done | **Accessibility: sidebar ARIA labels** | `claude/codebase-audit-evaluation-MhG8w` — aria-label added to all 6 collapsible section toggles |
 | ✅ Done | **ProtectedRoute stale permissions** | `claude/codebase-audit-evaluation-MhG8w` — staleTime changed from Infinity to 60s |
 | ✅ Done | **WebSocket reconnection loop risk** | `claude/codebase-audit-evaluation-MhG8w` — connect stored in ref to break useEffect dependency |
+| ✅ Done | **Dashboard flagged calls a11y** | `claude/audit-codebase-ZbYgc` — aria-expanded, aria-controls, descriptive aria-label on toggle |
+| ✅ Done | **Transcript keyboard navigation** | `claude/audit-codebase-ZbYgc` — role=button, tabIndex, Enter/Space handler on correctable words |
+| ✅ Done | **Upload details a11y** | `claude/audit-codebase-ZbYgc` — aria-label + aria-controls on file details toggle |
+| ✅ Done | **Correction save feedback** | `claude/audit-codebase-ZbYgc` — toast notifications on success/failure + JSON.parse safety |
+| ✅ Done | **SSO slug input a11y** | `claude/audit-codebase-ZbYgc` — aria-label on organization slug input |
 | LOW | **Large page decomposition** | `clinical-notes.tsx` (1.2K lines), `reports.tsx` (1.2K lines) could be broken into smaller components |
-| LOW | **Upload progress tracking** | No progress bar for large file uploads. `fetch()` doesn't support progress natively — need XMLHttpRequest or tus protocol |
+| ✅ Done | **Upload progress tracking** | `claude/audit-observatory-codebase-0eONS` — XMLHttpRequest with real progress events |
 | LOW | **File upload dropzone missing maxSize** | `react-dropzone` config doesn't specify `maxSize`; validation only in `onDrop` callback |
 | LOW | **Onboarding wizard step validation** | Users can proceed through steps without completing required fields |
