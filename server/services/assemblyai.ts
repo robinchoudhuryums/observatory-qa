@@ -16,7 +16,7 @@ function normalizeSentiment(value: unknown): "positive" | "neutral" | "negative"
 const AGENT_GREETING_PATTERNS = [
   /\bthank(?:s| you) for calling\b/i,
   /\bmy name is\b/i,
-  /\bthis is [\w]+ (?:with|from|at)\b/i,
+  /\bthis is [^\s,.]+ (?:with|from|at)\b/i,
   /\bhow (?:can|may) I (?:help|assist)\b/i,
   /\bwelcome to\b/i,
   /\byou(?:'ve| have) reached\b/i,

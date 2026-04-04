@@ -1013,6 +1013,10 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(
       sql`CREATE INDEX IF NOT EXISTS learning_progress_employee_idx ON learning_progress (org_id, employee_id)`,
     );
+    // Unique constraint required for INSERT ON CONFLICT DO UPDATE in upsertLearningProgress
+    await db.execute(
+      sql`CREATE UNIQUE INDEX IF NOT EXISTS learning_progress_unique_idx ON learning_progress (org_id, employee_id, module_id)`,
+    );
     await addColumnIfNotExists(db, "learning_progress", "quiz_version_hash", "VARCHAR(64)");
 
     // --- Marketing Campaigns ---

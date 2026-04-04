@@ -310,8 +310,9 @@ export default function ClinicalNotesPage() {
         p { line-height: 1.6; }
         @media print { .no-print { display: none; } }
       </style></head><body></body></html>`);
-    // Use DOM API to safely insert content instead of string interpolation
-    doc.body.innerHTML = printContent.innerHTML;
+    // Use deep clone instead of innerHTML to prevent XSS from note content
+    const cloned = printContent.cloneNode(true) as HTMLElement;
+    doc.body.appendChild(cloned);
     const printScript = doc.createElement("script");
     printScript.textContent = "window.print(); window.close();";
     doc.body.appendChild(printScript);
