@@ -169,8 +169,8 @@ async function chunkedInArray<T>(
 // feature methods are attached via prototype in pg-storage-features.ts —
 // TypeScript can't see prototype assignments as satisfying the interface.
 export class PostgresStorage {
-  private db: Database;
-  private blobClient: ObjectStorageClient | null;
+  protected db: Database;
+  protected blobClient: ObjectStorageClient | null;
 
   /**
    * @param db - Drizzle database instance
