@@ -879,6 +879,7 @@ DEFAULT_ORG_SLUG                # Default org for users without explicit orgSlug
 # ─── Storage Backend (pick one) ───────────────────────────────────────
 STORAGE_BACKEND                 # "postgres" or "s3" (auto-detects if unset)
 DATABASE_URL                    # PostgreSQL connection string (required for postgres backend)
+DB_SSL_REJECT_UNAUTHORIZED      # Set to "false" for managed DBs with self-signed certs (default: true)
 S3_BUCKET                       # S3 bucket name (also used for audio blobs alongside postgres)
 
 # ─── Redis ────────────────────────────────────────────────────────────
@@ -1250,43 +1251,87 @@ Server serves both API and static frontend from the same process.
 
 ### Branch: `claude/audit-and-prioritize-GydTL`
 
-#### ✅ Completed & committed: Comprehensive codebase audit & priority fixes (3 commits)
-Full audit of 108K LOC across 360 files with priority-ordered ratings and fixes.
+#### ✅ Completed & committed: Comprehensive codebase audit & fixes (13 commits)
+Full audit of 108K LOC across 360 files with priority-ordered ratings and fixes. ~60 files changed, 1,468 tests passing.
 
-**Commit 1 — Server-side security & cleanup:**
+**Commit 1 — Server-side security & cleanup (`9041a0e`):**
 - **CSRF bypass fix** — changed from checking any `x-api-key` header to requiring `Bearer obs_k_` prefix; added CSRF exemptions for SCIM, SSO callback, AssemblyAI webhook
 - **WAF crash fix** — wrapped `decodeURIComponent` in try-catch for malformed percent-encoding
 - **Dead code removal** — removed unused `SESSION_ABSOLUTE_MAX_MS` local declaration in `setupAuth()`
 - **LRU cache** — replaced FIFO orgCache Map with proper `LruCache` utility in `auth.ts`
 - **Pagination fix** — applied unused `parsePagination` limit/offset to coaching endpoint response
 
-**Commit 2 — Tenant isolation fixes:**
+**Commit 2 — Tenant isolation fixes (`6adbe8d`):**
 - **Missing `injectOrgContext` on marketing routes** — all 13 routes were bypassing org suspension/deletion checks
 - **Missing `injectOrgContext` on LMS routes** — all 16 routes had the same tenant isolation bypass
 - **AssemblyAI webhook empty-token bypass** — now rejects requests when no secret is configured (was silently accepting all payloads)
 - **SSO session cache optimization** — `requireAuth` SSO check now uses `getCachedOrganization()` instead of direct DB call
 
-**Commit 3 — Client-side fixes:**
+**Commit 3 — Client-side fixes (`378ffa7`):**
 - **CSRF cookie name mismatch** — `file-upload.tsx` was reading `csrf_token` (underscore) but server sets `csrf-token` (hyphen); XHR uploads had no CSRF protection
 - **Idle timeout warning bypass** — any mouse movement dismissed the 2-min warning; now requires explicit "Stay Logged In" click (HIPAA compliance)
 - **ErrorBoundary wrong route** — "Go to Dashboard" button navigated to `/dashboard` which doesn't exist (dashboard is at `/`)
 
+**Commit 4 — CLAUDE.md documentation (`666c03b`):**
+- Documented audit findings, remaining issues, and ratings
+
+**Commit 5 — CI/CD fixes (`9e7b12e`):**
+- **E2E credential alignment** — CI workflow and Playwright config now use matching credentials
+- **Docker port binding** — PostgreSQL and Redis bound to `127.0.0.1` only (was `0.0.0.0`)
+- **Security gates Docker builds** — security job now required before Docker image push
+
+**Commit 6 — Data loss fixes (`a3225d7`):**
+- **Analysis mapper** — added 6 missing fields (speechMetrics, selfReview, scoreDispute, patientSummary, referralLetter, suggestedBillingCodes) that existed in DB but were never returned on read
+- **updateUser** — now handles mfaEnabled, mfaSecret, mfaBackupCodes, subTeam, webauthnCredentials, mfaTrustedDevices, mfaEnrollmentDeadline (was only name, role, passwordHash)
+- **Automation rule bug** — removed dead setClause code where name update incorrectly overwrote is_enabled
+- **DB SSL** — `rejectUnauthorized` now defaults to `true` (was `false`, defeating TLS)
+
+**Commit 7 — Schema drift fixes (`b5d3903`):**
+- **5 missing analysis columns** — scoreRationale, promptVersionId, speakerRoleMap, detectedLanguage, ehrPushStatus added to Drizzle + sync-schema + mapper + create/update
+- **deleteOrgData completeness** — added 11 missing tables to GDPR right-to-erasure
+- **Dead BAA table** — removed unused `baaRecords` Drizzle definition
+- **ICD-10 regex** — insurance narrative schema now accepts U-codes (COVID-19)
+
+**Commit 8 — Code quality + roadmap (`f3e7e10`):**
+- **promptTemplateCache** — replaced unbounded Map with LruCache (500 entries, 5-min TTL)
+- **Feedback pagination** — applied parsePagination limit/offset to response
+- **Users Drizzle schema** — added 3 missing columns (webauthnCredentials, mfaTrustedDevices, mfaEnrollmentDeadline)
+- **Improvement backlog** — expanded all categories with effort/impact estimates and sprint assignments
+
+**Commit 9 — Rate limit + session invalidation (`d663ae6`):**
+- **Rate limit key normalization** — UUID segments in `req.path` replaced with `:id` placeholder so PHI rate limits apply per-endpoint-class, not per-call-ID
+- **Session invalidation after password reset** — new `invalidateUserSessions()` utility scans Redis sessions and destroys all for the target user; called from both password-reset and admin password-change flows
+- **Admin.ts refactor** — 30 lines of inline Redis SCAN code replaced with 4-line utility call
+
+**Commit 10 — Transaction support (`083fa2d`):**
+- **IStorage.withTransaction** — new interface method implemented in all 3 backends (PostgresStorage: real Drizzle tx with db-swap pattern; MemStorage/CloudStorage: no-op wrappers)
+- **Call processing pipeline** — transcript + sentiment + analysis + status update wrapped in atomic transaction (main, batch, and empty-transcript paths)
+- **Live session** — createCall + createTranscript + createSentimentAnalysis wrapped in transaction
+
+**Commit 11 — Invitation hashing + CSRF protection (`58d98c1`):**
+- **Invitation token hashing** — SHA-256 before storage (matching API key/password reset pattern); tokenPrefix column for admin display; backward-compatible plaintext fallback for 7-day expiry window
+- **csrfFetch utility** — drop-in fetch() replacement that auto-attaches CSRF token + credentials
+- **CSRF migration** — 15 client files (40+ fetch calls) migrated from raw fetch() to csrfFetch()
+
+**Commit 12 — asyncHandler Phase 1 (`197d9c8`):**
+- **coaching.ts** — 29 catch blocks → 1 (gamification side-effect preserved)
+- **onboarding.ts** — 28 catch blocks → 13 (file cleanup, S3/RAG error handling preserved)
+- **mfa.ts** — 21 catch blocks → 2 (session callbacks, WebAuthn verification preserved)
+- **Net: -284 lines** of boilerplate eliminated, 62 catch blocks removed
+
 #### Remaining issues identified (not yet fixed)
 **P1 (High):**
-- Rate limit key uses `req.path` with UUIDs making PHI rate limits per-call-ID instead of per-endpoint
-- Sessions not invalidated after password reset (old session stays active)
-- Invitation tokens stored in plaintext (API keys and reset tokens are hashed)
 - Super-admin N+1 queries (300+ DB queries per request for 100 orgs)
 - `checkAndAwardBadges` loads ALL org calls into memory for badge checks
 - Analytics routes load unbounded datasets (OOM risk for large orgs)
 
 **P1 (Client):**
-- Multiple pages make direct `fetch()` POST calls without CSRF headers (transcript-viewer, clinical pages, reports, ab-testing, onboarding, feedback-widget)
 - `AudioRecorder` cleanup stale closure doesn't revoke blob URL on unmount
 
 **P2 (Medium):**
-- 426 `as any` casts across 68 server files
+- ~380 `as any` casts across 68 server files (82 in pg-storage.ts alone)
 - 290 ESLint `no-unused-vars` warnings
+- ~330 remaining catch blocks across 26 route files for asyncHandler Phase 2
 - Duplicate URL validation utilities (`url-validation.ts` + `url-validator.ts`)
 - Live session Maps have no hard cap (7 unbounded Maps)
 - `request-metrics.ts` unbounded key growth (each UUID creates a new key)
@@ -1794,12 +1839,12 @@ Longer-term improvements identified during codebase audits. Work on these increm
 | Priority | Item | Effort | Impact | Notes |
 |----------|------|--------|--------|-------|
 | HIGH | **Storage layer type safety** | 5 days | High — eliminates ~200 `as any` casts | `pg-storage.ts` has 82 `as any` casts, mostly from untyped Drizzle query results. Fix: add generic return types to all IStorage methods; update mapAnalysis/mapUser/mapEmployee to use typed row objects. Eliminates the #1 source of type unsafety. Sprint 1 priority |
-| HIGH | **asyncHandler adoption (server routes)** | 3 days | Medium — eliminates ~250 manual catch blocks | 23 route files still use manual try/catch. Top targets by catch-block count: onboarding.ts (29), coaching.ts (29), calls.ts (26), mfa.ts (22), ehr.ts (19), clinical.ts (15). Convert incrementally starting with highest-count files. Pattern: replace `async (req, res) => { try { ... } catch { res.status(500)... } }` with `asyncHandler(async (req, res) => { ... })`. Sprint 1-2 |
-| HIGH | **Call processing transaction wrapper** | 2 days | High — prevents orphaned data on partial failures | `createCall` → `createTranscript` → `createSentimentAnalysis` → `createCallAnalysis` are standalone INSERTs. Any mid-pipeline failure leaves inconsistent state. The `withTransaction` helper exists but is unused. Wrap the 4 storage calls in a single transaction. Sprint 1 |
+| HIGH | **asyncHandler adoption Phase 2 (server routes)** | 2 days | Medium — eliminates ~330 remaining catch blocks | Phase 1 done: coaching (29→1), onboarding (28→13), mfa (21→2). Phase 2 targets by catch count: admin.ts (21), ehr.ts (20), billing.ts (20), clinical.ts (19), lms.ts (18), emails.ts (17), ab-testing.ts (16), live-session.ts (15), + 18 smaller files. Convert in batches of 4-5 via parallel agents. Sprint 2 |
+| ✅ Done | **Call processing transaction wrapper** | — | — | `claude/audit-and-prioritize-GydTL` — added `withTransaction` to IStorage (PostgresStorage: real Drizzle tx; MemStorage/CloudStorage: no-op). Wrapped main pipeline, batch mode, empty transcript, and live session writes |
 | MEDIUM | **Consolidate URL validation utilities** | 0.5 days | Low — reduces confusion | `url-validation.ts` (used by 3 files) and `url-validator.ts` (used only by tests) have overlapping SSRF checks. Merge the best checks from both into `url-validation.ts`, update the 15 test imports in `remaining-adaptations.test.ts`, delete `url-validator.ts`. Sprint 2 |
 | MEDIUM | **Large file decomposition (remaining)** | 3 days | Medium — improves navigability | 14 files still >1000 LOC. Server: `memory.ts` (1.6K → split by domain), `sync-schema.ts` (1.5K → split by table group), `rag.ts` (1.3K → extract synonym/query modules), `call-processing.ts` (1.2K → extract pipeline steps). Client: `transcript-viewer.tsx` (1.3K → extract correction UI), `clinical-notes.tsx` (1.2K → extract print/amendment), `reports.tsx` (1.2K → extract chart sections). Sprint 2-3 |
 | MEDIUM | **MemStorage parity with PostgresStorage** | 2 days | Medium — prevents dev/prod divergence | Key behavioral gaps: `searchCalls` only searches transcript text (PG also searches summaries+topics), `getTopPerformers` has no min-calls threshold (PG requires 5), `deleteOrgData` misses ~15 collections, `deleteExpiredCallShares` ignores orgId. Fix the 4 highest-impact gaps. Sprint 2 |
-| MEDIUM | **Rate limit key normalization** | 0.5 days | High — fixes PHI exfiltration rate limits | `rateLimitKey` in `server/index.ts:34` uses `req.path` directly (including UUIDs), so rate limits like 30/min on `/api/calls/:id/transcript` are per-call-ID, not per-endpoint. An attacker can cycle IDs to bypass. Fix: normalize path by replacing UUID segments with `:id` placeholder. Sprint 1 |
+| ✅ Done | **Rate limit key normalization** | — | — | `claude/audit-and-prioritize-GydTL` — UUID segments replaced with `:id` placeholder; PHI rate limits now apply per-endpoint-class |
 | ✅ Done | **Inline schema centralization** | — | — | `claude/audit-observatory-codebase-0eONS` — selfReview, dispute, resolveDispute, callReferral, selfAssess schemas moved to `shared/schema/features.ts` |
 | ✅ Done | **Team scoping TOCTOU fix** | — | — | `claude/codebase-audit-evaluation-MhG8w` — pre-compute team scope before fetch; return 404 instead of 403 |
 | ✅ Done | **promptTemplateCache LRU** | — | — | `claude/audit-and-prioritize-GydTL` — replaced unbounded Map with LruCache (500 entries, 5-min TTL) |
@@ -1818,9 +1863,9 @@ Longer-term improvements identified during codebase audits. Work on these increm
 ### Security
 | Priority | Item | Effort | Impact | Notes |
 |----------|------|--------|--------|-------|
-| HIGH | **Session invalidation after password reset** | 0.5 days | High — credential compromise window | After `updateUser(passwordHash)`, existing sessions for the user remain active. An attacker who compromised the password still has a valid session even after the user resets. Fix: destroy all sessions for the user via Redis `SCAN sess:*` or add a session version counter on the user record. Sprint 1 |
-| HIGH | **Invitation token hashing** | 0.5 days | Medium — defense-in-depth | Invitation tokens stored in plaintext in DB (API keys and password reset tokens are SHA-256 hashed). Anyone with DB read access can use tokens to create accounts. Fix: hash token before storage, hash incoming token on lookup. Sprint 1 |
-| HIGH | **CSRF on direct fetch() calls** | 1 day | High — 10+ pages bypass CSRF | transcript-viewer.tsx, clinical-notes.tsx, clinical-live.tsx, reports.tsx, ab-testing.tsx, onboarding.tsx, feedback-widget.tsx make direct `fetch()` POST calls without CSRF headers. Fix: route all through `apiRequest()` or add shared `csrfFetch()` wrapper. Sprint 1 |
+| ✅ Done | **Session invalidation after password reset** | — | — | `claude/audit-and-prioritize-GydTL` — new `invalidateUserSessions()` utility in redis.ts; called from password-reset and admin password-change; refactored admin.ts from 30 lines inline to 4-line utility call |
+| ✅ Done | **Invitation token hashing** | — | — | `claude/audit-and-prioritize-GydTL` — SHA-256 hash before storage; tokenPrefix for admin display; backward-compatible plaintext fallback for 7-day expiry window |
+| ✅ Done | **CSRF on direct fetch() calls** | — | — | `claude/audit-and-prioritize-GydTL` — new `csrfFetch()` utility in queryClient.ts; migrated 15 client files (40+ fetch calls) from raw fetch() to csrfFetch() |
 | MEDIUM | **Account lockout eviction** | 0.5 days | Medium — brute-force mitigation gap | `loginAttempts` map evicts oldest entry when full; attacker floods with unique usernames to evict target's lockout tracking. Fix: use username hash + IP composite key, or move to Redis sorted set. Sprint 2 |
 | MEDIUM | **Session absolute max configurable** | 0.5 days | Medium — NIST compliance | 8-hour absolute max exceeds NIST 4-6h recommendation for healthcare. Make configurable per-org via org settings (default 6h). Sprint 2 |
 | MEDIUM | **CSP `unsafe-inline` for styles** | 5 days | Medium — prevents CSS injection | Required by Recharts inline styles + Framer Motion transforms. Fix: extract Recharts styles to CSS classes, use Framer Motion's CSS transform option. Large effort due to chart component refactoring. Sprint 3+ |
