@@ -802,6 +802,17 @@ export class PostgresStorage {
         subScores: analysis.subScores || null,
         detectedAgentName: analysis.detectedAgentName,
         clinicalNote: analysis.clinicalNote || null,
+        speechMetrics: (analysis as any).speechMetrics || null,
+        selfReview: (analysis as any).selfReview || null,
+        scoreDispute: (analysis as any).scoreDispute || null,
+        patientSummary: (analysis as any).patientSummary || null,
+        referralLetter: (analysis as any).referralLetter || null,
+        suggestedBillingCodes: (analysis as any).suggestedBillingCodes || null,
+        scoreRationale: (analysis as any).scoreRationale || null,
+        promptVersionId: (analysis as any).promptVersionId || null,
+        speakerRoleMap: (analysis as any).speakerRoleMap || null,
+        detectedLanguage: (analysis as any).detectedLanguage || null,
+        ehrPushStatus: (analysis as any).ehrPushStatus || null,
       })
       .returning();
     return this.mapAnalysis(row);
@@ -831,6 +842,17 @@ export class PostgresStorage {
     if (updates.responseTime !== undefined) setClause.responseTime = updates.responseTime;
     if (updates.lemurResponse !== undefined) setClause.lemurResponse = updates.lemurResponse;
     if (updates.callPartyType !== undefined) setClause.callPartyType = updates.callPartyType;
+    if ((updates as any).speechMetrics !== undefined) setClause.speechMetrics = (updates as any).speechMetrics;
+    if ((updates as any).selfReview !== undefined) setClause.selfReview = (updates as any).selfReview;
+    if ((updates as any).scoreDispute !== undefined) setClause.scoreDispute = (updates as any).scoreDispute;
+    if ((updates as any).patientSummary !== undefined) setClause.patientSummary = (updates as any).patientSummary;
+    if ((updates as any).referralLetter !== undefined) setClause.referralLetter = (updates as any).referralLetter;
+    if ((updates as any).suggestedBillingCodes !== undefined) setClause.suggestedBillingCodes = (updates as any).suggestedBillingCodes;
+    if ((updates as any).scoreRationale !== undefined) setClause.scoreRationale = (updates as any).scoreRationale;
+    if ((updates as any).promptVersionId !== undefined) setClause.promptVersionId = (updates as any).promptVersionId;
+    if ((updates as any).speakerRoleMap !== undefined) setClause.speakerRoleMap = (updates as any).speakerRoleMap;
+    if ((updates as any).detectedLanguage !== undefined) setClause.detectedLanguage = (updates as any).detectedLanguage;
+    if ((updates as any).ehrPushStatus !== undefined) setClause.ehrPushStatus = (updates as any).ehrPushStatus;
 
     if (Object.keys(setClause).length === 0) return this.getCallAnalysis(orgId, callId);
 
@@ -1932,6 +1954,11 @@ export class PostgresStorage {
       patientSummary: row.patientSummary,
       referralLetter: row.referralLetter,
       suggestedBillingCodes: row.suggestedBillingCodes as any,
+      scoreRationale: row.scoreRationale as any,
+      promptVersionId: row.promptVersionId,
+      speakerRoleMap: row.speakerRoleMap as any,
+      detectedLanguage: row.detectedLanguage,
+      ehrPushStatus: row.ehrPushStatus as any,
       createdAt: toISOString(row.createdAt),
     };
   }

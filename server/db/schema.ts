@@ -246,6 +246,11 @@ export const callAnalyses = pgTable(
     patientSummary: text("patient_summary"),
     referralLetter: text("referral_letter"),
     suggestedBillingCodes: jsonb("suggested_billing_codes"),
+    scoreRationale: jsonb("score_rationale"),
+    promptVersionId: varchar("prompt_version_id", { length: 128 }),
+    speakerRoleMap: jsonb("speaker_role_map"),
+    detectedLanguage: varchar("detected_language", { length: 10 }),
+    ehrPushStatus: jsonb("ehr_push_status"),
     createdAt: timestamp("created_at").defaultNow(),
   },
   (t) => [
@@ -1014,31 +1019,9 @@ export const callAttributions = pgTable(
 );
 
 // --- BAA Tracking (Business Associate Agreements — HIPAA §164.502(e)) ---
-export const baaRecords = pgTable(
-  "baa_records",
-  {
-    id: text("id").primaryKey(),
-    orgId: text("org_id")
-      .notNull()
-      .references(() => organizations.id),
-    vendorName: varchar("vendor_name", { length: 255 }).notNull(),
-    vendorType: varchar("vendor_type", { length: 100 }).notNull(), // e.g., "cloud_hosting", "transcription", "payment_processor"
-    signedDate: timestamp("signed_date"),
-    expiryDate: timestamp("expiry_date"),
-    renewalDate: timestamp("renewal_date"),
-    status: varchar("status", { length: 30 }).notNull().default("active"), // active, expired, pending, terminated
-    signatoryName: varchar("signatory_name", { length: 255 }),
-    signatoryTitle: varchar("signatory_title", { length: 255 }),
-    notes: text("notes"),
-    documentUrl: text("document_url"), // link to stored BAA document
-    phiCategories: jsonb("phi_categories").default([]), // e.g., ["audio_files", "transcripts", "clinical_notes"]
-    lastReviewedAt: timestamp("last_reviewed_at"),
-    lastReviewedBy: varchar("last_reviewed_by", { length: 255 }),
-    createdAt: timestamp("created_at").defaultNow(),
-    updatedAt: timestamp("updated_at").defaultNow(),
-  },
-  (t) => [index("baa_records_org_idx").on(t.orgId), index("baa_records_org_status_idx").on(t.orgId, t.status)],
-);
+// NOTE: The canonical BAA table is `business_associate_agreements` (created by sync-schema.ts).
+// The old `baa_records` Drizzle definition was removed as dead code — it was never referenced
+// by any routes or storage methods. All BAA operations use raw SQL via pg-storage-features.ts.
 
 // --- AUDIT LOGS (append-only, tamper-evident, HIPAA compliance) ---
 export const auditLogs = pgTable(
