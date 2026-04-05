@@ -12,6 +12,7 @@ import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { randomUUID } from "crypto";
 import { enforceUserQuota, syncSeatUsage } from "./billing";
+import { asyncHandler } from "../middleware/error-handler";
 
 /**
  * Attempt to delete an organization by ID.
@@ -43,8 +44,7 @@ export function registerRegistrationRoutes(app: Express): void {
    * Register a new organization + admin user.
    * Public endpoint — no auth required.
    */
-  app.post("/api/auth/register", async (req, res, next) => {
-    try {
+  app.post("/api/auth/register", asyncHandler(async (req, res, next) => {
       const { orgName, orgSlug, username, password, name, industryType } = req.body;
 
       // Validate required fields
@@ -212,23 +212,15 @@ export function registerRegistrationRoutes(app: Express): void {
           });
         });
       });
-    } catch (error) {
-      logger.error({ err: error }, "Registration failed");
-      res.status(500).json({ message: "Registration failed" });
-    }
-  });
+    }));
 
   // ==================== INVITATION ROUTES ====================
 
   // List invitations for current org (admin/manager only)
-  app.get("/api/invitations", requireAuth, requireRole("manager"), injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/invitations", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
       const invitations = await storage.listInvitations(req.orgId!);
       res.json(invitations);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to list invitations" });
-    }
-  });
+    }));
 
   // Create invitation (admin/manager only)
   app.post(
@@ -237,8 +229,7 @@ export function registerRegistrationRoutes(app: Express): void {
     requireRole("manager"),
     injectOrgContext,
     enforceUserQuota(),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const { email, role } = req.body;
         if (!email) {
           return res.status(400).json({ message: "Email is required" });
@@ -276,16 +267,11 @@ export function registerRegistrationRoutes(app: Express): void {
         });
         logger.info({ orgId: req.orgId, email, role: role || "viewer" }, "Invitation created");
         res.status(201).json(invitation);
-      } catch (error) {
-        logger.error({ err: error }, "Failed to create invitation");
-        res.status(500).json({ message: "Failed to create invitation" });
-      }
-    },
+      }),
   );
 
   // Accept invitation (public — requires valid token)
-  app.post("/api/invitations/accept", async (req, res, next) => {
-    try {
+  app.post("/api/invitations/accept", asyncHandler(async (req, res, next) => {
       const { token, username, password, name } = req.body;
       if (!token || !username || !password || !name) {
         return res.status(400).json({ message: "token, username, password, and name are required" });
@@ -377,15 +363,10 @@ export function registerRegistrationRoutes(app: Express): void {
           });
         });
       });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to accept invitation");
-      res.status(500).json({ message: "Failed to accept invitation" });
-    }
-  });
+  }));
 
   // Revoke invitation (admin/manager only)
-  app.delete("/api/invitations/:id", requireAuth, requireRole("manager"), injectOrgContext, async (req, res) => {
-    try {
+  app.delete("/api/invitations/:id", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
       logPhiAccess({
         ...auditContext(req),
         event: "invitation_revoked",
@@ -394,30 +375,23 @@ export function registerRegistrationRoutes(app: Express): void {
       });
       await storage.deleteInvitation(req.orgId!, req.params.id);
       res.json({ message: "Invitation revoked" });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to revoke invitation" });
-    }
-  });
+  }));
 
   // Get invitation details by token (public — for the accept page)
-  app.get("/api/invitations/token/:token", async (req, res) => {
-    try {
-      const invitation = await storage.getInvitationByToken(req.params.token);
-      if (!invitation) {
-        return res.status(404).json({ message: "Invalid or expired invitation" });
-      }
-
-      // Don't expose sensitive fields, just what the accept form needs
-      const org = await storage.getOrganization(invitation.orgId);
-      res.json({
-        email: invitation.email,
-        role: invitation.role,
-        orgName: org?.name || "Unknown",
-        status: invitation.status,
-        expiresAt: invitation.expiresAt,
-      });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch invitation details" });
+  app.get("/api/invitations/token/:token", asyncHandler(async (req, res) => {
+    const invitation = await storage.getInvitationByToken(req.params.token);
+    if (!invitation) {
+      return res.status(404).json({ message: "Invalid or expired invitation" });
     }
-  });
+
+    // Don't expose sensitive fields, just what the accept form needs
+    const org = await storage.getOrganization(invitation.orgId);
+    res.json({
+      email: invitation.email,
+      role: invitation.role,
+      orgName: org?.name || "Unknown",
+      status: invitation.status,
+      expiresAt: invitation.expiresAt,
+    });
+  }));
 }

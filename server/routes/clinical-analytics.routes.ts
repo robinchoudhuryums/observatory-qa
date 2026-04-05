@@ -13,6 +13,7 @@ import { logPhiAccess, auditContext } from "../services/audit-log";
 import { decryptField } from "../services/phi-encryption";
 import { analyzeProviderStyle, type ClinicalNote as StyleClinicalNote } from "../services/style-learning";
 import type { OrgSettings } from "@shared/schema";
+import { asyncHandler } from "../middleware/error-handler";
 
 export function registerClinicalAnalyticsRoutes(app: Express, requireClinicalPlan: () => RequestHandler): void {
   // ==================== STYLE LEARNING ====================
@@ -20,8 +21,7 @@ export function registerClinicalAnalyticsRoutes(app: Express, requireClinicalPla
   app.post(
     "/api/clinical/style-learning/analyze",
     requireAuth, injectOrgContext, requireClinicalPlan(),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const userId = req.user?.id || "unknown";
         const clinicalCategories = ["clinical_encounter", "telemedicine", "dental_encounter", "dental_consultation"];
 
@@ -83,18 +83,13 @@ export function registerClinicalAnalyticsRoutes(app: Express, requireClinicalPla
           detail: `Analyzed ${attestedNotes.length} attested notes for style learning`,
         });
         res.json({ success: true, analysis: result, noteCount: attestedNotes.length });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to analyze provider style");
-        res.status(500).json({ message: "Failed to analyze provider style" });
-      }
-    },
+      }),
   );
 
   app.post(
     "/api/clinical/style-learning/apply",
     requireAuth, injectOrgContext, requireClinicalPlan(),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const { preferences } = req.body;
         if (!preferences || typeof preferences !== "object") {
           res.status(400).json({ message: "preferences object is required" });
@@ -127,11 +122,7 @@ export function registerClinicalAnalyticsRoutes(app: Express, requireClinicalPla
 
         logger.info({ orgId: req.orgId, userId }, "Applied learned style preferences");
         res.json({ success: true, preferences: allPrefs[userId] });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to apply learned preferences");
-        res.status(500).json({ message: "Failed to apply learned preferences" });
-      }
-    },
+      }),
   );
 
   // ==================== POPULATION ANALYTICS ====================
@@ -139,8 +130,7 @@ export function registerClinicalAnalyticsRoutes(app: Express, requireClinicalPla
   app.get(
     "/api/clinical/analytics/population",
     requireAuth, injectOrgContext, requireClinicalPlan(), requireRole("admin"),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const orgId = req.orgId!;
         const clinicalCategories = ["clinical_encounter", "telemedicine", "dental_encounter", "dental_consultation"];
 
@@ -191,11 +181,7 @@ export function registerClinicalAnalyticsRoutes(app: Express, requireClinicalPla
           avgBloodPressureDiastolic: bpDiaCount > 0 ? Math.round(bpDiaTotal / bpDiaCount) : null,
           topIcd10Codes, topMedications, vitalsPresent, medicationsPresent,
         });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to get population analytics");
-        res.status(500).json({ message: "Failed to get population analytics" });
-      }
-    },
+      }),
   );
 
   // ==================== EHR PREFILL SUGGESTIONS ====================
@@ -203,8 +189,7 @@ export function registerClinicalAnalyticsRoutes(app: Express, requireClinicalPla
   app.get(
     "/api/clinical/notes/:callId/prefill-suggestions",
     requireAuth, injectOrgContext, requireClinicalPlan(),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const org = await getCachedOrganization(req.orgId!);
         const ehrConfig = (org?.settings as OrgSettings)?.ehrConfig;
 
@@ -224,32 +209,22 @@ export function registerClinicalAnalyticsRoutes(app: Express, requireClinicalPla
           ehrConnected: true,
           note: "Patient lookup from EHR requires patient ID association. Use /api/ehr/patients to search by name.",
         });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to get prefill suggestions");
-        res.status(500).json({ message: "Failed to get prefill suggestions" });
-      }
-    },
+      }),
   );
 
   // ==================== PROVIDER TEMPLATES (CUSTOM) ====================
 
-  app.get("/api/clinical/templates/my", requireAuth, injectOrgContext, requireClinicalPlan(), async (req, res) => {
-    try {
+  app.get("/api/clinical/templates/my", requireAuth, injectOrgContext, requireClinicalPlan(), asyncHandler(async (req, res) => {
       const userId = req.user?.id;
       if (!userId) { res.status(401).json({ message: "User ID required" }); return; }
       const templates = await storage.getProviderTemplates(req.orgId!, userId);
       res.json(templates);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to list provider templates");
-      res.status(500).json({ message: "Failed to list provider templates" });
-    }
-  });
+    }));
 
   app.post(
     "/api/clinical/templates/custom",
     requireAuth, injectOrgContext, requireClinicalPlan(), requireRole("manager", "admin"),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const { name, specialty, format, category, description, sections, defaultCodes, tags, isDefault } = req.body;
         if (!name || typeof name !== "string" || !name.trim()) { res.status(400).json({ message: "Template name is required" }); return; }
         if (name.length > 255) { res.status(400).json({ message: "Template name must be under 255 characters" }); return; }
@@ -270,18 +245,13 @@ export function registerClinicalAnalyticsRoutes(app: Express, requireClinicalPla
 
         logger.info({ orgId: req.orgId, userId, templateId: template.id }, "Provider template created");
         res.status(201).json(template);
-      } catch (error) {
-        logger.error({ err: error }, "Failed to create provider template");
-        res.status(500).json({ message: "Failed to create provider template" });
-      }
-    },
+      }),
   );
 
   app.patch(
     "/api/clinical/templates/custom/:id",
     requireAuth, injectOrgContext, requireClinicalPlan(), requireRole("manager", "admin"),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const userId = req.user?.id;
         if (!userId) { res.status(401).json({ message: "User ID required" }); return; }
 
@@ -293,27 +263,18 @@ export function registerClinicalAnalyticsRoutes(app: Express, requireClinicalPla
         const updated = await storage.updateProviderTemplate(req.orgId!, req.params.id, userId, updates);
         if (!updated) { res.status(404).json({ message: "Template not found or you do not have permission to edit it" }); return; }
         res.json(updated);
-      } catch (error) {
-        logger.error({ err: error }, "Failed to update provider template");
-        res.status(500).json({ message: "Failed to update provider template" });
-      }
-    },
+      }),
   );
 
   app.delete(
     "/api/clinical/templates/custom/:id",
     requireAuth, injectOrgContext, requireClinicalPlan(), requireRole("manager", "admin"),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const userId = req.user?.id;
         if (!userId) { res.status(401).json({ message: "User ID required" }); return; }
         const deleted = await storage.deleteProviderTemplate(req.orgId!, req.params.id, userId);
         if (!deleted) { res.status(404).json({ message: "Template not found or you do not have permission to delete it" }); return; }
         res.json({ success: true });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to delete provider template");
-        res.status(500).json({ message: "Failed to delete provider template" });
-      }
-    },
+      }),
   );
 }

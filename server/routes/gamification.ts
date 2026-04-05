@@ -5,6 +5,7 @@ import { logger } from "../services/logger";
 import { validateUUIDParam } from "./helpers";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import { BADGE_DEFINITIONS, type BadgeId } from "@shared/schema";
+import { asyncHandler } from "../middleware/error-handler";
 
 // Points awarded for various activities
 const POINT_VALUES = {
@@ -154,8 +155,7 @@ export async function recordActivity(
 
 export function registerGamificationRoutes(app: Express) {
   // Get leaderboard for the org
-  app.get("/api/gamification/leaderboard", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/gamification/leaderboard", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -196,11 +196,7 @@ export function registerGamificationRoutes(app: Express) {
       });
 
       res.json(leaderboard);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to get leaderboard");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get leaderboard"));
-    }
-  });
+    }));
 
   // Get gamification profile for an employee
   app.get(
@@ -208,8 +204,7 @@ export function registerGamificationRoutes(app: Express) {
     requireAuth,
     injectOrgContext,
     validateUUIDParam("employeeId"),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const orgId = req.orgId;
         if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -248,11 +243,7 @@ export function registerGamificationRoutes(app: Express) {
           badges: enrichedBadges,
           availableBadges: BADGE_DEFINITIONS.filter((d) => !badges.some((b) => b.badgeId === d.id)),
         });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to get gamification profile");
-        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get gamification profile"));
-      }
-    },
+      }),
   );
 
   // Get all badge definitions
@@ -261,18 +252,13 @@ export function registerGamificationRoutes(app: Express) {
   });
 
   // --- Gamification settings (opt-out configuration) ---
-  app.get("/api/gamification/settings", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/gamification/settings", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
       const org = await storage.getOrganization(req.orgId!);
       const gamification = (org?.settings as any)?.gamification || { enabled: true };
       res.json(gamification);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to get gamification settings" });
-    }
-  });
+    }));
 
-  app.put("/api/gamification/settings", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
+  app.put("/api/gamification/settings", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
       const { enabled, optedOutRoles, optedOutEmployeeIds, teamCompetitionsEnabled } = req.body;
 
@@ -294,14 +280,10 @@ export function registerGamificationRoutes(app: Express) {
 
       logger.info({ orgId, gamification: { enabled: gamification.enabled } }, "Gamification settings updated");
       res.json(gamification);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to update gamification settings" });
-    }
-  });
+    }));
 
   // --- Manager-awarded custom recognition badges ---
-  app.post("/api/gamification/recognize", requireAuth, requireRole("manager"), injectOrgContext, async (req, res) => {
-    try {
+  app.post("/api/gamification/recognize", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
       const { employeeId, badgeId, message, callId } = req.body;
 
@@ -355,15 +337,10 @@ export function registerGamificationRoutes(app: Express) {
         "Custom recognition badge awarded",
       );
       res.status(201).json(badge);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to award recognition badge");
-      res.status(500).json({ message: "Failed to award recognition badge" });
-    }
-  });
+  }));
 
   // --- Team competitions ---
-  app.get("/api/gamification/team-leaderboard", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/gamification/team-leaderboard", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
 
       // Check if team competitions are enabled
@@ -428,14 +405,10 @@ export function registerGamificationRoutes(app: Express) {
         enabled: true,
         teams: teamList.map((t, i) => ({ ...t, rank: i + 1 })),
       });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to get team leaderboard" });
-    }
-  });
+    }));
 
   // --- Effectiveness measurement ---
-  app.get("/api/gamification/effectiveness", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/gamification/effectiveness", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
       const employees = await storage.getAllEmployees(orgId);
       const calls = await storage.getCallSummaries(orgId, { status: "completed" });
@@ -530,9 +503,5 @@ export function registerGamificationRoutes(app: Express) {
         },
         employees: stats.sort((a, b) => b.badgeCount - a.badgeCount),
       });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to compute gamification effectiveness");
-      res.status(500).json({ message: "Failed to compute effectiveness" });
-    }
-  });
+    }));
 }
