@@ -101,6 +101,13 @@ type ScoringWeights = { compliance: number; customerExperience: number; communic
 type CoachingActionItem = { task: string; completed: boolean };
 type EffectivenessSnap = { preCoaching?: { avgScore?: number }; postCoaching?: { avgScore?: number }; [key: string]: unknown };
 
+// Raw SQL execute result — Drizzle returns rows directly or wrapped in { rows: [...] }
+// depending on the driver. This helper normalizes both formats.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function rawRows(result: any): any[] {
+  return Array.isArray(result) ? result : (result?.rows ?? []);
+}
+
 // Row types inferred from Drizzle schema — used to type mapper function parameters
 type OrgRow = typeof tables.organizations.$inferSelect;
 type UserRow = typeof tables.users.$inferSelect;
@@ -413,11 +420,11 @@ export class PostgresStorage {
       .where(eq(tables.calls.orgId, orgId))
       .groupBy(tables.calls.status);
 
-    const result = { pending: 0, processing: 0, completed: 0, failed: 0 };
+    const result = { pending: 0, processing: 0, completed: 0, failed: 0 } as Record<string, number>;
     for (const row of rows) {
-      if (row.status in result) (result as any)[row.status] = row.count;
+      if (row.status in result) result[row.status] = row.count;
     }
-    return result;
+    return result as { pending: number; processing: number; completed: number; failed: number };
   }
 
   // --- Call operations ---
@@ -557,11 +564,12 @@ export class PostgresStorage {
         .from(tables.calls)
         .innerJoin(tables.sentimentAnalyses, eq(tables.calls.id, tables.sentimentAnalyses.callId))
         .where(and(...conditions))
-        .orderBy(desc(tables.calls.uploadedAt));
+        .orderBy(desc(tables.calls.uploadedAt))
+        .$dynamic();
 
       if (filters.limit && filters.limit > 0) {
-        query = query.limit(filters.limit) as any;
-        if (filters.offset) query = query.offset(filters.offset) as any;
+        query = query.limit(filters.limit);
+        if (filters.offset) query = query.offset(filters.offset);
       }
 
       const joinRows = await query;
@@ -576,11 +584,12 @@ export class PostgresStorage {
         .select()
         .from(tables.calls)
         .where(and(...conditions))
-        .orderBy(desc(tables.calls.uploadedAt));
+        .orderBy(desc(tables.calls.uploadedAt))
+        .$dynamic();
 
       if (filters.limit && filters.limit > 0) {
-        query = query.limit(filters.limit) as any;
-        if (filters.offset) query = query.offset(filters.offset) as any;
+        query = query.limit(filters.limit);
+        if (filters.offset) query = query.offset(filters.offset);
       }
 
       callRows = await query;
@@ -785,16 +794,16 @@ export class PostgresStorage {
   async updateTranscript(
     orgId: string,
     callId: string,
-    updates: { text?: string; corrections?: any[]; correctedText?: string },
+    updates: { text?: string; corrections?: TranscriptCorrection[]; correctedText?: string },
   ): Promise<Transcript | undefined> {
-    const setClause: Record<string, unknown> = {};
+    const setClause: Partial<typeof tables.transcripts.$inferInsert> = {};
     if (updates.text !== undefined) setClause.text = encryptField(updates.text);
     if (updates.corrections !== undefined) setClause.corrections = updates.corrections;
     if (updates.correctedText !== undefined) setClause.correctedText = updates.correctedText;
     if (Object.keys(setClause).length === 0) return this.getTranscript(orgId, callId);
     const rows = await this.db
       .update(tables.transcripts)
-      .set(setClause as any)
+      .set(setClause)
       .where(and(eq(tables.transcripts.callId, callId), eq(tables.transcripts.orgId, orgId)))
       .returning();
     return rows[0] ? this.mapTranscript(rows[0]) : undefined;
@@ -937,12 +946,12 @@ export class PostgresStorage {
       LEFT JOIN sentiment_analyses s ON s.call_id = c.id
       LEFT JOIN call_analyses a ON a.call_id = c.id
       WHERE c.org_id = ${orgId}
-    `)) as any;
+    `)) as unknown as { call_count: number; avg_sentiment: number; avg_performance: number }[];
 
     return {
       totalCalls: row?.call_count || 0,
-      avgSentiment: Math.round((parseFloat(row?.avg_sentiment) || 0) * 100) / 100,
-      avgPerformanceScore: Math.round((parseFloat(row?.avg_performance) || 0) * 100) / 100,
+      avgSentiment: Math.round((Number(row?.avg_sentiment) || 0) * 100) / 100,
+      avgPerformanceScore: Math.round((Number(row?.avg_performance) || 0) * 100) / 100,
       avgTranscriptionTime: 2.3,
     };
   }
@@ -1510,34 +1519,35 @@ export class PostgresStorage {
     template: import("@shared/schema").InsertCoachingTemplate,
   ): Promise<import("@shared/schema").CoachingTemplate> {
     const id = randomUUID();
-    const [row] = (await this.db.execute(sql`
+    const result = await this.db.execute(sql`
       INSERT INTO coaching_templates (id, org_id, name, category, description, action_plan, tags, created_by, usage_count)
       VALUES (${id}, ${orgId}, ${template.name}, ${template.category || "general"}, ${template.description || null},
               ${JSON.stringify(template.actionPlan || [])}, ${JSON.stringify(template.tags || [])},
               ${template.createdBy}, 0)
       RETURNING *
-    `)) as any;
-    return this.mapCoachingTemplate(row.rows ? row.rows[0] : row);
+    `);
+    const rows = rawRows(result);
+    return this.mapCoachingTemplate(rows[0]);
   }
 
   async getCoachingTemplate(orgId: string, id: string): Promise<import("@shared/schema").CoachingTemplate | undefined> {
-    const result = (await this.db.execute(
+    const result = await this.db.execute(
       sql`SELECT * FROM coaching_templates WHERE id = ${id} AND org_id = ${orgId} LIMIT 1`,
-    )) as any;
-    const rows = result.rows || result;
+    );
+    const rows = rawRows(result);
     return rows[0] ? this.mapCoachingTemplate(rows[0]) : undefined;
   }
 
   async listCoachingTemplates(orgId: string, category?: string): Promise<import("@shared/schema").CoachingTemplate[]> {
     const result = category
-      ? ((await this.db.execute(
+      ? await this.db.execute(
           sql`SELECT * FROM coaching_templates WHERE org_id = ${orgId} AND category = ${category} ORDER BY usage_count DESC, created_at DESC`,
-        )) as any)
-      : ((await this.db.execute(
+        )
+      : await this.db.execute(
           sql`SELECT * FROM coaching_templates WHERE org_id = ${orgId} ORDER BY usage_count DESC, created_at DESC`,
-        )) as any);
-    const rows = result.rows || result;
-    return Array.isArray(rows) ? rows.map((r: any) => this.mapCoachingTemplate(r)) : [];
+        );
+    const rows = rawRows(result);
+    return rows.map((r: Record<string, unknown>) => this.mapCoachingTemplate(r));
   }
 
   async updateCoachingTemplate(
@@ -1545,7 +1555,7 @@ export class PostgresStorage {
     id: string,
     updates: Partial<import("@shared/schema").CoachingTemplate>,
   ): Promise<import("@shared/schema").CoachingTemplate | undefined> {
-    const result = (await this.db.execute(sql`
+    const result = await this.db.execute(sql`
       UPDATE coaching_templates SET
         name = COALESCE(${updates.name ?? null}, name),
         category = COALESCE(${updates.category ?? null}, category),
@@ -1555,8 +1565,8 @@ export class PostgresStorage {
         updated_at = NOW()
       WHERE id = ${id} AND org_id = ${orgId}
       RETURNING *
-    `)) as any;
-    const rows = result.rows || result;
+    `);
+    const rows = rawRows(result);
     return rows[0] ? this.mapCoachingTemplate(rows[0]) : undefined;
   }
 
@@ -1592,30 +1602,30 @@ export class PostgresStorage {
     rule: import("@shared/schema").InsertAutomationRule,
   ): Promise<import("@shared/schema").AutomationRule> {
     const id = randomUUID();
-    const result = (await this.db.execute(sql`
+    const result = await this.db.execute(sql`
       INSERT INTO automation_rules (id, org_id, name, is_enabled, trigger_type, conditions, actions, created_by, trigger_count)
       VALUES (${id}, ${orgId}, ${rule.name}, ${rule.isEnabled !== false}, ${rule.triggerType},
               ${JSON.stringify(rule.conditions)}, ${JSON.stringify(rule.actions)}, ${rule.createdBy}, 0)
       RETURNING *
-    `)) as any;
-    const rows = result.rows || result;
-    return this.mapAutomationRule(rows[0] || rows);
+    `);
+    const rows = rawRows(result);
+    return this.mapAutomationRule(rows[0]);
   }
 
   async getAutomationRule(orgId: string, id: string): Promise<import("@shared/schema").AutomationRule | undefined> {
-    const result = (await this.db.execute(
+    const result = await this.db.execute(
       sql`SELECT * FROM automation_rules WHERE id = ${id} AND org_id = ${orgId} LIMIT 1`,
-    )) as any;
-    const rows = result.rows || result;
+    );
+    const rows = rawRows(result);
     return rows[0] ? this.mapAutomationRule(rows[0]) : undefined;
   }
 
   async listAutomationRules(orgId: string): Promise<import("@shared/schema").AutomationRule[]> {
-    const result = (await this.db.execute(
+    const result = await this.db.execute(
       sql`SELECT * FROM automation_rules WHERE org_id = ${orgId} ORDER BY created_at DESC`,
-    )) as any;
-    const rows = result.rows || result;
-    return Array.isArray(rows) ? rows.map((r: any) => this.mapAutomationRule(r)) : [];
+    );
+    const rows = rawRows(result);
+    return rows.map((r: Record<string, unknown>) => this.mapAutomationRule(r));
   }
 
   async updateAutomationRule(
@@ -1624,7 +1634,7 @@ export class PostgresStorage {
     updates: Partial<import("@shared/schema").AutomationRule>,
   ): Promise<import("@shared/schema").AutomationRule | undefined> {
     // Raw SQL handles JSONB properly via COALESCE (null = keep existing value)
-    const result = (await this.db.execute(sql`
+    const result = await this.db.execute(sql`
       UPDATE automation_rules SET
         is_enabled = COALESCE(${updates.isEnabled ?? null}, is_enabled),
         name = COALESCE(${updates.name ?? null}, name),
@@ -1635,8 +1645,8 @@ export class PostgresStorage {
         updated_at = NOW()
       WHERE id = ${id} AND org_id = ${orgId}
       RETURNING *
-    `)) as any;
-    const rows = result.rows || result;
+    `);
+    const rows = rawRows(result);
     return rows[0] ? this.mapAutomationRule(rows[0]) : undefined;
   }
 
