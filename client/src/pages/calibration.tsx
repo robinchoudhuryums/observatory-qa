@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, getQueryFn } from "@/lib/queryClient";
+import { queryClient, getQueryFn, csrfFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -101,7 +101,7 @@ export default function CalibrationPage() {
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof form) => {
-      const res = await fetch("/api/calibration", {
+      const res = await csrfFetch("/api/calibration", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -127,7 +127,7 @@ export default function CalibrationPage() {
       performanceScore: number;
       notes: string;
     }) => {
-      const res = await fetch(`/api/calibration/${sessionId}/evaluate`, {
+      const res = await csrfFetch(`/api/calibration/${sessionId}/evaluate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ performanceScore, notes }),
@@ -152,7 +152,7 @@ export default function CalibrationPage() {
       targetScore?: number;
       consensusNotes?: string;
     }) => {
-      const res = await fetch(`/api/calibration/${id}/complete`, {
+      const res = await csrfFetch(`/api/calibration/${id}/complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ targetScore, consensusNotes }),

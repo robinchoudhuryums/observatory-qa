@@ -61,7 +61,7 @@ import {
   type CallShare,
   type InsertCallShare,
 } from "@shared/schema";
-import { randomUUID, randomBytes } from "crypto";
+import { randomUUID, randomBytes, createHash } from "crypto";
 import { type IStorage, applyCallFilters, calculateDashboardMetrics, calculateSentimentDistribution } from "./types";
 
 /**
@@ -737,23 +737,28 @@ export class MemStorage implements IStorage {
 
   async createInvitation(orgId: string, invitation: InsertInvitation): Promise<Invitation> {
     const id = randomUUID();
-    const token = invitation.token || randomBytes(32).toString("hex");
-    const expiresAt = invitation.expiresAt || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days default
+    const rawToken = invitation.token || randomBytes(32).toString("hex");
+    const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+    const expiresAt = invitation.expiresAt || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     const newInvitation: Invitation = {
       ...invitation,
       id,
       orgId,
-      token,
+      token: tokenHash,
       status: "pending",
       expiresAt,
       createdAt: new Date().toISOString(),
     };
     this.invitations.set(id, newInvitation);
-    return newInvitation;
+    // Return raw token once (for email/URL); DB stores only the hash
+    return { ...newInvitation, token: rawToken };
   }
 
   async getInvitationByToken(token: string): Promise<Invitation | undefined> {
-    return Array.from(this.invitations.values()).find((i) => i.token === token);
+    const tokenHash = createHash("sha256").update(token).digest("hex");
+    return Array.from(this.invitations.values()).find(
+      (i) => i.token === tokenHash || i.token === token, // backward compat for pre-hashing
+    );
   }
 
   async listInvitations(orgId: string): Promise<Invitation[]> {

@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, csrfFetch } from "@/lib/queryClient";
 import { useOrganization } from "@/hooks/use-organization";
 import { REFERENCE_DOC_CATEGORIES, type ReferenceDocCategory } from "@shared/schema";
 import {
@@ -213,10 +213,9 @@ function BrandingStep({ onNext, onBack }: { onNext: () => void; onBack: () => vo
         const formData = new FormData();
         formData.append("logo", file);
 
-        const res = await fetch("/api/onboarding/logo", {
+        const res = await csrfFetch("/api/onboarding/logo", {
           method: "POST",
           body: formData,
-          credentials: "include",
         });
 
         if (!res.ok) {
@@ -449,10 +448,9 @@ function DocumentsStep({ onNext, onBack }: { onNext: () => void; onBack: () => v
         formData.append("name", docName || file.name.replace(/\.[^.]+$/, ""));
         formData.append("category", selectedCategory);
 
-        const res = await fetch("/api/reference-documents", {
+        const res = await csrfFetch("/api/reference-documents", {
           method: "POST",
           body: formData,
-          credentials: "include",
         });
 
         if (!res.ok) {

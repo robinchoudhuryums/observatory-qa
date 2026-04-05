@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { csrfFetch } from "@/lib/queryClient";
 import { useSearch } from "wouter";
 import FileUpload from "@/components/upload/file-upload";
 import AudioRecorder from "@/components/upload/audio-recorder";
@@ -122,10 +123,9 @@ export default function ClinicalUploadPage() {
       if (specialty) formData.append("clinicalSpecialty", specialty);
       if (noteFormat) formData.append("noteFormat", noteFormat);
 
-      const response = await fetch("/api/calls/upload", {
+      const response = await csrfFetch("/api/calls/upload", {
         method: "POST",
         body: formData,
-        credentials: "include",
       });
 
       if (!response.ok) {

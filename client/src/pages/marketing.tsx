@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, csrfFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -105,7 +105,7 @@ function CreateCampaignForm({ onSuccess }: { onSuccess: () => void }) {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/marketing/campaigns", {
+      const res = await csrfFetch("/api/marketing/campaigns", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -309,7 +309,7 @@ export default function MarketingPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      await fetch(`/api/marketing/campaigns/${id}`, { method: "DELETE" });
+      await csrfFetch(`/api/marketing/campaigns/${id}`, { method: "DELETE" });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns"] });
@@ -320,7 +320,7 @@ export default function MarketingPage() {
 
   const toggleMutation = useMutation({
     mutationFn: async ({ id, isActive }: { id: string; isActive: boolean }) => {
-      const res = await fetch(`/api/marketing/campaigns/${id}`, {
+      const res = await csrfFetch(`/api/marketing/campaigns/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isActive }),

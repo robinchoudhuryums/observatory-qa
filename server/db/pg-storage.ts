@@ -1774,9 +1774,13 @@ export class PostgresStorage {
 
   // --- Invitation operations ---
   async createInvitation(orgId: string, invitation: InsertInvitation): Promise<Invitation> {
-    const { randomBytes } = await import("crypto");
+    const { randomBytes, createHash } = await import("crypto");
     const id = randomUUID();
-    const token = invitation.token || randomBytes(32).toString("hex");
+    // Generate raw token — returned once (in the API response / email URL), never stored.
+    const rawToken = invitation.token || randomBytes(32).toString("hex");
+    // Store SHA-256 hash only — matches the pattern used for API keys and password reset tokens.
+    const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+    const tokenPrefix = rawToken.slice(0, 8);
     const expiresAt = invitation.expiresAt
       ? new Date(invitation.expiresAt)
       : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -1788,18 +1792,31 @@ export class PostgresStorage {
         orgId,
         email: invitation.email,
         role: invitation.role || "viewer",
-        token,
+        token: tokenHash,
+        tokenPrefix,
         invitedBy: invitation.invitedBy,
         status: "pending",
         expiresAt,
       })
       .returning();
 
-    return this.mapInvitation(row);
+    const result = this.mapInvitation(row);
+    // Override token in the returned object with the raw token (one-time return).
+    // Subsequent reads from DB will return the hash (which is not usable as a token).
+    result.token = rawToken;
+    return result;
   }
 
   async getInvitationByToken(token: string): Promise<Invitation | undefined> {
-    const rows = await this.db.select().from(tables.invitations).where(eq(tables.invitations.token, token)).limit(1);
+    // Hash the submitted token before lookup — DB stores only hashes.
+    // Also try plaintext match for backward compatibility with pre-hashing invitations.
+    const { createHash } = await import("crypto");
+    const tokenHash = createHash("sha256").update(token).digest("hex");
+    const rows = await this.db
+      .select()
+      .from(tables.invitations)
+      .where(sql`${tables.invitations.token} = ${tokenHash} OR ${tables.invitations.token} = ${token}`)
+      .limit(1);
     return rows[0] ? this.mapInvitation(rows[0]) : undefined;
   }
 

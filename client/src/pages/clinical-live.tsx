@@ -9,7 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, csrfFetch } from "@/lib/queryClient";
 import { CLINICAL_SPECIALTIES, CLINICAL_NOTE_FORMATS } from "@shared/schema";
 import type { ClinicalNote, LiveSession } from "@shared/schema";
 import {
@@ -167,10 +167,9 @@ export default function ClinicalLivePage() {
           const base64 = btoa(binary);
 
           // RiSendPlaneLine to server (fire-and-forget)
-          fetch(`/api/live-sessions/${sessionIdRef.current}/audio`, {
+          csrfFetch(`/api/live-sessions/${sessionIdRef.current}/audio`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            credentials: "include",
             body: JSON.stringify({ audio: base64 }),
           }).catch(() => {
             // Silently handle audio send failures

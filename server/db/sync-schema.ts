@@ -522,6 +522,7 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS invitations_token_idx ON invitations (token)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS invitations_org_id_idx ON invitations (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS invitations_email_idx ON invitations (org_id, email)`);
+    await addColumnIfNotExists(db, "invitations", "token_prefix", "VARCHAR(12)");
     await addRlsPolicy(db, "invitations").catch((e) => logger.warn({ err: e }, "RLS setup skipped for invitations"));
 
     // --- Subscriptions ---

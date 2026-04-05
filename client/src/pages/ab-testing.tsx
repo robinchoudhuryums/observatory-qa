@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, csrfFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -346,10 +346,9 @@ export default function ABTestingPage() {
       formData.append("testModel", modelId);
       if (callCategory) formData.append("callCategory", callCategory);
 
-      const res = await fetch("/api/ab-tests/upload", {
+      const res = await csrfFetch("/api/ab-tests/upload", {
         method: "POST",
         body: formData,
-        credentials: "include",
       });
       if (!res.ok) {
         const err = await res.json();
@@ -377,7 +376,7 @@ export default function ABTestingPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`/api/ab-tests/${id}`, { method: "DELETE", credentials: "include" });
+      const res = await csrfFetch(`/api/ab-tests/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Delete failed");
     },
     onSuccess: () => {

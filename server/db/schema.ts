@@ -465,7 +465,11 @@ export const invitations = pgTable(
       .references(() => organizations.id),
     email: varchar("email", { length: 255 }).notNull(),
     role: varchar("role", { length: 20 }).notNull().default("viewer"),
+    // Token is stored as SHA-256 hash (never plaintext). The raw token is
+    // returned only once at creation time (for the invite URL/email).
     token: varchar("token", { length: 255 }).notNull(),
+    // First 8 chars of the raw token for display/identification in admin UI
+    tokenPrefix: varchar("token_prefix", { length: 12 }),
     invitedBy: varchar("invited_by", { length: 255 }).notNull(),
     status: varchar("status", { length: 20 }).notNull().default("pending"),
     expiresAt: timestamp("expires_at"),

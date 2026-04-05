@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, getQueryFn } from "@/lib/queryClient";
+import { queryClient, getQueryFn, csrfFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -86,7 +86,7 @@ export default function InsuranceNarrativesPage() {
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof form) => {
-      const res = await fetch("/api/insurance-narratives", {
+      const res = await csrfFetch("/api/insurance-narratives", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -104,7 +104,7 @@ export default function InsuranceNarrativesPage() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, ...updates }: { id: string; status?: string; generatedNarrative?: string }) => {
-      const res = await fetch(`/api/insurance-narratives/${id}`, {
+      const res = await csrfFetch(`/api/insurance-narratives/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
@@ -121,7 +121,7 @@ export default function InsuranceNarrativesPage() {
 
   const regenerateMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`/api/insurance-narratives/${id}/regenerate`, { method: "POST" });
+      const res = await csrfFetch(`/api/insurance-narratives/${id}/regenerate`, { method: "POST" });
       if (!res.ok) throw new Error("Failed to regenerate");
       return res.json();
     },
@@ -134,7 +134,7 @@ export default function InsuranceNarrativesPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`/api/insurance-narratives/${id}`, { method: "DELETE" });
+      const res = await csrfFetch(`/api/insurance-narratives/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete");
     },
     onSuccess: () => {

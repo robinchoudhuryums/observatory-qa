@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { csrfFetch } from "@/lib/queryClient";
 import { useRef } from "react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -196,10 +197,9 @@ export default function ReportsPage() {
   // AI summary mutation
   const summaryMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`/api/reports/agent-summary/${selectedEmployee}`, {
+      const res = await csrfFetch(`/api/reports/agent-summary/${selectedEmployee}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({ from: dateRange.from, to: dateRange.to }),
       });
       if (!res.ok) {

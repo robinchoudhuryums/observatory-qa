@@ -1,5 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, getQueryFn } from "@/lib/queryClient";
+import { queryClient, getQueryFn, csrfFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -59,7 +59,7 @@ export default function FeedbackPage() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, status, adminResponse }: { id: string; status?: string; adminResponse?: string }) => {
-      const res = await fetch(`/api/feedback/${id}`, {
+      const res = await csrfFetch(`/api/feedback/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status, adminResponse }),
