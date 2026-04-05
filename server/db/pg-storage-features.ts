@@ -32,25 +32,36 @@ import type {
   CallWithDetails,
 } from "@shared/schema";
 
+// Row types inferred from Drizzle schema — used to type mapper function parameters
+type ABTestRow = typeof tables.abTests.$inferSelect;
+type LearningModuleRow = typeof tables.learningModules.$inferSelect;
+type LearningPathRow = typeof tables.learningPaths.$inferSelect;
+type LearningProgressRow = typeof tables.learningProgress.$inferSelect;
+type MarketingCampaignRow = typeof tables.marketingCampaigns.$inferSelect;
+type CallAttributionRow = typeof tables.callAttributions.$inferSelect;
+type ProviderTemplateRow = typeof tables.providerTemplates.$inferSelect;
+type BaaRow = typeof tables.businessAssociateAgreements.$inferSelect;
+
 function toISOString(date: Date | null | undefined): string | undefined {
   return date ? date.toISOString() : undefined;
 }
 
 const QUERY_HARD_CAP = 5000;
 
-/** Type-safe access to the private db field. */
+/** Type-safe access to the protected db field. */
 function db(self: PostgresStorage): Database {
-  return (self as any).db;
+  return self["db"];
 }
 
-/** Type-safe access to the private blobClient field. */
-function blob(self: PostgresStorage): any {
-  return (self as any).blobClient;
+/** Type-safe access to the protected blobClient field. */
+function blob(self: PostgresStorage): PostgresStorage["blobClient"] {
+  return self["blobClient"];
 }
 
 // We use `const P = PostgresStorage.prototype` as a shorthand for
 // assigning methods. TypeScript sees the assignments and infers types
 // from the IStorage interface already declared on the class.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- prototype extension pattern requires any
 const P = PostgresStorage.prototype as any;
 
 // ==================== Mappers (local to this file) ====================
@@ -123,7 +134,7 @@ P.deleteABTest = async function(orgId: string, id: string): Promise<void> {
     await db(this).delete(tables.abTests).where(and(eq(tables.abTests.orgId, orgId), eq(tables.abTests.id, id)));
   }
 
-function mapABTest(row: any): ABTest {
+function mapABTest(row: ABTestRow): ABTest {
     return {
       id: row.id,
       orgId: row.orgId,
@@ -131,10 +142,10 @@ function mapABTest(row: any): ABTest {
       callCategory: row.callCategory || undefined,
       baselineModel: row.baselineModel,
       testModel: row.testModel,
-      status: row.status,
+      status: row.status as ABTest["status"],
       transcriptText: row.transcriptText || undefined,
-      baselineAnalysis: row.baselineAnalysis || undefined,
-      testAnalysis: row.testAnalysis || undefined,
+      baselineAnalysis: (row.baselineAnalysis || undefined) as Record<string, unknown> | undefined,
+      testAnalysis: (row.testAnalysis || undefined) as Record<string, unknown> | undefined,
       baselineLatencyMs: row.baselineLatencyMs || undefined,
       testLatencyMs: row.testLatencyMs || undefined,
       notes: row.notes || undefined,
@@ -1095,7 +1106,7 @@ P.getModuleCompletionStats = async function(
     };
   }
 
-function mapLearningModule(r: any): LearningModule {
+function mapLearningModule(r: LearningModuleRow): LearningModule {
     return {
       id: r.id,
       orgId: r.orgId,
@@ -1106,7 +1117,7 @@ function mapLearningModule(r: any): LearningModule {
       content: r.content || undefined,
       quizQuestions: r.quizQuestions as LearningModule["quizQuestions"],
       estimatedMinutes: r.estimatedMinutes || undefined,
-      difficulty: r.difficulty || undefined,
+      difficulty: (r.difficulty || undefined) as LearningModule["difficulty"],
       tags: (r.tags as string[]) || undefined,
       sourceDocumentId: r.sourceDocumentId || undefined,
       isPublished: r.isPublished,
@@ -1120,7 +1131,7 @@ function mapLearningModule(r: any): LearningModule {
     };
   }
 
-function mapLearningPath(r: any): LearningPath {
+function mapLearningPath(r: LearningPathRow): LearningPath {
     return {
       id: r.id,
       orgId: r.orgId,
@@ -1139,14 +1150,14 @@ function mapLearningPath(r: any): LearningPath {
     };
   }
 
-function mapLearningProgress(r: any): LearningProgress {
+function mapLearningProgress(r: LearningProgressRow): LearningProgress {
     return {
       id: r.id,
       orgId: r.orgId,
       employeeId: r.employeeId,
       moduleId: r.moduleId,
       pathId: r.pathId || undefined,
-      status: r.status,
+      status: r.status as LearningProgress["status"],
       quizScore: r.quizScore || undefined,
       quizAttempts: r.quizAttempts || undefined,
       timeSpentMinutes: r.timeSpentMinutes || undefined,
@@ -1307,7 +1318,7 @@ P.deleteCallAttribution = async function(orgId: string, callId: string): Promise
       .where(and(eq(tables.callAttributions.orgId, orgId), eq(tables.callAttributions.callId, callId)));
   }
 
-function mapCampaign(r: any): MarketingCampaign {
+function mapCampaign(r: MarketingCampaignRow): MarketingCampaign {
     return {
       id: r.id,
       orgId: r.orgId,
@@ -1326,7 +1337,7 @@ function mapCampaign(r: any): MarketingCampaign {
     };
   }
 
-function mapAttribution(r: any): CallAttribution {
+function mapAttribution(r: CallAttributionRow): CallAttribution {
     return {
       id: r.id,
       orgId: r.orgId,
@@ -1336,7 +1347,7 @@ function mapAttribution(r: any): CallAttribution {
       medium: r.medium || undefined,
       isNewPatient: r.isNewPatient || undefined,
       referrerName: r.referrerName || undefined,
-      detectionMethod: r.detectionMethod || undefined,
+      detectionMethod: (r.detectionMethod || undefined) as CallAttribution["detectionMethod"],
       confidence: r.confidence || undefined,
       notes: r.notes || undefined,
       attributedBy: r.attributedBy || undefined,
@@ -1464,7 +1475,7 @@ P.deleteOrgData = async function(
       await tx.execute(sql`DELETE FROM live_sessions WHERE org_id = ${orgId}`);
       // 9. Delete calls (cascades: transcripts, sentiment_analyses, call_analyses via FK CASCADE)
       const callsResult = await tx.execute(sql`DELETE FROM calls WHERE org_id = ${orgId}`);
-      const callsDeleted = (callsResult as any).rowCount ?? 0;
+      const callsDeleted = ((callsResult as { rowCount?: number }).rowCount ?? 0);
       // 10. Delete gamification data
       await tx.execute(sql`DELETE FROM employee_badges WHERE org_id = ${orgId}`);
       await tx.execute(sql`DELETE FROM gamification_profiles WHERE org_id = ${orgId}`);
@@ -1474,7 +1485,7 @@ P.deleteOrgData = async function(
       await tx.execute(sql`DELETE FROM learning_modules WHERE org_id = ${orgId}`);
       // 12. Delete employees
       const empResult = await tx.execute(sql`DELETE FROM employees WHERE org_id = ${orgId}`);
-      const employeesDeleted = (empResult as any).rowCount ?? 0;
+      const employeesDeleted = ((empResult as { rowCount?: number }).rowCount ?? 0);
       // 13. Delete reference docs (cascades document_chunks)
       await tx.execute(sql`DELETE FROM reference_documents WHERE org_id = ${orgId}`);
       // 14. Delete feedbacks
@@ -1493,7 +1504,7 @@ P.deleteOrgData = async function(
       await tx.execute(sql`DELETE FROM marketing_campaigns WHERE org_id = ${orgId}`);
       // 21. Delete users (NOT the current user — mark them in memory as deleted)
       const usersResult = await tx.execute(sql`DELETE FROM users WHERE org_id = ${orgId}`);
-      const usersDeleted = (usersResult as any).rowCount ?? 0;
+      const usersDeleted = ((usersResult as { rowCount?: number }).rowCount ?? 0);
       // 22. Delete coaching templates and automation rules
       await tx.execute(sql`DELETE FROM coaching_templates WHERE org_id = ${orgId}`);
       await tx.execute(sql`DELETE FROM automation_rules WHERE org_id = ${orgId}`);
@@ -1554,9 +1565,9 @@ P.getOrgUsageSummary = async function(orgId: string): Promise<{
       `),
     ]);
 
-    const callRow = (callStats.rows as any[])[0] || {};
-    const costRow = (costStats.rows as any[])[0] || {};
-    const empRow = (empStats.rows as any[])[0] || {};
+    const callRow = ((callStats as { rows: Record<string, unknown>[] }).rows?.[0]) || {} as Record<string, unknown>;
+    const costRow = ((costStats as { rows: Record<string, unknown>[] }).rows?.[0]) || {} as Record<string, unknown>;
+    const empRow = ((empStats as { rows: Record<string, unknown>[] }).rows?.[0]) || {} as Record<string, unknown>;
 
     return {
       totalCalls: Number(callRow.total_calls ?? 0),
@@ -1567,7 +1578,7 @@ P.getOrgUsageSummary = async function(orgId: string): Promise<{
     };
   }
 
-function mapProviderTemplate(r: any): any {
+function mapProviderTemplate(r: ProviderTemplateRow): any {
   return {
     id: r.id,
     orgId: r.orgId,
@@ -1588,7 +1599,7 @@ function mapProviderTemplate(r: any): any {
 
 // ==================== BAA Management (HIPAA §164.502(e)) ====================
 
-function mapBaa(r: any): any {
+function mapBaa(r: BaaRow): any {
   return {
     id: r.id,
     orgId: r.orgId,

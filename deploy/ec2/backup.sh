@@ -16,10 +16,20 @@
 set -euo pipefail
 
 APP_DIR="/opt/callanalyzer"
-BACKUP_DIR="/tmp/observatory-backups"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_FILE="observatory_${TIMESTAMP}.dump"
 RETENTION_DAYS=30
+
+# Create a secure temp directory (mode 700) for PHI-containing dump files.
+# Avoids /tmp (world-readable) per HIPAA requirements.
+BACKUP_DIR=$(mktemp -d /tmp/observatory-backup-XXXXXX)
+chmod 700 "$BACKUP_DIR"
+
+# Always clean up the temp directory on exit (success, failure, or signal).
+cleanup() {
+  rm -rf "$BACKUP_DIR"
+}
+trap cleanup EXIT INT TERM
 
 echo "=== Observatory QA Backup — $(date) ==="
 
@@ -34,12 +44,10 @@ if [ -z "${DATABASE_URL:-}" ]; then
     exit 1
 fi
 
-# Create backup directory
-mkdir -p "$BACKUP_DIR"
-
 # --- Step 1: Create backup ---
 echo "--- Creating backup ---"
 pg_dump "$DATABASE_URL" --format=custom --compress=6 --file="$BACKUP_DIR/$BACKUP_FILE"
+chmod 600 "$BACKUP_DIR/$BACKUP_FILE"
 BACKUP_SIZE=$(du -h "$BACKUP_DIR/$BACKUP_FILE" | cut -f1)
 echo "Backup created: $BACKUP_FILE ($BACKUP_SIZE)"
 
@@ -50,7 +58,6 @@ if [ $? -eq 0 ]; then
     echo "Backup verification: PASSED (TOC readable)"
 else
     echo "ERROR: Backup verification FAILED — file may be corrupt"
-    rm -f "$BACKUP_DIR/$BACKUP_FILE"
     exit 1
 fi
 
@@ -81,11 +88,10 @@ else
     echo "WARN: S3_BUCKET not configured — backup stored locally only"
 fi
 
-# --- Step 4: Clean up local backups ---
-echo "--- Cleaning local backups (>${RETENTION_DAYS} days) ---"
-find "$BACKUP_DIR" -name "observatory_*.dump" -mtime +${RETENTION_DAYS} -delete 2>/dev/null || true
+# Note: Local backup files are cleaned up automatically by the EXIT trap.
+# The temp directory is ephemeral — long-term retention depends on S3.
 
 echo ""
 echo "=== Backup complete — $(date) ==="
-echo "  File: $BACKUP_DIR/$BACKUP_FILE"
+echo "  File: $BACKUP_FILE"
 echo "  Size: $BACKUP_SIZE"

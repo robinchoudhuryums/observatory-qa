@@ -82,6 +82,32 @@ import type {
 import * as tables from "./schema";
 import { normalizeAnalysis } from "../storage";
 
+// JSONB field types — typed casts in mappers (replaces `as any` with documented types)
+// These mirror the Zod schemas in shared/schema but are plain TS for the DB layer.
+type AnalysisFeedback = { strengths?: Array<string | { text: string; timestamp?: string }>; suggestions?: Array<string | { text: string; timestamp?: string }> };
+type ManualEdit = { editedBy: string; editedAt: string; reason: string; fieldsChanged: string[]; previousValues: Record<string, unknown> };
+type ConfidenceFactors = { transcriptConfidence: number; wordCount: number; callDurationSeconds: number; transcriptLength: number; aiAnalysisCompleted: boolean; overallScore: number; [key: string]: unknown };
+type SubScores = { compliance?: number; customerExperience?: number; communication?: number; resolution?: number };
+type SpeechMetrics = { talkSpeedWpm?: number; deadAirSeconds?: number; deadAirCount?: number; longestDeadAirSeconds?: number; interruptionCount?: number; fillerWordCount?: number; fillerWords?: Record<string, number>; avgResponseTimeMs?: number; talkListenRatio?: number; speakerATalkPercent?: number; speakerBTalkPercent?: number };
+type SelfReview = { score?: number; notes?: string; reviewedAt?: string; reviewedBy?: string };
+type ScoreDispute = { status: "open" | "under_review" | "accepted" | "rejected"; reason: string; disputedBy: string; disputedAt: string; resolvedBy?: string; resolvedAt?: string; resolution?: string; originalScore?: number; adjustedScore?: number };
+type SuggestedBillingCodes = { cptCodes?: Array<{ code: string; description: string; confidence: number }>; icd10Codes?: Array<{ code: string; description: string; confidence: number }>; cdtCodes?: Array<{ code: string; description: string; confidence: number }> };
+type EhrPushStatus = { success: boolean; ehrRecordId?: string; error?: string; timestamp: string; retriedViaQueue?: boolean; requiresManualRetry?: boolean };
+type SentimentSegment = { text: string; sentiment: "POSITIVE" | "NEUTRAL" | "NEGATIVE"; confidence: number; start: number; end: number };
+type TranscriptWord = { text: string; start: number; end: number; confidence: number; speaker?: string };
+type TranscriptCorrection = { wordIndex: number; original: string; corrected: string; correctedBy: string; correctedAt: string };
+type RequiredPhrase = { severity: "required" | "recommended"; phrase: string; label: string };
+type ScoringWeights = { compliance: number; customerExperience: number; communication: number; resolution: number };
+type CoachingActionItem = { task: string; completed: boolean };
+type EffectivenessSnap = { preCoaching?: { avgScore?: number }; postCoaching?: { avgScore?: number }; [key: string]: unknown };
+
+// Raw SQL execute result — Drizzle returns rows directly or wrapped in { rows: [...] }
+// depending on the driver. This helper normalizes both formats.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function rawRows(result: any): any[] {
+  return Array.isArray(result) ? result : (result?.rows ?? []);
+}
+
 // Row types inferred from Drizzle schema — used to type mapper function parameters
 type OrgRow = typeof tables.organizations.$inferSelect;
 type UserRow = typeof tables.users.$inferSelect;
@@ -143,8 +169,8 @@ async function chunkedInArray<T>(
 // feature methods are attached via prototype in pg-storage-features.ts —
 // TypeScript can't see prototype assignments as satisfying the interface.
 export class PostgresStorage {
-  private db: Database;
-  private blobClient: ObjectStorageClient | null;
+  protected db: Database;
+  protected blobClient: ObjectStorageClient | null;
 
   /**
    * @param db - Drizzle database instance
@@ -284,10 +310,10 @@ export class PostgresStorage {
     if (updates.mfaEnabled !== undefined) setClause.mfaEnabled = updates.mfaEnabled;
     if (updates.mfaSecret !== undefined) setClause.mfaSecret = updates.mfaSecret;
     if (updates.mfaBackupCodes !== undefined) setClause.mfaBackupCodes = updates.mfaBackupCodes;
-    if ((updates as any).subTeam !== undefined) setClause.subTeam = (updates as any).subTeam;
-    if ((updates as any).webauthnCredentials !== undefined) setClause.webauthnCredentials = (updates as any).webauthnCredentials;
-    if ((updates as any).mfaTrustedDevices !== undefined) setClause.mfaTrustedDevices = (updates as any).mfaTrustedDevices;
-    if ((updates as any).mfaEnrollmentDeadline !== undefined) setClause.mfaEnrollmentDeadline = (updates as any).mfaEnrollmentDeadline;
+    if (updates.subTeam !== undefined) setClause.subTeam = updates.subTeam;
+    if (updates.webauthnCredentials !== undefined) setClause.webauthnCredentials = updates.webauthnCredentials;
+    if (updates.mfaTrustedDevices !== undefined) setClause.mfaTrustedDevices = updates.mfaTrustedDevices;
+    if (updates.mfaEnrollmentDeadline !== undefined) setClause.mfaEnrollmentDeadline = updates.mfaEnrollmentDeadline;
 
     if (Object.keys(setClause).length === 0) return this.getUser(id);
 
@@ -394,11 +420,11 @@ export class PostgresStorage {
       .where(eq(tables.calls.orgId, orgId))
       .groupBy(tables.calls.status);
 
-    const result = { pending: 0, processing: 0, completed: 0, failed: 0 };
+    const result = { pending: 0, processing: 0, completed: 0, failed: 0 } as Record<string, number>;
     for (const row of rows) {
-      if (row.status in result) (result as any)[row.status] = row.count;
+      if (row.status in result) result[row.status] = row.count;
     }
-    return result;
+    return result as { pending: number; processing: number; completed: number; failed: number };
   }
 
   // --- Call operations ---
@@ -538,11 +564,12 @@ export class PostgresStorage {
         .from(tables.calls)
         .innerJoin(tables.sentimentAnalyses, eq(tables.calls.id, tables.sentimentAnalyses.callId))
         .where(and(...conditions))
-        .orderBy(desc(tables.calls.uploadedAt));
+        .orderBy(desc(tables.calls.uploadedAt))
+        .$dynamic();
 
       if (filters.limit && filters.limit > 0) {
-        query = query.limit(filters.limit) as any;
-        if (filters.offset) query = query.offset(filters.offset) as any;
+        query = query.limit(filters.limit);
+        if (filters.offset) query = query.offset(filters.offset);
       }
 
       const joinRows = await query;
@@ -557,11 +584,12 @@ export class PostgresStorage {
         .select()
         .from(tables.calls)
         .where(and(...conditions))
-        .orderBy(desc(tables.calls.uploadedAt));
+        .orderBy(desc(tables.calls.uploadedAt))
+        .$dynamic();
 
       if (filters.limit && filters.limit > 0) {
-        query = query.limit(filters.limit) as any;
-        if (filters.offset) query = query.offset(filters.offset) as any;
+        query = query.limit(filters.limit);
+        if (filters.offset) query = query.offset(filters.offset);
       }
 
       callRows = await query;
@@ -756,8 +784,8 @@ export class PostgresStorage {
         text: typeof transcript.text === "string" ? encryptField(transcript.text) : transcript.text,
         confidence: transcript.confidence,
         words: transcript.words || null,
-        corrections: (transcript as any).corrections || null,
-        correctedText: (transcript as any).correctedText || null,
+        corrections: transcript.corrections || null,
+        correctedText: transcript.correctedText || null,
       })
       .returning();
     return this.mapTranscript(row);
@@ -766,16 +794,16 @@ export class PostgresStorage {
   async updateTranscript(
     orgId: string,
     callId: string,
-    updates: { text?: string; corrections?: any[]; correctedText?: string },
+    updates: { text?: string; corrections?: TranscriptCorrection[]; correctedText?: string },
   ): Promise<Transcript | undefined> {
-    const setClause: Record<string, unknown> = {};
+    const setClause: Partial<typeof tables.transcripts.$inferInsert> = {};
     if (updates.text !== undefined) setClause.text = encryptField(updates.text);
     if (updates.corrections !== undefined) setClause.corrections = updates.corrections;
     if (updates.correctedText !== undefined) setClause.correctedText = updates.correctedText;
     if (Object.keys(setClause).length === 0) return this.getTranscript(orgId, callId);
     const rows = await this.db
       .update(tables.transcripts)
-      .set(setClause as any)
+      .set(setClause)
       .where(and(eq(tables.transcripts.callId, callId), eq(tables.transcripts.orgId, orgId)))
       .returning();
     return rows[0] ? this.mapTranscript(rows[0]) : undefined;
@@ -842,17 +870,17 @@ export class PostgresStorage {
         subScores: analysis.subScores || null,
         detectedAgentName: analysis.detectedAgentName,
         clinicalNote: analysis.clinicalNote || null,
-        speechMetrics: (analysis as any).speechMetrics || null,
-        selfReview: (analysis as any).selfReview || null,
-        scoreDispute: (analysis as any).scoreDispute || null,
-        patientSummary: (analysis as any).patientSummary || null,
-        referralLetter: (analysis as any).referralLetter || null,
-        suggestedBillingCodes: (analysis as any).suggestedBillingCodes || null,
-        scoreRationale: (analysis as any).scoreRationale || null,
-        promptVersionId: (analysis as any).promptVersionId || null,
-        speakerRoleMap: (analysis as any).speakerRoleMap || null,
-        detectedLanguage: (analysis as any).detectedLanguage || null,
-        ehrPushStatus: (analysis as any).ehrPushStatus || null,
+        speechMetrics: analysis.speechMetrics || null,
+        selfReview: analysis.selfReview || null,
+        scoreDispute: analysis.scoreDispute || null,
+        patientSummary: analysis.patientSummary || null,
+        referralLetter: analysis.referralLetter || null,
+        suggestedBillingCodes: analysis.suggestedBillingCodes || null,
+        scoreRationale: analysis.scoreRationale || null,
+        promptVersionId: analysis.promptVersionId || null,
+        speakerRoleMap: analysis.speakerRoleMap || null,
+        detectedLanguage: analysis.detectedLanguage || null,
+        ehrPushStatus: analysis.ehrPushStatus || null,
       })
       .returning();
     return this.mapAnalysis(row);
@@ -882,17 +910,17 @@ export class PostgresStorage {
     if (updates.responseTime !== undefined) setClause.responseTime = updates.responseTime;
     if (updates.lemurResponse !== undefined) setClause.lemurResponse = updates.lemurResponse;
     if (updates.callPartyType !== undefined) setClause.callPartyType = updates.callPartyType;
-    if ((updates as any).speechMetrics !== undefined) setClause.speechMetrics = (updates as any).speechMetrics;
-    if ((updates as any).selfReview !== undefined) setClause.selfReview = (updates as any).selfReview;
-    if ((updates as any).scoreDispute !== undefined) setClause.scoreDispute = (updates as any).scoreDispute;
-    if ((updates as any).patientSummary !== undefined) setClause.patientSummary = (updates as any).patientSummary;
-    if ((updates as any).referralLetter !== undefined) setClause.referralLetter = (updates as any).referralLetter;
-    if ((updates as any).suggestedBillingCodes !== undefined) setClause.suggestedBillingCodes = (updates as any).suggestedBillingCodes;
-    if ((updates as any).scoreRationale !== undefined) setClause.scoreRationale = (updates as any).scoreRationale;
-    if ((updates as any).promptVersionId !== undefined) setClause.promptVersionId = (updates as any).promptVersionId;
-    if ((updates as any).speakerRoleMap !== undefined) setClause.speakerRoleMap = (updates as any).speakerRoleMap;
-    if ((updates as any).detectedLanguage !== undefined) setClause.detectedLanguage = (updates as any).detectedLanguage;
-    if ((updates as any).ehrPushStatus !== undefined) setClause.ehrPushStatus = (updates as any).ehrPushStatus;
+    if (updates.speechMetrics !== undefined) setClause.speechMetrics = updates.speechMetrics;
+    if (updates.selfReview !== undefined) setClause.selfReview = updates.selfReview;
+    if (updates.scoreDispute !== undefined) setClause.scoreDispute = updates.scoreDispute;
+    if (updates.patientSummary !== undefined) setClause.patientSummary = updates.patientSummary;
+    if (updates.referralLetter !== undefined) setClause.referralLetter = updates.referralLetter;
+    if (updates.suggestedBillingCodes !== undefined) setClause.suggestedBillingCodes = updates.suggestedBillingCodes;
+    if (updates.scoreRationale !== undefined) setClause.scoreRationale = updates.scoreRationale;
+    if (updates.promptVersionId !== undefined) setClause.promptVersionId = updates.promptVersionId;
+    if (updates.speakerRoleMap !== undefined) setClause.speakerRoleMap = updates.speakerRoleMap;
+    if (updates.detectedLanguage !== undefined) setClause.detectedLanguage = updates.detectedLanguage;
+    if (updates.ehrPushStatus !== undefined) setClause.ehrPushStatus = updates.ehrPushStatus;
 
     if (Object.keys(setClause).length === 0) return this.getCallAnalysis(orgId, callId);
 
@@ -918,12 +946,12 @@ export class PostgresStorage {
       LEFT JOIN sentiment_analyses s ON s.call_id = c.id
       LEFT JOIN call_analyses a ON a.call_id = c.id
       WHERE c.org_id = ${orgId}
-    `)) as any;
+    `)) as unknown as { call_count: number; avg_sentiment: number; avg_performance: number }[];
 
     return {
       totalCalls: row?.call_count || 0,
-      avgSentiment: Math.round((parseFloat(row?.avg_sentiment) || 0) * 100) / 100,
-      avgPerformanceScore: Math.round((parseFloat(row?.avg_performance) || 0) * 100) / 100,
+      avgSentiment: Math.round((Number(row?.avg_sentiment) || 0) * 100) / 100,
+      avgPerformanceScore: Math.round((Number(row?.avg_performance) || 0) * 100) / 100,
       avgTranscriptionTime: 2.3,
     };
   }
@@ -1035,7 +1063,7 @@ export class PostgresStorage {
       totalEncounters: totalRow?.count || 0,
       completed: completedRow?.count || 0,
       notesWithData: noteRows.map((r) => ({
-        clinicalNote: r.clinicalNote as any,
+        clinicalNote: r.clinicalNote as CallAnalysis["clinicalNote"],
         uploadedAt: r.uploadedAt?.toISOString() || null,
       })),
     };
@@ -1381,19 +1409,19 @@ export class PostgresStorage {
     if (updates.dueDate !== undefined) setClause.dueDate = updates.dueDate ? new Date(updates.dueDate) : null;
     if (updates.completedAt !== undefined)
       setClause.completedAt = updates.completedAt ? new Date(updates.completedAt) : null;
-    if ((updates as any).selfAssessmentScore !== undefined)
-      setClause.selfAssessmentScore = (updates as any).selfAssessmentScore;
-    if ((updates as any).selfAssessmentNotes !== undefined)
-      setClause.selfAssessmentNotes = (updates as any).selfAssessmentNotes;
-    if ((updates as any).selfAssessedAt !== undefined)
-      setClause.selfAssessedAt = (updates as any).selfAssessedAt ? new Date((updates as any).selfAssessedAt) : null;
-    if ((updates as any).effectivenessSnapshot !== undefined)
-      setClause.effectivenessSnapshot = (updates as any).effectivenessSnapshot;
-    if ((updates as any).effectivenessCalculatedAt !== undefined)
-      setClause.effectivenessCalculatedAt = (updates as any).effectivenessCalculatedAt
-        ? new Date((updates as any).effectivenessCalculatedAt)
+    if (updates.selfAssessmentScore !== undefined)
+      setClause.selfAssessmentScore = updates.selfAssessmentScore;
+    if (updates.selfAssessmentNotes !== undefined)
+      setClause.selfAssessmentNotes = updates.selfAssessmentNotes;
+    if (updates.selfAssessedAt !== undefined)
+      setClause.selfAssessedAt = updates.selfAssessedAt ? new Date(updates.selfAssessedAt) : null;
+    if (updates.effectivenessSnapshot !== undefined)
+      setClause.effectivenessSnapshot = updates.effectivenessSnapshot;
+    if (updates.effectivenessCalculatedAt !== undefined)
+      setClause.effectivenessCalculatedAt = updates.effectivenessCalculatedAt
+        ? new Date(updates.effectivenessCalculatedAt)
         : null;
-    if ((updates as any).templateId !== undefined) setClause.templateId = (updates as any).templateId;
+    if (updates.templateId !== undefined) setClause.templateId = updates.templateId;
 
     const [row] = await this.db
       .update(tables.coachingSessions)
@@ -1425,7 +1453,7 @@ export class PostgresStorage {
     const overdue = mapped.filter(
       (s) => s.dueDate && new Date(s.dueDate).getTime() < now && s.status !== "completed" && s.status !== "dismissed",
     );
-    const automated = mapped.filter((s) => (s as any).automatedTrigger);
+    const automated = mapped.filter((s) => s.automatedTrigger);
 
     const avgClose =
       completed.length > 0
@@ -1450,7 +1478,7 @@ export class PostgresStorage {
     // Improvement by category: sessions with effectiveness snapshots
     const improvementByCategory: Record<string, { before: number; after: number; delta: number; count: number }> = {};
     for (const s of mapped) {
-      const snap = (s as any).effectivenessSnapshot as any;
+      const snap = s.effectivenessSnapshot as EffectivenessSnap | null;
       if (!snap?.preCoaching?.avgScore || !snap?.postCoaching?.avgScore) continue;
       const cat = s.category;
       if (!improvementByCategory[cat]) improvementByCategory[cat] = { before: 0, after: 0, delta: 0, count: 0 };
@@ -1491,34 +1519,35 @@ export class PostgresStorage {
     template: import("@shared/schema").InsertCoachingTemplate,
   ): Promise<import("@shared/schema").CoachingTemplate> {
     const id = randomUUID();
-    const [row] = (await this.db.execute(sql`
+    const result = await this.db.execute(sql`
       INSERT INTO coaching_templates (id, org_id, name, category, description, action_plan, tags, created_by, usage_count)
       VALUES (${id}, ${orgId}, ${template.name}, ${template.category || "general"}, ${template.description || null},
               ${JSON.stringify(template.actionPlan || [])}, ${JSON.stringify(template.tags || [])},
               ${template.createdBy}, 0)
       RETURNING *
-    `)) as any;
-    return this.mapCoachingTemplate(row.rows ? row.rows[0] : row);
+    `);
+    const rows = rawRows(result);
+    return this.mapCoachingTemplate(rows[0]);
   }
 
   async getCoachingTemplate(orgId: string, id: string): Promise<import("@shared/schema").CoachingTemplate | undefined> {
-    const result = (await this.db.execute(
+    const result = await this.db.execute(
       sql`SELECT * FROM coaching_templates WHERE id = ${id} AND org_id = ${orgId} LIMIT 1`,
-    )) as any;
-    const rows = result.rows || result;
+    );
+    const rows = rawRows(result);
     return rows[0] ? this.mapCoachingTemplate(rows[0]) : undefined;
   }
 
   async listCoachingTemplates(orgId: string, category?: string): Promise<import("@shared/schema").CoachingTemplate[]> {
     const result = category
-      ? ((await this.db.execute(
+      ? await this.db.execute(
           sql`SELECT * FROM coaching_templates WHERE org_id = ${orgId} AND category = ${category} ORDER BY usage_count DESC, created_at DESC`,
-        )) as any)
-      : ((await this.db.execute(
+        )
+      : await this.db.execute(
           sql`SELECT * FROM coaching_templates WHERE org_id = ${orgId} ORDER BY usage_count DESC, created_at DESC`,
-        )) as any);
-    const rows = result.rows || result;
-    return Array.isArray(rows) ? rows.map((r: any) => this.mapCoachingTemplate(r)) : [];
+        );
+    const rows = rawRows(result);
+    return rows.map((r: Record<string, unknown>) => this.mapCoachingTemplate(r));
   }
 
   async updateCoachingTemplate(
@@ -1526,7 +1555,7 @@ export class PostgresStorage {
     id: string,
     updates: Partial<import("@shared/schema").CoachingTemplate>,
   ): Promise<import("@shared/schema").CoachingTemplate | undefined> {
-    const result = (await this.db.execute(sql`
+    const result = await this.db.execute(sql`
       UPDATE coaching_templates SET
         name = COALESCE(${updates.name ?? null}, name),
         category = COALESCE(${updates.category ?? null}, category),
@@ -1536,8 +1565,8 @@ export class PostgresStorage {
         updated_at = NOW()
       WHERE id = ${id} AND org_id = ${orgId}
       RETURNING *
-    `)) as any;
-    const rows = result.rows || result;
+    `);
+    const rows = rawRows(result);
     return rows[0] ? this.mapCoachingTemplate(rows[0]) : undefined;
   }
 
@@ -1573,30 +1602,30 @@ export class PostgresStorage {
     rule: import("@shared/schema").InsertAutomationRule,
   ): Promise<import("@shared/schema").AutomationRule> {
     const id = randomUUID();
-    const result = (await this.db.execute(sql`
+    const result = await this.db.execute(sql`
       INSERT INTO automation_rules (id, org_id, name, is_enabled, trigger_type, conditions, actions, created_by, trigger_count)
       VALUES (${id}, ${orgId}, ${rule.name}, ${rule.isEnabled !== false}, ${rule.triggerType},
               ${JSON.stringify(rule.conditions)}, ${JSON.stringify(rule.actions)}, ${rule.createdBy}, 0)
       RETURNING *
-    `)) as any;
-    const rows = result.rows || result;
-    return this.mapAutomationRule(rows[0] || rows);
+    `);
+    const rows = rawRows(result);
+    return this.mapAutomationRule(rows[0]);
   }
 
   async getAutomationRule(orgId: string, id: string): Promise<import("@shared/schema").AutomationRule | undefined> {
-    const result = (await this.db.execute(
+    const result = await this.db.execute(
       sql`SELECT * FROM automation_rules WHERE id = ${id} AND org_id = ${orgId} LIMIT 1`,
-    )) as any;
-    const rows = result.rows || result;
+    );
+    const rows = rawRows(result);
     return rows[0] ? this.mapAutomationRule(rows[0]) : undefined;
   }
 
   async listAutomationRules(orgId: string): Promise<import("@shared/schema").AutomationRule[]> {
-    const result = (await this.db.execute(
+    const result = await this.db.execute(
       sql`SELECT * FROM automation_rules WHERE org_id = ${orgId} ORDER BY created_at DESC`,
-    )) as any;
-    const rows = result.rows || result;
-    return Array.isArray(rows) ? rows.map((r: any) => this.mapAutomationRule(r)) : [];
+    );
+    const rows = rawRows(result);
+    return rows.map((r: Record<string, unknown>) => this.mapAutomationRule(r));
   }
 
   async updateAutomationRule(
@@ -1605,19 +1634,19 @@ export class PostgresStorage {
     updates: Partial<import("@shared/schema").AutomationRule>,
   ): Promise<import("@shared/schema").AutomationRule | undefined> {
     // Raw SQL handles JSONB properly via COALESCE (null = keep existing value)
-    const result = (await this.db.execute(sql`
+    const result = await this.db.execute(sql`
       UPDATE automation_rules SET
         is_enabled = COALESCE(${updates.isEnabled ?? null}, is_enabled),
-        name = COALESCE(${(updates as any).name ?? null}, name),
+        name = COALESCE(${updates.name ?? null}, name),
         conditions = COALESCE(${updates.conditions ? JSON.stringify(updates.conditions) : null}::jsonb, conditions),
         actions = COALESCE(${updates.actions ? JSON.stringify(updates.actions) : null}::jsonb, actions),
-        last_triggered_at = COALESCE(${(updates as any).lastTriggeredAt ? new Date((updates as any).lastTriggeredAt) : null}, last_triggered_at),
-        trigger_count = COALESCE(${(updates as any).triggerCount ?? null}, trigger_count),
+        last_triggered_at = COALESCE(${updates.lastTriggeredAt ? new Date(updates.lastTriggeredAt) : null}, last_triggered_at),
+        trigger_count = COALESCE(${updates.triggerCount ?? null}, trigger_count),
         updated_at = NOW()
       WHERE id = ${id} AND org_id = ${orgId}
       RETURNING *
-    `)) as any;
-    const rows = result.rows || result;
+    `);
+    const rows = rawRows(result);
     return rows[0] ? this.mapAutomationRule(rows[0]) : undefined;
   }
 
@@ -1871,8 +1900,8 @@ export class PostgresStorage {
       id: row.id,
       name: row.name,
       slug: row.slug,
-      status: row.status,
-      settings: row.settings as any,
+      status: row.status as Organization["status"],
+      settings: row.settings as Organization["settings"],
       createdAt: toISOString(row.createdAt),
     };
   }
@@ -1889,8 +1918,8 @@ export class PostgresStorage {
       mfaSecret: row.mfaSecret ?? undefined,
       mfaBackupCodes: row.mfaBackupCodes ?? undefined,
       subTeam: row.subTeam ?? undefined,
-      webauthnCredentials: row.webauthnCredentials ?? undefined,
-      mfaTrustedDevices: row.mfaTrustedDevices ?? undefined,
+      webauthnCredentials: (row.webauthnCredentials ?? undefined) as User["webauthnCredentials"],
+      mfaTrustedDevices: (row.mfaTrustedDevices ?? undefined) as User["mfaTrustedDevices"],
       mfaEnrollmentDeadline: row.mfaEnrollmentDeadline ?? undefined,
       createdAt: toISOString(row.createdAt),
     };
@@ -1901,11 +1930,11 @@ export class PostgresStorage {
       id: row.id,
       orgId: row.orgId,
       name: row.name,
-      email: row.email,
-      role: row.role,
-      initials: row.initials,
-      status: row.status,
-      subTeam: row.subTeam,
+      email: row.email ?? undefined,
+      role: row.role ?? undefined,
+      initials: row.initials ?? undefined,
+      status: (row.status ?? undefined) as Employee["status"],
+      subTeam: row.subTeam ?? undefined,
       createdAt: toISOString(row.createdAt),
     };
   }
@@ -1914,28 +1943,28 @@ export class PostgresStorage {
     return {
       id: row.id,
       orgId: row.orgId,
-      employeeId: row.employeeId,
-      fileName: row.fileName,
-      filePath: row.filePath,
-      status: row.status,
-      duration: row.duration,
-      assemblyAiId: row.assemblyAiId,
-      callCategory: row.callCategory,
+      employeeId: row.employeeId ?? undefined,
+      fileName: row.fileName ?? undefined,
+      filePath: row.filePath ?? undefined,
+      status: row.status as Call["status"],
+      duration: row.duration ?? undefined,
+      assemblyAiId: row.assemblyAiId ?? undefined,
+      callCategory: row.callCategory ?? undefined,
       tags: row.tags as string[],
       uploadedAt: toISOString(row.uploadedAt),
-      channel: row.channel || "voice",
-      emailSubject: row.emailSubject,
-      emailFrom: row.emailFrom,
-      emailTo: row.emailTo,
-      emailCc: row.emailCc,
-      emailBody: row.emailBody,
-      emailBodyHtml: row.emailBodyHtml,
-      emailMessageId: row.emailMessageId,
-      emailThreadId: row.emailThreadId,
+      channel: (row.channel || "voice") as Call["channel"],
+      emailSubject: row.emailSubject ?? undefined,
+      emailFrom: row.emailFrom ?? undefined,
+      emailTo: row.emailTo ?? undefined,
+      emailCc: row.emailCc ?? undefined,
+      emailBody: row.emailBody ?? undefined,
+      emailBodyHtml: row.emailBodyHtml ?? undefined,
+      emailMessageId: row.emailMessageId ?? undefined,
+      emailThreadId: row.emailThreadId ?? undefined,
       emailReceivedAt: toISOString(row.emailReceivedAt),
-      chatPlatform: row.chatPlatform,
-      messageCount: row.messageCount,
-      fileHash: row.fileHash,
+      chatPlatform: row.chatPlatform ?? undefined,
+      messageCount: row.messageCount ?? undefined,
+      fileHash: row.fileHash ?? undefined,
     };
   }
 
@@ -1953,11 +1982,11 @@ export class PostgresStorage {
       id: row.id,
       orgId: row.orgId,
       callId: row.callId,
-      text,
-      confidence: row.confidence,
-      words: row.words as any,
-      corrections: row.corrections as any,
-      correctedText: row.correctedText,
+      text: text ?? undefined,
+      confidence: row.confidence ?? undefined,
+      words: row.words as TranscriptWord[] | undefined,
+      corrections: row.corrections as TranscriptCorrection[] | undefined,
+      correctedText: row.correctedText ?? undefined,
       createdAt: toISOString(row.createdAt),
     };
   }
@@ -1967,9 +1996,9 @@ export class PostgresStorage {
       id: row.id,
       orgId: row.orgId,
       callId: row.callId,
-      overallSentiment: row.overallSentiment,
-      overallScore: row.overallScore,
-      segments: row.segments as any,
+      overallSentiment: (row.overallSentiment ?? undefined) as SentimentAnalysis["overallSentiment"],
+      overallScore: row.overallScore ?? undefined,
+      segments: row.segments as SentimentSegment[] | undefined,
       createdAt: toISOString(row.createdAt),
     };
   }
@@ -1979,13 +2008,13 @@ export class PostgresStorage {
       id: row.id,
       orgId: row.orgId,
       callId: row.callId,
-      performanceScore: row.performanceScore,
-      talkTimeRatio: row.talkTimeRatio,
-      responseTime: row.responseTime,
+      performanceScore: row.performanceScore ?? undefined,
+      talkTimeRatio: row.talkTimeRatio ?? undefined,
+      responseTime: row.responseTime ?? undefined,
       keywords: row.keywords as string[],
       topics: row.topics as string[],
       summary: (() => {
-        if (typeof row.summary !== "string") return row.summary;
+        if (typeof row.summary !== "string") return row.summary ?? undefined;
         try {
           return decryptField(row.summary);
         } catch (err) {
@@ -1994,28 +2023,27 @@ export class PostgresStorage {
         }
       })(),
       actionItems: row.actionItems as string[],
-      feedback: row.feedback as any,
+      feedback: row.feedback as AnalysisFeedback | undefined,
       lemurResponse: row.lemurResponse,
-      callPartyType: row.callPartyType,
+      callPartyType: row.callPartyType ?? undefined,
       flags: row.flags as string[],
-      manualEdits: row.manualEdits as any,
-      confidenceScore: row.confidenceScore,
-      confidenceFactors: row.confidenceFactors as any,
-      subScores: row.subScores as any,
-      detectedAgentName: row.detectedAgentName,
-      clinicalNote: row.clinicalNote as any,
-      // Fields that exist in DB but were previously unmapped (data loss fix)
-      speechMetrics: row.speechMetrics as any,
-      selfReview: row.selfReview as any,
-      scoreDispute: row.scoreDispute as any,
-      patientSummary: row.patientSummary,
-      referralLetter: row.referralLetter,
-      suggestedBillingCodes: row.suggestedBillingCodes as any,
-      scoreRationale: row.scoreRationale as any,
-      promptVersionId: row.promptVersionId,
-      speakerRoleMap: row.speakerRoleMap as any,
-      detectedLanguage: row.detectedLanguage,
-      ehrPushStatus: row.ehrPushStatus as any,
+      manualEdits: row.manualEdits as ManualEdit[] | undefined,
+      confidenceScore: row.confidenceScore ?? undefined,
+      confidenceFactors: row.confidenceFactors as ConfidenceFactors | undefined,
+      subScores: row.subScores as SubScores | undefined,
+      detectedAgentName: row.detectedAgentName ?? undefined,
+      clinicalNote: row.clinicalNote as CallAnalysis["clinicalNote"],
+      speechMetrics: row.speechMetrics as SpeechMetrics | undefined,
+      selfReview: row.selfReview as SelfReview | undefined,
+      scoreDispute: row.scoreDispute as ScoreDispute | undefined,
+      patientSummary: row.patientSummary ?? undefined,
+      referralLetter: row.referralLetter ?? undefined,
+      suggestedBillingCodes: row.suggestedBillingCodes as SuggestedBillingCodes | undefined,
+      scoreRationale: row.scoreRationale as Record<string, string[]> | undefined,
+      promptVersionId: row.promptVersionId ?? undefined,
+      speakerRoleMap: row.speakerRoleMap as Record<string, string> | undefined,
+      detectedLanguage: row.detectedLanguage ?? undefined,
+      ehrPushStatus: row.ehrPushStatus as EhrPushStatus | undefined,
       createdAt: toISOString(row.createdAt),
     };
   }
@@ -2026,10 +2054,10 @@ export class PostgresStorage {
       orgId: row.orgId,
       name: row.name,
       email: row.email,
-      reason: row.reason,
-      requestedRole: row.requestedRole,
-      status: row.status,
-      reviewedBy: row.reviewedBy,
+      reason: row.reason ?? undefined,
+      requestedRole: row.requestedRole as AccessRequest["requestedRole"],
+      status: row.status as AccessRequest["status"],
+      reviewedBy: row.reviewedBy ?? undefined,
       reviewedAt: toISOString(row.reviewedAt),
       createdAt: toISOString(row.createdAt),
     };
@@ -2040,15 +2068,15 @@ export class PostgresStorage {
       id: row.id,
       orgId: row.orgId,
       callCategory: row.callCategory,
-      name: row.name,
+      name: row.name ?? undefined,
       evaluationCriteria: row.evaluationCriteria,
-      requiredPhrases: row.requiredPhrases as any,
-      scoringWeights: row.scoringWeights as any,
-      additionalInstructions: row.additionalInstructions,
+      requiredPhrases: row.requiredPhrases as RequiredPhrase[] | undefined,
+      scoringWeights: row.scoringWeights as ScoringWeights | undefined,
+      additionalInstructions: row.additionalInstructions ?? undefined,
       isActive: row.isActive,
       isDefault: row.isDefault ?? false,
       updatedAt: toISOString(row.updatedAt),
-      updatedBy: row.updatedBy,
+      updatedBy: row.updatedBy ?? undefined,
     };
   }
 
@@ -2057,13 +2085,13 @@ export class PostgresStorage {
       id: row.id,
       orgId: row.orgId,
       employeeId: row.employeeId,
-      callId: row.callId,
-      assignedBy: row.assignedBy,
+      callId: row.callId ?? undefined,
+      assignedBy: row.assignedBy ?? undefined,
       category: row.category,
       title: row.title,
-      notes: row.notes,
-      actionPlan: row.actionPlan as any,
-      status: row.status as any,
+      notes: row.notes ?? undefined,
+      actionPlan: row.actionPlan as CoachingActionItem[] | undefined,
+      status: row.status as CoachingSession["status"],
       dueDate: toISOString(row.dueDate),
       createdAt: toISOString(row.createdAt),
       completedAt: toISOString(row.completedAt),
@@ -2086,8 +2114,8 @@ export class PostgresStorage {
       keyHash: row.keyHash,
       keyPrefix: row.keyPrefix,
       permissions: row.permissions as string[],
-      createdBy: row.createdBy,
-      status: row.status,
+      createdBy: row.createdBy ?? undefined,
+      status: row.status as ApiKey["status"],
       expiresAt: toISOString(row.expiresAt),
       lastUsedAt: toISOString(row.lastUsedAt),
       createdAt: toISOString(row.createdAt),
@@ -2199,14 +2227,14 @@ export class PostgresStorage {
     return {
       id: row.id,
       orgId: row.orgId,
-      planTier: row.planTier,
-      status: row.status,
+      planTier: row.planTier as Subscription["planTier"],
+      status: row.status as Subscription["status"],
       stripeCustomerId: row.stripeCustomerId || undefined,
       stripeSubscriptionId: row.stripeSubscriptionId || undefined,
       stripePriceId: row.stripePriceId || undefined,
       stripeSeatsItemId: row.stripeSeatsItemId || undefined,
       stripeOverageItemId: row.stripeOverageItemId || undefined,
-      billingInterval: row.billingInterval,
+      billingInterval: row.billingInterval as Subscription["billingInterval"],
       currentPeriodStart: toISOString(row.currentPeriodStart),
       currentPeriodEnd: toISOString(row.currentPeriodEnd),
       cancelAtPeriodEnd: row.cancelAtPeriodEnd || false,
@@ -2320,7 +2348,7 @@ export class PostgresStorage {
       id: row.id,
       orgId: row.orgId,
       name: row.name,
-      category: row.category,
+      category: row.category as ReferenceDocument["category"],
       description: row.description || undefined,
       fileName: row.fileName,
       fileSize: row.fileSize,
@@ -2333,9 +2361,9 @@ export class PostgresStorage {
       createdAt: toISOString(row.createdAt),
       version: row.version ?? 1,
       previousVersionId: row.previousVersionId || undefined,
-      indexingStatus: row.indexingStatus || "pending",
+      indexingStatus: (row.indexingStatus || "pending") as ReferenceDocument["indexingStatus"],
       indexingError: row.indexingError || undefined,
-      sourceType: row.sourceType || "upload",
+      sourceType: (row.sourceType || "upload") as ReferenceDocument["sourceType"],
       sourceUrl: row.sourceUrl || undefined,
       retrievalCount: row.retrievalCount ?? 0,
     };
@@ -2346,10 +2374,10 @@ export class PostgresStorage {
       id: row.id,
       orgId: row.orgId,
       email: row.email,
-      role: row.role,
+      role: row.role as Invitation["role"],
       token: row.token,
       invitedBy: row.invitedBy,
-      status: row.status,
+      status: row.status as Invitation["status"],
       expiresAt: toISOString(row.expiresAt),
       acceptedAt: toISOString(row.acceptedAt),
       createdAt: toISOString(row.createdAt),
