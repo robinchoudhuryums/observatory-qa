@@ -1128,4 +1128,12 @@ export class CloudStorage implements IStorage {
       employeeCount: employees.length,
     };
   }
+
+  // --- Transaction support ---
+  // S3-backed storage has no real transaction support.
+  // This wrapper satisfies the IStorage interface; callers should be aware
+  // that partial failures are possible with the S3 backend.
+  async withTransaction<T>(fn: () => Promise<T>): Promise<T> {
+    return fn();
+  }
 }

@@ -143,14 +143,38 @@ export class PostgresStorage {
    * Execute a set of database operations within a single transaction.
    * All operations either commit together or roll back together.
    *
+   * The callback receives no arguments — during the transaction, all
+   * storage methods on this instance automatically use the transaction
+   * handle (this.db is temporarily swapped to the tx handle).
+   *
+   * This matches the IStorage interface so callers can use
+   * `storage.withTransaction(() => { ... })` regardless of backend.
+   *
    * @example
-   * await storage.withTransaction(async (tx) => {
-   *   await tx.insert(tables.calls).values(callData);
-   *   await tx.insert(tables.transcripts).values(transcriptData);
+   * await storage.withTransaction(async () => {
+   *   await storage.createTranscript(orgId, transcript);
+   *   await storage.createCallAnalysis(orgId, analysis);
+   *   // Both commit together or both roll back
    * });
    */
-  async withTransaction<T>(fn: (tx: Database) => Promise<T>): Promise<T> {
-    return this.db.transaction(fn);
+  async withTransaction<T>(fn: () => Promise<T>): Promise<T> {
+    const originalDb = this.db;
+    try {
+      return await originalDb.transaction(async (tx) => {
+        // Temporarily replace the DB handle so all methods called within
+        // the callback use the transaction automatically.
+        this.db = tx as unknown as Database;
+        try {
+          return await fn();
+        } finally {
+          this.db = originalDb;
+        }
+      });
+    } catch (err) {
+      // Ensure db is restored even if transaction setup itself fails
+      this.db = originalDb;
+      throw err;
+    }
   }
 
   // --- Organization operations ---

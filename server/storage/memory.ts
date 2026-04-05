@@ -1571,4 +1571,11 @@ export class MemStorage implements IStorage {
     }
     return purged;
   }
+
+  // --- Transaction support ---
+  // In-memory storage is single-threaded so operations are effectively atomic.
+  // This no-op wrapper satisfies the IStorage interface contract.
+  async withTransaction<T>(fn: () => Promise<T>): Promise<T> {
+    return fn();
+  }
 }

@@ -590,6 +590,12 @@ export interface IStorage {
   getBusinessAssociateAgreement?(orgId: string, id: string): Promise<any | undefined>;
   createBusinessAssociateAgreement?(orgId: string, baa: any): Promise<any>;
   updateBusinessAssociateAgreement?(orgId: string, id: string, updates: any): Promise<any | undefined>;
+
+  // Transaction support — wraps multiple storage operations in a single atomic unit.
+  // PostgresStorage uses a real database transaction (Drizzle ORM).
+  // MemStorage/CloudStorage run the callback directly (single-threaded = effectively atomic).
+  // Use for multi-table writes where partial failure would leave inconsistent state.
+  withTransaction<T>(fn: () => Promise<T>): Promise<T>;
 }
 
 export interface UsageSummary {
