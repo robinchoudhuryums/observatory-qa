@@ -12,6 +12,7 @@ import { enqueueReanalysis } from "../services/queue";
 import { requirePlanFeature, enforceUserQuota, syncSeatUsage } from "./billing";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import { parsePagination, paginateArray } from "./helpers";
+import { asyncHandler } from "../middleware/error-handler";
 import { getRedis, invalidateUserSessions } from "../services/redis";
 import { generateScimToken } from "./scim";
 import { parseCertExpiry } from "./sso";
@@ -20,14 +21,10 @@ import { registerAdminSecurityRoutes } from "./admin-security.routes";
 export function registerAdminRoutes(app: Express): void {
   // ==================== PROMPT TEMPLATE ROUTES (admin only) ====================
 
-  app.get("/api/prompt-templates", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
-    try {
-      const templates = await storage.getAllPromptTemplates(req.orgId!);
-      res.json(templates);
-    } catch (error) {
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to fetch prompt templates"));
-    }
-  });
+  app.get("/api/prompt-templates", requireAuth, injectOrgContext, requireRole("admin"), asyncHandler(async (req, res) => {
+    const templates = await storage.getAllPromptTemplates(req.orgId!);
+    res.json(templates);
+  }));
 
   app.post(
     "/api/prompt-templates",
@@ -35,29 +32,25 @@ export function registerAdminRoutes(app: Express): void {
     injectOrgContext,
     requireRole("admin"),
     requirePlanFeature("customPromptTemplates", "Custom prompt templates require a Pro or Enterprise plan"),
-    async (req, res) => {
-      try {
-        const parsed = insertPromptTemplateSchema.safeParse(req.body);
-        if (!parsed.success) {
-          res.status(400).json({ message: "Invalid template data", errors: parsed.error.flatten() });
-          return;
-        }
-        const template = await storage.createPromptTemplate(req.orgId!, {
-          ...parsed.data,
-          updatedBy: req.user?.username,
-        });
-        logPhiAccess({
-          ...auditContext(req),
-          event: "prompt_template_created",
-          resourceType: "prompt_template",
-          resourceId: template.id,
-          detail: `Category: ${parsed.data.callCategory || "default"}, Created by: ${req.user?.username}`,
-        });
-        res.status(201).json(template);
-      } catch (error) {
-        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to create prompt template"));
+    asyncHandler(async (req, res) => {
+      const parsed = insertPromptTemplateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ message: "Invalid template data", errors: parsed.error.flatten() });
+        return;
       }
-    },
+      const template = await storage.createPromptTemplate(req.orgId!, {
+        ...parsed.data,
+        updatedBy: req.user?.username,
+      });
+      logPhiAccess({
+        ...auditContext(req),
+        event: "prompt_template_created",
+        resourceType: "prompt_template",
+        resourceId: template.id,
+        detail: `Category: ${parsed.data.callCategory || "default"}, Created by: ${req.user?.username}`,
+      });
+      res.status(201).json(template);
+    }),
   );
 
   app.patch(
@@ -66,51 +59,43 @@ export function registerAdminRoutes(app: Express): void {
     injectOrgContext,
     requireRole("admin"),
     requirePlanFeature("customPromptTemplates", "Custom prompt templates require a Pro or Enterprise plan"),
-    async (req, res) => {
-      try {
-        // Validate the update: allow only known template fields
-        const { updatedBy: _ignore, id: _ignoreId, ...bodyWithoutMeta } = req.body;
-        const templateUpdateParsed = insertPromptTemplateSchema.partial().safeParse(bodyWithoutMeta);
-        if (!templateUpdateParsed.success) {
-          res.status(400).json({ message: "Invalid template data", errors: templateUpdateParsed.error.flatten() });
-          return;
-        }
-        const updated = await storage.updatePromptTemplate(req.orgId!, req.params.id, {
-          ...templateUpdateParsed.data,
-          updatedBy: req.user?.username,
-        });
-        if (!updated) {
-          res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Template not found"));
-          return;
-        }
-        logPhiAccess({
-          ...auditContext(req),
-          event: "prompt_template_updated",
-          resourceType: "prompt_template",
-          resourceId: req.params.id,
-          detail: `Fields changed: ${Object.keys(templateUpdateParsed.data).join(", ")}, Updated by: ${req.user?.username}`,
-        });
-        res.json(updated);
-      } catch (error) {
-        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update prompt template"));
+    asyncHandler(async (req, res) => {
+      // Validate the update: allow only known template fields
+      const { updatedBy: _ignore, id: _ignoreId, ...bodyWithoutMeta } = req.body;
+      const templateUpdateParsed = insertPromptTemplateSchema.partial().safeParse(bodyWithoutMeta);
+      if (!templateUpdateParsed.success) {
+        res.status(400).json({ message: "Invalid template data", errors: templateUpdateParsed.error.flatten() });
+        return;
       }
-    },
-  );
-
-  app.delete("/api/prompt-templates/:id", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
-    try {
+      const updated = await storage.updatePromptTemplate(req.orgId!, req.params.id, {
+        ...templateUpdateParsed.data,
+        updatedBy: req.user?.username,
+      });
+      if (!updated) {
+        res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Template not found"));
+        return;
+      }
       logPhiAccess({
         ...auditContext(req),
-        event: "prompt_template_deleted",
+        event: "prompt_template_updated",
         resourceType: "prompt_template",
         resourceId: req.params.id,
+        detail: `Fields changed: ${Object.keys(templateUpdateParsed.data).join(", ")}, Updated by: ${req.user?.username}`,
       });
-      await storage.deletePromptTemplate(req.orgId!, req.params.id);
-      res.json({ message: "Template deleted" });
-    } catch (error) {
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to delete template"));
-    }
-  });
+      res.json(updated);
+    }),
+  );
+
+  app.delete("/api/prompt-templates/:id", requireAuth, injectOrgContext, requireRole("admin"), asyncHandler(async (req, res) => {
+    logPhiAccess({
+      ...auditContext(req),
+      event: "prompt_template_deleted",
+      resourceType: "prompt_template",
+      resourceId: req.params.id,
+    });
+    await storage.deletePromptTemplate(req.orgId!, req.params.id);
+    res.json({ message: "Template deleted" });
+  }));
 
   // Reset prompt templates to industry defaults — deletes all existing templates
   // and re-seeds from the default template files for the org's industry type.
@@ -119,366 +104,332 @@ export function registerAdminRoutes(app: Express): void {
     requireAuth,
     injectOrgContext,
     requireRole("admin"),
-    async (req, res) => {
-      try {
-        const orgId = req.orgId!;
-        const org = await storage.getOrganization(orgId);
-        const industry = (org?.settings as any)?.industryType || "general";
+    asyncHandler(async (req, res) => {
+      const orgId = req.orgId!;
+      const org = await storage.getOrganization(orgId);
+      const industry = (org?.settings as any)?.industryType || "general";
 
-        // Delete all existing templates for this org
-        const existing = await storage.getAllPromptTemplates(orgId);
-        for (const tmpl of existing) {
-          await storage.deletePromptTemplate(orgId, tmpl.id);
-        }
-
-        // Re-seed from industry defaults (with general fallback)
-        const { readFile } = await import("fs/promises");
-        const { join } = await import("path");
-        const templateDirs = [industry];
-        if (industry !== "general") templateDirs.push("general");
-
-        let seeded = 0;
-        for (const dir of templateDirs) {
-          try {
-            const templatesPath = join(process.cwd(), "data", dir, "default-prompt-templates.json");
-            const rawTemplates = await readFile(templatesPath, "utf-8");
-            const templates = JSON.parse(rawTemplates) as Array<{
-              callCategory: string;
-              name: string;
-              evaluationCriteria: string;
-              requiredPhrases?: unknown;
-              scoringWeights?: unknown;
-              additionalInstructions?: string;
-            }>;
-            for (const tmpl of templates) {
-              await storage.createPromptTemplate(orgId, {
-                orgId,
-                callCategory: tmpl.callCategory,
-                name: tmpl.name,
-                evaluationCriteria: tmpl.evaluationCriteria,
-                requiredPhrases: tmpl.requiredPhrases as any,
-                scoringWeights: tmpl.scoringWeights as any,
-                additionalInstructions: tmpl.additionalInstructions || undefined,
-                isActive: true,
-                isDefault: true,
-              });
-            }
-            seeded = templates.length;
-            break;
-          } catch {
-            if (dir === industry && templateDirs.length > 1) continue;
-          }
-        }
-
-        logPhiAccess({
-          ...auditContext(req),
-          event: "prompt_templates_reset_to_defaults",
-          resourceType: "prompt_template",
-          detail: `Deleted ${existing.length} templates, seeded ${seeded} defaults (industry: ${industry})`,
-        });
-        const newTemplates = await storage.getAllPromptTemplates(orgId);
-        res.json({ message: "Templates reset to defaults", count: seeded, templates: newTemplates });
-      } catch (error) {
-        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to reset templates"));
+      // Delete all existing templates for this org
+      const existing = await storage.getAllPromptTemplates(orgId);
+      for (const tmpl of existing) {
+        await storage.deletePromptTemplate(orgId, tmpl.id);
       }
-    },
+
+      // Re-seed from industry defaults (with general fallback)
+      const { readFile } = await import("fs/promises");
+      const { join } = await import("path");
+      const templateDirs = [industry];
+      if (industry !== "general") templateDirs.push("general");
+
+      let seeded = 0;
+      for (const dir of templateDirs) {
+        try {
+          const templatesPath = join(process.cwd(), "data", dir, "default-prompt-templates.json");
+          const rawTemplates = await readFile(templatesPath, "utf-8");
+          const templates = JSON.parse(rawTemplates) as Array<{
+            callCategory: string;
+            name: string;
+            evaluationCriteria: string;
+            requiredPhrases?: unknown;
+            scoringWeights?: unknown;
+            additionalInstructions?: string;
+          }>;
+          for (const tmpl of templates) {
+            await storage.createPromptTemplate(orgId, {
+              orgId,
+              callCategory: tmpl.callCategory,
+              name: tmpl.name,
+              evaluationCriteria: tmpl.evaluationCriteria,
+              requiredPhrases: tmpl.requiredPhrases as any,
+              scoringWeights: tmpl.scoringWeights as any,
+              additionalInstructions: tmpl.additionalInstructions || undefined,
+              isActive: true,
+              isDefault: true,
+            });
+          }
+          seeded = templates.length;
+          break;
+        } catch {
+          if (dir === industry && templateDirs.length > 1) continue;
+        }
+      }
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "prompt_templates_reset_to_defaults",
+        resourceType: "prompt_template",
+        detail: `Deleted ${existing.length} templates, seeded ${seeded} defaults (industry: ${industry})`,
+      });
+      const newTemplates = await storage.getAllPromptTemplates(orgId);
+      res.json({ message: "Templates reset to defaults", count: seeded, templates: newTemplates });
+    }),
   );
 
   // Bulk re-analysis: re-analyze recent calls using updated prompt template
-  app.post("/api/calls/reanalyze", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
-    try {
-      const { callCategory, limit: maxCalls } = req.body;
-      if (!callCategory || typeof callCategory !== "string") {
-        res.status(400).json({ message: "callCategory is required" });
-        return;
-      }
-
-      if (!aiProvider.isAvailable) {
-        res.status(503).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "AI provider not configured"));
-        return;
-      }
-
-      const reanalysisLimit = Math.min(safeInt(maxCalls, 10), 50);
-      const allCalls = await storage.getCallsWithDetails(req.orgId!, { status: "completed" });
-
-      // Filter to calls matching the category
-      const targetCalls = allCalls
-        .filter((c) => c.callCategory === callCategory && c.transcript?.text)
-        .slice(0, reanalysisLimit);
-
-      if (targetCalls.length === 0) {
-        res.json({ message: "No matching calls found", queued: 0 });
-        return;
-      }
-
-      // Load the prompt template for this category
-      let promptTemplate = undefined;
-      const tmpl = await storage.getPromptTemplateByCategory(req.orgId!, callCategory);
-      if (tmpl) {
-        promptTemplate = {
-          evaluationCriteria: tmpl.evaluationCriteria,
-          requiredPhrases: tmpl.requiredPhrases,
-          scoringWeights: tmpl.scoringWeights,
-          additionalInstructions: tmpl.additionalInstructions,
-        };
-      }
-
-      const orgId = req.orgId!;
-      const queued = targetCalls.length;
-      const callIds = targetCalls.map((c) => c.id);
-
-      // Try BullMQ queue first; fall back to in-process execution
-      const enqueued = await enqueueReanalysis({
-        orgId,
-        callIds,
-        requestedBy: req.user?.username || "unknown",
-      });
-
-      if (enqueued) {
-        res.json({ message: `Re-analysis queued for ${queued} calls`, queued });
-        return;
-      }
-
-      // Fallback: in-process execution (no Redis)
-      res.json({ message: `Re-analysis started for ${queued} calls (in-process)`, queued });
-
-      (async () => {
-        let succeeded = 0;
-        let failed = 0;
-        for (const call of targetCalls) {
-          try {
-            const transcriptText = call.transcript!.text!;
-            const aiAnalysis = await withRetry(
-              () => aiProvider.analyzeCallTranscript(transcriptText, call.id, callCategory, promptTemplate),
-              { retries: 1, baseDelay: 2000, label: `reanalyze ${call.id}` },
-            );
-
-            const { analysis } = assemblyAIService.processTranscriptData(
-              { id: "", status: "completed", text: transcriptText, words: call.transcript?.words as any },
-              aiAnalysis,
-              call.id,
-              req.orgId!,
-            );
-
-            if (aiAnalysis.sub_scores) {
-              analysis.subScores = {
-                compliance: aiAnalysis.sub_scores.compliance ?? 0,
-                customerExperience: aiAnalysis.sub_scores.customer_experience ?? 0,
-                communication: aiAnalysis.sub_scores.communication ?? 0,
-                resolution: aiAnalysis.sub_scores.resolution ?? 0,
-              };
-            }
-            if (aiAnalysis.detected_agent_name) {
-              analysis.detectedAgentName = aiAnalysis.detected_agent_name;
-            }
-
-            await storage.createCallAnalysis(orgId, { ...analysis, callId: call.id });
-            succeeded++;
-          } catch (error) {
-            logger.error({ err: error, callId: call.id }, "Reanalysis failed for call");
-            failed++;
-          }
-        }
-        logger.info({ succeeded, failed, total: queued }, "Reanalysis complete");
-        broadcastCallUpdate("bulk", "reanalysis_complete", { succeeded, failed, total: queued }, orgId);
-      })().catch((err) => logger.error({ err }, "Bulk re-analysis failed"));
-    } catch (error) {
-      logger.error({ err: error }, "Failed to start re-analysis");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to start re-analysis"));
+  app.post("/api/calls/reanalyze", requireAuth, injectOrgContext, requireRole("admin"), asyncHandler(async (req, res) => {
+    const { callCategory, limit: maxCalls } = req.body;
+    if (!callCategory || typeof callCategory !== "string") {
+      res.status(400).json({ message: "callCategory is required" });
+      return;
     }
-  });
+
+    if (!aiProvider.isAvailable) {
+      res.status(503).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "AI provider not configured"));
+      return;
+    }
+
+    const reanalysisLimit = Math.min(safeInt(maxCalls, 10), 50);
+    const allCalls = await storage.getCallsWithDetails(req.orgId!, { status: "completed" });
+
+    // Filter to calls matching the category
+    const targetCalls = allCalls
+      .filter((c) => c.callCategory === callCategory && c.transcript?.text)
+      .slice(0, reanalysisLimit);
+
+    if (targetCalls.length === 0) {
+      res.json({ message: "No matching calls found", queued: 0 });
+      return;
+    }
+
+    // Load the prompt template for this category
+    let promptTemplate = undefined;
+    const tmpl = await storage.getPromptTemplateByCategory(req.orgId!, callCategory);
+    if (tmpl) {
+      promptTemplate = {
+        evaluationCriteria: tmpl.evaluationCriteria,
+        requiredPhrases: tmpl.requiredPhrases,
+        scoringWeights: tmpl.scoringWeights,
+        additionalInstructions: tmpl.additionalInstructions,
+      };
+    }
+
+    const orgId = req.orgId!;
+    const queued = targetCalls.length;
+    const callIds = targetCalls.map((c) => c.id);
+
+    // Try BullMQ queue first; fall back to in-process execution
+    const enqueued = await enqueueReanalysis({
+      orgId,
+      callIds,
+      requestedBy: req.user?.username || "unknown",
+    });
+
+    if (enqueued) {
+      res.json({ message: `Re-analysis queued for ${queued} calls`, queued });
+      return;
+    }
+
+    // Fallback: in-process execution (no Redis)
+    res.json({ message: `Re-analysis started for ${queued} calls (in-process)`, queued });
+
+    (async () => {
+      let succeeded = 0;
+      let failed = 0;
+      for (const call of targetCalls) {
+        try {
+          const transcriptText = call.transcript!.text!;
+          const aiAnalysis = await withRetry(
+            () => aiProvider.analyzeCallTranscript(transcriptText, call.id, callCategory, promptTemplate),
+            { retries: 1, baseDelay: 2000, label: `reanalyze ${call.id}` },
+          );
+
+          const { analysis } = assemblyAIService.processTranscriptData(
+            { id: "", status: "completed", text: transcriptText, words: call.transcript?.words as any },
+            aiAnalysis,
+            call.id,
+            req.orgId!,
+          );
+
+          if (aiAnalysis.sub_scores) {
+            analysis.subScores = {
+              compliance: aiAnalysis.sub_scores.compliance ?? 0,
+              customerExperience: aiAnalysis.sub_scores.customer_experience ?? 0,
+              communication: aiAnalysis.sub_scores.communication ?? 0,
+              resolution: aiAnalysis.sub_scores.resolution ?? 0,
+            };
+          }
+          if (aiAnalysis.detected_agent_name) {
+            analysis.detectedAgentName = aiAnalysis.detected_agent_name;
+          }
+
+          await storage.createCallAnalysis(orgId, { ...analysis, callId: call.id });
+          succeeded++;
+        } catch (error) {
+          logger.error({ err: error, callId: call.id }, "Reanalysis failed for call");
+          failed++;
+        }
+      }
+      logger.info({ succeeded, failed, total: queued }, "Reanalysis complete");
+      broadcastCallUpdate("bulk", "reanalysis_complete", { succeeded, failed, total: queued }, orgId);
+    })().catch((err) => logger.error({ err }, "Bulk re-analysis failed"));
+  }));
 
   // ============================================================
   // USER MANAGEMENT (database-backed, admin only)
   // ============================================================
 
   // List all users in the current organization (paginated)
-  app.get("/api/users", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
-      const { limit, offset } = parsePagination(req.query);
-      const users = await storage.listUsersByOrg(req.orgId!);
-      // Return users without password hashes
-      const sanitized = users.map((u) => ({
-        id: u.id,
-        username: u.username,
-        name: u.name,
-        role: u.role,
-        orgId: u.orgId,
-        createdAt: u.createdAt,
-      }));
-      res.json(sanitized);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to list users");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to list users"));
-    }
-  });
+  app.get("/api/users", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
+    const { limit, offset } = parsePagination(req.query);
+    const users = await storage.listUsersByOrg(req.orgId!);
+    // Return users without password hashes
+    const sanitized = users.map((u) => ({
+      id: u.id,
+      username: u.username,
+      name: u.name,
+      role: u.role,
+      orgId: u.orgId,
+      createdAt: u.createdAt,
+    }));
+    res.json(sanitized);
+  }));
 
   // Create a new user (admin only)
-  app.post("/api/users", requireAuth, requireRole("admin"), injectOrgContext, enforceUserQuota(), async (req, res) => {
-    try {
-      const { username, password, name, role } = req.body;
-      if (!username || !password || !name) {
-        return res
-          .status(400)
-          .json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "username, password, and name are required"));
-      }
-      // Validate field lengths
-      if (username.length > 255 || name.length > 255) {
-        return res
-          .status(400)
-          .json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "Field length exceeds maximum allowed"));
-      }
-      // Validate email format for username
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(username)) {
-        return res
-          .status(400)
-          .json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "Username must be a valid email address"));
-      }
-      if (!["viewer", "manager", "admin"].includes(role || "viewer")) {
-        return res.status(400).json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "Invalid role"));
-      }
+  app.post("/api/users", requireAuth, requireRole("admin"), injectOrgContext, enforceUserQuota(), asyncHandler(async (req, res) => {
+    const { username, password, name, role } = req.body;
+    if (!username || !password || !name) {
+      return res
+        .status(400)
+        .json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "username, password, and name are required"));
+    }
+    // Validate field lengths
+    if (username.length > 255 || name.length > 255) {
+      return res
+        .status(400)
+        .json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "Field length exceeds maximum allowed"));
+    }
+    // Validate email format for username
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(username)) {
+      return res
+        .status(400)
+        .json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "Username must be a valid email address"));
+    }
+    if (!["viewer", "manager", "admin"].includes(role || "viewer")) {
+      return res.status(400).json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "Invalid role"));
+    }
 
-      // HIPAA: Enforce password complexity
+    // HIPAA: Enforce password complexity
+    const complexityError = validatePasswordComplexity(password);
+    if (complexityError) {
+      return res.status(400).json({ message: complexityError });
+    }
+
+    // Check if username already exists within this org
+    const existing = await storage.getUserByUsername(username, req.orgId!);
+    if (existing) {
+      return res.status(409).json({ message: "Username already exists" });
+    }
+
+    const passwordHash = await hashPassword(password);
+
+    const user = await storage.createUser({
+      orgId: req.orgId!,
+      username,
+      passwordHash,
+      name,
+      role: role || "viewer",
+    });
+
+    logPhiAccess({
+      ...auditContext(req),
+      event: "create_user",
+      resourceType: "user",
+      resourceId: user.id,
+      detail: `Created user ${username} with role ${role || "viewer"}`,
+    });
+    logger.info({ userId: user.id, username, org: req.orgId }, "User created");
+    syncSeatUsage(req.orgId!); // non-blocking: update metered seat count in Stripe
+    res.status(201).json({ id: user.id, username: user.username, name: user.name, role: user.role });
+  }));
+
+  // Update user (admin only)
+  app.patch("/api/users/:id", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
+    const { name, role, password } = req.body;
+
+    if (role && !["viewer", "manager", "admin"].includes(role)) {
+      return res.status(400).json({ message: "Invalid role" });
+    }
+
+    const updates: Record<string, unknown> = {};
+    if (name) updates.name = name;
+    if (role) updates.role = role;
+
+    // Hash new password if provided (with HIPAA complexity enforcement)
+    if (password) {
       const complexityError = validatePasswordComplexity(password);
       if (complexityError) {
         return res.status(400).json({ message: complexityError });
       }
-
-      // Check if username already exists within this org
-      const existing = await storage.getUserByUsername(username, req.orgId!);
-      if (existing) {
-        return res.status(409).json({ message: "Username already exists" });
-      }
-
-      const passwordHash = await hashPassword(password);
-
-      const user = await storage.createUser({
-        orgId: req.orgId!,
-        username,
-        passwordHash,
-        name,
-        role: role || "viewer",
-      });
-
-      logPhiAccess({
-        ...auditContext(req),
-        event: "create_user",
-        resourceType: "user",
-        resourceId: user.id,
-        detail: `Created user ${username} with role ${role || "viewer"}`,
-      });
-      logger.info({ userId: user.id, username, org: req.orgId }, "User created");
-      syncSeatUsage(req.orgId!); // non-blocking: update metered seat count in Stripe
-      res.status(201).json({ id: user.id, username: user.username, name: user.name, role: user.role });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to create user");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to create user"));
+      updates.passwordHash = await hashPassword(password);
     }
-  });
 
-  // Update user (admin only)
-  app.patch("/api/users/:id", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
-      const { name, role, password } = req.body;
-
-      if (role && !["viewer", "manager", "admin"].includes(role)) {
-        return res.status(400).json({ message: "Invalid role" });
-      }
-
-      const updates: Record<string, unknown> = {};
-      if (name) updates.name = name;
-      if (role) updates.role = role;
-
-      // Hash new password if provided (with HIPAA complexity enforcement)
-      if (password) {
-        const complexityError = validatePasswordComplexity(password);
-        if (complexityError) {
-          return res.status(400).json({ message: complexityError });
-        }
-        updates.passwordHash = await hashPassword(password);
-      }
-
-      const updated = await storage.updateUser(req.orgId!, req.params.id, updates as any);
-      if (!updated) {
-        return res.status(404).json(errorResponse(ERROR_CODES.ADMIN_USER_NOT_FOUND, "User not found"));
-      }
-
-      // HIPAA: If password was changed, invalidate all sessions for the target user.
-      if (password) {
-        const sessionsInvalidated = await invalidateUserSessions(req.params.id);
-        if (sessionsInvalidated > 0) {
-          logger.info({ targetUserId: req.params.id, sessionsInvalidated }, "Invalidated sessions after password change");
-        }
-      }
-
-      logPhiAccess({
-        ...auditContext(req),
-        event: "update_user",
-        resourceType: "user",
-        resourceId: req.params.id,
-        detail: `Updated fields: ${Object.keys(updates)
-          .filter((k) => k !== "passwordHash")
-          .join(", ")}${password ? " [password changed]" : ""}`,
-      });
-
-      logger.info({ userId: req.params.id, org: req.orgId }, "User updated");
-      res.json({ id: updated.id, username: updated.username, name: updated.name, role: updated.role });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to update user");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update user"));
+    const updated = await storage.updateUser(req.orgId!, req.params.id, updates as any);
+    if (!updated) {
+      return res.status(404).json(errorResponse(ERROR_CODES.ADMIN_USER_NOT_FOUND, "User not found"));
     }
-  });
+
+    // HIPAA: If password was changed, invalidate all sessions for the target user.
+    if (password) {
+      const sessionsInvalidated = await invalidateUserSessions(req.params.id);
+      if (sessionsInvalidated > 0) {
+        logger.info({ targetUserId: req.params.id, sessionsInvalidated }, "Invalidated sessions after password change");
+      }
+    }
+
+    logPhiAccess({
+      ...auditContext(req),
+      event: "update_user",
+      resourceType: "user",
+      resourceId: req.params.id,
+      detail: `Updated fields: ${Object.keys(updates)
+        .filter((k) => k !== "passwordHash")
+        .join(", ")}${password ? " [password changed]" : ""}`,
+    });
+
+    logger.info({ userId: req.params.id, org: req.orgId }, "User updated");
+    res.json({ id: updated.id, username: updated.username, name: updated.name, role: updated.role });
+  }));
 
   // Delete user (admin only)
-  app.delete("/api/users/:id", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
-      // Prevent self-deletion
-      if (req.params.id === req.user!.id) {
-        return res.status(400).json({ message: "Cannot delete your own account" });
-      }
-
-      const user = await storage.getUser(req.params.id);
-      if (!user || user.orgId !== req.orgId) {
-        return res.status(404).json(errorResponse(ERROR_CODES.ADMIN_USER_NOT_FOUND, "User not found"));
-      }
-
-      await storage.deleteUser(req.orgId!, req.params.id);
-      logPhiAccess({
-        ...auditContext(req),
-        event: "delete_user",
-        resourceType: "user",
-        resourceId: req.params.id,
-        detail: `Deleted user ${user.username}`,
-      });
-      logger.info({ userId: req.params.id, org: req.orgId }, "User deleted");
-      syncSeatUsage(req.orgId!); // non-blocking: update metered seat count in Stripe
-      res.json({ message: "User deleted" });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to delete user");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to delete user"));
+  app.delete("/api/users/:id", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
+    // Prevent self-deletion
+    if (req.params.id === req.user!.id) {
+      return res.status(400).json({ message: "Cannot delete your own account" });
     }
-  });
+
+    const user = await storage.getUser(req.params.id);
+    if (!user || user.orgId !== req.orgId) {
+      return res.status(404).json(errorResponse(ERROR_CODES.ADMIN_USER_NOT_FOUND, "User not found"));
+    }
+
+    await storage.deleteUser(req.orgId!, req.params.id);
+    logPhiAccess({
+      ...auditContext(req),
+      event: "delete_user",
+      resourceType: "user",
+      resourceId: req.params.id,
+      detail: `Deleted user ${user.username}`,
+    });
+    logger.info({ userId: req.params.id, org: req.orgId }, "User deleted");
+    syncSeatUsage(req.orgId!); // non-blocking: update metered seat count in Stripe
+    res.json({ message: "User deleted" });
+  }));
 
   // ============================================================
   // ORGANIZATION MANAGEMENT (admin only)
   // ============================================================
 
   // Get current org details
-  app.get("/api/organization", requireAuth, injectOrgContext, async (req, res) => {
-    try {
-      const org = await storage.getOrganization(req.orgId!);
-      if (!org) return res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Organization not found"));
-      res.json(org);
-    } catch (error) {
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to fetch organization"));
-    }
-  });
+  app.get("/api/organization", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+    const org = await storage.getOrganization(req.orgId!);
+    if (!org) return res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Organization not found"));
+    res.json(org);
+  }));
 
   // Update org settings (admin only)
-  app.patch("/api/organization/settings", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
-      const org = await storage.getOrganization(req.orgId!);
-      if (!org) return res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Organization not found"));
+  app.patch("/api/organization/settings", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
+    const org = await storage.getOrganization(req.orgId!);
+    if (!org) return res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Organization not found"));
 
       const parsed = orgSettingsSchema.partial().safeParse(req.body);
       if (!parsed.success) {
@@ -570,11 +521,7 @@ export function registerAdminRoutes(app: Express): void {
       });
       logger.info({ org: req.orgId, changedFields }, "Organization settings updated");
       res.json(updated);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to update organization settings");
-      res.status(500).json(errorResponse(ERROR_CODES.ADMIN_SETTINGS_FAILED, "Failed to update settings"));
-    }
-  });
+  }));
 
   // ============================================================
   // SCIM TOKEN MANAGEMENT (admin only, Enterprise)
@@ -587,7 +534,7 @@ export function registerAdminRoutes(app: Express): void {
     requireRole("admin"),
     injectOrgContext,
     requirePlanFeature("ssoEnabled"),
-    async (req, res) => {
+    asyncHandler(async (req, res) => {
       const org = await storage.getOrganization(req.orgId!);
       if (!org) return res.status(404).json({ message: "Organization not found" });
       const settings = org.settings as OrgSettings | undefined;
@@ -598,7 +545,7 @@ export function registerAdminRoutes(app: Express): void {
         // Service endpoint for IDP configuration
         scimBaseUrl: `${req.protocol}://${req.headers.host}/api/scim/v2`,
       });
-    },
+    }),
   );
 
   // Generate / rotate SCIM bearer token (token shown exactly once)
@@ -608,7 +555,7 @@ export function registerAdminRoutes(app: Express): void {
     requireRole("admin"),
     injectOrgContext,
     requirePlanFeature("ssoEnabled"),
-    async (req, res) => {
+    asyncHandler(async (req, res) => {
       const org = await storage.getOrganization(req.orgId!);
       if (!org) return res.status(404).json({ message: "Organization not found" });
 
@@ -640,7 +587,7 @@ export function registerAdminRoutes(app: Express): void {
         message: "Store this token securely — it will not be shown again.",
         scimBaseUrl: `${req.protocol}://${req.headers.host}/api/scim/v2`,
       });
-    },
+    }),
   );
 
   // Disable SCIM (revoke token, disable provisioning)
@@ -650,7 +597,7 @@ export function registerAdminRoutes(app: Express): void {
     requireRole("admin"),
     injectOrgContext,
     requirePlanFeature("ssoEnabled"),
-    async (req, res) => {
+    asyncHandler(async (req, res) => {
       const org = await storage.getOrganization(req.orgId!);
       if (!org) return res.status(404).json({ message: "Organization not found" });
 
@@ -672,7 +619,7 @@ export function registerAdminRoutes(app: Express): void {
       });
 
       res.json({ message: "SCIM provisioning disabled and token revoked." });
-    },
+    }),
   );
 
 
@@ -683,9 +630,8 @@ export function registerAdminRoutes(app: Express): void {
   // ── PHI Access Report ───────────────────────────────────────────────────
   // Answers: "Who accessed what PHI in the last N days?"
   // Required by HIPAA for audit/compliance reviews and breach investigations.
-  app.get("/api/admin/phi-access-report", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
-      const { queryAuditLogs } = await import("../services/audit-log");
+  app.get("/api/admin/phi-access-report", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
+    const { queryAuditLogs } = await import("../services/audit-log");
       const days = Math.min(Math.max(parseInt(req.query.days as string) || 30, 1), 365);
       const userId = req.query.userId as string | undefined;
       const resourceType = req.query.resourceType as string | undefined;
@@ -737,18 +683,13 @@ export function registerAdminRoutes(app: Express): void {
         userSummary,
         recentEvents: result.entries.slice(0, 50),
       });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to generate PHI access report");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to generate PHI access report"));
-    }
-  });
+  }));
 
   // ── BAA Management (Business Associate Agreements — HIPAA §164.502(e)) ────
 
   /** List all BAA records for the organization */
-  app.get("/api/admin/baa", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
-      const { getDatabase } = await import("../db/index");
+  app.get("/api/admin/baa", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
+    const { getDatabase } = await import("../db/index");
       const db = getDatabase();
       if (!db) return res.json([]);
 
@@ -768,16 +709,11 @@ export function registerAdminRoutes(app: Express): void {
       }));
 
       res.json(enriched);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to list BAA records");
-      res.status(500).json({ message: "Failed to list BAA records" });
-    }
-  });
+  }));
 
   /** Create a new BAA record */
-  app.post("/api/admin/baa", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
-      const { getDatabase } = await import("../db/index");
+  app.post("/api/admin/baa", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
+    const { getDatabase } = await import("../db/index");
       const db = getDatabase();
       if (!db) return res.status(503).json({ message: "Database not available" });
 
@@ -817,16 +753,11 @@ export function registerAdminRoutes(app: Express): void {
       });
 
       res.status(201).json(row);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to create BAA record");
-      res.status(500).json({ message: "Failed to create BAA record" });
-    }
-  });
+  }));
 
   /** Update a BAA record */
-  app.patch("/api/admin/baa/:id", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
-      const { getDatabase } = await import("../db/index");
+  app.patch("/api/admin/baa/:id", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
+    const { getDatabase } = await import("../db/index");
       const db = getDatabase();
       if (!db) return res.status(503).json({ message: "Database not available" });
 
@@ -867,16 +798,11 @@ export function registerAdminRoutes(app: Express): void {
       });
 
       res.json(rows[0]);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to update BAA record");
-      res.status(500).json({ message: "Failed to update BAA record" });
-    }
-  });
+  }));
 
   /** Delete a BAA record */
-  app.delete("/api/admin/baa/:id", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
-      const { getDatabase } = await import("../db/index");
+  app.delete("/api/admin/baa/:id", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
+    const { getDatabase } = await import("../db/index");
       const db = getDatabase();
       if (!db) return res.status(503).json({ message: "Database not available" });
 
@@ -899,20 +825,15 @@ export function registerAdminRoutes(app: Express): void {
       });
 
       res.json({ message: "BAA record deleted" });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to delete BAA record");
-      res.status(500).json({ message: "Failed to delete BAA record" });
-    }
-  });
+  }));
 
   // ==================== BATCH INFERENCE MANAGEMENT ====================
 
   /**
    * Get batch mode status and pending items for the org.
    */
-  app.get("/api/batch/status", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
-    try {
-      const { isBatchAvailable, listPendingItems } = await import("../services/bedrock-batch");
+  app.get("/api/batch/status", requireAuth, injectOrgContext, requireRole("admin"), asyncHandler(async (req, res) => {
+    const { isBatchAvailable, listPendingItems } = await import("../services/bedrock-batch");
       const org = await storage.getOrganization(req.orgId!);
       const settings = org?.settings as any;
 
@@ -928,18 +849,14 @@ export function registerAdminRoutes(app: Express): void {
           timestamp: item.timestamp,
         })),
       });
-    } catch (error) {
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get batch status"));
-    }
-  });
+  }));
 
   /**
    * Flush pending batch items — immediately submit a batch job for all pending items.
    */
-  app.post("/api/batch/flush", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
-    try {
-      const { listPendingItems, createBatchInput, submitBatchJob, cleanupPendingItems, isBatchAvailable } =
-        await import("../services/bedrock-batch");
+  app.post("/api/batch/flush", requireAuth, injectOrgContext, requireRole("admin"), asyncHandler(async (req, res) => {
+    const { listPendingItems, createBatchInput, submitBatchJob, cleanupPendingItems, isBatchAvailable } =
+      await import("../services/bedrock-batch");
 
       if (!isBatchAvailable()) {
         return res.status(503).json({ message: "Batch inference not configured (missing S3_BUCKET or BEDROCK_BATCH_ROLE_ARN)" });
@@ -971,9 +888,5 @@ export function registerAdminRoutes(app: Express): void {
         jobId: job.jobId,
         callCount: items.length,
       });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to flush batch items");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to submit batch job"));
-    }
-  });
+  }));
 }

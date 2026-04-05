@@ -26,6 +26,7 @@ import {
   computeQualityScores,
 } from "../services/clinical-validation";
 import { extractStructuredDataFromSections } from "../services/clinical-extraction";
+import { asyncHandler } from "../middleware/error-handler";
 import { registerClinicalComplianceRoutes } from "./clinical-compliance.routes";
 import { registerClinicalAnalyticsRoutes } from "./clinical-analytics.routes";
 
@@ -63,8 +64,7 @@ function requireClinicalPlan() {
 
 export function registerClinicalRoutes(app: Express): void {
   // Get clinical notes for a specific call
-  app.get("/api/clinical/notes/:callId", requireAuth, injectOrgContext, requireClinicalPlan(), async (req, res) => {
-    try {
+  app.get("/api/clinical/notes/:callId", requireAuth, injectOrgContext, requireClinicalPlan(), asyncHandler(async (req, res) => {
       const analysis = await storage.getCallAnalysis(req.orgId!, req.params.callId);
       if (!analysis) {
         res.status(404).json({ message: "Analysis not found" });
@@ -164,11 +164,7 @@ export function registerClinicalRoutes(app: Express): void {
       }
 
       res.json(enriched);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to get clinical note");
-      res.status(500).json({ message: "Failed to get clinical note" });
-    }
-  });
+  }));
 
   // Provider attestation — mark clinical note as reviewed and attested
   app.post(
@@ -177,8 +173,7 @@ export function registerClinicalRoutes(app: Express): void {
     injectOrgContext,
     requireClinicalPlan(),
     requireRole("manager", "admin"),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const analysis = await storage.getCallAnalysis(req.orgId!, req.params.callId);
         if (!analysis?.clinicalNote) {
           res.status(404).json({ message: "No clinical note found for this encounter" });
@@ -257,11 +252,7 @@ export function registerClinicalRoutes(app: Express): void {
           attestedAt: analysis.clinicalNote.attestedAt,
           cosignatureRequired: requiresCosig,
         });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to attest clinical note");
-        res.status(500).json({ message: "Failed to attest clinical note" });
-      }
-    },
+    }),
   );
 
   // Record patient consent
@@ -270,8 +261,7 @@ export function registerClinicalRoutes(app: Express): void {
     requireAuth,
     injectOrgContext,
     requireClinicalPlan(),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const { consentObtained } = req.body;
         const analysis = await storage.getCallAnalysis(req.orgId!, req.params.callId);
         if (!analysis?.clinicalNote) {
@@ -295,11 +285,7 @@ export function registerClinicalRoutes(app: Express): void {
         });
 
         res.json({ success: true });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to record patient consent");
-        res.status(500).json({ message: "Failed to record patient consent" });
-      }
-    },
+    }),
   );
 
   // Edit clinical note fields (provider correction before attestation)
@@ -309,8 +295,7 @@ export function registerClinicalRoutes(app: Express): void {
     injectOrgContext,
     requireClinicalPlan(),
     requireRole("manager", "admin"),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const analysis = await storage.getCallAnalysis(req.orgId!, req.params.callId);
         if (!analysis?.clinicalNote) {
           res.status(404).json({ message: "No clinical note found for this encounter" });
@@ -595,11 +580,7 @@ export function registerClinicalRoutes(app: Express): void {
 
         logger.info({ callId: req.params.callId, fields: Object.keys(edits) }, "Clinical note edited");
         res.json({ success: true, message: "Clinical note updated. Re-attestation required." });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to edit clinical note");
-        res.status(500).json({ message: "Failed to edit clinical note" });
-      }
-    },
+    }),
   );
 
   // Get/update provider style preferences for clinical note generation
@@ -608,23 +589,18 @@ export function registerClinicalRoutes(app: Express): void {
     requireAuth,
     injectOrgContext,
     requireClinicalPlan(),
-    async (req, res) => {
-      try {
-        const org = await getCachedOrganization(req.orgId!);
-        const userId = req.user?.id || "unknown";
-        const prefs = org?.settings?.providerStylePreferences?.[userId] || {};
-        logPhiAccess({
-          ...auditContext(req),
-          event: "view_provider_preferences",
-          resourceType: "clinical_preferences",
-          detail: `Provider ${userId} viewed style preferences`,
-        });
-        res.json(prefs);
-      } catch (error) {
-        logger.error({ err: error }, "Failed to get provider preferences");
-        res.status(500).json({ message: "Failed to get provider preferences" });
-      }
-    },
+    asyncHandler(async (req, res) => {
+      const org = await getCachedOrganization(req.orgId!);
+      const userId = req.user?.id || "unknown";
+      const prefs = org?.settings?.providerStylePreferences?.[userId] || {};
+      logPhiAccess({
+        ...auditContext(req),
+        event: "view_provider_preferences",
+        resourceType: "clinical_preferences",
+        detail: `Provider ${userId} viewed style preferences`,
+      });
+      res.json(prefs);
+    }),
   );
 
   app.patch(
@@ -632,64 +608,58 @@ export function registerClinicalRoutes(app: Express): void {
     requireAuth,
     injectOrgContext,
     requireClinicalPlan(),
-    async (req, res) => {
-      try {
-        const org = await getCachedOrganization(req.orgId!);
-        if (!org) {
-          res.status(404).json({ message: "Organization not found" });
-          return;
-        }
-
-        const userId = req.user?.id || "unknown";
-        const allowedPrefFields = [
-          "noteFormat",
-          "sectionOrder",
-          "abbreviationLevel",
-          "includeNegativePertinents",
-          "defaultSpecialty",
-          "customSections",
-          "templateOverrides",
-        ];
-
-        const updates: Record<string, unknown> = {};
-        for (const field of allowedPrefFields) {
-          if (req.body[field] !== undefined) {
-            updates[field] = req.body[field];
-          }
-        }
-
-        const settings: Partial<OrgSettings> = org.settings || {};
-        const allPrefs: Record<string, Record<string, unknown>> = (settings.providerStylePreferences as Record<
-          string,
-          Record<string, unknown>
-        >) || {};
-        allPrefs[userId] = { ...allPrefs[userId], ...updates };
-
-        await storage.updateOrganization(req.orgId!, {
-          settings: { ...settings, providerStylePreferences: allPrefs } as OrgSettings,
-        });
-        invalidateOrgCache(req.orgId!);
-
-        logPhiAccess({
-          ...auditContext(req),
-          event: "org_settings_update",
-          resourceType: "organization",
-          resourceId: req.orgId!,
-          detail: `Provider style preferences updated: ${Object.keys(updates).join(", ")}`,
-        });
-
-        logger.info({ orgId: req.orgId, userId, fields: Object.keys(updates) }, "Provider style preferences updated");
-        res.json({ success: true, preferences: allPrefs[userId] });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to update provider preferences");
-        res.status(500).json({ message: "Failed to update provider preferences" });
+    asyncHandler(async (req, res) => {
+      const org = await getCachedOrganization(req.orgId!);
+      if (!org) {
+        res.status(404).json({ message: "Organization not found" });
+        return;
       }
-    },
+
+      const userId = req.user?.id || "unknown";
+      const allowedPrefFields = [
+        "noteFormat",
+        "sectionOrder",
+        "abbreviationLevel",
+        "includeNegativePertinents",
+        "defaultSpecialty",
+        "customSections",
+        "templateOverrides",
+      ];
+
+      const updates: Record<string, unknown> = {};
+      for (const field of allowedPrefFields) {
+        if (req.body[field] !== undefined) {
+          updates[field] = req.body[field];
+        }
+      }
+
+      const settings: Partial<OrgSettings> = org.settings || {};
+      const allPrefs: Record<string, Record<string, unknown>> = (settings.providerStylePreferences as Record<
+        string,
+        Record<string, unknown>
+      >) || {};
+      allPrefs[userId] = { ...allPrefs[userId], ...updates };
+
+      await storage.updateOrganization(req.orgId!, {
+        settings: { ...settings, providerStylePreferences: allPrefs } as OrgSettings,
+      });
+      invalidateOrgCache(req.orgId!);
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "org_settings_update",
+        resourceType: "organization",
+        resourceId: req.orgId!,
+        detail: `Provider style preferences updated: ${Object.keys(updates).join(", ")}`,
+      });
+
+      logger.info({ orgId: req.orgId, userId, fields: Object.keys(updates) }, "Provider style preferences updated");
+      res.json({ success: true, preferences: allPrefs[userId] });
+    }),
   );
 
   // Get clinical dashboard metrics (enhanced)
-  app.get("/api/clinical/metrics", requireAuth, injectOrgContext, requireClinicalPlan(), async (req, res) => {
-    try {
+  app.get("/api/clinical/metrics", requireAuth, injectOrgContext, requireClinicalPlan(), asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
       const clinicalCategories = ["clinical_encounter", "telemedicine", "dental_encounter", "dental_consultation"];
 
@@ -806,11 +776,7 @@ export function registerClinicalRoutes(app: Express): void {
           count,
         })),
       });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to get clinical metrics");
-      res.status(500).json({ message: "Failed to get clinical metrics" });
-    }
-  });
+  }));
 
 
   // Style learning routes → clinical-analytics.routes.ts
@@ -818,8 +784,7 @@ export function registerClinicalRoutes(app: Express): void {
   // ==================== CLINICAL NOTE TEMPLATES ====================
 
   // List all templates (with optional filtering)
-  app.get("/api/clinical/templates", requireAuth, injectOrgContext, requireClinicalPlan(), async (req, res) => {
-    try {
+  app.get("/api/clinical/templates", requireAuth, injectOrgContext, requireClinicalPlan(), asyncHandler(async (req, res) => {
       const { specialty, format, category, search } = req.query;
 
       let templates;
@@ -836,11 +801,7 @@ export function registerClinicalRoutes(app: Express): void {
       }
 
       res.json(templates);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to list clinical templates");
-      res.status(500).json({ message: "Failed to list clinical templates" });
-    }
-  });
+  }));
 
   // Get recommended format for a specialty
   app.get(
@@ -866,36 +827,31 @@ export function registerClinicalRoutes(app: Express): void {
     requireAuth,
     injectOrgContext,
     requireClinicalPlan(),
-    async (req, res) => {
-      try {
-        const analysis = await storage.getCallAnalysis(req.orgId!, req.params.callId);
-        if (!analysis) {
-          res.status(404).json({ message: "Analysis not found" });
-          return;
-        }
-        const cn = analysis.clinicalNote;
-        if (!cn) {
-          res.status(404).json({ message: "No clinical note found for this encounter" });
-          return;
-        }
-
-        // Decrypt PHI fields for validation
-        const decrypted = { ...cn };
-        const wrapper = { clinicalNote: decrypted } as Record<string, unknown>;
-        decryptClinicalNotePhi(wrapper, {
-          userId: req.user?.id,
-          orgId: req.orgId,
-          resourceId: req.params.callId,
-          resourceType: "clinical_note_validation",
-        });
-
-        const result = validateClinicalNote(decrypted);
-        res.json(result);
-      } catch (error) {
-        logger.error({ err: error }, "Failed to validate clinical note");
-        res.status(500).json({ message: "Failed to validate clinical note" });
+    asyncHandler(async (req, res) => {
+      const analysis = await storage.getCallAnalysis(req.orgId!, req.params.callId);
+      if (!analysis) {
+        res.status(404).json({ message: "Analysis not found" });
+        return;
       }
-    },
+      const cn = analysis.clinicalNote;
+      if (!cn) {
+        res.status(404).json({ message: "No clinical note found for this encounter" });
+        return;
+      }
+
+      // Decrypt PHI fields for validation
+      const decrypted = { ...cn };
+      const wrapper = { clinicalNote: decrypted } as Record<string, unknown>;
+      decryptClinicalNotePhi(wrapper, {
+        userId: req.user?.id,
+        orgId: req.orgId,
+        resourceId: req.params.callId,
+        resourceType: "clinical_note_validation",
+      });
+
+      const result = validateClinicalNote(decrypted);
+      res.json(result);
+    }),
   );
 
   // Batch revalidation: re-validate all clinical notes against current validation rules.
@@ -906,70 +862,64 @@ export function registerClinicalRoutes(app: Express): void {
     injectOrgContext,
     requireClinicalPlan(),
     requireRole("admin"),
-    async (req, res) => {
-      try {
-        const allCalls = await storage.getAllCalls(req.orgId!);
-        const results: Array<{
-          callId: string;
-          valid: boolean;
-          warnings: string[];
-          completeness: number;
-        }> = [];
+    asyncHandler(async (req, res) => {
+      const allCalls = await storage.getAllCalls(req.orgId!);
+      const results: Array<{
+        callId: string;
+        valid: boolean;
+        warnings: string[];
+        completeness: number;
+      }> = [];
 
-        let processed = 0;
-        const MAX_BATCH = 200; // Cap to avoid timeout
-        for (const call of allCalls.slice(0, MAX_BATCH)) {
-          try {
-            const analysis = await storage.getCallAnalysis(req.orgId!, call.id);
-            if (!analysis?.clinicalNote) continue;
+      let processed = 0;
+      const MAX_BATCH = 200; // Cap to avoid timeout
+      for (const call of allCalls.slice(0, MAX_BATCH)) {
+        try {
+          const analysis = await storage.getCallAnalysis(req.orgId!, call.id);
+          if (!analysis?.clinicalNote) continue;
 
-            // Decrypt PHI for validation
-            const wrapper = { clinicalNote: { ...analysis.clinicalNote } } as Record<string, unknown>;
-            decryptClinicalNotePhi(wrapper, {
-              userId: req.user?.id,
-              orgId: req.orgId,
-              resourceId: call.id,
-              resourceType: "batch_revalidation",
-            });
+          // Decrypt PHI for validation
+          const wrapper = { clinicalNote: { ...analysis.clinicalNote } } as Record<string, unknown>;
+          decryptClinicalNotePhi(wrapper, {
+            userId: req.user?.id,
+            orgId: req.orgId,
+            resourceId: call.id,
+            resourceType: "batch_revalidation",
+          });
 
-            const validation = validateClinicalNote((wrapper as any).clinicalNote);
-            results.push({
-              callId: call.id,
-              valid: validation.valid,
-              warnings: validation.warnings,
-              completeness: validation.weightedCompleteness,
-            });
-            processed++;
-          } catch {
-            // Skip individual failures
-          }
+          const validation = validateClinicalNote((wrapper as any).clinicalNote);
+          results.push({
+            callId: call.id,
+            valid: validation.valid,
+            warnings: validation.warnings,
+            completeness: validation.weightedCompleteness,
+          });
+          processed++;
+        } catch {
+          // Skip individual failures
         }
-
-        const invalidCount = results.filter((r) => !r.valid).length;
-        logPhiAccess({
-          ...auditContext(req),
-          event: "batch_clinical_revalidation",
-          resourceType: "clinical_note",
-          detail: `Revalidated ${processed} notes: ${invalidCount} invalid`,
-        });
-
-        res.json({
-          processed,
-          totalCalls: allCalls.length,
-          capped: allCalls.length > MAX_BATCH,
-          invalidCount,
-          results: results.filter((r) => !r.valid || r.warnings.length > 0), // Only return notes with issues
-        });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to batch revalidate clinical notes");
-        res.status(500).json({ message: "Failed to batch revalidate clinical notes" });
       }
-    },
+
+      const invalidCount = results.filter((r) => !r.valid).length;
+      logPhiAccess({
+        ...auditContext(req),
+        event: "batch_clinical_revalidation",
+        resourceType: "clinical_note",
+        detail: `Revalidated ${processed} notes: ${invalidCount} invalid`,
+      });
+
+      res.json({
+        processed,
+        totalCalls: allCalls.length,
+        capped: allCalls.length > MAX_BATCH,
+        invalidCount,
+        results: results.filter((r) => !r.valid || r.warnings.length > 0), // Only return notes with issues
+      });
+    }),
   );
 
   // Get a single template by ID (checks custom provider templates first, then system templates)
-  app.get("/api/clinical/templates/:id", requireAuth, injectOrgContext, requireClinicalPlan(), async (req, res) => {
-    try {
+  app.get("/api/clinical/templates/:id", requireAuth, injectOrgContext, requireClinicalPlan(), asyncHandler(async (req, res) => {
       // Check custom provider templates first (for calling user's org + user)
       const userId = req.user?.id;
       if (userId) {
@@ -1004,11 +954,7 @@ export function registerClinicalRoutes(app: Express): void {
         detail: `Viewed template: ${template.name}`,
       });
       res.json(template);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to get clinical template");
-      res.status(500).json({ message: "Failed to get clinical template" });
-    }
-  });
+  }));
 
   // --- Transcript Editing ---
 
@@ -1019,7 +965,7 @@ export function registerClinicalRoutes(app: Express): void {
     injectOrgContext,
     requireClinicalPlan(),
     requireRole("manager", "admin"),
-    async (req, res) => {
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
       const user = req.user!;
       const { callId } = req.params;
@@ -1030,7 +976,6 @@ export function registerClinicalRoutes(app: Express): void {
         return;
       }
 
-      try {
         // Verify call exists and belongs to org
         const call = await storage.getCall(orgId, callId);
         if (!call) {
@@ -1223,11 +1168,7 @@ export function registerClinicalRoutes(app: Express): void {
           transcript: updated,
           reanalysis: reanalysisResult,
         });
-      } catch (error) {
-        logger.error({ err: error, callId }, "Failed to edit transcript");
-        res.status(500).json({ message: "Failed to edit transcript" });
-      }
-    },
+    }),
   );
 
   // Post-attestation quality feedback — providers rate AI note quality
@@ -1236,54 +1177,49 @@ export function registerClinicalRoutes(app: Express): void {
     requireAuth,
     injectOrgContext,
     requireClinicalPlan(),
-    async (req, res) => {
-      try {
-        const { rating, comment, improvementAreas } = req.body;
+    asyncHandler(async (req, res) => {
+      const { rating, comment, improvementAreas } = req.body;
 
-        if (typeof rating !== "number" || rating < 1 || rating > 5) {
-          res.status(400).json({ message: "Rating must be 1-5" });
-          return;
-        }
-
-        const analysis = await storage.getCallAnalysis(req.orgId!, req.params.callId);
-        if (!analysis?.clinicalNote) {
-          res.status(404).json({ message: "No clinical note found for this encounter" });
-          return;
-        }
-
-        const feedback = {
-          rating,
-          comment: typeof comment === "string" ? comment.slice(0, 1000) : undefined,
-          improvementAreas: Array.isArray(improvementAreas)
-            ? (improvementAreas.filter((a: unknown) => typeof a === "string").slice(0, 10) as string[])
-            : undefined,
-          ratedBy: req.user?.name || req.user?.username,
-          ratedById: req.user?.id,
-          ratedAt: new Date().toISOString(),
-        };
-
-        // Store feedback on the clinical note
-        const existingFeedback = Array.isArray(analysis.clinicalNote?.qualityFeedback)
-          ? analysis.clinicalNote!.qualityFeedback!
-          : [];
-        analysis.clinicalNote!.qualityFeedback = [...existingFeedback, feedback];
-
-        await storage.createCallAnalysis(req.orgId!, analysis);
-
-        logPhiAccess({
-          ...auditContext(req),
-          event: "clinical_note_feedback",
-          resourceType: "clinical_note",
-          resourceId: req.params.callId,
-          detail: `Rating: ${rating}/5${improvementAreas?.length ? `, Areas: ${improvementAreas.join(", ")}` : ""}`,
-        });
-
-        res.json({ success: true, feedback });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to save clinical note feedback");
-        res.status(500).json({ message: "Failed to save feedback" });
+      if (typeof rating !== "number" || rating < 1 || rating > 5) {
+        res.status(400).json({ message: "Rating must be 1-5" });
+        return;
       }
-    },
+
+      const analysis = await storage.getCallAnalysis(req.orgId!, req.params.callId);
+      if (!analysis?.clinicalNote) {
+        res.status(404).json({ message: "No clinical note found for this encounter" });
+        return;
+      }
+
+      const feedback = {
+        rating,
+        comment: typeof comment === "string" ? comment.slice(0, 1000) : undefined,
+        improvementAreas: Array.isArray(improvementAreas)
+          ? (improvementAreas.filter((a: unknown) => typeof a === "string").slice(0, 10) as string[])
+          : undefined,
+        ratedBy: req.user?.name || req.user?.username,
+        ratedById: req.user?.id,
+        ratedAt: new Date().toISOString(),
+      };
+
+      // Store feedback on the clinical note
+      const existingFeedback = Array.isArray(analysis.clinicalNote?.qualityFeedback)
+        ? analysis.clinicalNote!.qualityFeedback!
+        : [];
+      analysis.clinicalNote!.qualityFeedback = [...existingFeedback, feedback];
+
+      await storage.createCallAnalysis(req.orgId!, analysis);
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "clinical_note_feedback",
+        resourceType: "clinical_note",
+        resourceId: req.params.callId,
+        detail: `Rating: ${rating}/5${improvementAreas?.length ? `, Areas: ${improvementAreas.join(", ")}` : ""}`,
+      });
+
+      res.json({ success: true, feedback });
+    }),
   );
 
 
