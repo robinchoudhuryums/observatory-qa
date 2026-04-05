@@ -14,6 +14,14 @@ export function registerAuthRoutes(app: Express): void {
     passport.authenticate("local", async (err: any, user: Express.User | false, info: any) => {
       if (err) return next(err);
       if (!user) {
+        // Forward ambiguity info (username exists in multiple orgs)
+        if (info?.code === "OBS-AUTH-008") {
+          return res.status(409).json({
+            message: info.message,
+            errorCode: info.code,
+            orgSlugs: info.orgSlugs,
+          });
+        }
         return res.status(401).json({ message: "Invalid credentials", errorCode: "OBS-AUTH-001" });
       }
 

@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import { useCountUp } from "@/hooks/use-count-up";
 import { HelpTip } from "@/components/ui/help-tip";
 import type { DashboardMetrics } from "@shared/schema";
-import { RiPhoneLine, RiHeartLine, RiTimeLine, RiStarLine, RiUploadLine } from "@remixicon/react";
+import { RiPhoneLine, RiHeartLine, RiStarLine, RiUploadLine } from "@remixicon/react";
 
 const cardVariants = {
   hidden: { opacity: 0, y: 16 },
@@ -76,7 +76,6 @@ export default function MetricsOverview() {
 
   const totalCalls = metrics?.totalCalls ?? 0;
   const avgSentiment = metrics?.avgSentiment ?? 0;
-  const avgTranscription = metrics?.avgTranscriptionTime ?? 0;
   const avgPerformance = metrics?.avgPerformanceScore ?? 0;
 
   if (totalCalls === 0) {
@@ -125,21 +124,6 @@ export default function MetricsOverview() {
       iconStyle: { background: "linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(34, 197, 94, 0.1))" },
       iconColorStyle: { color: "rgb(16, 185, 129)" },
       glowClass: "metric-glow-green",
-    },
-    {
-      title: "Transcription Time",
-      help: "Average time to transcribe and analyze each call recording.",
-      renderValue: () => (
-        <>
-          <CountUpValue value={avgTranscription} decimals={0} />
-          min
-        </>
-      ),
-      change: "Avg per call",
-      icon: RiTimeLine,
-      iconStyle: { background: "linear-gradient(135deg, hsla(var(--brand-to), 0.2), hsla(var(--brand-to), 0.1))" },
-      iconColorStyle: { color: "hsl(var(--brand-to))" },
-      glowClass: "metric-glow-brand-alt",
     },
     {
       title: "Team Score",

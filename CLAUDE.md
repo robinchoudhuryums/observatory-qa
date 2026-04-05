@@ -291,19 +291,32 @@ server/services/             # Business logic & integrations (30 files)
   embedding-provider.ts      #   EmbeddingProvider interface for swappable embedding models (default: Titan Embed V2)
   performance-snapshots.ts   #   Longitudinal performance analytics with AI narrative summaries (employee/team/company snapshots)
   scheduled-reports.ts       #   Periodic report generation (weekly/monthly) with top/bottom performer rankings
+  cost-estimation.ts         #   Pure math: estimateBedrockCost(), estimateAssemblyAICost() — no external deps
+  dashboard-cache.ts         #   Dashboard Redis cache invalidation (extracted from routes/dashboard.ts)
 
 server/middleware/           # Express middleware
   waf.ts                     #   Web Application Firewall (request filtering, bot detection)
   tracing.ts                 #   OpenTelemetry request tracing (trace IDs, span attributes)
   correlation-id.ts          #   Per-request correlation ID via AsyncLocalStorage
 
-server/utils/                # Shared server utilities (ported from UMS knowledge base tool)
+server/utils/                # Shared server utilities
+  helpers.ts                 #   Pure utility functions (safeFloat, safeInt, withRetry, parseDateParam, parsePagination) — safe to import from services layer
   url-validation.ts          #   SSRF prevention: blocks private IPs, cloud metadata, non-HTTP protocols (legacy, see also url-validator.ts)
   url-validator.ts           #   Comprehensive SSRF URL validation: protocol enforcement, hostname blocklist, private IP blocking, DNS rebinding prevention
   ai-guardrails.ts           #   Prompt injection detection (25 patterns + NFKD Unicode normalization + HTML entity decoding + comment stripping), output safety checks, 10KB input truncation
   phi-redactor.ts            #   PHI regex scrubber (SSN, phone, email, MRN, addresses, NPI, FHIR UUIDs, encounter IDs; preserves clinical codes)
   request-metrics.ts         #   In-memory per-route latency percentiles (p50/p95/p99, 10-min window)
   lru-cache.ts               #   TTL-aware LRU cache utility (replaces FIFO Map pattern in 3+ locations)
+
+server/scheduled/            # Wall-clock scheduled background tasks
+  index.ts                   #   Barrel exports + runAllDailyTasks() orchestrator (single listOrganizations call)
+  scheduler.ts               #   scheduleDaily(utcHour, fn) and scheduleWeekly(dayOfWeek, utcHour, fn) — setTimeout chains, no drift
+  retention.ts               #   Data retention purge (per-org retentionDays)
+  trial-downgrade.ts         #   Trial subscription auto-downgrade to free
+  quota-alerts.ts            #   Proactive quota usage alerts (80%/100% thresholds)
+  weekly-digest.ts           #   Weekly performance/coaching digest to webhook
+  audit-chain-verify.ts      #   Nightly HIPAA audit chain integrity verification
+  coaching-tasks.ts          #   Coaching automation rules, effectiveness caching, follow-up reminders
 
 server/services/ehr/         # EHR integration adapters
   types.ts                   #   IEhrAdapter interface, EhrPatient, EhrAppointment, EhrClinicalNote, EhrTreatmentPlan
@@ -971,6 +984,7 @@ REANALYSIS_CONCURRENCY          # Concurrent reanalysis jobs (default: 3)
 PORT                            # Server port (default: 5000)
 RETENTION_DAYS                  # Default retention policy (default: 90, overridden per-org)
 DISABLE_SECURE_COOKIE           # Set to skip secure cookie flag (for non-TLS dev)
+TRUST_PROXY                     # Set to "0" to disable trust proxy in production (default: enabled)
 ```
 
 ## Database Schema (PostgreSQL)
@@ -1176,8 +1190,8 @@ Server serves both API and static frontend from the same process.
 6. Set up Vite (dev) or serve static files (prod)
 7. Start HTTP server
 8. Set up WebSocket
-9. Schedule data retention (30s delay, then daily)
-10. Register graceful shutdown handlers (close queues, Redis, DB)
+9. Schedule background tasks (`server/scheduled/`) — wall-clock aligned via `scheduleDaily`/`scheduleWeekly`
+10. Register graceful shutdown handlers (close queues, Redis, DB, cancel scheduled tasks)
 
 ## Common Gotchas
 - **API list endpoints return raw arrays**: All GET endpoints that return collections (`/api/calls`, `/api/employees`, `/api/access-requests`, `/api/coaching`, `/api/prompt-templates`, `/api/admin/users`, `/api/api-keys`, `/api/feedback`) return raw `T[]` arrays. Do NOT wrap responses in pagination objects (`{ data, total, limit, offset, hasMore }`) — all frontend consumers expect raw arrays and will crash if they receive wrapper objects (`.filter()` / `.map()` on non-arrays causes ErrorBoundary). The `paginateArray()` helper in `server/routes/helpers.ts` exists but is currently unused
@@ -1203,7 +1217,7 @@ Server serves both API and static frontend from the same process.
 - **Clinical note PHI encryption**: PHI fields (subjective, objective, assessment, HPI) are encrypted with AES-256-GCM before storage and decrypted on retrieval in clinical routes. `encryptField()` **throws in production** if `PHI_ENCRYPTION_KEY` is not set — never stores plaintext PHI in production. `decryptClinicalNotePhi()` accepts an optional `PhiDecryptionContext` for HIPAA audit logging of every decryption event
 - **EHR adapters**: Open Dental uses developer key + customer key auth; Eaglesoft uses eDex API with X-API-Key header. Config stored in `org.settings.ehrConfig`
 - **Document versioning is a linked list**: Each `ReferenceDocument` has `previousVersionId` pointing to its predecessor. Creating a new version deactivates the old one (`isActive: false`) and purges its chunks. Version history is reconstructed by walking `previousVersionId` chain + scanning for forward references
-- **RAG citations are fire-and-forget**: `consumeRagCitations()` returns the last citations produced by `loadReferenceContext()` and clears them. This avoids passing citation data through the entire prompt template pipeline. Citations are attached to `confidenceFactors.ragCitations[]` in the analysis
+- **RAG citations flow through return values**: `loadReferenceContext()` returns `{ documents, citations }`, `loadPromptTemplate()` returns `{ template, citations }`, and `runAiAnalysis()` returns `{ aiAnalysis, citations }`. Citations are threaded per-call through the return chain (no module-global state). Attached to `confidenceFactors.ragCitations[]` in the analysis
 - **Web URL sources use native fetch**: No Cheerio/Puppeteer dependency — HTML is stripped via regex (script/style/nav/footer/header tags removed, then all tags stripped). Sufficient for most documentation pages. 15-second timeout prevents hanging on slow servers
 - **Blind calibration is route-level enforcement**: `blindMode` is stored on the session, but score visibility is enforced in the GET endpoint — if `blindMode && status !== "completed"`, only the requesting user's evaluation is returned. This avoids needing separate database queries or access control tables
 - **Evaluator certification thresholds**: Certified = 5+ sessions with avgDeviation < 1.0 from consensus. Probationary = 3+ sessions with avgDeviation < 2.0. Flagged = 3+ sessions with avgDeviation >= 2.0. Trend detection compares last 3 deviations vs prior 3 (±0.3 threshold)
@@ -1241,6 +1255,11 @@ Server serves both API and static frontend from the same process.
 - **MFA grace period deadline is per-user**: `mfaEnrollmentDeadline` is set on each user when the org enables `mfaRequired`. Users created *after* `mfaRequiredEnabledAt` have a deadline of `createdAt + mfaGracePeriodDays`. Admins are NOT subject to the grace period — they must enable MFA immediately.
 - **Email OTP is viewer/manager only**: Admin accounts cannot use email OTP as a fallback. This is intentional — email OTP is lower security than TOTP/WebAuthn and admins have higher privilege. If an admin loses their TOTP device, they must use the recovery flow (email verification + admin approval from another admin or super-admin).
 - **OBS-AUTH-006**: New error code returned when an SSO user's session exceeds `ssoSessionMaxHours`. The response includes `requiresSso: true` so the frontend can redirect directly to `/api/auth/sso/{orgSlug}` instead of the generic login page.
+- **OBS-AUTH-008 login ambiguity**: When a username exists in multiple orgs, login returns 409 with `{ errorCode: "OBS-AUTH-008", orgSlugs: [...] }`. The frontend shows an org selector and re-submits with `{ username, password, orgSlug }`. The strategy uses `getOrganizationBySlug()` (not `listOrganizations()`) for the scoped lookup. Call sites that intentionally skip org-scoping (password-reset, OAuth, IDP-initiated SAML) are NOT affected — they still use `getUserByUsername()` without orgId.
+- **Cost estimation functions in `server/services/cost-estimation.ts`**: `estimateBedrockCost()` and `estimateAssemblyAICost()` are pure math functions with no external deps. Previously duplicated in routes/ab-testing.ts and imported by call-processing.ts and emails.ts from routes. Now canonical location is the service module; routes/ab-testing.ts imports from there.
+- **Utility functions in `server/utils/helpers.ts`**: `safeFloat`, `safeInt`, `withRetry`, `parseDateParam`, `parsePagination` moved from routes/helpers.ts to server/utils/helpers.ts. `routes/helpers.ts` re-exports them for backward compatibility — existing route-file imports are unchanged. Services import directly from `../utils/helpers`.
+- **Scheduled tasks use wall-clock UTC alignment**: `scheduleDaily(utcHour, fn)` and `scheduleWeekly(dayOfWeek, utcHour, fn)` in `server/scheduled/scheduler.ts` use setTimeout chains that recompute the delay after each run. Daily tasks run at 2:00 UTC, weekly digest at Monday 8:00 UTC. No setInterval drift.
+- **`APP_URL` is not used**: The canonical env var is `APP_BASE_URL`. `APP_URL` was previously referenced in 3 locations and has been replaced.
 - **Team scoping returns null for no restriction**: `getTeamScopedEmployeeIds()` returns `null` (not an empty Set) when there is no restriction — null means "unrestricted", an empty Set means "access to zero employees". Always check `if (teamIds !== null)` before filtering.
 - **Call share token only returned at creation**: `POST /api/calls/:id/shares` returns the full 48-hex token once. Subsequent `GET /api/calls/:id/shares` only returns `tokenPrefix` (first 8 chars) for display. This mirrors the API key pattern.
 - **Call shares in cloud.ts use in-memory token lookup**: `getCallShareByToken()` in CloudStorage searches an in-memory Map populated at `createCallShare()` time. In multi-instance deployments, replace with a dedicated S3 index or move to PostgreSQL.
