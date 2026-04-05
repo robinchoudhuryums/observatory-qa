@@ -394,9 +394,8 @@ export async function setupAuth(app: Express) {
           let dbUser;
 
           if (loginOrgSlug) {
-            // Scoped login — resolve org first, then lookup user within that org
-            const orgs = await storage.listOrganizations();
-            const targetOrg = orgs.find((o: any) => o.slug === loginOrgSlug);
+            // Scoped login — resolve org by slug, then lookup user within that org
+            const targetOrg = await storage.getOrganizationBySlug(loginOrgSlug);
             if (targetOrg) {
               dbUser = await storage.getUserByUsername(username, targetOrg.id);
             }
