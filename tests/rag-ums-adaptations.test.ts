@@ -19,8 +19,11 @@ import {
   computeConfidence,
   reconcileConfidence,
   expandQueryWithSynonyms,
+  classifyQueryRoute,
+  reformulateWithContext,
+  RESPONSE_STYLE_CONFIG,
 } from "../server/services/rag";
-import type { QueryType } from "../server/services/rag";
+import type { QueryType, ResponseStyle } from "../server/services/rag";
 import { chunkDocument, getCharsPerTokenForIndustry } from "../server/services/chunker";
 import { recordFaqQuery, getFaqAnalytics, getKnowledgeBaseGaps, getCrossOrgFaqPatterns } from "../server/services/faq-analytics";
 
@@ -373,5 +376,76 @@ describe("Industry-specific token ratios", () => {
   it("returns 4 for general/unknown", () => {
     assert.equal(getCharsPerTokenForIndustry("general"), 4);
     assert.equal(getCharsPerTokenForIndustry(undefined), 4);
+  });
+});
+
+// --- Structured Reference Short-Circuit ---
+
+describe("Query route classification", () => {
+  it("classifies structured queries", () => {
+    assert.equal(classifyQueryRoute("What are the evaluation criteria?"), "structured");
+    assert.equal(classifyQueryRoute("What are the required phrases?"), "structured");
+    assert.equal(classifyQueryRoute("How many documents are in the knowledge base?"), "structured");
+  });
+
+  it("classifies general queries as rag", () => {
+    assert.equal(classifyQueryRoute("How should I handle angry customers?"), "rag");
+    assert.equal(classifyQueryRoute("What does the handbook say about overtime?"), "rag");
+  });
+});
+
+// --- Query Reformulation ---
+
+describe("Query reformulation", () => {
+  it("returns original query when no history", () => {
+    assert.equal(reformulateWithContext("What is the policy?", []), "What is the policy?");
+  });
+
+  it("returns original query for non-follow-up", () => {
+    const history = [{ role: "user", content: "What is the cancellation policy?" }];
+    const result = reformulateWithContext("What are the scoring criteria for dental calls?", history);
+    assert.equal(result, "What are the scoring criteria for dental calls?");
+  });
+
+  it("reformulates follow-up questions with context", () => {
+    const history = [
+      { role: "user", content: "What is the cancellation policy?" },
+      { role: "assistant", content: "The cancellation policy requires 24 hours notice." },
+    ];
+    const result = reformulateWithContext("What about that for dental?", history);
+    assert.ok(result.includes("cancellation policy"), `Should include context: ${result}`);
+    assert.ok(result.includes("What about that for dental?"), `Should include original query: ${result}`);
+  });
+
+  it("detects follow-up patterns", () => {
+    const history = [{ role: "user", content: "Tell me about insurance" }];
+    // "And the coverage?" is short + contains "the" reference
+    const result = reformulateWithContext("And the coverage?", history);
+    assert.ok(result.length > "And the coverage?".length, "Should have been expanded with context");
+  });
+});
+
+// --- Response Style Configuration ---
+
+describe("Response style configuration", () => {
+  it("has all three styles", () => {
+    assert.ok(RESPONSE_STYLE_CONFIG.concise);
+    assert.ok(RESPONSE_STYLE_CONFIG.detailed);
+    assert.ok(RESPONSE_STYLE_CONFIG.comprehensive);
+  });
+
+  it("concise has lowest token limit", () => {
+    assert.ok(RESPONSE_STYLE_CONFIG.concise.maxTokens < RESPONSE_STYLE_CONFIG.detailed.maxTokens);
+    assert.ok(RESPONSE_STYLE_CONFIG.detailed.maxTokens < RESPONSE_STYLE_CONFIG.comprehensive.maxTokens);
+  });
+
+  it("concise retrieves fewer chunks", () => {
+    assert.ok(RESPONSE_STYLE_CONFIG.concise.topK < RESPONSE_STYLE_CONFIG.comprehensive.topK);
+  });
+
+  it("all styles have instructions", () => {
+    for (const style of ["concise", "detailed", "comprehensive"] as const) {
+      assert.ok(RESPONSE_STYLE_CONFIG[style].instruction.length > 10);
+    }
   });
 });

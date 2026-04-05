@@ -604,7 +604,13 @@ export function registerOnboardingRoutes(app: Express): void {
   app.post("/api/reference-documents/rag/search", requireAuth, injectOrgContext, async (req, res) => {
     try {
       const orgId = req.orgId!;
-      const { query, topK } = req.body;
+      const { query, topK, responseStyle: rawStyle } = req.body;
+
+      // Response style configuration (adapted from UMS)
+      const { RESPONSE_STYLE_CONFIG } = await import("../services/rag");
+      type ResponseStyle = "concise" | "detailed" | "comprehensive";
+      const responseStyle: ResponseStyle = (["concise", "detailed", "comprehensive"].includes(rawStyle) ? rawStyle : "detailed") as ResponseStyle;
+      const styleConfig = RESPONSE_STYLE_CONFIG[responseStyle];
 
       if (!query || typeof query !== "string") {
         return res.status(400).json({ message: "Query text is required" });
@@ -643,12 +649,15 @@ export function registerOnboardingRoutes(app: Express): void {
         return res.json({ chunks: [], formattedContext: "" });
       }
 
-      const chunks = await searchRelevantChunks(db as any, orgId, query, activeDocIds, { topK: topK || 6 });
+      const chunks = await searchRelevantChunks(db as any, orgId, query, activeDocIds, { topK: topK || styleConfig.topK });
 
       res.json({
         chunks,
         formattedContext: formatRetrievedContext(chunks),
         source: queryRoute === "hybrid" ? "hybrid" : "rag",
+        responseStyle,
+        maxTokens: styleConfig.maxTokens,
+        styleInstruction: styleConfig.instruction,
       });
     } catch (error: any) {
       if (error?.code === "RAG_INJECTION_BLOCKED") {

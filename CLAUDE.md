@@ -1246,7 +1246,7 @@ Server serves both API and static frontend from the same process.
 ### Branch: `claude/evaluate-qa-rag-integration-MrMze`
 
 #### ✅ Completed & committed: RAG improvements adapted from ums-knowledge-reference
-Cross-repository evaluation: identified patterns from the single-tenant UMS Knowledge Reference RAG tool that can improve Observatory QA's multi-tenant RAG subsystem. Implemented 8 improvements:
+Cross-repository evaluation: identified patterns from the single-tenant UMS Knowledge Reference RAG tool that can improve Observatory QA's multi-tenant RAG subsystem. Implemented 12 improvements (bidirectional):
 
 - **Adaptive query-type weights** (`rag.ts`) — `classifyQueryType()` classifies RAG queries into 4 types (template_lookup, compliance_question, coaching_question, general) with type-specific semantic/keyword weight balances. Auto-applied in `searchRelevantChunks()` unless caller overrides
 - **Confidence score reconciliation** (`rag.ts`) — `reconcileConfidence()` cross-checks LLM confidence tags against retrieval effective scores. Enhanced `computeConfidence()`: 65/35 top/avg blending (was 60/40), single-result 15% penalty, thresholds recalibrated to 0.42/0.30/0.15
@@ -1256,7 +1256,11 @@ Cross-repository evaluation: identified patterns from the single-tenant UMS Know
 - **Page number tracking** (`chunker.ts`) — `pageNumber` field on `DocumentChunk`. Form feed markers (`\f`) map char offsets to 1-indexed page numbers. Enhanced section header detection: numbered sections ("1.2.3 Title") and colon-suffixed headers ("Coverage Criteria:")
 - **Embedding Redis cache** (`embeddings.ts`) — Two-tier cache: L1 in-memory LRU + L2 Redis (1-hour TTL, `emb:titan:` prefix). Redis promotion to L1 on hit. Fire-and-forget writes. Graceful fallback when Redis unavailable
 - **Cross-org FAQ patterns** (`faq-analytics.ts`) — `getCrossOrgFaqPatterns()` aggregates query patterns across all tenants with 3-org minimum for anonymization. Surfaces common knowledge gaps for platform intelligence
-- **39 new tests** (`tests/rag-ums-adaptations.test.ts`) — query classification, adaptive weights, confidence reconciliation, synonym expansion (all 5 verticals), table preservation, page tracking, cross-org FAQ patterns, industry token ratios
+- **Structured reference short-circuit** (`rag.ts`, `onboarding.ts`) — `classifyQueryRoute()` detects pure metadata queries (template lookups, document counts) and answers directly from the database, saving 2-4 seconds and Bedrock costs. Falls through to RAG if structured answer not found
+- **Query reformulation** (`rag.ts`) — `reformulateWithContext()` detects follow-up questions (short queries with pronouns) and prepends conversation context for standalone embedding/search
+- **Bedrock prompt caching** (`bedrock.ts`) — `cachePoint` block in Converse API system prompt enables Bedrock to cache system prompt prefix across requests, reducing input token costs by up to 90%
+- **Response style configuration** (`rag.ts`, `onboarding.ts`) — `RESPONSE_STYLE_CONFIG` with concise (2K tokens, 4 chunks), detailed (4K, 6 chunks), and comprehensive (8K, 10 chunks) presets. RAG search endpoint accepts `responseStyle` parameter
+- **49 tests** (`tests/rag-ums-adaptations.test.ts`) — query classification, adaptive weights, confidence reconciliation, synonym expansion, table preservation, page tracking, cross-org FAQ, query routing, reformulation, response styles
 
 ### Branch: `claude/codebase-audit-evaluation-MhG8w`
 
