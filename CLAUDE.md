@@ -1248,6 +1248,51 @@ Server serves both API and static frontend from the same process.
 
 ## In-Progress Work (resume here in a new session)
 
+### Branch: `claude/audit-and-prioritize-GydTL`
+
+#### ✅ Completed & committed: Comprehensive codebase audit & priority fixes (3 commits)
+Full audit of 108K LOC across 360 files with priority-ordered ratings and fixes.
+
+**Commit 1 — Server-side security & cleanup:**
+- **CSRF bypass fix** — changed from checking any `x-api-key` header to requiring `Bearer obs_k_` prefix; added CSRF exemptions for SCIM, SSO callback, AssemblyAI webhook
+- **WAF crash fix** — wrapped `decodeURIComponent` in try-catch for malformed percent-encoding
+- **Dead code removal** — removed unused `SESSION_ABSOLUTE_MAX_MS` local declaration in `setupAuth()`
+- **LRU cache** — replaced FIFO orgCache Map with proper `LruCache` utility in `auth.ts`
+- **Pagination fix** — applied unused `parsePagination` limit/offset to coaching endpoint response
+
+**Commit 2 — Tenant isolation fixes:**
+- **Missing `injectOrgContext` on marketing routes** — all 13 routes were bypassing org suspension/deletion checks
+- **Missing `injectOrgContext` on LMS routes** — all 16 routes had the same tenant isolation bypass
+- **AssemblyAI webhook empty-token bypass** — now rejects requests when no secret is configured (was silently accepting all payloads)
+- **SSO session cache optimization** — `requireAuth` SSO check now uses `getCachedOrganization()` instead of direct DB call
+
+**Commit 3 — Client-side fixes:**
+- **CSRF cookie name mismatch** — `file-upload.tsx` was reading `csrf_token` (underscore) but server sets `csrf-token` (hyphen); XHR uploads had no CSRF protection
+- **Idle timeout warning bypass** — any mouse movement dismissed the 2-min warning; now requires explicit "Stay Logged In" click (HIPAA compliance)
+- **ErrorBoundary wrong route** — "Go to Dashboard" button navigated to `/dashboard` which doesn't exist (dashboard is at `/`)
+
+#### Remaining issues identified (not yet fixed)
+**P1 (High):**
+- Rate limit key uses `req.path` with UUIDs making PHI rate limits per-call-ID instead of per-endpoint
+- Sessions not invalidated after password reset (old session stays active)
+- Invitation tokens stored in plaintext (API keys and reset tokens are hashed)
+- Super-admin N+1 queries (300+ DB queries per request for 100 orgs)
+- `checkAndAwardBadges` loads ALL org calls into memory for badge checks
+- Analytics routes load unbounded datasets (OOM risk for large orgs)
+
+**P1 (Client):**
+- Multiple pages make direct `fetch()` POST calls without CSRF headers (transcript-viewer, clinical pages, reports, ab-testing, onboarding, feedback-widget)
+- `AudioRecorder` cleanup stale closure doesn't revoke blob URL on unmount
+
+**P2 (Medium):**
+- 426 `as any` casts across 68 server files
+- 290 ESLint `no-unused-vars` warnings
+- Duplicate URL validation utilities (`url-validation.ts` + `url-validator.ts`)
+- Live session Maps have no hard cap (7 unbounded Maps)
+- `request-metrics.ts` unbounded key growth (each UUID creates a new key)
+- Missing `htmlFor`/`id` pairing on multiple form labels (a11y)
+- `useIsMobile` returns false on first render causing layout shift on mobile
+
 ### Branch: `claude/evaluate-qa-rag-integration-MrMze`
 
 #### ✅ Completed & committed: RAG improvements adapted from ums-knowledge-reference
