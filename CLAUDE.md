@@ -152,7 +152,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/bedrock-batch.test.ts` — Bedrock batch inference (shouldUseBatchMode, isBatchAvailable, org settings validation, 15 tests)
   - `tests/prompt-injection-pipeline.test.ts` — Transcript injection detection + output guardrails + orphan recovery (16 tests)
   - `tests/remaining-adaptations.test.ts` — Performance snapshots, SSRF validation, scheduled reports (21 tests)
-  - `tests/rag-ums-adaptations.test.ts` — RAG improvements adapted from ums-knowledge-reference: adaptive query-type weights, confidence reconciliation, domain synonym expansion, table-aware chunking, page tracking, cross-org FAQ patterns (39 tests)
+  - `tests/rag-ums-adaptations.test.ts` — RAG improvements adapted from ums-knowledge-reference: adaptive query-type weights, confidence reconciliation, domain synonym expansion, table-aware chunking, page tracking, cross-org FAQ patterns, structured short-circuit, query reformulation, response styles (49 tests)
 - **E2E test files** (12 specs):
   - `tests/e2e/fixtures.ts` — **Per-worker auth fixtures** (`adminTest`, `viewerTest`) — each worker registers unique org via `/api/auth/register`; falls back to env-var admin
   - `tests/e2e/auth.spec.ts` — Login, landing page
@@ -447,6 +447,11 @@ Reference documents uploaded by orgs are processed through:
 7. **Confidence reconciliation** — retrieval scores reconciled with LLM-stated confidence tags: downgrades overconfident LLM responses when retrieval is weak, upgrades conservative responses when retrieval is strong (`reconcileConfidence()`)
 8. **Observability** (`rag-trace.ts`) — per-query traces with timing breakdown (embedding/retrieval/rerank), per-chunk IDs and scores, query type classification, weight tracking, confidence reconciliation status
 9. **FAQ analytics** (`faq-analytics.ts`) — per-org query frequency tracking with knowledge base gap detection. **Cross-org anonymized patterns** for platform-level intelligence (requires 3+ orgs asking same question to prevent de-anonymization)
+
+10. **Structured short-circuit** (`rag.ts`) — `classifyQueryRoute()` detects pure metadata queries (template criteria, document counts) and `getStructuredAnswer()` answers directly from the database, skipping the full RAG pipeline (2-4 second savings)
+11. **Query reformulation** (`rag.ts`) — `reformulateWithContext()` detects follow-up questions (short + pronoun patterns) and prepends conversation context for standalone embedding/search
+12. **Bedrock prompt caching** (`bedrock.ts`) — `cachePoint` block in Converse API system prompt enables up to 90% input token cost reduction on cache hits
+13. **Response style configuration** (`rag.ts`) — `RESPONSE_STYLE_CONFIG` with concise (2K tokens, 4 chunks), detailed (4K, 6, default), comprehensive (8K, 10). RAG search endpoint accepts `responseStyle` parameter
 
 RAG requires: PostgreSQL with pgvector extension + AWS credentials for Titan embeddings. Document indexing can run via BullMQ worker or in-process fallback.
 
@@ -1660,8 +1665,10 @@ Patterns adapted from the ums-knowledge-reference RAG tool for Observatory QA's 
 | MEDIUM | **Page number tracking** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — `pageNumber` field on `DocumentChunk`. Form feed (`\f`) markers map char offsets to page numbers (1-indexed). PDFs with page markers get citations like "Page 3, Section: Coverage Criteria" |
 | MEDIUM | **Embedding Redis cache** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — Two-tier cache: L1 in-memory LRU (200 entries, same instance) + L2 Redis (1-hour TTL, shared across instances). Redis promotion to L1 on hit. Fire-and-forget Redis writes. Graceful fallback when Redis unavailable |
 | MEDIUM | **Cross-org FAQ patterns** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — `getCrossOrgFaqPatterns()` aggregates query patterns across all tenants. Requires 3+ orgs asking same question for anonymization. Surfaces common knowledge gaps for platform-level intelligence (informing default templates, onboarding suggestions) |
-| LOW | **Structured reference short-circuit** | Planned | Skip full RAG pipeline for pure metadata lookups (template names, scoring criteria). Adapted from UMS's query classification that routes structured queries directly to reference data |
-| LOW | **Query reformulation** | Planned | For future conversational KB interface: reformulate follow-up questions into standalone queries using conversation history (last 4 turns verbatim, older summarized) |
+| MEDIUM | **Structured reference short-circuit** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — `classifyQueryRoute()` detects pure metadata queries (template lookups, document counts) and `getStructuredAnswer()` answers directly from DB. Saves 2-4 seconds and Bedrock costs. Falls through to RAG if not found |
+| MEDIUM | **Query reformulation** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — `reformulateWithContext()` detects follow-up questions via pronoun/reference patterns (short + "that/this/it/them/also/more") and prepends conversation context. Last 4 turns verbatim, older summarized |
+| MEDIUM | **Bedrock prompt caching** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — `cachePoint` block in Converse API system prompt enables Bedrock to cache system prompt prefix across requests, reducing input token costs by up to 90%. Token logging tracks cache hit/miss/write status |
+| MEDIUM | **Response style configuration** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — `RESPONSE_STYLE_CONFIG` with concise (2K tokens, 4 chunks), detailed (4K, 6 chunks, default), comprehensive (8K, 10 chunks). RAG search endpoint accepts `responseStyle` parameter. Adapted from UMS's STYLE_CONFIG pattern |
 
 ## Improvement Backlog (Multi-Sprint)
 
