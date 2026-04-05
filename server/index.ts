@@ -215,8 +215,22 @@ app.use((req, res, next) => {
   // Skip CSRF for Stripe webhooks (uses its own signature verification)
   if (req.path === "/api/billing/webhook") return next();
 
-  // Skip CSRF for API key authenticated requests (no browser session)
-  if (req.headers["x-api-key"]) return next();
+  // Skip CSRF for API key authenticated requests (no browser session).
+  // Only skip when the request carries a properly-formatted Bearer token that
+  // will be validated by apiKeyAuth middleware. Checking for the specific prefix
+  // prevents attackers from bypassing CSRF with an arbitrary header value while
+  // the session cookie authenticates the request.
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith("Bearer obs_k_")) return next();
+
+  // Skip CSRF for SCIM endpoints (use their own Bearer token auth, not browser sessions)
+  if (req.path.startsWith("/api/scim/")) return next();
+
+  // Skip CSRF for SSO callbacks (POST from IDP, not browser-initiated)
+  if (req.path.startsWith("/api/auth/sso/callback")) return next();
+
+  // Skip CSRF for AssemblyAI webhooks (verified via token header)
+  if (req.path === "/api/webhooks/assemblyai") return next();
 
   // Skip CSRF for login/register/forgot-password (pre-auth, no session yet)
   const csrfExemptPaths = [

@@ -291,8 +291,6 @@ export async function setupAuth(app: Express) {
 
   // HIPAA: 15-minute idle timeout (addressable requirement, standard in healthcare)
   const SESSION_IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
-  // HIPAA: 8-hour absolute session maximum regardless of activity
-  const SESSION_ABSOLUTE_MAX_MS = 8 * 60 * 60 * 1000; // 8 hours
 
   // Prefer Redis session store (distributed, survives restarts)
   // Falls back to MemoryStore if Redis unavailable
@@ -692,25 +690,22 @@ export const requireOrgContext: RequestHandler = (req: Request, res: Response, n
 /**
  * Per-request org settings cache.
  * Avoids repeated getOrganization() DB hits within the same request lifecycle.
- * Uses a simple LRU approach with TTL for cross-request caching.
+ * Uses LRU cache with TTL for cross-request caching.
  */
-const orgCache = new Map<string, { org: any; expiresAt: number }>();
+import { LruCache } from "./utils/lru-cache";
+
 const ORG_CACHE_TTL_MS = 30_000; // 30 seconds
 const ORG_CACHE_MAX_SIZE = 200;
+const orgCache = new LruCache<any>({ maxSize: ORG_CACHE_MAX_SIZE, ttlMs: ORG_CACHE_TTL_MS });
 
 export async function getCachedOrganization(orgId: string): Promise<any | undefined> {
   const cached = orgCache.get(orgId);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.org;
+  if (cached !== undefined) {
+    return cached;
   }
   const org = await storage.getOrganization(orgId);
   if (org) {
-    // Evict oldest entries if at capacity
-    if (orgCache.size >= ORG_CACHE_MAX_SIZE) {
-      const firstKey = orgCache.keys().next().value;
-      if (firstKey) orgCache.delete(firstKey);
-    }
-    orgCache.set(orgId, { org, expiresAt: Date.now() + ORG_CACHE_TTL_MS });
+    orgCache.set(orgId, org);
   }
   return org;
 }

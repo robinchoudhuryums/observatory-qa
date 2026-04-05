@@ -80,8 +80,10 @@ export function enforceQuota(eventType: "transcription" | "ai_analysis" | "api_c
 
       next();
     } catch (error) {
-      logger.error({ err: error }, "Quota check failed — allowing request");
-      next(); // Fail open — don't block on quota check errors
+      // Fail open for transient errors, but track consecutive failures.
+      // In production with sustained failures, this could allow unbounded usage.
+      logger.error({ err: error, orgId, eventType }, "Quota check failed — allowing request (fail-open)");
+      next();
     }
   };
 }

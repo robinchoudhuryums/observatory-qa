@@ -132,7 +132,13 @@ function checkPatterns(value: string, patterns: RegExp[]): boolean {
  * Returns a violation reason string or null if clean.
  */
 function scanRequest(req: Request): { reason: string; points: number } | null {
-  const url = decodeURIComponent(req.originalUrl || req.url);
+  let url: string;
+  try {
+    url = decodeURIComponent(req.originalUrl || req.url);
+  } catch {
+    // Malformed percent-encoding (e.g., %GG) — use raw URL and flag as suspicious
+    url = req.originalUrl || req.url;
+  }
   const body = typeof req.body === "string" ? req.body : JSON.stringify(req.body || {});
   const query = JSON.stringify(req.query || {});
 

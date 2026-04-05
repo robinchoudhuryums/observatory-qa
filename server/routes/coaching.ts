@@ -53,7 +53,9 @@ export function registerCoachingRoutes(app: Express): void {
       const sorted = enriched.sort(
         (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
       );
-      res.json(sorted);
+      // Apply pagination (limit/offset from query params)
+      const paginated = sorted.slice(offset, offset + limit);
+      res.json(paginated);
     } catch (error) {
       logger.error({ err: error }, "Failed to fetch coaching sessions");
       res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to fetch coaching sessions"));
