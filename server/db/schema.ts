@@ -68,6 +68,12 @@ export const users = pgTable(
     mfaEnabled: boolean("mfa_enabled").notNull().default(false),
     mfaSecret: text("mfa_secret"), // Encrypted TOTP secret (AES-256-GCM)
     mfaBackupCodes: jsonb("mfa_backup_codes").$type<string[]>(), // Hashed backup codes
+    // WebAuthn/Passkeys (FIDO2) — stored as JSONB array of credential objects
+    webauthnCredentials: jsonb("webauthn_credentials").$type<Array<Record<string, unknown>>>(),
+    // Trusted MFA devices — JSONB array of {tokenHash, name, expiresAt}
+    mfaTrustedDevices: jsonb("mfa_trusted_devices").$type<Array<Record<string, unknown>>>(),
+    // MFA enrollment deadline — per-user deadline when org requires MFA
+    mfaEnrollmentDeadline: text("mfa_enrollment_deadline"),
     // Team scope: when set on a manager, limits their view to employees in this subTeam only
     subTeam: varchar("sub_team", { length: 255 }),
     createdAt: timestamp("created_at").defaultNow(),

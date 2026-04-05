@@ -42,7 +42,8 @@ const MAX_REF_DOC_CACHE_ENTRIES = 1_000;
 
 // Prompt template cache — avoids DB lookup on every call for the same org+category
 const PROMPT_TEMPLATE_CACHE_TTL_MS = 5 * 60 * 1000;
-const promptTemplateCache = new Map<string, { template: any; expiresAt: number }>();
+const MAX_PROMPT_TEMPLATE_CACHE_ENTRIES = 500;
+const promptTemplateCache = new LruCache<any>({ maxSize: MAX_PROMPT_TEMPLATE_CACHE_ENTRIES, ttlMs: PROMPT_TEMPLATE_CACHE_TTL_MS });
 
 type RefDocList = Array<{ name: string; category: string; extractedText?: string | null; id: string }>;
 
@@ -289,8 +290,8 @@ async function loadPromptTemplate(
   if (callCategory) {
     const cacheKey = `${orgId}:${callCategory}`;
     const cached = promptTemplateCache.get(cacheKey);
-    if (cached && Date.now() < cached.expiresAt) {
-      template = cached.template ? { ...cached.template } : undefined;
+    if (cached !== undefined) {
+      template = cached ? { ...cached } : undefined;
     } else {
       try {
         const tmpl = await storage.getPromptTemplateByCategory(orgId, callCategory);
@@ -303,7 +304,7 @@ async function loadPromptTemplate(
           };
           logger.info({ callId, templateName: tmpl.name }, "Using custom prompt template");
         }
-        promptTemplateCache.set(cacheKey, { template: template || null, expiresAt: Date.now() + PROMPT_TEMPLATE_CACHE_TTL_MS });
+        promptTemplateCache.set(cacheKey, template || null);
       } catch (err) {
         logger.warn({ callId, err }, "Failed to load prompt template (using defaults)");
       }
