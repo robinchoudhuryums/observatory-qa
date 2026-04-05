@@ -7,9 +7,27 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
-function getCsrfToken(): string {
+export function getCsrfToken(): string {
   const match = document.cookie.match(/csrf-token=([^;]+)/);
   return match ? match[1] : "";
+}
+
+/**
+ * Drop-in replacement for fetch() that auto-attaches CSRF token header
+ * on mutating requests (POST/PUT/PATCH/DELETE). Use this instead of raw
+ * fetch() for any API call that modifies state.
+ *
+ * Unlike apiRequest(), this does NOT throw on non-2xx responses — it
+ * returns the raw Response just like fetch(), so callers can handle
+ * errors themselves.
+ */
+export function csrfFetch(url: string, init?: RequestInit): Promise<Response> {
+  const method = (init?.method || "GET").toUpperCase();
+  const headers = new Headers(init?.headers);
+  if (!["GET", "HEAD", "OPTIONS"].includes(method) && !headers.has("X-CSRF-Token")) {
+    headers.set("X-CSRF-Token", getCsrfToken());
+  }
+  return fetch(url, { ...init, headers, credentials: "include" });
 }
 
 export async function apiRequest(method: string, url: string, data?: unknown | undefined): Promise<Response> {

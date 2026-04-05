@@ -27,6 +27,7 @@ import {
 import { isEmbeddingAvailable } from "../services/embeddings";
 import { invalidateRefDocCache } from "./calls";
 import { validateUrl } from "../utils/url-validation";
+import { asyncHandler } from "../middleware/error-handler";
 
 // Configure multer for logo + document uploads
 const onboardingUploadsDir = "uploads/onboarding";
@@ -235,7 +236,7 @@ export function registerOnboardingRoutes(app: Express): void {
     requireRole("admin"),
     injectOrgContext,
     logoUpload.single("logo"),
-    async (req, res) => {
+    asyncHandler(async (req, res) => {
       if (!req.file) {
         return res.status(400).json({ message: "No logo file provided" });
       }
@@ -297,18 +298,14 @@ export function registerOnboardingRoutes(app: Express): void {
           extractedColors: colors,
           branding: newBranding,
         });
-      } catch (error) {
-        logger.error({ err: error }, "Logo upload failed");
-        res.status(500).json({ message: "Failed to upload logo" });
       } finally {
         cleanupFile(filePath);
       }
-    },
+    }),
   );
 
   // --- Serve logo ---
-  app.get("/api/onboarding/logo/serve", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/onboarding/logo/serve", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const org = await storage.getOrganization(req.orgId!);
       const storagePath = (org?.settings?.branding as any)?.logoStoragePath;
       if (!storagePath || !objectStorage) {
@@ -333,10 +330,7 @@ export function registerOnboardingRoutes(app: Express): void {
       res.setHeader("Content-Type", mimeMap[ext] || "image/png");
       res.setHeader("Cache-Control", "public, max-age=3600");
       res.send(buffer);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to serve logo" });
-    }
-  });
+  }));
 
   // --- Upload reference document ---
   app.post(
@@ -345,7 +339,7 @@ export function registerOnboardingRoutes(app: Express): void {
     requireRole("admin"),
     injectOrgContext,
     docUpload.single("document"),
-    async (req, res) => {
+    asyncHandler(async (req, res) => {
       if (!req.file) {
         return res.status(400).json({ message: "No document file provided" });
       }
@@ -428,18 +422,14 @@ export function registerOnboardingRoutes(app: Express): void {
         }
 
         res.status(201).json(doc);
-      } catch (error) {
-        logger.error({ err: error }, "Document upload failed");
-        res.status(500).json({ message: "Failed to upload document" });
       } finally {
         cleanupFile(filePath);
       }
-    },
+    }),
   );
 
   // --- List reference documents ---
-  app.get("/api/reference-documents", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/reference-documents", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const docs = await storage.listReferenceDocuments(req.orgId!);
       // Don't send extractedText in list response (can be large)
       res.json(
@@ -448,25 +438,17 @@ export function registerOnboardingRoutes(app: Express): void {
           extractedText: d.extractedText ? `[${d.extractedText.length} chars]` : undefined,
         })),
       );
-    } catch (error) {
-      res.status(500).json({ message: "Failed to list documents" });
-    }
-  });
+  }));
 
   // --- Get reference document details ---
-  app.get("/api/reference-documents/:id", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/reference-documents/:id", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const doc = await storage.getReferenceDocument(req.orgId!, req.params.id);
       if (!doc) return res.status(404).json({ message: "Document not found" });
       res.json(doc);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to get document" });
-    }
-  });
+  }));
 
   // --- Update reference document metadata ---
-  app.patch("/api/reference-documents/:id", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
+  app.patch("/api/reference-documents/:id", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
       const { name, category, description, appliesTo, isActive } = req.body;
       const updates: Record<string, unknown> = {};
       if (name) updates.name = name;
@@ -478,14 +460,10 @@ export function registerOnboardingRoutes(app: Express): void {
       const doc = await storage.updateReferenceDocument(req.orgId!, req.params.id, updates);
       if (!doc) return res.status(404).json({ message: "Document not found" });
       res.json(doc);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to update document" });
-    }
-  });
+  }));
 
   // --- Delete reference document ---
-  app.delete("/api/reference-documents/:id", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
+  app.delete("/api/reference-documents/:id", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
       const doc = await storage.getReferenceDocument(req.orgId!, req.params.id);
       if (!doc) return res.status(404).json({ message: "Document not found" });
 
@@ -514,14 +492,10 @@ export function registerOnboardingRoutes(app: Express): void {
       await storage.deleteReferenceDocument(req.orgId!, req.params.id);
       invalidateRefDocCache(req.orgId!);
       res.json({ message: "Document deleted" });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to delete document" });
-    }
-  });
+  }));
 
   // --- RAG: Get indexing status for org's documents ---
-  app.get("/api/reference-documents/rag/status", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/reference-documents/rag/status", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
 
       // Check plan tier
@@ -563,10 +537,7 @@ export function registerOnboardingRoutes(app: Express): void {
       }
 
       res.json(result);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to get RAG status" });
-    }
-  });
+  }));
 
   // --- RAG: Re-index a specific document ---
   app.post(
@@ -574,8 +545,7 @@ export function registerOnboardingRoutes(app: Express): void {
     requireAuth,
     requireRole("admin"),
     injectOrgContext,
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const orgId = req.orgId!;
         const doc = await storage.getReferenceDocument(orgId, req.params.id);
         if (!doc) return res.status(404).json({ message: "Document not found" });
@@ -594,15 +564,11 @@ export function registerOnboardingRoutes(app: Express): void {
         });
 
         res.json({ message: "Document re-indexing started", documentId: doc.id });
-      } catch (error) {
-        res.status(500).json({ message: "Failed to start re-indexing" });
-      }
-    },
+    }),
   );
 
   // --- RAG: Search knowledge base (preview/test) ---
-  app.post("/api/reference-documents/rag/search", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.post("/api/reference-documents/rag/search", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
       const { query, topK, responseStyle: rawStyle } = req.body;
 
@@ -649,25 +615,24 @@ export function registerOnboardingRoutes(app: Express): void {
         return res.json({ chunks: [], formattedContext: "" });
       }
 
-      const chunks = await searchRelevantChunks(db as any, orgId, query, activeDocIds, { topK: topK || styleConfig.topK });
+      try {
+        const chunks = await searchRelevantChunks(db as any, orgId, query, activeDocIds, { topK: topK || styleConfig.topK });
 
-      res.json({
-        chunks,
-        formattedContext: formatRetrievedContext(chunks),
-        source: queryRoute === "hybrid" ? "hybrid" : "rag",
-        responseStyle,
-        maxTokens: styleConfig.maxTokens,
-        styleInstruction: styleConfig.instruction,
-      });
-    } catch (error: any) {
-      if (error?.code === "RAG_INJECTION_BLOCKED") {
-        res.status(400).json({ message: "Query blocked for safety reasons. Please rephrase your search." });
-        return;
+        res.json({
+          chunks,
+          formattedContext: formatRetrievedContext(chunks),
+          source: queryRoute === "hybrid" ? "hybrid" : "rag",
+          responseStyle,
+          maxTokens: styleConfig.maxTokens,
+          styleInstruction: styleConfig.instruction,
+        });
+      } catch (error: any) {
+        if (error?.code === "RAG_INJECTION_BLOCKED") {
+          return res.status(400).json({ message: "Query blocked for safety reasons. Please rephrase your search." });
+        }
+        throw error;
       }
-      logger.error({ err: error }, "RAG search failed");
-      res.status(500).json({ message: "RAG search failed" });
-    }
-  });
+  }));
 
   // --- Document versioning: create a new version of a document ---
   app.post(
@@ -676,7 +641,7 @@ export function registerOnboardingRoutes(app: Express): void {
     requireRole("admin"),
     injectOrgContext,
     docUpload.single("document"),
-    async (req, res) => {
+    asyncHandler(async (req, res) => {
       if (!req.file) {
         return res.status(400).json({ message: "No document file provided" });
       }
@@ -756,18 +721,14 @@ export function registerOnboardingRoutes(app: Express): void {
         }
 
         res.status(201).json(newDoc);
-      } catch (error) {
-        logger.error({ err: error }, "Document versioning failed");
-        res.status(500).json({ message: "Failed to create document version" });
       } finally {
         cleanupFile(filePath);
       }
-    },
+    }),
   );
 
   // --- Get version history for a document ---
-  app.get("/api/reference-documents/:id/versions", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/reference-documents/:id/versions", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
       const doc = await storage.getReferenceDocument(orgId, req.params.id);
       if (!doc) return res.status(404).json({ message: "Document not found" });
@@ -835,14 +796,10 @@ export function registerOnboardingRoutes(app: Express): void {
       // Sort by version descending
       versions.sort((a, b) => b.version - a.version);
       res.json(versions);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to get version history" });
-    }
-  });
+  }));
 
   // --- Chunk preview: view how a document was chunked ---
-  app.get("/api/reference-documents/:id/chunks", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/reference-documents/:id/chunks", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
       const doc = await storage.getReferenceDocument(orgId, req.params.id);
       if (!doc) return res.status(404).json({ message: "Document not found" });
@@ -864,10 +821,7 @@ export function registerOnboardingRoutes(app: Express): void {
         documentName: doc.name,
         ...result,
       });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to get document chunks" });
-    }
-  });
+  }));
 
   // --- Knowledge base analytics ---
   app.get(
@@ -875,8 +829,7 @@ export function registerOnboardingRoutes(app: Express): void {
     requireAuth,
     requireRole("admin"),
     injectOrgContext,
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const orgId = req.orgId!;
 
         if (!process.env.DATABASE_URL) {
@@ -889,15 +842,11 @@ export function registerOnboardingRoutes(app: Express): void {
 
         const analytics = await getKnowledgeBaseAnalytics(db as any, orgId);
         res.json(analytics);
-      } catch (error) {
-        res.status(500).json({ message: "Failed to get analytics" });
-      }
-    },
+    }),
   );
 
   // --- Web URL source: crawl a URL and add as reference document ---
-  app.post("/api/reference-documents/url", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
+  app.post("/api/reference-documents/url", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
       const { url, name, category, description, appliesTo } = req.body;
 
@@ -1017,15 +966,10 @@ export function registerOnboardingRoutes(app: Express): void {
       });
 
       res.status(201).json(doc);
-    } catch (error) {
-      logger.error({ err: error }, "URL source creation failed");
-      res.status(500).json({ message: "Failed to create URL source" });
-    }
-  });
+  }));
 
   // --- Mark onboarding as completed ---
-  app.post("/api/onboarding/complete", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
+  app.post("/api/onboarding/complete", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
       const org = await storage.getOrganization(req.orgId!);
       const settings = (org?.settings || {}) as Record<string, any>;
       const branding = (settings.branding || {}) as Record<string, any>;
@@ -1043,8 +987,5 @@ export function registerOnboardingRoutes(app: Express): void {
       });
 
       res.json({ message: "Onboarding marked as completed" });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to complete onboarding" });
-    }
-  });
+  }));
 }

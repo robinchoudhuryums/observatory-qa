@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, csrfFetch } from "@/lib/queryClient";
 import type { ClinicalNote } from "@shared/schema";
 import {
   RiStethoscopeLine,
@@ -105,7 +105,7 @@ export default function ClinicalNotesPage() {
 
   const attestMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`/api/clinical/notes/${callId}/attest`, {
+      const res = await csrfFetch(`/api/clinical/notes/${callId}/attest`, {
         method: "POST",
         credentials: "include",
       });
@@ -123,7 +123,7 @@ export default function ClinicalNotesPage() {
 
   const consentMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`/api/clinical/notes/${callId}/consent`, {
+      const res = await csrfFetch(`/api/clinical/notes/${callId}/consent`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -160,7 +160,7 @@ export default function ClinicalNotesPage() {
 
   const feedbackMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`/api/clinical/notes/${callId}/feedback`, {
+      const res = await csrfFetch(`/api/clinical/notes/${callId}/feedback`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

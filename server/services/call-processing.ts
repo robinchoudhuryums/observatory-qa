@@ -42,7 +42,8 @@ const MAX_REF_DOC_CACHE_ENTRIES = 1_000;
 
 // Prompt template cache — avoids DB lookup on every call for the same org+category
 const PROMPT_TEMPLATE_CACHE_TTL_MS = 5 * 60 * 1000;
-const promptTemplateCache = new Map<string, { template: any; expiresAt: number }>();
+const MAX_PROMPT_TEMPLATE_CACHE_ENTRIES = 500;
+const promptTemplateCache = new LruCache<any>({ maxSize: MAX_PROMPT_TEMPLATE_CACHE_ENTRIES, ttlMs: PROMPT_TEMPLATE_CACHE_TTL_MS });
 
 type RefDocList = Array<{ name: string; category: string; extractedText?: string | null; id: string }>;
 
@@ -289,8 +290,8 @@ async function loadPromptTemplate(
   if (callCategory) {
     const cacheKey = `${orgId}:${callCategory}`;
     const cached = promptTemplateCache.get(cacheKey);
-    if (cached && Date.now() < cached.expiresAt) {
-      template = cached.template ? { ...cached.template } : undefined;
+    if (cached !== undefined) {
+      template = cached ? { ...cached } : undefined;
     } else {
       try {
         const tmpl = await storage.getPromptTemplateByCategory(orgId, callCategory);
@@ -303,7 +304,7 @@ async function loadPromptTemplate(
           };
           logger.info({ callId, templateName: tmpl.name }, "Using custom prompt template");
         }
-        promptTemplateCache.set(cacheKey, { template: template || null, expiresAt: Date.now() + PROMPT_TEMPLATE_CACHE_TTL_MS });
+        promptTemplateCache.set(cacheKey, template || null);
       } catch (err) {
         logger.warn({ callId, err }, "Failed to load prompt template (using defaults)");
       }
@@ -580,22 +581,24 @@ export async function continueAfterTranscription(
   const transcriptText = transcriptResponse.text || "";
   if (transcriptText.trim().length < 10) {
     logger.warn({ callId, textLen: transcriptText.length }, "Empty/too-short transcript in continueAfterTranscription");
-    await storage.updateCall(orgId, callId, {
-      status: "completed",
-      tags: ["empty_transcript"],
+    await storage.withTransaction(async () => {
+      await storage.updateCall(orgId, callId, {
+        status: "completed",
+        tags: ["empty_transcript"],
+      });
+      // Store minimal transcript so the call is queryable
+      try {
+        await storage.createTranscript(orgId, {
+          orgId,
+          callId,
+          text: transcriptText,
+          confidence: 0.1,
+          words: [],
+        } as any);
+      } catch {
+        // Transcript may already exist from a prior attempt — non-fatal
+      }
     });
-    // Store minimal transcript so the call is queryable
-    try {
-      await storage.createTranscript(orgId, {
-        orgId,
-        callId,
-        text: transcriptText,
-        confidence: 0.1,
-        words: [],
-      } as any);
-    } catch {
-      // Transcript may already exist from a prior attempt — non-fatal
-    }
     broadcastCallUpdate(callId, "completed", { label: "Empty transcript" }, orgId);
     return;
   }
@@ -629,15 +632,14 @@ export async function continueAfterTranscription(
           (orgBatchSettings as any)?.defaultSpeakerRoles,
         );
 
-        await Promise.allSettled([
-          storage.createTranscript(orgId, transcript),
-          storage.createSentimentAnalysis(orgId, sentiment),
-          storage.createCallAnalysis(orgId, analysis),
-        ]);
-
-        await storage.updateCall(orgId, callId, {
-          status: "completed",
-          tags: ["awaiting_batch_analysis"],
+        await storage.withTransaction(async () => {
+          await storage.createTranscript(orgId, transcript);
+          await storage.createSentimentAnalysis(orgId, sentiment);
+          await storage.createCallAnalysis(orgId, analysis);
+          await storage.updateCall(orgId, callId, {
+            status: "completed",
+            tags: ["awaiting_batch_analysis"],
+          });
         });
 
         broadcastCallUpdate(
@@ -781,30 +783,12 @@ export async function continueAfterTranscription(
     const rawFlags: string[] = Array.isArray(analysis.flags) ? [...(analysis.flags as string[])] : [];
     analysis.flags = enforceServerFlags(rawFlags, confidence.score, safeFloat(analysis.performanceScore));
 
-    // Step 6: Store results — use allSettled to avoid losing all data when one write fails.
-    // A missing sentiment row is recoverable; losing all three results is not.
+    // Step 6: Store results atomically — transcript, sentiment, analysis, and
+    // status update all commit together or all roll back. This prevents orphaned
+    // transcript/sentiment records from partial failures leaving inconsistent state.
     broadcastCallUpdate(callId, "saving", { step: 6, totalSteps: 6, label: "Saving results..." }, orgId);
-    const [transcriptResult, sentimentResult, analysisResult] = await Promise.allSettled([
-      storage.createTranscript(orgId, transcript),
-      storage.createSentimentAnalysis(orgId, sentiment),
-      storage.createCallAnalysis(orgId, analysis),
-    ]);
-    const storageFailed: string[] = [];
-    if (transcriptResult.status === "rejected") storageFailed.push("transcript");
-    if (sentimentResult.status === "rejected") storageFailed.push("sentiment");
-    if (analysisResult.status === "rejected") storageFailed.push("analysis");
-    if (storageFailed.length > 0) {
-      logger.error(
-        { callId, orgId, failedComponents: storageFailed },
-        `Partial storage failure: ${storageFailed.join(", ")} failed to save`,
-      );
-      // If all three failed, this is unrecoverable — rethrow the first error
-      if (storageFailed.length === 3) {
-        throw (transcriptResult as PromiseRejectedResult).reason;
-      }
-    }
 
-    // Auto-assign employee
+    // Auto-assign employee (before transaction so we don't hold the tx open during lookup)
     const currentCall = await storage.getCall(orgId, callId);
     let assignedEmployeeId: string | undefined;
     if (!currentCall?.employeeId) {
@@ -818,15 +802,19 @@ export async function continueAfterTranscription(
       }
     }
 
-    // Update call status
     const callTags: string[] = [];
     if (!audioArchived) callTags.push("audio_missing");
 
-    await storage.updateCall(orgId, callId, {
-      status: "completed",
-      duration: callDuration,
-      ...(assignedEmployeeId ? { employeeId: assignedEmployeeId } : {}),
-      ...(callTags.length > 0 ? { tags: callTags } : {}),
+    await storage.withTransaction(async () => {
+      await storage.createTranscript(orgId, transcript);
+      await storage.createSentimentAnalysis(orgId, sentiment);
+      await storage.createCallAnalysis(orgId, analysis);
+      await storage.updateCall(orgId, callId, {
+        status: "completed",
+        duration: callDuration,
+        ...(assignedEmployeeId ? { employeeId: assignedEmployeeId } : {}),
+        ...(callTags.length > 0 ? { tags: callTags } : {}),
+      });
     });
 
     if (filePath) await cleanupFile(filePath);

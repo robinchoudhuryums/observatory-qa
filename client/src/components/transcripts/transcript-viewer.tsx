@@ -9,7 +9,7 @@ import { useBeforeUnload } from "@/hooks/use-before-unload";
 import { useToast } from "@/hooks/use-toast";
 import { toDisplayString } from "@/lib/display-utils";
 import type { CallWithDetails, AuthUser } from "@shared/schema";
-import { getQueryFn } from "@/lib/queryClient";
+import { getQueryFn, csrfFetch } from "@/lib/queryClient";
 import {
   RiPlayLine,
   RiPauseLine,
@@ -132,10 +132,9 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
 
   const editMutation = useMutation({
     mutationFn: async (payload: { updates: Record<string, any>; reason: string }) => {
-      const res = await fetch(`/api/calls/${callId}/analysis`, {
+      const res = await csrfFetch(`/api/calls/${callId}/analysis`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
@@ -153,9 +152,8 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
 
   const reanalyzeMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`/api/calls/${callId}/reanalyze`, {
+      const res = await csrfFetch(`/api/calls/${callId}/reanalyze`, {
         method: "POST",
-        credentials: "include",
       });
       if (!res.ok) {
         const err = await res.json();
@@ -170,10 +168,9 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
 
   const correctionMutation = useMutation({
     mutationFn: async (payload: { corrections: any[]; correctedText: string }) => {
-      const res = await fetch(`/api/calls/${callId}/transcript`, {
+      const res = await csrfFetch(`/api/calls/${callId}/transcript`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify(payload),
       });
       if (!res.ok) {

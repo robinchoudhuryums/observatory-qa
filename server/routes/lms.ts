@@ -110,7 +110,7 @@ export function registerLmsRoutes(app: Express): void {
   // --- Learning Modules ---
 
   /** GET /api/lms/modules — List all learning modules for the org */
-  app.get("/api/lms/modules", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/lms/modules", requireAuth, injectOrgContext, async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -124,7 +124,7 @@ export function registerLmsRoutes(app: Express): void {
   });
 
   /** GET /api/lms/modules/:id — Get a specific module */
-  app.get("/api/lms/modules/:id", requireAuth, validateUUIDParam(), async (req: Request, res: Response) => {
+  app.get("/api/lms/modules/:id", requireAuth, injectOrgContext, validateUUIDParam(), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -134,7 +134,7 @@ export function registerLmsRoutes(app: Express): void {
   });
 
   /** POST /api/lms/modules — Create a new learning module */
-  app.post("/api/lms/modules", requireAuth, requireRole("manager"), async (req: Request, res: Response) => {
+  app.post("/api/lms/modules", requireAuth, injectOrgContext, requireRole("manager"), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -272,7 +272,7 @@ export function registerLmsRoutes(app: Express): void {
    * POST /api/lms/modules/generate — AI-generate a learning module from a reference document.
    * Takes a reference document ID and generates structured learning content.
    */
-  app.post("/api/lms/modules/generate", requireAuth, requireRole("manager"), async (req: Request, res: Response) => {
+  app.post("/api/lms/modules/generate", requireAuth, injectOrgContext, requireRole("manager"), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -357,7 +357,7 @@ Respond with ONLY valid JSON (no markdown fences):
   // --- Learning Paths ---
 
   /** GET /api/lms/paths — List all learning paths */
-  app.get("/api/lms/paths", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/lms/paths", requireAuth, injectOrgContext, async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -366,7 +366,7 @@ Respond with ONLY valid JSON (no markdown fences):
   });
 
   /** GET /api/lms/paths/:id — Get a learning path with modules */
-  app.get("/api/lms/paths/:id", requireAuth, validateUUIDParam(), async (req: Request, res: Response) => {
+  app.get("/api/lms/paths/:id", requireAuth, injectOrgContext, validateUUIDParam(), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -383,7 +383,7 @@ Respond with ONLY valid JSON (no markdown fences):
   });
 
   /** POST /api/lms/paths — Create a learning path */
-  app.post("/api/lms/paths", requireAuth, requireRole("manager"), async (req: Request, res: Response) => {
+  app.post("/api/lms/paths", requireAuth, injectOrgContext, requireRole("manager"), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -476,7 +476,7 @@ Respond with ONLY valid JSON (no markdown fences):
   );
 
   /** POST /api/lms/progress — Update learning progress (start, complete, quiz score) */
-  app.post("/api/lms/progress", requireAuth, async (req: Request, res: Response) => {
+  app.post("/api/lms/progress", requireAuth, injectOrgContext, async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -675,7 +675,7 @@ Respond with ONLY valid JSON (no markdown fences):
    * GET /api/lms/paths/:id/progress/:employeeId — Get an employee's progress through a learning path.
    * Returns the path with per-module completion status.
    */
-  app.get("/api/lms/paths/:id/progress/:employeeId", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/lms/paths/:id/progress/:employeeId", requireAuth, injectOrgContext, async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -716,7 +716,7 @@ Respond with ONLY valid JSON (no markdown fences):
   // ── Bulk progress operations (manager+) ──────────────────────────────────
 
   /** POST /api/lms/bulk/complete — Mark multiple employees as completed for a module */
-  app.post("/api/lms/bulk/complete", requireAuth, requireRole("manager"), async (req: Request, res: Response) => {
+  app.post("/api/lms/bulk/complete", requireAuth, injectOrgContext, requireRole("manager"), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
     const { moduleId, employeeIds } = req.body;
@@ -751,7 +751,7 @@ Respond with ONLY valid JSON (no markdown fences):
   });
 
   /** POST /api/lms/bulk/reset — Reset progress for multiple employees on a module */
-  app.post("/api/lms/bulk/reset", requireAuth, requireRole("manager"), async (req: Request, res: Response) => {
+  app.post("/api/lms/bulk/reset", requireAuth, injectOrgContext, requireRole("manager"), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
     const { moduleId, employeeIds } = req.body;
@@ -788,7 +788,7 @@ Respond with ONLY valid JSON (no markdown fences):
   });
 
   /** POST /api/lms/bulk/assign — Assign a path to multiple employees */
-  app.post("/api/lms/bulk/assign", requireAuth, requireRole("manager"), async (req: Request, res: Response) => {
+  app.post("/api/lms/bulk/assign", requireAuth, injectOrgContext, requireRole("manager"), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
     const { pathId, employeeIds } = req.body;
@@ -821,7 +821,7 @@ Respond with ONLY valid JSON (no markdown fences):
   });
 
   /** GET /api/lms/stats — LMS analytics overview */
-  app.get("/api/lms/stats", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/lms/stats", requireAuth, injectOrgContext, async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -1042,7 +1042,7 @@ Respond with ONLY valid JSON (no markdown fences):
    * GET /api/lms/modules/:id/certificate — Generate completion certificate data.
    * Returns structured data for certificate rendering (client generates PDF).
    */
-  app.get("/api/lms/modules/:id/certificate", requireAuth, validateUUIDParam(), async (req: Request, res: Response) => {
+  app.get("/api/lms/modules/:id/certificate", requireAuth, injectOrgContext, validateUUIDParam(), async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -1088,7 +1088,7 @@ Respond with ONLY valid JSON (no markdown fences):
   /**
    * GET /api/lms/coaching-recommendations — Recommend modules based on coaching session topics.
    */
-  app.get("/api/lms/coaching-recommendations", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/lms/coaching-recommendations", requireAuth, injectOrgContext, async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -1230,7 +1230,7 @@ Respond with ONLY valid JSON (no markdown fences):
   });
 
   /** GET /api/lms/knowledge-search — Search the knowledge base (RAG) for employees */
-  app.get("/api/lms/knowledge-search", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/lms/knowledge-search", requireAuth, injectOrgContext, async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 

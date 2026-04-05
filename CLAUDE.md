@@ -879,6 +879,7 @@ DEFAULT_ORG_SLUG                # Default org for users without explicit orgSlug
 # ─── Storage Backend (pick one) ───────────────────────────────────────
 STORAGE_BACKEND                 # "postgres" or "s3" (auto-detects if unset)
 DATABASE_URL                    # PostgreSQL connection string (required for postgres backend)
+DB_SSL_REJECT_UNAUTHORIZED      # Set to "false" for managed DBs with self-signed certs (default: true)
 S3_BUCKET                       # S3 bucket name (also used for audio blobs alongside postgres)
 
 # ─── Redis ────────────────────────────────────────────────────────────
@@ -1247,6 +1248,95 @@ Server serves both API and static frontend from the same process.
 - **`GET /api/coaching/my` match priority**: Matches caller's employee record first by email (exact match on `employee.email === user.username`), then by display name (`employee.name === user.name`). If multiple name matches exist, returns 409 to avoid returning the wrong employee's sessions.
 
 ## In-Progress Work (resume here in a new session)
+
+### Branch: `claude/audit-and-prioritize-GydTL`
+
+#### ✅ Completed & committed: Comprehensive codebase audit & fixes (13 commits)
+Full audit of 108K LOC across 360 files with priority-ordered ratings and fixes. ~60 files changed, 1,468 tests passing.
+
+**Commit 1 — Server-side security & cleanup (`9041a0e`):**
+- **CSRF bypass fix** — changed from checking any `x-api-key` header to requiring `Bearer obs_k_` prefix; added CSRF exemptions for SCIM, SSO callback, AssemblyAI webhook
+- **WAF crash fix** — wrapped `decodeURIComponent` in try-catch for malformed percent-encoding
+- **Dead code removal** — removed unused `SESSION_ABSOLUTE_MAX_MS` local declaration in `setupAuth()`
+- **LRU cache** — replaced FIFO orgCache Map with proper `LruCache` utility in `auth.ts`
+- **Pagination fix** — applied unused `parsePagination` limit/offset to coaching endpoint response
+
+**Commit 2 — Tenant isolation fixes (`6adbe8d`):**
+- **Missing `injectOrgContext` on marketing routes** — all 13 routes were bypassing org suspension/deletion checks
+- **Missing `injectOrgContext` on LMS routes** — all 16 routes had the same tenant isolation bypass
+- **AssemblyAI webhook empty-token bypass** — now rejects requests when no secret is configured (was silently accepting all payloads)
+- **SSO session cache optimization** — `requireAuth` SSO check now uses `getCachedOrganization()` instead of direct DB call
+
+**Commit 3 — Client-side fixes (`378ffa7`):**
+- **CSRF cookie name mismatch** — `file-upload.tsx` was reading `csrf_token` (underscore) but server sets `csrf-token` (hyphen); XHR uploads had no CSRF protection
+- **Idle timeout warning bypass** — any mouse movement dismissed the 2-min warning; now requires explicit "Stay Logged In" click (HIPAA compliance)
+- **ErrorBoundary wrong route** — "Go to Dashboard" button navigated to `/dashboard` which doesn't exist (dashboard is at `/`)
+
+**Commit 4 — CLAUDE.md documentation (`666c03b`):**
+- Documented audit findings, remaining issues, and ratings
+
+**Commit 5 — CI/CD fixes (`9e7b12e`):**
+- **E2E credential alignment** — CI workflow and Playwright config now use matching credentials
+- **Docker port binding** — PostgreSQL and Redis bound to `127.0.0.1` only (was `0.0.0.0`)
+- **Security gates Docker builds** — security job now required before Docker image push
+
+**Commit 6 — Data loss fixes (`a3225d7`):**
+- **Analysis mapper** — added 6 missing fields (speechMetrics, selfReview, scoreDispute, patientSummary, referralLetter, suggestedBillingCodes) that existed in DB but were never returned on read
+- **updateUser** — now handles mfaEnabled, mfaSecret, mfaBackupCodes, subTeam, webauthnCredentials, mfaTrustedDevices, mfaEnrollmentDeadline (was only name, role, passwordHash)
+- **Automation rule bug** — removed dead setClause code where name update incorrectly overwrote is_enabled
+- **DB SSL** — `rejectUnauthorized` now defaults to `true` (was `false`, defeating TLS)
+
+**Commit 7 — Schema drift fixes (`b5d3903`):**
+- **5 missing analysis columns** — scoreRationale, promptVersionId, speakerRoleMap, detectedLanguage, ehrPushStatus added to Drizzle + sync-schema + mapper + create/update
+- **deleteOrgData completeness** — added 11 missing tables to GDPR right-to-erasure
+- **Dead BAA table** — removed unused `baaRecords` Drizzle definition
+- **ICD-10 regex** — insurance narrative schema now accepts U-codes (COVID-19)
+
+**Commit 8 — Code quality + roadmap (`f3e7e10`):**
+- **promptTemplateCache** — replaced unbounded Map with LruCache (500 entries, 5-min TTL)
+- **Feedback pagination** — applied parsePagination limit/offset to response
+- **Users Drizzle schema** — added 3 missing columns (webauthnCredentials, mfaTrustedDevices, mfaEnrollmentDeadline)
+- **Improvement backlog** — expanded all categories with effort/impact estimates and sprint assignments
+
+**Commit 9 — Rate limit + session invalidation (`d663ae6`):**
+- **Rate limit key normalization** — UUID segments in `req.path` replaced with `:id` placeholder so PHI rate limits apply per-endpoint-class, not per-call-ID
+- **Session invalidation after password reset** — new `invalidateUserSessions()` utility scans Redis sessions and destroys all for the target user; called from both password-reset and admin password-change flows
+- **Admin.ts refactor** — 30 lines of inline Redis SCAN code replaced with 4-line utility call
+
+**Commit 10 — Transaction support (`083fa2d`):**
+- **IStorage.withTransaction** — new interface method implemented in all 3 backends (PostgresStorage: real Drizzle tx with db-swap pattern; MemStorage/CloudStorage: no-op wrappers)
+- **Call processing pipeline** — transcript + sentiment + analysis + status update wrapped in atomic transaction (main, batch, and empty-transcript paths)
+- **Live session** — createCall + createTranscript + createSentimentAnalysis wrapped in transaction
+
+**Commit 11 — Invitation hashing + CSRF protection (`58d98c1`):**
+- **Invitation token hashing** — SHA-256 before storage (matching API key/password reset pattern); tokenPrefix column for admin display; backward-compatible plaintext fallback for 7-day expiry window
+- **csrfFetch utility** — drop-in fetch() replacement that auto-attaches CSRF token + credentials
+- **CSRF migration** — 15 client files (40+ fetch calls) migrated from raw fetch() to csrfFetch()
+
+**Commit 12 — asyncHandler Phase 1 (`197d9c8`):**
+- **coaching.ts** — 29 catch blocks → 1 (gamification side-effect preserved)
+- **onboarding.ts** — 28 catch blocks → 13 (file cleanup, S3/RAG error handling preserved)
+- **mfa.ts** — 21 catch blocks → 2 (session callbacks, WebAuthn verification preserved)
+- **Net: -284 lines** of boilerplate eliminated, 62 catch blocks removed
+
+#### Remaining issues identified (not yet fixed)
+**P1 (High):**
+- Super-admin N+1 queries (300+ DB queries per request for 100 orgs)
+- `checkAndAwardBadges` loads ALL org calls into memory for badge checks
+- Analytics routes load unbounded datasets (OOM risk for large orgs)
+
+**P1 (Client):**
+- `AudioRecorder` cleanup stale closure doesn't revoke blob URL on unmount
+
+**P2 (Medium):**
+- ~380 `as any` casts across 68 server files (82 in pg-storage.ts alone)
+- 290 ESLint `no-unused-vars` warnings
+- ~330 remaining catch blocks across 26 route files for asyncHandler Phase 2
+- Duplicate URL validation utilities (`url-validation.ts` + `url-validator.ts`)
+- Live session Maps have no hard cap (7 unbounded Maps)
+- `request-metrics.ts` unbounded key growth (each UUID creates a new key)
+- Missing `htmlFor`/`id` pairing on multiple form labels (a11y)
+- `useIsMobile` returns false on first render causing layout shift on mobile
 
 ### Branch: `claude/evaluate-qa-rag-integration-MrMze`
 
@@ -1746,35 +1836,47 @@ Longer-term improvements identified during codebase audits. Work on these increm
 | ✅ Done | **Time-to-convert metrics** | `claude/audit-observatory-codebase-0eONS` — `convertedAt` field, auto-set on conversion, `daysToConvert` in API |
 
 ### Architecture / Code Quality
-| Priority | Item | Notes |
-|----------|------|-------|
-| MEDIUM | **Route error handling standardization** | `asyncHandler()` + `AppError` pattern adopted in 12+ route files; globalErrorHandler registered. ~250 remaining try/catch blocks across ~23 route files can be incrementally converted |
-| ✅ Done | **Inline schema centralization** | `claude/audit-observatory-codebase-0eONS` — selfReview, dispute, resolveDispute, callReferral, selfAssess schemas moved to `shared/schema/features.ts`; incident/breach/action-item schemas added to `admin-security.routes.ts` |
-| MEDIUM | **Large file decomposition** | Server done: `pg-storage.ts` 3,795→2,279 (-40%, prototype mixin to `pg-storage-features.ts`); `clinical.ts` 1,928→1,194 (-38%); `admin.ts` 1,380→625 (-55%). Remaining: `memory.ts` (1.6K), `sync-schema.ts` (1.4K). Client: `transcript-viewer.tsx` (1.3K), `clinical-notes.tsx` (1.2K), `reports.tsx` (1.2K) |
-| ✅ Done | **Team scoping TOCTOU fix** | `claude/codebase-audit-evaluation-MhG8w` — pre-compute team scope before fetch; return 404 instead of 403 to avoid leaking call existence |
-| LOW | **253 ESLint `no-unused-vars` warnings** | Spread across ~100 files, mostly unused function params. Tedious but reduces noise |
-| LOW | **OIDC state persistence** | OIDC state map is in-memory. Multi-instance deployments need Redis-backed state |
-| LOW | **Inconsistent UUID validation** | validateUUIDParam added to critical PHI routes (calls detail/audio/transcript/sentiment/analysis/delete, employees). ~30 non-PHI routes still missing — add incrementally |
+| Priority | Item | Effort | Impact | Notes |
+|----------|------|--------|--------|-------|
+| HIGH | **Storage layer type safety** | 5 days | High — eliminates ~200 `as any` casts | `pg-storage.ts` has 82 `as any` casts, mostly from untyped Drizzle query results. Fix: add generic return types to all IStorage methods; update mapAnalysis/mapUser/mapEmployee to use typed row objects. Eliminates the #1 source of type unsafety. Sprint 1 priority |
+| HIGH | **asyncHandler adoption Phase 2 (server routes)** | 2 days | Medium — eliminates ~330 remaining catch blocks | Phase 1 done: coaching (29→1), onboarding (28→13), mfa (21→2). Phase 2 targets by catch count: admin.ts (21), ehr.ts (20), billing.ts (20), clinical.ts (19), lms.ts (18), emails.ts (17), ab-testing.ts (16), live-session.ts (15), + 18 smaller files. Convert in batches of 4-5 via parallel agents. Sprint 2 |
+| ✅ Done | **Call processing transaction wrapper** | — | — | `claude/audit-and-prioritize-GydTL` — added `withTransaction` to IStorage (PostgresStorage: real Drizzle tx; MemStorage/CloudStorage: no-op). Wrapped main pipeline, batch mode, empty transcript, and live session writes |
+| MEDIUM | **Consolidate URL validation utilities** | 0.5 days | Low — reduces confusion | `url-validation.ts` (used by 3 files) and `url-validator.ts` (used only by tests) have overlapping SSRF checks. Merge the best checks from both into `url-validation.ts`, update the 15 test imports in `remaining-adaptations.test.ts`, delete `url-validator.ts`. Sprint 2 |
+| MEDIUM | **Large file decomposition (remaining)** | 3 days | Medium — improves navigability | 14 files still >1000 LOC. Server: `memory.ts` (1.6K → split by domain), `sync-schema.ts` (1.5K → split by table group), `rag.ts` (1.3K → extract synonym/query modules), `call-processing.ts` (1.2K → extract pipeline steps). Client: `transcript-viewer.tsx` (1.3K → extract correction UI), `clinical-notes.tsx` (1.2K → extract print/amendment), `reports.tsx` (1.2K → extract chart sections). Sprint 2-3 |
+| MEDIUM | **MemStorage parity with PostgresStorage** | 2 days | Medium — prevents dev/prod divergence | Key behavioral gaps: `searchCalls` only searches transcript text (PG also searches summaries+topics), `getTopPerformers` has no min-calls threshold (PG requires 5), `deleteOrgData` misses ~15 collections, `deleteExpiredCallShares` ignores orgId. Fix the 4 highest-impact gaps. Sprint 2 |
+| ✅ Done | **Rate limit key normalization** | — | — | `claude/audit-and-prioritize-GydTL` — UUID segments replaced with `:id` placeholder; PHI rate limits now apply per-endpoint-class |
+| ✅ Done | **Inline schema centralization** | — | — | `claude/audit-observatory-codebase-0eONS` — selfReview, dispute, resolveDispute, callReferral, selfAssess schemas moved to `shared/schema/features.ts` |
+| ✅ Done | **Team scoping TOCTOU fix** | — | — | `claude/codebase-audit-evaluation-MhG8w` — pre-compute team scope before fetch; return 404 instead of 403 |
+| ✅ Done | **promptTemplateCache LRU** | — | — | `claude/audit-and-prioritize-GydTL` — replaced unbounded Map with LruCache (500 entries, 5-min TTL) |
+| ✅ Done | **orgCache LRU** | — | — | `claude/audit-and-prioritize-GydTL` — replaced FIFO Map with LruCache in auth.ts |
+| ✅ Done | **Feedback pagination** | — | — | `claude/audit-and-prioritize-GydTL` — applied parsePagination limit/offset |
+| ✅ Done | **Coaching pagination** | — | — | `claude/audit-and-prioritize-GydTL` — applied parsePagination limit/offset |
+| ✅ Done | **Users Drizzle schema sync** | — | — | `claude/audit-and-prioritize-GydTL` — added webauthnCredentials, mfaTrustedDevices, mfaEnrollmentDeadline to Drizzle |
+| ✅ Done | **Analysis schema sync** | — | — | `claude/audit-and-prioritize-GydTL` — added 5 missing columns + wired 11 fields into create/update/mapper |
+| ✅ Done | **deleteOrgData completeness** | — | — | `claude/audit-and-prioritize-GydTL` — added 11 missing tables to GDPR deletion |
+| ✅ Done | **Dead BAA table removal** | — | — | `claude/audit-and-prioritize-GydTL` — removed unused baaRecords Drizzle definition |
+| LOW | **290 ESLint `no-unused-vars` warnings** | 1 day | Low — reduces CI noise | Spread across ~100 files, mostly unused function params. Prefix with `_` or remove. Can be done incrementally. Sprint 3+ |
+| LOW | **OIDC state persistence** | 1 day | Low until multi-instance | OIDC state map is in-memory. Multi-instance deployments need Redis-backed state. Only relevant when scaling to >1 server. Sprint 3+ |
+| LOW | **UUID validation on remaining routes** | 1 day | Low — defense-in-depth | validateUUIDParam added to critical PHI routes. ~30 non-PHI routes still missing. Add incrementally. Sprint 3+ |
+| LOW | **Scores as VARCHAR→NUMERIC migration** | 2 days | Medium — eliminates parse/cast overhead | performanceScore, confidenceScore, talkTimeRatio, responseTime stored as VARCHAR(20) but always used as numbers. Would require Drizzle migration + update all comparison/sort code. High risk, defer unless performance bottleneck proven. Sprint 4+ |
 
 ### Security
-| Priority | Item | Notes |
-|----------|------|-------|
-| ✅ Done | **Prompt injection tag soup bypass** | `claude/codebase-audit-evaluation-MhG8w` — HTML entity decoding, comment stripping, input truncation (10KB), 4 new tag patterns |
-| ✅ Done | **PHI redaction gaps** | `claude/codebase-audit-evaluation-MhG8w` — NPI numbers, FHIR resource UUIDs, encounter IDs added |
-| ✅ Done | **PHI decryption failure handling** | `claude/codebase-audit-evaluation-MhG8w` — returns 503 + OBS-PHI-001 + audit log event |
-| ✅ Done | **MFA recovery token race** | `claude/codebase-audit-evaluation-MhG8w` — atomic claim with rollback; multi-instance still needs Redis |
-| ✅ Done | **RAG topK unbounded** | `claude/codebase-audit-evaluation-MhG8w` — clamped to [1, 100] along with all other RAG config params |
-| ✅ Done | **Prompt injection regex DoS** | `claude/codebase-audit-evaluation-MhG8w` — input truncated to 10KB before pattern matching |
-| MEDIUM | **OIDC state in-memory** | OIDC state map is in-memory; multi-instance deployments lose state across servers. Move to Redis |
-| ✅ Done | **Org cache stale state** | `claude/audit-codebase-ZbYgc` — `invalidateOrgCache()` called after all 7 `updateOrganization()` sites in admin, super-admin, admin-security routes |
-| MEDIUM | **Account lockout eviction** | `loginAttempts` map evicts oldest entry when full; attacker can create many usernames to evict target's tracking before lockout applies |
-| MEDIUM | **Session absolute max too long** | 8-hour absolute session max exceeds NIST recommendation of 4-6 hours for healthcare; should be configurable per-org |
-| ✅ Done | **API key staleness warning** | `claude/codebase-audit-evaluation-MhG8w` — keys >90 days get X-API-Key-Warning header + warn log; auto-revocation is future work |
-| ✅ Done | **Session secret fail-fast** | `claude/codebase-audit-evaluation-MhG8w` — production startup fails if SESSION_SECRET is "dev-secret" or <32 chars |
-| MEDIUM | **CSP `unsafe-inline` for styles** | `style-src 'unsafe-inline'` allows CSS injection for data exfiltration via Recharts/Framer Motion inline styles. Refactor to CSS classes |
-| ✅ Done | **Audit chain verification automated** | Already scheduled: 120s post-startup + daily interval; logs HIPAA_ALERT on tampering |
-| LOW | **Bedrock TLS validation** | `requestHandler` cast to `any` bypasses TypeScript; certificate validation not explicitly enabled |
-| LOW | **Error message information disclosure** | Some routes include underlying error messages (e.g., URL fetch errors in onboarding) that could leak internal infrastructure details |
+| Priority | Item | Effort | Impact | Notes |
+|----------|------|--------|--------|-------|
+| ✅ Done | **Session invalidation after password reset** | — | — | `claude/audit-and-prioritize-GydTL` — new `invalidateUserSessions()` utility in redis.ts; called from password-reset and admin password-change; refactored admin.ts from 30 lines inline to 4-line utility call |
+| ✅ Done | **Invitation token hashing** | — | — | `claude/audit-and-prioritize-GydTL` — SHA-256 hash before storage; tokenPrefix for admin display; backward-compatible plaintext fallback for 7-day expiry window |
+| ✅ Done | **CSRF on direct fetch() calls** | — | — | `claude/audit-and-prioritize-GydTL` — new `csrfFetch()` utility in queryClient.ts; migrated 15 client files (40+ fetch calls) from raw fetch() to csrfFetch() |
+| MEDIUM | **Account lockout eviction** | 0.5 days | Medium — brute-force mitigation gap | `loginAttempts` map evicts oldest entry when full; attacker floods with unique usernames to evict target's lockout tracking. Fix: use username hash + IP composite key, or move to Redis sorted set. Sprint 2 |
+| MEDIUM | **Session absolute max configurable** | 0.5 days | Medium — NIST compliance | 8-hour absolute max exceeds NIST 4-6h recommendation for healthcare. Make configurable per-org via org settings (default 6h). Sprint 2 |
+| MEDIUM | **CSP `unsafe-inline` for styles** | 5 days | Medium — prevents CSS injection | Required by Recharts inline styles + Framer Motion transforms. Fix: extract Recharts styles to CSS classes, use Framer Motion's CSS transform option. Large effort due to chart component refactoring. Sprint 3+ |
+| ✅ Done | **CSRF bypass via x-api-key** | — | — | `claude/audit-and-prioritize-GydTL` — now requires `Bearer obs_k_` prefix |
+| ✅ Done | **Tenant isolation on marketing/LMS** | — | — | `claude/audit-and-prioritize-GydTL` — added injectOrgContext to 29 routes |
+| ✅ Done | **Webhook empty-token bypass** | — | — | `claude/audit-and-prioritize-GydTL` — rejects when no secret configured |
+| ✅ Done | **DB SSL certificate verification** | — | — | `claude/audit-and-prioritize-GydTL` — rejectUnauthorized now defaults to true |
+| ✅ Done | **Prompt injection hardening** | — | — | `claude/codebase-audit-evaluation-MhG8w` — HTML entities, comments, tags, ReDoS prevention |
+| ✅ Done | **Org cache invalidation** | — | — | `claude/audit-codebase-ZbYgc` — all 7 updateOrganization sites |
+| ✅ Done | **Session secret fail-fast** | — | — | `claude/codebase-audit-evaluation-MhG8w` |
+| LOW | **Error message information disclosure** | 1 day | Low | Some routes expose underlying error messages. Audit all `catch` blocks for message leakage. Sprint 3+ |
 
 ### RAG Knowledge Base (continued)
 | Priority | Item | Notes |
@@ -1792,37 +1894,47 @@ Longer-term improvements identified during codebase audits. Work on these increm
 | ✅ Done | **analyzeAndStoreEditPatterns N+1 fix** | `claude/codebase-audit-evaluation-MhG8w` — uses call.analysis from CallWithDetails (already batch-loaded) instead of 500 individual queries |
 
 ### Testing
-| Priority | Item | Notes |
-|----------|------|-------|
-| ✅ Done | **Coverage thresholds enforced** | `claude/codebase-audit-evaluation-MhG8w` — CI enforces `--check-coverage --lines 70 --functions 60 --branches 55` |
-| ✅ Done | **E2E test isolation** | `claude/codebase-audit-evaluation-MhG8w` — per-worker org registration via /api/auth/register; each Playwright worker gets unique org slug (e2e-w{index}-{ts}); falls back to env-var admin for backward compat |
-| ✅ Done | **AI provider mocks** | `claude/codebase-audit-evaluation-MhG8w` — MockBedrockProvider with switchable behaviors (success, rate_limit, timeout, server_error, unavailable, empty_response, malformed_json). 20 tests covering score clamping, default fields, error codes |
-| MEDIUM | **E2E tests use in-memory DB** | Playwright runs against MemStorage; doesn't catch PostgreSQL-specific failures |
-| MEDIUM | **Race condition tests need real DB** | Upload race tests only validate MemStorage; PostgreSQL row locking not tested |
-| MEDIUM | **No integration test suite** | Gap between unit tests (mocked storage) and E2E (browser); no HTTP-level integration tests against real PostgreSQL |
+| Priority | Item | Effort | Impact | Notes |
+|----------|------|--------|--------|-------|
+| HIGH | **Tautological test cleanup** | 2 days | High — false confidence elimination | `rbac.test.ts`, `input-validation.test.ts`, `billing.test.ts`, `webhook-retry.test.ts` redefine constants locally instead of importing from production code. Tests pass even if production changes. Fix: import from source modules and test actual behavior. Sprint 1 |
+| HIGH | **Stripe webhook verification tests** | 1 day | High — critical billing path untested | No tests for webhook signature verification, subscription lifecycle events, or idempotency. Fix: add tests using Stripe's test webhooks with mock signatures. Sprint 1 |
+| MEDIUM | **HTTP integration test suite** | 3 days | High — fills unit↔E2E gap | No HTTP-level tests against real Express server. Gap between mocked unit tests and browser E2E. Fix: add supertest-based tests that start the Express app against MemStorage, covering auth flows, CSRF, rate limiting, org isolation. Sprint 2 |
+| MEDIUM | **E2E against PostgreSQL** | 2 days | Medium — catches PG-specific bugs | E2E runs against MemStorage. Race conditions, RLS, transaction behavior untested. Fix: docker-compose test profile with PG + pgvector. Sprint 2-3 |
+| MEDIUM | **Rate limiter enforcement tests** | 0.5 days | Medium — security validation | Rate limiting is only tested for header presence (E2E relaxes to 500 limit). No test proves actual blocking behavior. Fix: unit test the in-memory rate limiter with real request counts. Sprint 2 |
+| ✅ Done | **E2E credential alignment** | — | — | `claude/audit-and-prioritize-GydTL` — aligned CI and Playwright config to same credentials |
+| ✅ Done | **Coverage thresholds** | — | — | `claude/codebase-audit-evaluation-MhG8w` — lines 70%, functions 60%, branches 55% |
+| ✅ Done | **E2E test isolation** | — | — | `claude/codebase-audit-evaluation-MhG8w` — per-worker org registration |
+| ✅ Done | **AI provider mocks** | — | — | `claude/codebase-audit-evaluation-MhG8w` — MockBedrockProvider with 6 behaviors |
 
 ### DevOps / Infrastructure
-| Priority | Item | Notes |
-|----------|------|-------|
-| ✅ Done | **Docker image push enabled** | `claude/codebase-audit-evaluation-MhG8w` — GHCR push on main merges with SHA + latest tags; artifact retention 7 days |
-| ✅ Done | **Schema sync validation** | `claude/codebase-audit-evaluation-MhG8w` — replaced grep-only CI check with TypeScript test that parses both schema.ts and sync-schema.ts, comparing columns per table (45 tests). CI build step now runs the test as a gate |
-| MEDIUM | **No canary deployment strategy** | All production traffic switches immediately; no gradual rollout or auto-rollback on error rate |
-| MEDIUM | **Blue-green deploy manual cutover** | `deploy/docker-deploy.sh` requires manual proxy reconfiguration |
-| MEDIUM | **Dependency audit not on PRs** | Weekly-only check; critical vulns can ship for days before detection |
+| Priority | Item | Effort | Impact | Notes |
+|----------|------|--------|--------|-------|
+| HIGH | **Move in-memory state to Redis** | 3 days | High — enables multi-instance | 7+ in-memory Maps lose state on restart/across instances: OIDC state (mfa.ts), email OTP (mfa.ts), live sessions (live-session.ts), loginAttempts (auth.ts), rateLimitMap (index.ts). Fix: use Redis with TTL keys. Required before horizontal scaling. Sprint 1-2 |
+| HIGH | **Pin CI actions to SHA** | 0.5 days | High — supply chain security | Main CI workflow uses floating tags (`@v4`). Nightly/PR-review correctly pin SHAs. Fix: pin all actions to SHA digests. Sprint 1 |
+| HIGH | **Backup script PHI safety** | 0.5 days | High — HIPAA compliance | `deploy/ec2/backup.sh` stores dumps in `/tmp` (world-readable) before S3 upload. Fix: use `mktemp -d` with 700 permissions, cleanup on exit trap. Sprint 1 |
+| MEDIUM | **Dependency audit on PRs** | 0.5 days | Medium — vulnerability detection | Weekly-only check; critical vulns can ship for days. Fix: add `npm audit --audit-level=high` to PR review workflow. Sprint 2 |
+| MEDIUM | **Container image scanning** | 1 day | Medium — supply chain security | No SAST/DAST or container scanning. Fix: add Trivy scan on Docker build step. Sprint 2 |
+| MEDIUM | **Canary deployment** | 3 days | Medium — reduces deployment risk | All production traffic switches immediately. Fix: add health-check gated traffic shifting in deploy.sh (10% → 50% → 100% with rollback). Sprint 3 |
+| ✅ Done | **Docker ports bound to localhost** | — | — | `claude/audit-and-prioritize-GydTL` — PostgreSQL/Redis no longer exposed on 0.0.0.0 |
+| ✅ Done | **Security gates Docker builds** | — | — | `claude/audit-and-prioritize-GydTL` — security job now required for Docker push |
+| ✅ Done | **Docker image push** | — | — | `claude/codebase-audit-evaluation-MhG8w` — GHCR on main merges |
+| ✅ Done | **Schema sync validation** | — | — | `claude/codebase-audit-evaluation-MhG8w` — TypeScript test gate |
 
 ### UI/UX
-| Priority | Item | Notes |
-|----------|------|-------|
-| ✅ Done | **Dashboard query freshness** | `claude/codebase-audit-evaluation-MhG8w` — staleTime: 30s + refetchInterval: 60s for auto-refresh |
-| ✅ Done | **Accessibility: sidebar ARIA labels** | `claude/codebase-audit-evaluation-MhG8w` — aria-label added to all 6 collapsible section toggles |
-| ✅ Done | **ProtectedRoute stale permissions** | `claude/codebase-audit-evaluation-MhG8w` — staleTime changed from Infinity to 60s |
-| ✅ Done | **WebSocket reconnection loop risk** | `claude/codebase-audit-evaluation-MhG8w` — connect stored in ref to break useEffect dependency |
-| ✅ Done | **Dashboard flagged calls a11y** | `claude/audit-codebase-ZbYgc` — aria-expanded, aria-controls, descriptive aria-label on toggle |
-| ✅ Done | **Transcript keyboard navigation** | `claude/audit-codebase-ZbYgc` — role=button, tabIndex, Enter/Space handler on correctable words |
-| ✅ Done | **Upload details a11y** | `claude/audit-codebase-ZbYgc` — aria-label + aria-controls on file details toggle |
-| ✅ Done | **Correction save feedback** | `claude/audit-codebase-ZbYgc` — toast notifications on success/failure + JSON.parse safety |
-| ✅ Done | **SSO slug input a11y** | `claude/audit-codebase-ZbYgc` — aria-label on organization slug input |
-| LOW | **Large page decomposition** | `clinical-notes.tsx` (1.2K lines), `reports.tsx` (1.2K lines) could be broken into smaller components |
-| ✅ Done | **Upload progress tracking** | `claude/audit-observatory-codebase-0eONS` — XMLHttpRequest with real progress events |
-| LOW | **File upload dropzone missing maxSize** | `react-dropzone` config doesn't specify `maxSize`; validation only in `onDrop` callback |
-| LOW | **Onboarding wizard step validation** | Users can proceed through steps without completing required fields |
+| Priority | Item | Effort | Impact | Notes |
+|----------|------|--------|--------|-------|
+| HIGH | **Progressive disclosure by plan tier** | 2 days | High — reduces cognitive overload | 34 sidebar items overwhelm new users. Show only relevant features per plan tier (Free: dashboard/upload/transcripts/settings; Starter adds coaching/reports/insights; Professional adds clinical/calibration; Enterprise adds admin/SSO/audit). Sprint 1 |
+| HIGH | **Accessibility audit with axe-core** | 2 days | Medium — compliance + usability | Missing `htmlFor`/`id` pairing on auth.tsx, invite-accept.tsx, settings tabs. Mobile sidebar lacks focus trap. 404 page uses hardcoded colors instead of theme. Fix: add axe-core to E2E, fix all critical/serious violations. Sprint 1-2 |
+| MEDIUM | **AudioRecorder blob URL leak** | 0.5 days | Low — memory leak | Cleanup effect uses stale closure for `audioUrl`. Fix: use ref to track latest URL for unmount cleanup. Sprint 2 |
+| MEDIUM | **`useIsMobile` SSR flash** | 0.5 days | Low — mobile UX | Returns `false` on first render causing layout shift. Fix: initialize with synchronous `window.innerWidth` check. Sprint 2 |
+| MEDIUM | **Keyboard shortcuts in contenteditable** | 0.5 days | Low — editor UX | Shortcuts fire in contenteditable elements and open modals. Fix: check `contenteditable` attr and `[role=dialog]` ancestors. Sprint 2 |
+| MEDIUM | **Replace native `confirm()` with ConfirmDialog** | 0.5 days | Low — UX consistency | ApiKeysTab.tsx and UsersTab.tsx use browser `confirm()`. Rest of app uses ConfirmDialog component. Sprint 2 |
+| MEDIUM | **ScriptProcessorNode deprecation** | 2 days | Medium — clinical recording reliability | `clinical-live.tsx` uses deprecated `createScriptProcessor()` which runs on main thread. Migrate to AudioWorklet for production reliability. Sprint 3 |
+| ✅ Done | **Idle timeout warning bypass** | — | — | `claude/audit-and-prioritize-GydTL` — requires explicit click, not just mouse movement |
+| ✅ Done | **ErrorBoundary dashboard link** | — | — | `claude/audit-and-prioritize-GydTL` — fixed route from `/dashboard` to `/` |
+| ✅ Done | **CSRF cookie name mismatch** | — | — | `claude/audit-and-prioritize-GydTL` — `file-upload.tsx` now reads `csrf-token` (hyphen) |
+| ✅ Done | **Dashboard query freshness** | — | — | `claude/codebase-audit-evaluation-MhG8w` |
+| ✅ Done | **Upload progress tracking** | — | — | `claude/audit-observatory-codebase-0eONS` |
+| LOW | **Onboarding wizard step validation** | 1 day | Medium — prevents incomplete setup | Users can proceed through steps without completing required fields. Sprint 3+ |
+| LOW | **File upload dropzone maxSize** | 0.5 days | Low | `react-dropzone` has no `maxSize` in config; validation only in callback. Sprint 3+ |
+| LOW | **Large page decomposition** | 2 days | Low | `clinical-notes.tsx` (1.2K), `reports.tsx` (1.2K) could be split into sub-components. Sprint 3+ |

@@ -12,7 +12,7 @@ import { enqueueReanalysis } from "../services/queue";
 import { requirePlanFeature, enforceUserQuota, syncSeatUsage } from "./billing";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import { parsePagination, paginateArray } from "./helpers";
-import { getRedis } from "../services/redis";
+import { getRedis, invalidateUserSessions } from "../services/redis";
 import { generateScimToken } from "./scim";
 import { parseCertExpiry } from "./sso";
 import { registerAdminSecurityRoutes } from "./admin-security.routes";
@@ -404,35 +404,10 @@ export function registerAdminRoutes(app: Express): void {
       }
 
       // HIPAA: If password was changed, invalidate all sessions for the target user.
-      // Uses SCAN instead of KEYS to avoid blocking Redis on large session stores.
       if (password) {
-        const redis = getRedis();
-        if (redis) {
-          try {
-            let cursor = "0";
-            let deleted = 0;
-            do {
-              const [nextCursor, keys] = await redis.scan(cursor, "MATCH", "sess:*", "COUNT", 100);
-              cursor = nextCursor;
-              for (const key of keys) {
-                try {
-                  const sessionData = await redis.get(key);
-                  if (sessionData) {
-                    const parsed = JSON.parse(sessionData);
-                    if (parsed?.passport?.user === req.params.id) {
-                      await redis.del(key);
-                      deleted++;
-                    }
-                  }
-                } catch {
-                  /* skip unparseable sessions */
-                }
-              }
-            } while (cursor !== "0");
-            logger.info({ targetUserId: req.params.id, sessionsInvalidated: deleted }, "Invalidated sessions after password change");
-          } catch (err) {
-            logger.warn({ err, targetUserId: req.params.id }, "Failed to invalidate sessions after password change");
-          }
+        const sessionsInvalidated = await invalidateUserSessions(req.params.id);
+        if (sessionsInvalidated > 0) {
+          logger.info({ targetUserId: req.params.id, sessionsInvalidated }, "Invalidated sessions after password change");
         }
       }
 

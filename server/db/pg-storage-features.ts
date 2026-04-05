@@ -1494,7 +1494,23 @@ P.deleteOrgData = async function(
       // 21. Delete users (NOT the current user — mark them in memory as deleted)
       const usersResult = await tx.execute(sql`DELETE FROM users WHERE org_id = ${orgId}`);
       const usersDeleted = (usersResult as any).rowCount ?? 0;
-      // 22. Delete audit logs last (preserve audit trail as long as possible)
+      // 22. Delete coaching templates and automation rules
+      await tx.execute(sql`DELETE FROM coaching_templates WHERE org_id = ${orgId}`);
+      await tx.execute(sql`DELETE FROM automation_rules WHERE org_id = ${orgId}`);
+      // 23. Delete subscriptions and usage events
+      await tx.execute(sql`DELETE FROM subscriptions WHERE org_id = ${orgId}`);
+      await tx.execute(sql`DELETE FROM usage_events WHERE org_id = ${orgId}`);
+      await tx.execute(sql`DELETE FROM usage_records WHERE org_id = ${orgId}`);
+      // 24. Delete call shares
+      await tx.execute(sql`DELETE FROM call_shares WHERE org_id = ${orgId}`);
+      // 25. Delete BAA records and security incidents
+      await tx.execute(sql`DELETE FROM business_associate_agreements WHERE org_id = ${orgId}`);
+      await tx.execute(sql`DELETE FROM security_incidents WHERE org_id = ${orgId}`);
+      await tx.execute(sql`DELETE FROM breach_reports WHERE org_id = ${orgId}`);
+      // 26. Delete MFA recovery requests and password reset tokens
+      await tx.execute(sql`DELETE FROM mfa_recovery_requests WHERE org_id = ${orgId}`);
+      await tx.execute(sql`DELETE FROM password_reset_tokens WHERE user_id IN (SELECT id FROM users WHERE org_id = ${orgId})`);
+      // 27. Delete audit logs last (preserve audit trail as long as possible)
       await tx.execute(sql`DELETE FROM audit_logs WHERE org_id = ${orgId}`);
 
       return { employeesDeleted, callsDeleted, usersDeleted };

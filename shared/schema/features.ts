@@ -198,7 +198,7 @@ export const insertInsuranceNarrativeSchema = z.object({
   diagnosisCodes: z
     .array(
       z.object({
-        code: z.string().regex(/^[A-TV-Z]\d{2}(\.\d{1,4})?$/, "Invalid ICD-10 format"),
+        code: z.string().regex(/^[A-Z]\d{2}(\.\d{1,4})?$/, "Invalid ICD-10 format"),
         description: z.string(),
       }),
     )

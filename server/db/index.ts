@@ -32,8 +32,13 @@ export async function initDatabase(): Promise<Database | null> {
       max: Math.min(Math.max(maxConnections, 5), 200),
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000,
-      // HIPAA: Force SSL in production
-      ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined,
+      // HIPAA: Force SSL in production.
+      // rejectUnauthorized defaults to true for proper certificate verification.
+      // Set DB_SSL_REJECT_UNAUTHORIZED=false only for managed databases (e.g., Neon, Render)
+      // that use self-signed certificates not in the system CA store.
+      ssl: process.env.NODE_ENV === "production"
+        ? { rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== "false" }
+        : undefined,
     });
 
     // Verify the connection

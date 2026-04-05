@@ -565,33 +565,35 @@ export function registerLiveSessionRoutes(app: Express): void {
       const now = new Date();
       const durationSeconds = Math.round((now.getTime() - new Date(session.startedAt || now).getTime()) / 1000);
 
-      // Create a Call record for permanent storage
-      const call = await storage.createCall(orgId, {
-        orgId,
-        fileName: `live-session-${now.toISOString().replace(/[:.]/g, "-")}.webm`,
-        status: "completed",
-        duration: durationSeconds,
-        callCategory: session.encounterType,
-        tags: ["live_recording"],
-      });
+      // Create Call + transcript + sentiment atomically.
+      // AI analysis happens after this transaction (long-running Bedrock call).
+      let call: any;
+      await storage.withTransaction(async () => {
+        call = await storage.createCall(orgId, {
+          orgId,
+          fileName: `live-session-${now.toISOString().replace(/[:.]/g, "-")}.webm`,
+          status: "completed",
+          duration: durationSeconds,
+          callCategory: session.encounterType,
+          tags: ["live_recording"],
+        });
 
-      // Create transcript record
-      if (finalTranscript.length > 0) {
-        await storage.createTranscript(orgId, {
+        if (finalTranscript.length > 0) {
+          await storage.createTranscript(orgId, {
+            orgId,
+            callId: call.id,
+            text: finalTranscript,
+            confidence: "0.90",
+          });
+        }
+
+        await storage.createSentimentAnalysis(orgId, {
           orgId,
           callId: call.id,
-          text: finalTranscript,
-          confidence: "0.90",
+          overallSentiment: "neutral",
+          overallScore: "0.5",
+          segments: [],
         });
-      }
-
-      // Create default sentiment analysis (live sessions don't have AssemblyAI sentiment data)
-      await storage.createSentimentAnalysis(orgId, {
-        orgId,
-        callId: call.id,
-        overallSentiment: "neutral",
-        overallScore: "0.5",
-        segments: [],
       });
 
       // Generate final clinical note with full context

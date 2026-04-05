@@ -143,14 +143,38 @@ export class PostgresStorage {
    * Execute a set of database operations within a single transaction.
    * All operations either commit together or roll back together.
    *
+   * The callback receives no arguments — during the transaction, all
+   * storage methods on this instance automatically use the transaction
+   * handle (this.db is temporarily swapped to the tx handle).
+   *
+   * This matches the IStorage interface so callers can use
+   * `storage.withTransaction(() => { ... })` regardless of backend.
+   *
    * @example
-   * await storage.withTransaction(async (tx) => {
-   *   await tx.insert(tables.calls).values(callData);
-   *   await tx.insert(tables.transcripts).values(transcriptData);
+   * await storage.withTransaction(async () => {
+   *   await storage.createTranscript(orgId, transcript);
+   *   await storage.createCallAnalysis(orgId, analysis);
+   *   // Both commit together or both roll back
    * });
    */
-  async withTransaction<T>(fn: (tx: Database) => Promise<T>): Promise<T> {
-    return this.db.transaction(fn);
+  async withTransaction<T>(fn: () => Promise<T>): Promise<T> {
+    const originalDb = this.db;
+    try {
+      return await originalDb.transaction(async (tx) => {
+        // Temporarily replace the DB handle so all methods called within
+        // the callback use the transaction automatically.
+        this.db = tx as unknown as Database;
+        try {
+          return await fn();
+        } finally {
+          this.db = originalDb;
+        }
+      });
+    } catch (err) {
+      // Ensure db is restored even if transaction setup itself fails
+      this.db = originalDb;
+      throw err;
+    }
   }
 
   // --- Organization operations ---
@@ -241,6 +265,13 @@ export class PostgresStorage {
     if (updates.name !== undefined) setClause.name = updates.name;
     if (updates.role !== undefined) setClause.role = updates.role;
     if (updates.passwordHash !== undefined) setClause.passwordHash = updates.passwordHash;
+    if (updates.mfaEnabled !== undefined) setClause.mfaEnabled = updates.mfaEnabled;
+    if (updates.mfaSecret !== undefined) setClause.mfaSecret = updates.mfaSecret;
+    if (updates.mfaBackupCodes !== undefined) setClause.mfaBackupCodes = updates.mfaBackupCodes;
+    if ((updates as any).subTeam !== undefined) setClause.subTeam = (updates as any).subTeam;
+    if ((updates as any).webauthnCredentials !== undefined) setClause.webauthnCredentials = (updates as any).webauthnCredentials;
+    if ((updates as any).mfaTrustedDevices !== undefined) setClause.mfaTrustedDevices = (updates as any).mfaTrustedDevices;
+    if ((updates as any).mfaEnrollmentDeadline !== undefined) setClause.mfaEnrollmentDeadline = (updates as any).mfaEnrollmentDeadline;
 
     if (Object.keys(setClause).length === 0) return this.getUser(id);
 
@@ -795,6 +826,17 @@ export class PostgresStorage {
         subScores: analysis.subScores || null,
         detectedAgentName: analysis.detectedAgentName,
         clinicalNote: analysis.clinicalNote || null,
+        speechMetrics: (analysis as any).speechMetrics || null,
+        selfReview: (analysis as any).selfReview || null,
+        scoreDispute: (analysis as any).scoreDispute || null,
+        patientSummary: (analysis as any).patientSummary || null,
+        referralLetter: (analysis as any).referralLetter || null,
+        suggestedBillingCodes: (analysis as any).suggestedBillingCodes || null,
+        scoreRationale: (analysis as any).scoreRationale || null,
+        promptVersionId: (analysis as any).promptVersionId || null,
+        speakerRoleMap: (analysis as any).speakerRoleMap || null,
+        detectedLanguage: (analysis as any).detectedLanguage || null,
+        ehrPushStatus: (analysis as any).ehrPushStatus || null,
       })
       .returning();
     return this.mapAnalysis(row);
@@ -824,6 +866,17 @@ export class PostgresStorage {
     if (updates.responseTime !== undefined) setClause.responseTime = updates.responseTime;
     if (updates.lemurResponse !== undefined) setClause.lemurResponse = updates.lemurResponse;
     if (updates.callPartyType !== undefined) setClause.callPartyType = updates.callPartyType;
+    if ((updates as any).speechMetrics !== undefined) setClause.speechMetrics = (updates as any).speechMetrics;
+    if ((updates as any).selfReview !== undefined) setClause.selfReview = (updates as any).selfReview;
+    if ((updates as any).scoreDispute !== undefined) setClause.scoreDispute = (updates as any).scoreDispute;
+    if ((updates as any).patientSummary !== undefined) setClause.patientSummary = (updates as any).patientSummary;
+    if ((updates as any).referralLetter !== undefined) setClause.referralLetter = (updates as any).referralLetter;
+    if ((updates as any).suggestedBillingCodes !== undefined) setClause.suggestedBillingCodes = (updates as any).suggestedBillingCodes;
+    if ((updates as any).scoreRationale !== undefined) setClause.scoreRationale = (updates as any).scoreRationale;
+    if ((updates as any).promptVersionId !== undefined) setClause.promptVersionId = (updates as any).promptVersionId;
+    if ((updates as any).speakerRoleMap !== undefined) setClause.speakerRoleMap = (updates as any).speakerRoleMap;
+    if ((updates as any).detectedLanguage !== undefined) setClause.detectedLanguage = (updates as any).detectedLanguage;
+    if ((updates as any).ehrPushStatus !== undefined) setClause.ehrPushStatus = (updates as any).ehrPushStatus;
 
     if (Object.keys(setClause).length === 0) return this.getCallAnalysis(orgId, callId);
 
@@ -1535,18 +1588,7 @@ export class PostgresStorage {
     id: string,
     updates: Partial<import("@shared/schema").AutomationRule>,
   ): Promise<import("@shared/schema").AutomationRule | undefined> {
-    const setClause: Record<string, unknown> = {};
-    if (updates.name !== undefined) setClause.is_enabled = updates.isEnabled;
-    if (updates.isEnabled !== undefined) setClause.is_enabled = updates.isEnabled;
-    if (updates.conditions !== undefined) setClause.conditions = JSON.stringify(updates.conditions);
-    if (updates.actions !== undefined) setClause.actions = JSON.stringify(updates.actions);
-    if ((updates as any).lastTriggeredAt !== undefined)
-      setClause.last_triggered_at = (updates as any).lastTriggeredAt
-        ? new Date((updates as any).lastTriggeredAt)
-        : null;
-    if ((updates as any).triggerCount !== undefined) setClause.trigger_count = (updates as any).triggerCount;
-    setClause.updated_at = new Date();
-    // Build SET via raw SQL to handle JSONB properly
+    // Raw SQL handles JSONB properly via COALESCE (null = keep existing value)
     const result = (await this.db.execute(sql`
       UPDATE automation_rules SET
         is_enabled = COALESCE(${updates.isEnabled ?? null}, is_enabled),
@@ -1732,9 +1774,13 @@ export class PostgresStorage {
 
   // --- Invitation operations ---
   async createInvitation(orgId: string, invitation: InsertInvitation): Promise<Invitation> {
-    const { randomBytes } = await import("crypto");
+    const { randomBytes, createHash } = await import("crypto");
     const id = randomUUID();
-    const token = invitation.token || randomBytes(32).toString("hex");
+    // Generate raw token — returned once (in the API response / email URL), never stored.
+    const rawToken = invitation.token || randomBytes(32).toString("hex");
+    // Store SHA-256 hash only — matches the pattern used for API keys and password reset tokens.
+    const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+    const tokenPrefix = rawToken.slice(0, 8);
     const expiresAt = invitation.expiresAt
       ? new Date(invitation.expiresAt)
       : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -1746,18 +1792,31 @@ export class PostgresStorage {
         orgId,
         email: invitation.email,
         role: invitation.role || "viewer",
-        token,
+        token: tokenHash,
+        tokenPrefix,
         invitedBy: invitation.invitedBy,
         status: "pending",
         expiresAt,
       })
       .returning();
 
-    return this.mapInvitation(row);
+    const result = this.mapInvitation(row);
+    // Override token in the returned object with the raw token (one-time return).
+    // Subsequent reads from DB will return the hash (which is not usable as a token).
+    result.token = rawToken;
+    return result;
   }
 
   async getInvitationByToken(token: string): Promise<Invitation | undefined> {
-    const rows = await this.db.select().from(tables.invitations).where(eq(tables.invitations.token, token)).limit(1);
+    // Hash the submitted token before lookup — DB stores only hashes.
+    // Also try plaintext match for backward compatibility with pre-hashing invitations.
+    const { createHash } = await import("crypto");
+    const tokenHash = createHash("sha256").update(token).digest("hex");
+    const rows = await this.db
+      .select()
+      .from(tables.invitations)
+      .where(sql`${tables.invitations.token} = ${tokenHash} OR ${tables.invitations.token} = ${token}`)
+      .limit(1);
     return rows[0] ? this.mapInvitation(rows[0]) : undefined;
   }
 
@@ -1813,6 +1872,10 @@ export class PostgresStorage {
       mfaEnabled: row.mfaEnabled ?? false,
       mfaSecret: row.mfaSecret ?? undefined,
       mfaBackupCodes: row.mfaBackupCodes ?? undefined,
+      subTeam: row.subTeam ?? undefined,
+      webauthnCredentials: row.webauthnCredentials ?? undefined,
+      mfaTrustedDevices: row.mfaTrustedDevices ?? undefined,
+      mfaEnrollmentDeadline: row.mfaEnrollmentDeadline ?? undefined,
       createdAt: toISOString(row.createdAt),
     };
   }
@@ -1925,6 +1988,18 @@ export class PostgresStorage {
       subScores: row.subScores as any,
       detectedAgentName: row.detectedAgentName,
       clinicalNote: row.clinicalNote as any,
+      // Fields that exist in DB but were previously unmapped (data loss fix)
+      speechMetrics: row.speechMetrics as any,
+      selfReview: row.selfReview as any,
+      scoreDispute: row.scoreDispute as any,
+      patientSummary: row.patientSummary,
+      referralLetter: row.referralLetter,
+      suggestedBillingCodes: row.suggestedBillingCodes as any,
+      scoreRationale: row.scoreRationale as any,
+      promptVersionId: row.promptVersionId,
+      speakerRoleMap: row.speakerRoleMap as any,
+      detectedLanguage: row.detectedLanguage,
+      ehrPushStatus: row.ehrPushStatus as any,
       createdAt: toISOString(row.createdAt),
     };
   }

@@ -24,12 +24,18 @@ export function registerAssemblyAIWebhookRoutes(app: Express): void {
       ? req.headers["x-assembly-webhook-token"].trim()
       : "";
 
-    const tokenMismatch =
-      expectedToken &&
-      (!receivedToken ||
-        receivedToken.length !== expectedToken.length ||
-        !timingSafeEqual(Buffer.from(receivedToken), Buffer.from(expectedToken)));
-    if (tokenMismatch) {
+    // Reject when no webhook secret is configured — prevents accepting forged payloads
+    if (!expectedToken) {
+      logger.error("AssemblyAI webhook: no ASSEMBLYAI_WEBHOOK_SECRET or SESSION_SECRET configured — rejecting request");
+      res.status(503).json({ error: "Webhook secret not configured" });
+      return;
+    }
+
+    if (
+      !receivedToken ||
+      receivedToken.length !== expectedToken.length ||
+      !timingSafeEqual(Buffer.from(receivedToken), Buffer.from(expectedToken))
+    ) {
       logger.warn({ receivedToken: receivedToken ? "[redacted]" : "missing" }, "AssemblyAI webhook: invalid token");
       res.status(401).json({ error: "Unauthorized" });
       return;

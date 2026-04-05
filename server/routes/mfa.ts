@@ -42,6 +42,7 @@ import { logPhiAccess, auditContext } from "../services/audit-log";
 import { encryptMfaSecret, decryptMfaSecret } from "../services/phi-encryption";
 import { logger } from "../services/logger";
 import { sendEmail } from "../services/email";
+import { asyncHandler } from "../middleware/error-handler";
 
 // Rate limit MFA verification attempts (per session)
 const mfaAttempts = new Map<string, { count: number; lastAttempt: number }>();
@@ -102,8 +103,7 @@ function hashBackupCode(code: string): string {
 export function registerMfaRoutes(app: Express): void {
   // ==================== MFA SETUP ====================
   // Step 1: Generate a TOTP secret and QR code URL (does NOT enable MFA yet)
-  app.post("/api/auth/mfa/setup", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.post("/api/auth/mfa/setup", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const user = await storage.getUser(req.user!.id);
       if (!user) return res.status(404).json({ message: "User not found" });
 
@@ -136,16 +136,11 @@ export function registerMfaRoutes(app: Express): void {
         qrCode: qrCodeDataUrl,
         message: "Scan the QR code with your authenticator app, then verify with a code to enable MFA.",
       });
-    } catch (error) {
-      logger.error({ err: error }, "MFA setup failed");
-      res.status(500).json({ message: "Failed to set up MFA" });
-    }
-  });
+  }));
 
   // ==================== MFA ENABLE ====================
   // Step 2: Verify a TOTP code to confirm setup and activate MFA
-  app.post("/api/auth/mfa/enable", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.post("/api/auth/mfa/enable", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const { code } = req.body;
       if (!code || typeof code !== "string") {
         return res.status(400).json({ message: "Verification code is required" });
@@ -192,16 +187,11 @@ export function registerMfaRoutes(app: Express): void {
         backupCodes: plain,
         warning: "Save these backup codes securely. They will not be shown again.",
       });
-    } catch (error) {
-      logger.error({ err: error }, "MFA enable failed");
-      res.status(500).json({ message: "Failed to enable MFA" });
-    }
-  });
+  }));
 
   // ==================== MFA VERIFY (login challenge) ====================
   // Called after password auth succeeds for MFA-enabled users
-  app.post("/api/auth/mfa/verify", async (req, res) => {
-    try {
+  app.post("/api/auth/mfa/verify", asyncHandler(async (req, res) => {
       const { userId, code, trustDevice } = req.body;
       if (!userId || !code) {
         return res.status(400).json({ message: "userId and code are required" });
@@ -297,16 +287,11 @@ export function registerMfaRoutes(app: Express): void {
           res.json(responseBody);
         });
       });
-    } catch (error) {
-      logger.error({ err: error }, "MFA verification failed");
-      res.status(500).json({ message: "MFA verification failed" });
-    }
-  });
+  }));
 
   // ==================== MFA BACKUP CODE ====================
   // Use a backup code when authenticator app is unavailable
-  app.post("/api/auth/mfa/backup", async (req, res) => {
-    try {
+  app.post("/api/auth/mfa/backup", asyncHandler(async (req, res) => {
       const { userId, backupCode } = req.body;
       if (!userId || !backupCode) {
         return res.status(400).json({ message: "userId and backupCode are required" });
@@ -381,15 +366,10 @@ export function registerMfaRoutes(app: Express): void {
           });
         });
       });
-    } catch (error) {
-      logger.error({ err: error }, "Backup code verification failed");
-      res.status(500).json({ message: "Backup code verification failed" });
-    }
-  });
+  }));
 
   // ==================== MFA DISABLE ====================
-  app.post("/api/auth/mfa/disable", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.post("/api/auth/mfa/disable", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const { code } = req.body;
       if (!code) return res.status(400).json({ message: "Current MFA code is required to disable MFA" });
 
@@ -433,15 +413,10 @@ export function registerMfaRoutes(app: Express): void {
       });
 
       res.json({ message: "MFA has been disabled." });
-    } catch (error) {
-      logger.error({ err: error }, "MFA disable failed");
-      res.status(500).json({ message: "Failed to disable MFA" });
-    }
-  });
+  }));
 
   // ==================== MFA STATUS ====================
-  app.get("/api/auth/mfa/status", requireAuth, async (req, res) => {
-    try {
+  app.get("/api/auth/mfa/status", requireAuth, asyncHandler(async (req, res) => {
       const user = await storage.getUser(req.user!.id);
       if (!user) return res.status(404).json({ message: "User not found" });
 
@@ -468,15 +443,11 @@ export function registerMfaRoutes(app: Express): void {
         enrollmentDeadline,
         gracePeriodDaysLeft,
       });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to get MFA status" });
-    }
-  });
+  }));
 
   // ==================== WEBAUTHN REGISTRATION ====================
 
-  app.post("/api/auth/mfa/webauthn/register-options", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.post("/api/auth/mfa/webauthn/register-options", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const user = await storage.getUser(req.user!.id);
       if (!user) return res.status(404).json({ message: "User not found" });
 
@@ -508,14 +479,9 @@ export function registerMfaRoutes(app: Express): void {
       (req.session as any).webauthnChallenge = options.challenge;
 
       res.json(options);
-    } catch (error) {
-      logger.error({ err: error }, "WebAuthn register-options failed");
-      res.status(500).json({ message: "Failed to generate registration options" });
-    }
-  });
+  }));
 
-  app.post("/api/auth/mfa/webauthn/register-verify", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.post("/api/auth/mfa/webauthn/register-verify", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const { response, credentialName } = req.body as { response: any; credentialName?: string };
       const expectedChallenge = (req.session as any).webauthnChallenge;
       if (!expectedChallenge)
@@ -574,16 +540,11 @@ export function registerMfaRoutes(app: Express): void {
         credentialId: newCredential.credentialId,
         name: newCredential.name,
       });
-    } catch (error) {
-      logger.error({ err: error }, "WebAuthn register-verify failed");
-      res.status(500).json({ message: "Failed to verify registration" });
-    }
-  });
+  }));
 
   // ==================== WEBAUTHN AUTHENTICATION ====================
 
-  app.post("/api/auth/mfa/webauthn/authenticate-options", async (req, res) => {
-    try {
+  app.post("/api/auth/mfa/webauthn/authenticate-options", asyncHandler(async (req, res) => {
       const { userId } = req.body;
       if (!userId) return res.status(400).json({ message: "userId is required" });
 
@@ -608,14 +569,9 @@ export function registerMfaRoutes(app: Express): void {
       (req.session as any).webauthnChallenge = options.challenge;
 
       res.json(options);
-    } catch (error) {
-      logger.error({ err: error }, "WebAuthn authenticate-options failed");
-      res.status(500).json({ message: "Failed to generate authentication options" });
-    }
-  });
+  }));
 
-  app.post("/api/auth/mfa/webauthn/authenticate-verify", async (req, res) => {
-    try {
+  app.post("/api/auth/mfa/webauthn/authenticate-verify", asyncHandler(async (req, res) => {
       const { userId, response, trustDevice } = req.body as {
         userId: string;
         response: any;
@@ -729,16 +685,11 @@ export function registerMfaRoutes(app: Express): void {
           res.json(responseBody);
         });
       });
-    } catch (error) {
-      logger.error({ err: error }, "WebAuthn authenticate-verify failed");
-      res.status(500).json({ message: "WebAuthn authentication failed" });
-    }
-  });
+  }));
 
   // ==================== WEBAUTHN CREDENTIAL MANAGEMENT ====================
 
-  app.get("/api/auth/mfa/webauthn/credentials", requireAuth, async (req, res) => {
-    try {
+  app.get("/api/auth/mfa/webauthn/credentials", requireAuth, asyncHandler(async (req, res) => {
       const user = await storage.getUser(req.user!.id);
       if (!user) return res.status(404).json({ message: "User not found" });
 
@@ -750,13 +701,9 @@ export function registerMfaRoutes(app: Express): void {
       }));
 
       res.json({ credentials });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to list WebAuthn credentials" });
-    }
-  });
+  }));
 
-  app.delete("/api/auth/mfa/webauthn/credentials/:credentialId", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.delete("/api/auth/mfa/webauthn/credentials/:credentialId", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const user = await storage.getUser(req.user!.id);
       if (!user) return res.status(404).json({ message: "User not found" });
 
@@ -778,15 +725,11 @@ export function registerMfaRoutes(app: Express): void {
       });
 
       res.json({ message: "Passkey removed." });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to remove passkey" });
-    }
-  });
+  }));
 
   // ==================== TRUSTED DEVICE MANAGEMENT ====================
 
-  app.get("/api/auth/mfa/trusted-devices", requireAuth, async (req, res) => {
-    try {
+  app.get("/api/auth/mfa/trusted-devices", requireAuth, asyncHandler(async (req, res) => {
       const user = await storage.getUser(req.user!.id);
       if (!user) return res.status(404).json({ message: "User not found" });
 
@@ -795,13 +738,9 @@ export function registerMfaRoutes(app: Express): void {
         .map((d: any) => ({ name: d.name, createdAt: d.createdAt, expiresAt: d.expiresAt }));
 
       res.json({ devices });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to list trusted devices" });
-    }
-  });
+  }));
 
-  app.delete("/api/auth/mfa/trusted-devices", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.delete("/api/auth/mfa/trusted-devices", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const user = await storage.getUser(req.user!.id);
       if (!user) return res.status(404).json({ message: "User not found" });
 
@@ -816,10 +755,7 @@ export function registerMfaRoutes(app: Express): void {
       });
 
       res.json({ message: "All trusted devices revoked." });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to revoke trusted devices" });
-    }
-  });
+  }));
 
   // ==================== EMAIL OTP (viewer/manager fallback) ====================
   // For clinical staff without smartphones — send a 6-digit OTP via email
@@ -840,8 +776,7 @@ export function registerMfaRoutes(app: Express): void {
     5 * 60 * 1000,
   ).unref();
 
-  app.post("/api/auth/mfa/email-otp/send", async (req, res) => {
-    try {
+  app.post("/api/auth/mfa/email-otp/send", asyncHandler(async (req, res) => {
       const { userId } = req.body;
       if (!userId) return res.status(400).json({ message: "userId is required" });
 
@@ -887,14 +822,9 @@ export function registerMfaRoutes(app: Express): void {
       });
 
       res.json({ message: "OTP sent to your email address." });
-    } catch (error) {
-      logger.error({ err: error }, "Email OTP send failed");
-      res.status(500).json({ message: "Failed to send OTP" });
-    }
-  });
+  }));
 
-  app.post("/api/auth/mfa/email-otp/verify", async (req, res) => {
-    try {
+  app.post("/api/auth/mfa/email-otp/verify", asyncHandler(async (req, res) => {
       const { userId, otp } = req.body;
       if (!userId || !otp) return res.status(400).json({ message: "userId and otp are required" });
 
@@ -957,11 +887,7 @@ export function registerMfaRoutes(app: Express): void {
           res.json(sessionUser);
         });
       });
-    } catch (error) {
-      logger.error({ err: error }, "Email OTP verify failed");
-      res.status(500).json({ message: "Email OTP verification failed" });
-    }
-  });
+  }));
 
   // ==================== MFA RECOVERY (emergency bypass) ====================
   // Flow: user requests bypass → email verified → admin approves → one-time login token
@@ -992,8 +918,7 @@ export function registerMfaRoutes(app: Express): void {
   ).unref();
 
   // Step 1: User requests bypass
-  app.post("/api/auth/mfa/recovery/request", async (req, res) => {
-    try {
+  app.post("/api/auth/mfa/recovery/request", asyncHandler(async (req, res) => {
       const { userId } = req.body;
       if (!userId) return res.status(400).json({ message: "userId is required" });
 
@@ -1049,15 +974,10 @@ export function registerMfaRoutes(app: Express): void {
       res.json({
         message: "Recovery request submitted. Check your email to verify ownership, then wait for admin approval.",
       });
-    } catch (error) {
-      logger.error({ err: error }, "MFA recovery request failed");
-      res.status(500).json({ message: "Failed to submit recovery request" });
-    }
-  });
+  }));
 
   // Step 2: User clicks email verification link
-  app.post("/api/auth/mfa/recovery/:token/verify-email", async (req, res) => {
-    try {
+  app.post("/api/auth/mfa/recovery/:token/verify-email", asyncHandler(async (req, res) => {
       const { token } = req.params;
       const tokenHash = createHash("sha256").update(token).digest("hex");
       const record = recoveryStore.get(tokenHash);
@@ -1100,15 +1020,10 @@ export function registerMfaRoutes(app: Express): void {
       }
 
       res.json({ message: "Email verified. Your recovery request is now pending admin approval." });
-    } catch (error) {
-      logger.error({ err: error }, "MFA recovery email verify failed");
-      res.status(500).json({ message: "Failed to verify email" });
-    }
-  });
+  }));
 
   // Step 3: Consume admin-approved use-token to complete login
-  app.post("/api/auth/mfa/recovery/:useToken/use", async (req, res) => {
-    try {
+  app.post("/api/auth/mfa/recovery/:useToken/use", asyncHandler(async (req, res) => {
       const { useToken } = req.params;
       const useTokenHash = createHash("sha256").update(useToken).digest("hex");
 
@@ -1180,11 +1095,7 @@ export function registerMfaRoutes(app: Express): void {
           });
         });
       });
-    } catch (error) {
-      logger.error({ err: error }, "MFA recovery use failed");
-      res.status(500).json({ message: "Failed to use recovery token" });
-    }
-  });
+  }));
 
   // Export recovery store for admin routes to use
   (app as any).__mfaRecoveryStore = recoveryStore;

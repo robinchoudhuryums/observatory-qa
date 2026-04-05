@@ -13,6 +13,7 @@ import { randomBytes, createHash } from "crypto";
 import { storage } from "../storage";
 import { hashPassword, validatePasswordComplexity } from "../auth";
 import { sendEmail, buildPasswordResetEmail } from "../services/email";
+import { invalidateUserSessions } from "../services/redis";
 import { logger } from "../services/logger";
 
 // In-memory token store (fallback when PostgreSQL is not available)
@@ -173,6 +174,14 @@ export function registerPasswordResetRoutes(app: Express): void {
 
       const passwordHash = await hashPassword(newPassword);
       await storage.updateUser(user.orgId, result.userId, { passwordHash });
+
+      // HIPAA: Invalidate all existing sessions for this user.
+      // After a password reset (potentially triggered by credential compromise),
+      // the attacker's session must not remain active.
+      const sessionsInvalidated = await invalidateUserSessions(result.userId);
+      if (sessionsInvalidated > 0) {
+        logger.info({ userId: result.userId, sessionsInvalidated }, "Invalidated sessions after password reset");
+      }
 
       logger.info({ userId: result.userId }, "Password reset successfully");
       res.json({ message: "Password has been reset. You can now log in with your new password." });

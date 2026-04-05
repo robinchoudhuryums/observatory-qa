@@ -288,6 +288,7 @@ See [`.env.example`](.env.example) for the full list. Key new additions:
 - `ASSEMBLYAI_WEBHOOK_SECRET` — Webhook token verification for AssemblyAI webhooks (falls back to SESSION_SECRET)
 - `AWS_KMS_KEY_ID` — AWS KMS CMK ARN for per-org envelope encryption (optional; uses shared key if not set)
 - `PHI_ENCRYPTION_KEY` — 64-char hex for AES-256-GCM field-level PHI encryption
+- `DB_SSL_REJECT_UNAUTHORIZED=false` — Disable SSL certificate verification for managed databases with self-signed certs (e.g., Neon, Render). Defaults to `true` (strict verification)
 
 ## License
 

@@ -39,7 +39,9 @@ export function registerFeedbackRoutes(app: Express) {
       type: type as string | undefined,
       status: status as string | undefined,
     });
-    res.json(feedback);
+    // Apply pagination
+    const paginated = feedback.slice(offset, offset + limit);
+    res.json(paginated);
   }));
 
   // Get feedback summary/analytics (admin only)

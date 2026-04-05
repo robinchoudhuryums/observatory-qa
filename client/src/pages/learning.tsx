@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, csrfFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -216,7 +216,7 @@ function QuizTaker({
 
   const submitMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`/api/lms/modules/${moduleId}/submit-quiz`, {
+      const res = await csrfFetch(`/api/lms/modules/${moduleId}/submit-quiz`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ employeeId: "self", answers }),
@@ -356,7 +356,7 @@ function CreateModuleForm({ onSuccess }: { onSuccess: () => void }) {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/lms/modules", {
+      const res = await csrfFetch("/api/lms/modules", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -471,7 +471,7 @@ function AIGenerateModule({ onSuccess }: { onSuccess: () => void }) {
 
   const generateMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/lms/modules/generate", {
+      const res = await csrfFetch("/api/lms/modules/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ documentId: selectedDoc, category, generateQuiz }),
@@ -797,7 +797,7 @@ export default function LearningPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`/api/lms/modules/${id}`, { method: "DELETE" });
+      const res = await csrfFetch(`/api/lms/modules/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete");
     },
     onSuccess: () => {
@@ -808,7 +808,7 @@ export default function LearningPage() {
 
   const publishMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`/api/lms/modules/${id}`, {
+      const res = await csrfFetch(`/api/lms/modules/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isPublished: true }),
