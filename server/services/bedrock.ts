@@ -200,11 +200,16 @@ export class BedrockProvider implements AIAnalysisProvider {
     const timeout = setTimeout(() => controller.abort(), BEDROCK_TIMEOUT_MS);
     let result: ConverseCommandOutput;
     try {
-      // System prompt is sent separately — Bedrock caches it across requests
-      // with identical system prompt prefixes, reducing input token costs
+      // System prompt sent with explicit cache point — Bedrock caches the system
+      // prompt prefix across requests, reducing input token costs by up to 90%.
+      // Adapted from UMS's buildSystemBlocks() prompt caching pattern.
+      // The cachePoint block tells Bedrock to cache everything above it.
       const command = new ConverseCommand({
         modelId: this.model,
-        system: [{ text: systemPrompt } as any],
+        system: [
+          { text: systemPrompt } as any,
+          { cachePoint: { type: "default" } } as any,
+        ],
         messages: [{ role: "user", content: [{ text: userMessage }] }],
         inferenceConfig: {
           temperature: 0.3,

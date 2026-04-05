@@ -58,6 +58,30 @@ export interface RAGSearchOptions {
   queryType?: QueryType;
 }
 
+// --- Response style configuration (adapted from ums-knowledge-reference) ---
+// Controls answer verbosity when RAG is used for direct knowledge base queries.
+// Managers may want quick answers; admins investigating issues want detail.
+
+export type ResponseStyle = "concise" | "detailed" | "comprehensive";
+
+export const RESPONSE_STYLE_CONFIG: Record<ResponseStyle, { maxTokens: number; instruction: string; topK: number }> = {
+  concise: {
+    maxTokens: 2048,
+    topK: 4,
+    instruction: "Keep your response concise and to the point. Lead with the direct answer in 1-3 sentences. Use bullet points only if listing multiple items.",
+  },
+  detailed: {
+    maxTokens: 4096,
+    topK: 6,
+    instruction: "Provide a balanced response with the direct answer followed by relevant supporting details. Use bullet points for multi-part answers.",
+  },
+  comprehensive: {
+    maxTokens: 8192,
+    topK: 10,
+    instruction: "Provide a thorough, comprehensive response. Include all relevant details, step-by-step procedures where applicable, related context, and any important caveats or exceptions from the source documents.",
+  },
+};
+
 // --- Adaptive query-type classification (adapted from ums-knowledge-reference) ---
 // Different query types benefit from different semantic/keyword weight balances.
 // Exact-match lookups (codes, template names) need more keyword weight;
