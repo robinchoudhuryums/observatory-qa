@@ -101,7 +101,6 @@ describe("Confidence as first-class filter", () => {
       const metrics: import("@shared/schema").DashboardMetrics = {
         totalCalls: 10,
         avgSentiment: 7.5,
-        avgTranscriptionTime: 2.3,
         avgPerformanceScore: 7.0,
         avgConfidence: 0.82,
         dataQuality: {

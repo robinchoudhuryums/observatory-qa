@@ -281,6 +281,15 @@ export class PostgresStorage {
     return rows[0] ? this.mapUser(rows[0]) : undefined;
   }
 
+  async getUsersByUsername(username: string): Promise<User[]> {
+    const rows = await this.db
+      .select()
+      .from(tables.users)
+      .where(eq(tables.users.username, username))
+      .limit(10);
+    return rows.map((r) => this.mapUser(r));
+  }
+
   async createUser(user: InsertUser): Promise<User> {
     const id = randomUUID();
     const [row] = await this.db
@@ -952,7 +961,6 @@ export class PostgresStorage {
       totalCalls: row?.call_count || 0,
       avgSentiment: Math.round((Number(row?.avg_sentiment) || 0) * 100) / 100,
       avgPerformanceScore: Math.round((Number(row?.avg_performance) || 0) * 100) / 100,
-      avgTranscriptionTime: 2.3,
     };
   }
 

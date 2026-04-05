@@ -486,6 +486,8 @@ app.use("/api/super-admin", distributedRateLimit(60 * 1000, 30) as any);
         runQuotaAlerts,
         runWeeklyDigest,
         runAllDailyTasks,
+        scheduleDaily,
+        scheduleWeekly,
       } = await import("./scheduled");
       const defaultRetentionDays = parseInt(process.env.RETENTION_DAYS || "90", 10);
       const dailyTaskOpts = { queuesReady, defaultRetentionDays };
@@ -496,10 +498,12 @@ app.use("/api/super-admin", distributedRateLimit(60 * 1000, 30) as any);
         runTrialDowngrade(storage);
       }, 30_000);
       const quotaAlertStartupTimer = setTimeout(() => runQuotaAlerts(storage), 60_000);
-      // Daily orchestrator: fetches org list once and passes to all tasks
-      const dailyTasksTimer = setInterval(() => runAllDailyTasks(storage, dailyTaskOpts), 24 * 60 * 60 * 1000);
-      // Weekly digest (every 7 days)
-      const weeklyDigestTimer = setInterval(() => runWeeklyDigest(storage), 7 * 24 * 60 * 60 * 1000);
+
+      // Wall-clock scheduled tasks (aligned to UTC hours, no drift)
+      // Daily orchestrator at 2:00 UTC — fetches org list once and passes to all tasks
+      const cancelDailyTasks = scheduleDaily(2, () => runAllDailyTasks(storage, dailyTaskOpts), "daily-tasks");
+      // Weekly digest at Monday 8:00 UTC (dayOfWeek=1)
+      const cancelWeeklyDigest = scheduleWeekly(1, 8, () => runWeeklyDigest(storage), "weekly-digest");
 
       // Graceful shutdown with HTTP connection draining
       let isShuttingDown = false;
@@ -514,8 +518,8 @@ app.use("/api/super-admin", distributedRateLimit(60 * 1000, 30) as any);
         clearInterval(rateLimitCleanupTimer);
         clearTimeout(retentionStartupTimer);
         clearTimeout(quotaAlertStartupTimer);
-        clearInterval(dailyTasksTimer);
-        clearInterval(weeklyDigestTimer);
+        cancelDailyTasks();
+        cancelWeeklyDigest();
 
         // Stop accepting new connections and drain existing ones
         server.close(() => {

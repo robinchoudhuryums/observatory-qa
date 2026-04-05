@@ -389,7 +389,35 @@ export async function setupAuth(app: Express) {
           }
 
           // 2. Check database users (created via admin UI or self-registration)
-          const dbUser = await storage.getUserByUsername(username);
+          // If caller provides orgSlug (disambiguation), scope the lookup directly.
+          const loginOrgSlug = req.body?.orgSlug as string | undefined;
+          let dbUser;
+
+          if (loginOrgSlug) {
+            // Scoped login — resolve org first, then lookup user within that org
+            const orgs = await storage.listOrganizations();
+            const targetOrg = orgs.find((o: any) => o.slug === loginOrgSlug);
+            if (targetOrg) {
+              dbUser = await storage.getUserByUsername(username, targetOrg.id);
+            }
+          } else {
+            // Unscoped login — check for ambiguity across orgs
+            const matches = await storage.getUsersByUsername(username);
+            if (matches.length > 1) {
+              // Multiple orgs have this username — require disambiguation
+              const orgIds = matches.map((u) => u.orgId);
+              const orgs = await Promise.all(orgIds.map((id) => storage.getOrganization(id)));
+              const orgSlugs = orgs.filter(Boolean).map((o: any) => o.slug);
+              logPhiAccess({ event: "login_ambiguous", username, resourceType: "auth", ip, userAgent, detail: `${matches.length} orgs` });
+              return done(null, false, {
+                message: "This username exists in multiple organizations. Please select one.",
+                code: "OBS-AUTH-008",
+                orgSlugs,
+              });
+            }
+            dbUser = matches[0];
+          }
+
           if (!dbUser) {
             recordFailedAttempt(username);
             logPhiAccess({ event: "login_failed", username, resourceType: "auth" });

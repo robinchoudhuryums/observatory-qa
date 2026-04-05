@@ -43,6 +43,10 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
   const [requestedRole, setRequestedRole] = useState("viewer");
   const [requestSubmitted, setRequestSubmitted] = useState(false);
 
+  // Org disambiguation state (shown when username exists in multiple orgs)
+  const [ambiguousOrgSlugs, setAmbiguousOrgSlugs] = useState<string[]>([]);
+  const [selectedOrgSlug, setSelectedOrgSlug] = useState("");
+
   // Registration form state
   const [regOrgName, setRegOrgName] = useState("");
   const [regOrgSlug, setRegOrgSlug] = useState("");
@@ -56,9 +60,33 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
     setIsLoading(true);
 
     try {
-      await apiRequest("POST", "/api/auth/login", { username, password });
+      const body: Record<string, string> = { username, password };
+      // Include orgSlug for disambiguation when user selected an org
+      if (selectedOrgSlug) body.orgSlug = selectedOrgSlug;
+      await apiRequest("POST", "/api/auth/login", body);
+      setAmbiguousOrgSlugs([]);
+      setSelectedOrgSlug("");
       onLogin();
     } catch (error: any) {
+      // Handle multi-org ambiguity (409): show org selector
+      const errMsg = error.message || "";
+      if (errMsg.startsWith("409:")) {
+        try {
+          const jsonStr = errMsg.slice(errMsg.indexOf("{"));
+          const data = JSON.parse(jsonStr);
+          if (data.orgSlugs?.length > 0) {
+            setAmbiguousOrgSlugs(data.orgSlugs);
+            setSelectedOrgSlug(data.orgSlugs[0]);
+            toast({
+              title: "Multiple Organizations",
+              description: "Please select which organization to log into.",
+            });
+            return;
+          }
+        } catch {
+          // fall through to generic error
+        }
+      }
       const message = error.message?.includes(":") ? error.message.split(": ").slice(1).join(": ") : error.message;
       toast({
         title: "Login Failed",
@@ -213,6 +241,24 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                     data-testid="login-password"
                   />
                 </div>
+                {ambiguousOrgSlugs.length > 0 && (
+                  <div>
+                    <label className="text-sm font-medium text-foreground" htmlFor="login-org">
+                      Organization
+                    </label>
+                    <select
+                      id="login-org"
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      aria-label="Select organization"
+                      value={selectedOrgSlug}
+                      onChange={(e) => setSelectedOrgSlug(e.target.value)}
+                    >
+                      {ambiguousOrgSlugs.map((slug) => (
+                        <option key={slug} value={slug}>{slug}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <Button type="submit" className="w-full" disabled={isLoading} data-testid="login-submit">
                   {isLoading ? (
                     <RiLoader4Line className="w-4 h-4 mr-2 animate-spin" />

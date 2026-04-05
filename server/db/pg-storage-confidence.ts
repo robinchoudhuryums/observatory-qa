@@ -45,7 +45,6 @@ export function applyConfidenceMetricsMixin(storage: any): void {
       totalCalls: row?.call_count || 0,
       avgSentiment: Math.round((parseFloat(row?.avg_sentiment) || 0) * 100) / 100,
       avgPerformanceScore: Math.round((parseFloat(row?.avg_performance) || 0) * 100) / 100,
-      avgTranscriptionTime: 2.3,
       avgConfidence: isNaN(avgConf) ? null : Math.round(avgConf * 100) / 100,
       dataQuality: {
         highConfidence: row?.high_confidence || 0,

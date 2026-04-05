@@ -637,7 +637,6 @@ export type CallSummary = Call & {
 export type DashboardMetrics = {
   totalCalls: number;
   avgSentiment: number;
-  avgTranscriptionTime: number;
   avgPerformanceScore: number;
   /** Average confidence score across all analyzed calls (0-1). Null if no calls have confidence data. */
   avgConfidence?: number | null;

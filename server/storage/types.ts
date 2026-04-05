@@ -177,7 +177,6 @@ export function calculateDashboardMetrics(
     totalCalls,
     avgSentiment: Math.round(avgSentiment * 100) / 100,
     avgPerformanceScore: Math.round(avgPerformanceScore * 100) / 100,
-    avgTranscriptionTime: 2.3,
     avgConfidence: confCount > 0 ? Math.round((confSum / confCount) * 100) / 100 : null,
     dataQuality: { highConfidence, mediumConfidence, lowConfidence, noConfidence },
   };
@@ -233,6 +232,8 @@ export interface IStorage {
   // User operations
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string, orgId?: string): Promise<User | undefined>;
+  /** Return all users matching a username across all orgs (for login ambiguity detection). */
+  getUsersByUsername(username: string): Promise<User[]>;
   createUser(user: InsertUser): Promise<User>;
   listUsersByOrg(orgId: string): Promise<User[]>;
   updateUser(orgId: string, id: string, updates: Partial<User>): Promise<User | undefined>;

@@ -12,6 +12,7 @@ export { runQuotaAlerts } from "./quota-alerts";
 export { runWeeklyDigest } from "./weekly-digest";
 export { runAuditChainVerify } from "./audit-chain-verify";
 export { runCoachingScheduledTasks } from "./coaching-tasks";
+export { scheduleDaily, scheduleWeekly } from "./scheduler";
 
 // Re-import for orchestrator use
 import { runRetention } from "./retention";
