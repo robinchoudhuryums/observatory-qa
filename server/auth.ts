@@ -466,7 +466,7 @@ export async function setupAuth(app: Express) {
       if (!dbUser) {
         return done(null, false);
       }
-      const org = await storage.getOrganization(dbUser.orgId);
+      const org = await getCachedOrganization(dbUser.orgId);
       done(null, {
         id: dbUser.id,
         username: dbUser.username,

@@ -18,7 +18,7 @@ import { storage } from "../storage";
 import { assemblyAIService } from "./assemblyai";
 import { aiProvider, withBedrockProtection } from "./ai-factory";
 import { broadcastCallUpdate } from "./websocket";
-import { invalidateDashboardCache } from "../routes/dashboard";
+import { invalidateDashboardCache } from "./dashboard-cache";
 import { notifyFlaggedCall } from "./notifications";
 import { onCallAnalysisComplete } from "./proactive-alerts";
 import { trackUsage } from "./queue";
@@ -27,8 +27,8 @@ import { searchRelevantChunks, formatRetrievedContext, incrementRetrievalCounts,
 import { encryptField } from "./phi-encryption";
 import { calibrateAnalysis } from "./scoring-calibration";
 import { validateClinicalNote, sanitizeStylePreferences } from "./clinical-validation";
-import { estimateBedrockCost, estimateAssemblyAICost } from "../routes/ab-testing";
-import { safeFloat, withRetry } from "../routes/helpers";
+import { estimateBedrockCost, estimateAssemblyAICost } from "./cost-estimation";
+import { safeFloat, withRetry } from "../utils/helpers";
 import { PLAN_DEFINITIONS, type PlanTier, type UsageRecord, type OrgSettings } from "@shared/schema";
 import type { PromptTemplateConfig } from "./ai-provider";
 import type { AssemblyAIResponse, TranscriptionOptions } from "./assemblyai";
@@ -275,6 +275,11 @@ export function mapClinicalNote(rawNote: any): any {
 
 // ==================== PROMPT TEMPLATE LOADING ====================
 
+interface PromptTemplateResult {
+  template: PromptTemplateConfig | undefined;
+  citations: RAGCitation[] | null;
+}
+
 async function loadPromptTemplate(
   orgId: string,
   callId: string,
@@ -283,7 +288,7 @@ async function loadPromptTemplate(
   clinicalSpecialty: string | undefined,
   noteFormat: string | undefined,
   transcriptText: string | undefined,
-): Promise<PromptTemplateConfig | undefined> {
+): Promise<PromptTemplateResult> {
   let template: PromptTemplateConfig | undefined;
 
   // Load custom prompt template by category (cached to avoid DB hit per call)
@@ -338,19 +343,22 @@ async function loadPromptTemplate(
   }
 
   // Load reference documents (RAG or full-text)
+  let citations: RAGCitation[] | null = null;
   try {
     const refDocs = await getCachedRefDocs(orgId, callCategory || "");
     const docsWithText = refDocs.filter((d) => d.extractedText && d.extractedText.length > 0);
 
     if (docsWithText.length > 0) {
       if (!template) template = {};
-      template.referenceDocuments = await loadReferenceContext(orgId, callId, docsWithText, transcriptText);
+      const refResult = await loadReferenceContext(orgId, callId, docsWithText, transcriptText);
+      template.referenceDocuments = refResult.documents;
+      citations = refResult.citations;
     }
   } catch (err) {
     logger.warn({ callId, err }, "Failed to load reference documents (continuing without)");
   }
 
-  return template;
+  return { template, citations };
 }
 
 /** RAG citations stored in confidenceFactors */
@@ -362,14 +370,10 @@ export interface RAGCitation {
   score: number;
 }
 
-/** Last RAG citations produced during reference context loading (per-call) */
-let lastRagCitations: RAGCitation[] | null = null;
-
-/** Retrieve and clear the last RAG citations (called after loadReferenceContext) */
-export function consumeRagCitations(): RAGCitation[] | null {
-  const citations = lastRagCitations;
-  lastRagCitations = null;
-  return citations;
+/** Result of loading reference context — includes both documents and RAG citations */
+interface ReferenceContextResult {
+  documents: Array<{ name: string; category: string; text: string }>;
+  citations: RAGCitation[] | null;
 }
 
 async function loadReferenceContext(
@@ -377,9 +381,7 @@ async function loadReferenceContext(
   callId: string,
   docsWithText: Array<{ name: string; category: string; extractedText?: string | null; id: string }>,
   transcriptText: string | undefined,
-): Promise<Array<{ name: string; category: string; text: string }>> {
-  lastRagCitations = null;
-
+): Promise<ReferenceContextResult> {
   // Check RAG eligibility
   let useRag = false;
   try {
@@ -404,8 +406,7 @@ async function loadReferenceContext(
           const ragContext = formatRetrievedContext(chunks);
           logger.info({ callId, chunkCount: chunks.length }, "RAG: injecting relevant chunks");
 
-          // Store citations for later attachment to confidenceFactors
-          lastRagCitations = chunks.map((c) => ({
+          const citations: RAGCitation[] = chunks.map((c) => ({
             chunkId: c.id,
             documentId: c.documentId,
             documentName: c.documentName,
@@ -427,7 +428,10 @@ async function loadReferenceContext(
           if (phiDetected) {
             logger.warn({ callId, orgId }, "PHI detected in RAG retrieval context — redacted");
           }
-          return [{ name: "Retrieved Knowledge Base Context", category: "rag_retrieval", text: scannedContext }];
+          return {
+            documents: [{ name: "Retrieved Knowledge Base Context", category: "rag_retrieval", text: scannedContext }],
+            citations,
+          };
         }
       }
     } catch (err) {
@@ -437,7 +441,10 @@ async function loadReferenceContext(
 
   // Fallback to full-text injection
   logger.info({ callId, docCount: docsWithText.length }, "Injecting reference documents (full-text)");
-  return docsWithText.map((d) => ({ name: d.name, category: d.category, text: d.extractedText! }));
+  return {
+    documents: docsWithText.map((d) => ({ name: d.name, category: d.category, text: d.extractedText! })),
+    citations: null,
+  };
 }
 
 // ==================== MAIN PROCESSING PIPELINE ====================
@@ -658,7 +665,7 @@ export async function continueAfterTranscription(
     }
 
     // Step 4: AI analysis (real-time)
-    const aiAnalysis = await runAiAnalysis(
+    const { aiAnalysis, citations: ragCitations } = await runAiAnalysis(
       orgId,
       callId,
       resolvedCallCategory,
@@ -703,7 +710,6 @@ export async function continueAfterTranscription(
     );
     confidence.factors.transcriptLength = (transcriptResponse.text || "").length;
     analysis.confidenceScore = confidence.score.toFixed(3);
-    const ragCitations = consumeRagCitations();
     analysis.confidenceFactors = {
       ...confidence.factors,
       ...(ragCitations ? { ragCitations } : {}),
@@ -962,15 +968,16 @@ async function handleEmptyTranscript(
   };
   (analysis.flags as string[]) = ["empty_transcript", "low_confidence"];
 
-  await Promise.all([
-    storage.createTranscript(orgId, transcript),
-    storage.createSentimentAnalysis(orgId, sentiment),
-    storage.createCallAnalysis(orgId, analysis),
-  ]);
-
   const tags: string[] = ["empty_transcript"];
   if (!audioArchived) tags.push("audio_missing");
-  await storage.updateCall(orgId, callId, { status: "completed", duration: 0, tags });
+
+  await storage.withTransaction(async () => {
+    await storage.createTranscript(orgId, transcript);
+    await storage.createSentimentAnalysis(orgId, sentiment);
+    await storage.createCallAnalysis(orgId, analysis);
+    await storage.updateCall(orgId, callId, { status: "completed", duration: 0, tags });
+  });
+
   await cleanupFile(filePath);
 }
 
@@ -986,7 +993,7 @@ async function runAiAnalysis(
 ) {
   broadcastCallUpdate(callId, "analyzing", { step: 4, totalSteps: 6, label: "Running AI analysis..." }, orgId);
 
-  const promptTemplate = await loadPromptTemplate(
+  const { template: promptTemplate, citations } = await loadPromptTemplate(
     orgId,
     callId,
     callCategory,
@@ -998,7 +1005,7 @@ async function runAiAnalysis(
 
   if (!aiProvider.isAvailable || !transcriptText) {
     logger.info({ callId }, "AI provider not available or no transcript text");
-    return null;
+    return { aiAnalysis: null, citations };
   }
 
   try {
@@ -1020,10 +1027,10 @@ async function runAiAnalysis(
       // Non-critical
     }
     logger.info({ callId }, "AI analysis complete");
-    return result;
+    return { aiAnalysis: result, citations };
   } catch (err) {
     logger.warn({ callId, err }, "AI analysis failed after retries (continuing with defaults)");
-    return null;
+    return { aiAnalysis: null, citations };
   }
 }
 

@@ -12,14 +12,14 @@ import { storage, initPostgresStorage } from "./storage";
 import { setupWebSocket } from "./services/websocket";
 import { logger } from "./services/logger";
 import { initRedis, checkRateLimit, closeRedis, getRedisStatus } from "./services/redis";
-import { initQueues, enqueueRetention, closeQueues } from "./services/queue";
-import { initEmail, sendEmail, buildQuotaAlertEmail } from "./services/email";
+import { initQueues, closeQueues } from "./services/queue";
+import { initEmail } from "./services/email";
 import { isPhiEncryptionEnabled } from "./services/phi-encryption";
 import { wafMiddleware } from "./middleware/waf";
 import { correlationIdMiddleware } from "./middleware/correlation-id";
 import { tracingMiddleware } from "./middleware/tracing";
 import { initSentry, sentryErrorMiddleware, flushSentry } from "./services/sentry";
-import { PLAN_DEFINITIONS, type PlanTier } from "@shared/schema";
+// PLAN_DEFINITIONS and PlanTier moved to scheduled task modules
 
 // Initialize Sentry early (before Express middleware) so it captures all errors
 initSentry();
@@ -127,9 +127,10 @@ const rateLimitCleanupTimer = setInterval(
   5 * 60 * 1000,
 );
 
-// Trust reverse proxy (Render, Heroku, etc.) so secure cookies and
-// x-forwarded-proto work correctly behind their load balancer.
-if (process.env.NODE_ENV === "production" && !process.env.DISABLE_SECURE_COOKIE) {
+// Trust reverse proxy (Render, Heroku, etc.) so x-forwarded-proto, rate limiting,
+// and IP logging work correctly behind their load balancer.
+// TRUST_PROXY can be set to "0" to disable, otherwise enabled in production.
+if (process.env.NODE_ENV === "production" && process.env.TRUST_PROXY !== "0") {
   app.set("trust proxy", 1);
 }
 
@@ -478,332 +479,27 @@ app.use("/api/super-admin", distributedRateLimit(60 * 1000, 30) as any);
       // WebSocket: real-time call processing notifications
       setupWebSocket(server);
 
-      // HIPAA: Data retention — purge calls older than configured days
-      // Runs across all organizations; uses per-org retentionDays from settings (falls back to env/default 90)
+      // Scheduled tasks (extracted to server/scheduled/ for testability)
+      const {
+        runRetention,
+        runTrialDowngrade,
+        runQuotaAlerts,
+        runWeeklyDigest,
+        runAllDailyTasks,
+      } = await import("./scheduled");
       const defaultRetentionDays = parseInt(process.env.RETENTION_DAYS || "90", 10);
-      const runRetention = async () => {
-        try {
-          const currentStorage = (await import("./storage")).storage;
-          const orgs = await currentStorage.listOrganizations();
-          let totalPurged = 0;
-          for (const org of orgs) {
-            const orgRetention = org.settings?.retentionDays ?? defaultRetentionDays;
+      const dailyTaskOpts = { queuesReady, defaultRetentionDays };
 
-            // Use job queue if available (non-blocking, durable)
-            if (queuesReady) {
-              await enqueueRetention(org.id, orgRetention);
-            } else {
-              // Fallback: run inline
-              const purged = await currentStorage.purgeExpiredCalls(org.id, orgRetention);
-              if (purged > 0) {
-                const { logPhiAccess } = await import("./services/audit-log");
-                logPhiAccess({
-                  orgId: org.id,
-                  userId: "system",
-                  username: "system:retention",
-                  role: "admin",
-                  ip: "localhost",
-                  userAgent: "retention-scheduler",
-                  event: "data_retention_purge",
-                  resourceType: "call",
-                  detail: `Purged ${purged} calls older than ${orgRetention} days`,
-                });
-                logger.info({ org: org.slug, purged, retentionDays: orgRetention }, "Retention purge completed");
-                totalPurged += purged;
-              }
-            }
-          }
-          if (!queuesReady && totalPurged > 0) {
-            logger.info({ totalPurged }, "Retention purge complete across all orgs");
-          }
-        } catch (error) {
-          logger.error({ err: error }, "Error during retention purge");
-        }
-      };
-
-      // Trial auto-downgrade: check for expired trial subscriptions daily
-      const runTrialDowngrade = async () => {
-        try {
-          const currentStorage = (await import("./storage")).storage;
-          const orgs = await currentStorage.listOrganizations();
-          const now = new Date();
-          let downgraded = 0;
-
-          for (const org of orgs) {
-            const sub = await currentStorage.getSubscription(org.id);
-            if (!sub) continue;
-
-            // Downgrade expired trials
-            if (sub.status === "trialing" && sub.currentPeriodEnd) {
-              const trialEnd = new Date(sub.currentPeriodEnd);
-              if (now > trialEnd) {
-                await currentStorage.upsertSubscription(org.id, {
-                  orgId: org.id,
-                  planTier: "free",
-                  status: "active",
-                  billingInterval: "monthly",
-                  cancelAtPeriodEnd: false,
-                });
-                const { logPhiAccess } = await import("./services/audit-log");
-                logPhiAccess({
-                  orgId: org.id,
-                  userId: "system",
-                  username: "system:trial-downgrade",
-                  role: "admin",
-                  ip: "localhost",
-                  userAgent: "trial-scheduler",
-                  event: "subscription_auto_downgraded",
-                  resourceType: "subscription",
-                  detail: `Trial expired — From: ${sub.planTier}, To: free`,
-                });
-                logger.info(
-                  { orgId: org.id, orgSlug: org.slug, previousTier: sub.planTier },
-                  "Trial expired — downgraded to free",
-                );
-                downgraded++;
-
-                // Notify org admins about the downgrade
-                try {
-                  const { buildTrialDowngradeEmail, sendEmail } = await import("./services/email");
-                  const users = await currentStorage.listUsersByOrg(org.id);
-                  const admins = users.filter((u: any) => u.role === "admin");
-                  const dashboardUrl = process.env.APP_URL || `https://${org.slug}.observatory-qa.com`;
-                  for (const admin of admins) {
-                    if (!admin.username?.includes("@")) continue; // skip non-email usernames
-                    const emailOpts = buildTrialDowngradeEmail(org.name, dashboardUrl);
-                    emailOpts.to = admin.username;
-                    await sendEmail(emailOpts);
-                  }
-                } catch (emailErr) {
-                  logger.warn({ err: emailErr, orgId: org.id }, "Failed to send trial downgrade email");
-                }
-              }
-            }
-          }
-
-          if (downgraded > 0) {
-            logger.info({ downgraded }, "Trial auto-downgrade complete");
-          }
-        } catch (error) {
-          logger.error({ err: error }, "Error during trial auto-downgrade");
-        }
-      };
-
-      // Proactive quota alerts: email org admins when usage hits 80% or 100%
-      const runQuotaAlerts = async () => {
-        try {
-          const currentStorage = (await import("./storage")).storage;
-          const orgs = await currentStorage.listOrganizations();
-          const now = new Date();
-          const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
-          const dashboardUrl = process.env.APP_URL || "https://app.observatory-qa.com";
-
-          for (const org of orgs) {
-            const sub = await currentStorage.getSubscription(org.id);
-            const tier = (sub?.planTier as PlanTier) || "free";
-            const plan = PLAN_DEFINITIONS[tier];
-            if (!plan) continue;
-
-            const usage = await currentStorage.getUsageSummary(org.id, periodStart);
-            const usageMap: Record<string, number> = {};
-            for (const u of usage) usageMap[u.eventType] = u.totalQuantity;
-
-            const warnings: Array<{ label: string; used: number; limit: number; pct: number }> = [];
-            const check = (label: string, eventType: string, limitKey: keyof typeof plan.limits) => {
-              const limit = plan.limits[limitKey] as number;
-              if (limit <= 0 || limit === -1) return;
-              const used = usageMap[eventType] || 0;
-              const pct = Math.round((used / limit) * 100);
-              if (pct >= 80) warnings.push({ label, used, limit, pct });
-            };
-
-            check("Calls", "transcription", "callsPerMonth");
-            check("AI Analyses", "ai_analysis", "aiAnalysesPerMonth");
-
-            if (warnings.length === 0) continue;
-
-            // Get admin/manager users with email addresses
-            const users = await currentStorage.listUsersByOrg(org.id);
-            const recipients = users.filter(
-              (u) => (u.role === "admin" || u.role === "manager") && u.username?.includes("@"),
-            );
-            if (recipients.length === 0) continue;
-
-            const isExhausted = warnings.some((w) => w.pct >= 100);
-            const orgName = org.name || org.slug || "Observatory QA";
-            const emailTemplate = buildQuotaAlertEmail(orgName, warnings, isExhausted, dashboardUrl);
-
-            await Promise.allSettled(recipients.map((user) => sendEmail({ ...emailTemplate, to: user.username })));
-
-            logger.info(
-              { orgId: org.id, warnings: warnings.length, isExhausted, recipients: recipients.length },
-              "Quota alert emails sent",
-            );
-          }
-        } catch (error) {
-          logger.error({ err: error }, "Error during quota alert check");
-        }
-      };
-
-      // Weekly digest — sends coaching/performance digest to org webhook
-      const runWeeklyDigest = async () => {
-        try {
-          const webhookUrl = process.env.WEBHOOK_DIGEST_URL;
-          if (!webhookUrl) return;
-
-          const { generateWeeklyDigest } = await import("./services/proactive-alerts");
-          const { sendSlackNotification } = await import("./services/notifications");
-          const orgs = await storage.listOrganizations();
-
-          for (const org of orgs) {
-            try {
-              const digest = await generateWeeklyDigest(org.id);
-              if (digest.totalCalls === 0) continue;
-
-              const text = [
-                `*Weekly Digest: ${org.name}*`,
-                `Calls: ${digest.totalCalls} | Avg Score: ${digest.avgScore} | Flagged: ${digest.flaggedCalls}`,
-                `Sentiment: +${digest.sentiment.positive} / ~${digest.sentiment.neutral} / -${digest.sentiment.negative}`,
-                digest.agentsNeedingAttention.length > 0
-                  ? `Agents needing attention: ${digest.agentsNeedingAttention.map((a) => a.name).join(", ")}`
-                  : "No agents flagged for review",
-              ].join("\n");
-
-              await sendSlackNotification({ channel: "digest", text, blocks: [] });
-              logger.info({ orgId: org.id, totalCalls: digest.totalCalls }, "Weekly digest sent");
-            } catch (orgErr) {
-              logger.warn({ err: orgErr, orgId: org.id }, "Failed to send weekly digest for org");
-            }
-          }
-        } catch (error) {
-          logger.error({ err: error }, "Error during weekly digest generation");
-        }
-      };
-
-      // Nightly audit chain integrity verification (2am UTC daily)
-      const runAuditChainVerify = async () => {
-        try {
-          const { verifyAuditChain, logPhiAccess: logAuditAlert } = await import("./services/audit-log");
-          const orgs = await storage.listOrganizations();
-          let brokenCount = 0;
-
-          for (const org of orgs) {
-            try {
-              const result = await verifyAuditChain(org.id);
-              if (!result.valid) {
-                brokenCount++;
-                logger.error(
-                  { orgId: org.id, brokenAt: result.brokenAt, checkedCount: result.checkedCount },
-                  "[HIPAA_ALERT] Audit chain integrity BROKEN — possible tampering detected",
-                );
-                // Log a security alert into the audit trail itself
-                logAuditAlert({
-                  event: "audit_chain_tamper_detected",
-                  orgId: org.id,
-                  resourceType: "audit_logs",
-                  ip: "localhost",
-                  userAgent: "audit-chain-verifier",
-                  role: "system",
-                  detail: `Chain broken at sequence ${result.brokenAt} of ${result.checkedCount} entries`,
-                });
-              } else if (result.checkedCount > 0) {
-                logger.info(
-                  { orgId: org.id, checkedCount: result.checkedCount },
-                  "Nightly audit chain verification: OK",
-                );
-              }
-            } catch (orgErr) {
-              logger.warn({ err: orgErr, orgId: org.id }, "Audit chain verify failed for org");
-            }
-          }
-
-          if (brokenCount > 0) {
-            logger.error({ brokenCount }, `[HIPAA_ALERT] ${brokenCount} org(s) have broken audit chains`);
-          }
-        } catch (error) {
-          logger.error({ err: error }, "Nightly audit chain verification failed");
-        }
-      };
-
-      // Run once on startup (after 30s delay to let auth settle)
+      // Run once on startup (staggered delays to let auth/DB settle)
       const retentionStartupTimer = setTimeout(() => {
-        runRetention();
-        runTrialDowngrade();
+        runRetention(storage, dailyTaskOpts);
+        runTrialDowngrade(storage);
       }, 30_000);
-      // Run quota alerts daily at a slight offset (60s after startup, then every 24h)
-      const quotaAlertStartupTimer = setTimeout(runQuotaAlerts, 60_000);
-      // Then run daily (every 24 hours)
-      const retentionDailyTimer = setInterval(runRetention, 24 * 60 * 60 * 1000);
-      const trialDowngradeTimer = setInterval(runTrialDowngrade, 24 * 60 * 60 * 1000);
-      const quotaAlertDailyTimer = setInterval(runQuotaAlerts, 24 * 60 * 60 * 1000);
+      const quotaAlertStartupTimer = setTimeout(() => runQuotaAlerts(storage), 60_000);
+      // Daily orchestrator: fetches org list once and passes to all tasks
+      const dailyTasksTimer = setInterval(() => runAllDailyTasks(storage, dailyTaskOpts), 24 * 60 * 60 * 1000);
       // Weekly digest (every 7 days)
-      const weeklyDigestTimer = setInterval(runWeeklyDigest, 7 * 24 * 60 * 60 * 1000);
-      // Run nightly audit chain verification (daily, with startup delay of 120s to avoid boot noise)
-      const auditChainStartupTimer = setTimeout(runAuditChainVerify, 120_000);
-      const auditChainDailyTimer = setInterval(runAuditChainVerify, 24 * 60 * 60 * 1000);
-
-      // --- Coaching: automation rules + effectiveness caching + follow-up reminders ---
-      const runCoachingScheduledTasks = async () => {
-        try {
-          const { runAutomationRules, sweepEffectivenessSnapshots, getDueSoonSessions, getOverdueSessions } =
-            await import("./services/coaching-engine");
-          const { sendEmail } = await import("./services/email");
-          const orgs = await storage.listOrganizations();
-          for (const org of orgs) {
-            if (org.status !== "active") continue;
-            try {
-              // Run automation rules daily
-              const { triggered, sessionsCreated } = await runAutomationRules(org.id);
-              if (sessionsCreated > 0)
-                logger.info(
-                  { orgId: org.id, triggered, sessionsCreated },
-                  "Automation rules created coaching sessions",
-                );
-
-              // Cache effectiveness for completed sessions 30+ days old
-              await sweepEffectivenessSnapshots(org.id);
-
-              // Follow-up reminders: email managers about sessions due in 24h
-              const dueSoon = await getDueSoonSessions(org.id, 24);
-              if (dueSoon.length > 0) {
-                // Group by assignedBy (manager)
-                const byManager = new Map<string, typeof dueSoon>();
-                for (const item of dueSoon) {
-                  const mgr = item.session.assignedBy;
-                  if (!byManager.has(mgr)) byManager.set(mgr, []);
-                  byManager.get(mgr)!.push(item);
-                }
-                for (const [manager, items] of Array.from(byManager)) {
-                  const list = items
-                    .map((i) => `• ${i.session.title} (${i.employeeName}, due in ${i.hoursUntilDue}h)`)
-                    .join("\n");
-                  // Email if manager name looks like an email; otherwise log for webhook delivery
-                  if (manager.includes("@")) {
-                    await sendEmail({
-                      to: manager,
-                      subject: `Coaching follow-up reminder — ${items.length} session(s) due soon`,
-                      text: `Hi,\n\nThe following coaching sessions are due within 24 hours:\n\n${list}\n\nPlease follow up with your team.`,
-                      html: `<p>The following coaching sessions are due within 24 hours:</p><ul>${items.map((i) => `<li>${i.session.title} — ${i.employeeName} (${i.hoursUntilDue}h)</li>`).join("")}</ul>`,
-                    }).catch(() => {});
-                  }
-                }
-              }
-
-              // Log overdue count (webhook/Slack alert handled by existing notifications)
-              const overdue = await getOverdueSessions(org.id);
-              if (overdue.length > 0) {
-                logger.warn({ orgId: org.id, count: overdue.length }, "Overdue coaching sessions");
-              }
-            } catch (err) {
-              logger.warn({ err, orgId: org.id }, "Coaching scheduled tasks failed for org");
-            }
-          }
-        } catch (err) {
-          logger.error({ err }, "Coaching scheduled tasks runner failed");
-        }
-      };
-      const coachingStartupTimer = setTimeout(runCoachingScheduledTasks, 90_000);
-      const coachingDailyTimer = setInterval(runCoachingScheduledTasks, 24 * 60 * 60 * 1000);
+      const weeklyDigestTimer = setInterval(() => runWeeklyDigest(storage), 7 * 24 * 60 * 60 * 1000);
 
       // Graceful shutdown with HTTP connection draining
       let isShuttingDown = false;
@@ -818,14 +514,8 @@ app.use("/api/super-admin", distributedRateLimit(60 * 1000, 30) as any);
         clearInterval(rateLimitCleanupTimer);
         clearTimeout(retentionStartupTimer);
         clearTimeout(quotaAlertStartupTimer);
-        clearInterval(retentionDailyTimer);
-        clearInterval(trialDowngradeTimer);
-        clearInterval(quotaAlertDailyTimer);
+        clearInterval(dailyTasksTimer);
         clearInterval(weeklyDigestTimer);
-        clearTimeout(auditChainStartupTimer);
-        clearInterval(auditChainDailyTimer);
-        clearTimeout(coachingStartupTimer);
-        clearInterval(coachingDailyTimer);
 
         // Stop accepting new connections and drain existing ones
         server.close(() => {

@@ -14,7 +14,7 @@
 import { logger } from "./logger";
 import { storage } from "../storage";
 import { sendEmail, buildFlaggedCallEmail } from "./email";
-import { withRetry } from "../routes/helpers";
+import { withRetry } from "../utils/helpers";
 
 // --- Configuration ---
 
@@ -182,7 +182,7 @@ async function sendFlaggedCallEmails(notification: CallNotification): Promise<vo
 
   const orgName = org.name || org.slug || "Observatory QA";
   // Determine the base URL from org settings or default
-  const dashboardUrl = process.env.APP_URL || "https://app.observatory-qa.com";
+  const dashboardUrl = process.env.APP_BASE_URL || "https://app.observatory-qa.com";
 
   const emailRecipients = users.filter(
     (u) => (u.role === "admin" || u.role === "manager") && u.username?.includes("@"),

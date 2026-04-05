@@ -23,7 +23,7 @@ import { enforceQuota, requireActiveSubscription } from "./billing";
 import { logger } from "../services/logger";
 import { searchRelevantChunks, formatRetrievedContext } from "../services/rag";
 import { PLAN_DEFINITIONS, type PlanTier, type UsageRecord } from "@shared/schema";
-import { estimateBedrockCost } from "./ab-testing";
+import { estimateBedrockCost } from "../services/cost-estimation";
 import { buildEmailSystemPrompt, parseJsonResponse, type PromptTemplateConfig } from "../services/ai-provider";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import { asyncHandler } from "../middleware/error-handler";
