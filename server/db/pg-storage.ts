@@ -241,6 +241,13 @@ export class PostgresStorage {
     if (updates.name !== undefined) setClause.name = updates.name;
     if (updates.role !== undefined) setClause.role = updates.role;
     if (updates.passwordHash !== undefined) setClause.passwordHash = updates.passwordHash;
+    if (updates.mfaEnabled !== undefined) setClause.mfaEnabled = updates.mfaEnabled;
+    if (updates.mfaSecret !== undefined) setClause.mfaSecret = updates.mfaSecret;
+    if (updates.mfaBackupCodes !== undefined) setClause.mfaBackupCodes = updates.mfaBackupCodes;
+    if ((updates as any).subTeam !== undefined) setClause.subTeam = (updates as any).subTeam;
+    if ((updates as any).webauthnCredentials !== undefined) setClause.webauthnCredentials = (updates as any).webauthnCredentials;
+    if ((updates as any).mfaTrustedDevices !== undefined) setClause.mfaTrustedDevices = (updates as any).mfaTrustedDevices;
+    if ((updates as any).mfaEnrollmentDeadline !== undefined) setClause.mfaEnrollmentDeadline = (updates as any).mfaEnrollmentDeadline;
 
     if (Object.keys(setClause).length === 0) return this.getUser(id);
 
@@ -1535,18 +1542,7 @@ export class PostgresStorage {
     id: string,
     updates: Partial<import("@shared/schema").AutomationRule>,
   ): Promise<import("@shared/schema").AutomationRule | undefined> {
-    const setClause: Record<string, unknown> = {};
-    if (updates.name !== undefined) setClause.is_enabled = updates.isEnabled;
-    if (updates.isEnabled !== undefined) setClause.is_enabled = updates.isEnabled;
-    if (updates.conditions !== undefined) setClause.conditions = JSON.stringify(updates.conditions);
-    if (updates.actions !== undefined) setClause.actions = JSON.stringify(updates.actions);
-    if ((updates as any).lastTriggeredAt !== undefined)
-      setClause.last_triggered_at = (updates as any).lastTriggeredAt
-        ? new Date((updates as any).lastTriggeredAt)
-        : null;
-    if ((updates as any).triggerCount !== undefined) setClause.trigger_count = (updates as any).triggerCount;
-    setClause.updated_at = new Date();
-    // Build SET via raw SQL to handle JSONB properly
+    // Raw SQL handles JSONB properly via COALESCE (null = keep existing value)
     const result = (await this.db.execute(sql`
       UPDATE automation_rules SET
         is_enabled = COALESCE(${updates.isEnabled ?? null}, is_enabled),
@@ -1813,6 +1809,10 @@ export class PostgresStorage {
       mfaEnabled: row.mfaEnabled ?? false,
       mfaSecret: row.mfaSecret ?? undefined,
       mfaBackupCodes: row.mfaBackupCodes ?? undefined,
+      subTeam: row.subTeam ?? undefined,
+      webauthnCredentials: row.webauthnCredentials ?? undefined,
+      mfaTrustedDevices: row.mfaTrustedDevices ?? undefined,
+      mfaEnrollmentDeadline: row.mfaEnrollmentDeadline ?? undefined,
       createdAt: toISOString(row.createdAt),
     };
   }
@@ -1925,6 +1925,13 @@ export class PostgresStorage {
       subScores: row.subScores as any,
       detectedAgentName: row.detectedAgentName,
       clinicalNote: row.clinicalNote as any,
+      // Fields that exist in DB but were previously unmapped (data loss fix)
+      speechMetrics: row.speechMetrics as any,
+      selfReview: row.selfReview as any,
+      scoreDispute: row.scoreDispute as any,
+      patientSummary: row.patientSummary,
+      referralLetter: row.referralLetter,
+      suggestedBillingCodes: row.suggestedBillingCodes as any,
       createdAt: toISOString(row.createdAt),
     };
   }
