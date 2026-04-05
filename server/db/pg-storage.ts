@@ -82,6 +82,25 @@ import type {
 import * as tables from "./schema";
 import { normalizeAnalysis } from "../storage";
 
+// JSONB field types — typed casts in mappers (replaces `as any` with documented types)
+// These mirror the Zod schemas in shared/schema but are plain TS for the DB layer.
+type AnalysisFeedback = { strengths?: Array<string | { text: string; timestamp?: string }>; suggestions?: Array<string | { text: string; timestamp?: string }> };
+type ManualEdit = { editedBy: string; editedAt: string; reason: string; fieldsChanged: string[]; previousValues: Record<string, unknown> };
+type ConfidenceFactors = { transcriptConfidence: number; wordCount: number; callDurationSeconds: number; transcriptLength: number; aiAnalysisCompleted: boolean; overallScore: number; [key: string]: unknown };
+type SubScores = { compliance?: number; customerExperience?: number; communication?: number; resolution?: number };
+type SpeechMetrics = { talkSpeedWpm?: number; deadAirSeconds?: number; deadAirCount?: number; longestDeadAirSeconds?: number; interruptionCount?: number; fillerWordCount?: number; fillerWords?: Record<string, number>; avgResponseTimeMs?: number; talkListenRatio?: number; speakerATalkPercent?: number; speakerBTalkPercent?: number };
+type SelfReview = { score?: number; notes?: string; reviewedAt?: string; reviewedBy?: string };
+type ScoreDispute = { status: "open" | "under_review" | "accepted" | "rejected"; reason: string; disputedBy: string; disputedAt: string; resolvedBy?: string; resolvedAt?: string; resolution?: string; originalScore?: number; adjustedScore?: number };
+type SuggestedBillingCodes = { cptCodes?: Array<{ code: string; description: string; confidence: number }>; icd10Codes?: Array<{ code: string; description: string; confidence: number }>; cdtCodes?: Array<{ code: string; description: string; confidence: number }> };
+type EhrPushStatus = { success: boolean; ehrRecordId?: string; error?: string; timestamp: string; retriedViaQueue?: boolean; requiresManualRetry?: boolean };
+type SentimentSegment = { text: string; sentiment: "POSITIVE" | "NEUTRAL" | "NEGATIVE"; confidence: number; start: number; end: number };
+type TranscriptWord = { text: string; start: number; end: number; confidence: number; speaker?: string };
+type TranscriptCorrection = { wordIndex: number; original: string; corrected: string; correctedBy: string; correctedAt: string };
+type RequiredPhrase = { severity: "required" | "recommended"; phrase: string; label: string };
+type ScoringWeights = { compliance: number; customerExperience: number; communication: number; resolution: number };
+type CoachingActionItem = { task: string; completed: boolean };
+type EffectivenessSnap = { preCoaching?: { avgScore?: number }; postCoaching?: { avgScore?: number }; [key: string]: unknown };
+
 // Row types inferred from Drizzle schema — used to type mapper function parameters
 type OrgRow = typeof tables.organizations.$inferSelect;
 type UserRow = typeof tables.users.$inferSelect;
@@ -1035,7 +1054,7 @@ export class PostgresStorage {
       totalEncounters: totalRow?.count || 0,
       completed: completedRow?.count || 0,
       notesWithData: noteRows.map((r) => ({
-        clinicalNote: r.clinicalNote as any,
+        clinicalNote: r.clinicalNote as CallAnalysis["clinicalNote"],
         uploadedAt: r.uploadedAt?.toISOString() || null,
       })),
     };
@@ -1450,7 +1469,7 @@ export class PostgresStorage {
     // Improvement by category: sessions with effectiveness snapshots
     const improvementByCategory: Record<string, { before: number; after: number; delta: number; count: number }> = {};
     for (const s of mapped) {
-      const snap = s.effectivenessSnapshot as any;
+      const snap = s.effectivenessSnapshot as EffectivenessSnap | null;
       if (!snap?.preCoaching?.avgScore || !snap?.postCoaching?.avgScore) continue;
       const cat = s.category;
       if (!improvementByCategory[cat]) improvementByCategory[cat] = { before: 0, after: 0, delta: 0, count: 0 };
@@ -1871,8 +1890,8 @@ export class PostgresStorage {
       id: row.id,
       name: row.name,
       slug: row.slug,
-      status: row.status,
-      settings: row.settings as any,
+      status: row.status as Organization["status"],
+      settings: row.settings as Organization["settings"],
       createdAt: toISOString(row.createdAt),
     };
   }
@@ -1889,8 +1908,8 @@ export class PostgresStorage {
       mfaSecret: row.mfaSecret ?? undefined,
       mfaBackupCodes: row.mfaBackupCodes ?? undefined,
       subTeam: row.subTeam ?? undefined,
-      webauthnCredentials: row.webauthnCredentials ?? undefined,
-      mfaTrustedDevices: row.mfaTrustedDevices ?? undefined,
+      webauthnCredentials: (row.webauthnCredentials ?? undefined) as User["webauthnCredentials"],
+      mfaTrustedDevices: (row.mfaTrustedDevices ?? undefined) as User["mfaTrustedDevices"],
       mfaEnrollmentDeadline: row.mfaEnrollmentDeadline ?? undefined,
       createdAt: toISOString(row.createdAt),
     };
@@ -1901,11 +1920,11 @@ export class PostgresStorage {
       id: row.id,
       orgId: row.orgId,
       name: row.name,
-      email: row.email,
-      role: row.role,
-      initials: row.initials,
-      status: row.status,
-      subTeam: row.subTeam,
+      email: row.email ?? undefined,
+      role: row.role ?? undefined,
+      initials: row.initials ?? undefined,
+      status: (row.status ?? undefined) as Employee["status"],
+      subTeam: row.subTeam ?? undefined,
       createdAt: toISOString(row.createdAt),
     };
   }
@@ -1914,28 +1933,28 @@ export class PostgresStorage {
     return {
       id: row.id,
       orgId: row.orgId,
-      employeeId: row.employeeId,
-      fileName: row.fileName,
-      filePath: row.filePath,
-      status: row.status,
-      duration: row.duration,
-      assemblyAiId: row.assemblyAiId,
-      callCategory: row.callCategory,
+      employeeId: row.employeeId ?? undefined,
+      fileName: row.fileName ?? undefined,
+      filePath: row.filePath ?? undefined,
+      status: row.status as Call["status"],
+      duration: row.duration ?? undefined,
+      assemblyAiId: row.assemblyAiId ?? undefined,
+      callCategory: row.callCategory ?? undefined,
       tags: row.tags as string[],
       uploadedAt: toISOString(row.uploadedAt),
-      channel: row.channel || "voice",
-      emailSubject: row.emailSubject,
-      emailFrom: row.emailFrom,
-      emailTo: row.emailTo,
-      emailCc: row.emailCc,
-      emailBody: row.emailBody,
-      emailBodyHtml: row.emailBodyHtml,
-      emailMessageId: row.emailMessageId,
-      emailThreadId: row.emailThreadId,
+      channel: (row.channel || "voice") as Call["channel"],
+      emailSubject: row.emailSubject ?? undefined,
+      emailFrom: row.emailFrom ?? undefined,
+      emailTo: row.emailTo ?? undefined,
+      emailCc: row.emailCc ?? undefined,
+      emailBody: row.emailBody ?? undefined,
+      emailBodyHtml: row.emailBodyHtml ?? undefined,
+      emailMessageId: row.emailMessageId ?? undefined,
+      emailThreadId: row.emailThreadId ?? undefined,
       emailReceivedAt: toISOString(row.emailReceivedAt),
-      chatPlatform: row.chatPlatform,
-      messageCount: row.messageCount,
-      fileHash: row.fileHash,
+      chatPlatform: row.chatPlatform ?? undefined,
+      messageCount: row.messageCount ?? undefined,
+      fileHash: row.fileHash ?? undefined,
     };
   }
 
@@ -1953,11 +1972,11 @@ export class PostgresStorage {
       id: row.id,
       orgId: row.orgId,
       callId: row.callId,
-      text,
-      confidence: row.confidence,
-      words: row.words as any,
-      corrections: row.corrections as any,
-      correctedText: row.correctedText,
+      text: text ?? undefined,
+      confidence: row.confidence ?? undefined,
+      words: row.words as TranscriptWord[] | undefined,
+      corrections: row.corrections as TranscriptCorrection[] | undefined,
+      correctedText: row.correctedText ?? undefined,
       createdAt: toISOString(row.createdAt),
     };
   }
@@ -1967,9 +1986,9 @@ export class PostgresStorage {
       id: row.id,
       orgId: row.orgId,
       callId: row.callId,
-      overallSentiment: row.overallSentiment,
-      overallScore: row.overallScore,
-      segments: row.segments as any,
+      overallSentiment: (row.overallSentiment ?? undefined) as SentimentAnalysis["overallSentiment"],
+      overallScore: row.overallScore ?? undefined,
+      segments: row.segments as SentimentSegment[] | undefined,
       createdAt: toISOString(row.createdAt),
     };
   }
@@ -1979,13 +1998,13 @@ export class PostgresStorage {
       id: row.id,
       orgId: row.orgId,
       callId: row.callId,
-      performanceScore: row.performanceScore,
-      talkTimeRatio: row.talkTimeRatio,
-      responseTime: row.responseTime,
+      performanceScore: row.performanceScore ?? undefined,
+      talkTimeRatio: row.talkTimeRatio ?? undefined,
+      responseTime: row.responseTime ?? undefined,
       keywords: row.keywords as string[],
       topics: row.topics as string[],
       summary: (() => {
-        if (typeof row.summary !== "string") return row.summary;
+        if (typeof row.summary !== "string") return row.summary ?? undefined;
         try {
           return decryptField(row.summary);
         } catch (err) {
@@ -1994,28 +2013,27 @@ export class PostgresStorage {
         }
       })(),
       actionItems: row.actionItems as string[],
-      feedback: row.feedback as any,
+      feedback: row.feedback as AnalysisFeedback | undefined,
       lemurResponse: row.lemurResponse,
-      callPartyType: row.callPartyType,
+      callPartyType: row.callPartyType ?? undefined,
       flags: row.flags as string[],
-      manualEdits: row.manualEdits as any,
-      confidenceScore: row.confidenceScore,
-      confidenceFactors: row.confidenceFactors as any,
-      subScores: row.subScores as any,
-      detectedAgentName: row.detectedAgentName,
-      clinicalNote: row.clinicalNote as any,
-      // Fields that exist in DB but were previously unmapped (data loss fix)
-      speechMetrics: row.speechMetrics as any,
-      selfReview: row.selfReview as any,
-      scoreDispute: row.scoreDispute as any,
-      patientSummary: row.patientSummary,
-      referralLetter: row.referralLetter,
-      suggestedBillingCodes: row.suggestedBillingCodes as any,
-      scoreRationale: row.scoreRationale as any,
-      promptVersionId: row.promptVersionId,
-      speakerRoleMap: row.speakerRoleMap as any,
-      detectedLanguage: row.detectedLanguage,
-      ehrPushStatus: row.ehrPushStatus as any,
+      manualEdits: row.manualEdits as ManualEdit[] | undefined,
+      confidenceScore: row.confidenceScore ?? undefined,
+      confidenceFactors: row.confidenceFactors as ConfidenceFactors | undefined,
+      subScores: row.subScores as SubScores | undefined,
+      detectedAgentName: row.detectedAgentName ?? undefined,
+      clinicalNote: row.clinicalNote as CallAnalysis["clinicalNote"],
+      speechMetrics: row.speechMetrics as SpeechMetrics | undefined,
+      selfReview: row.selfReview as SelfReview | undefined,
+      scoreDispute: row.scoreDispute as ScoreDispute | undefined,
+      patientSummary: row.patientSummary ?? undefined,
+      referralLetter: row.referralLetter ?? undefined,
+      suggestedBillingCodes: row.suggestedBillingCodes as SuggestedBillingCodes | undefined,
+      scoreRationale: row.scoreRationale as Record<string, string[]> | undefined,
+      promptVersionId: row.promptVersionId ?? undefined,
+      speakerRoleMap: row.speakerRoleMap as Record<string, string> | undefined,
+      detectedLanguage: row.detectedLanguage ?? undefined,
+      ehrPushStatus: row.ehrPushStatus as EhrPushStatus | undefined,
       createdAt: toISOString(row.createdAt),
     };
   }
@@ -2026,10 +2044,10 @@ export class PostgresStorage {
       orgId: row.orgId,
       name: row.name,
       email: row.email,
-      reason: row.reason,
-      requestedRole: row.requestedRole,
-      status: row.status,
-      reviewedBy: row.reviewedBy,
+      reason: row.reason ?? undefined,
+      requestedRole: row.requestedRole as AccessRequest["requestedRole"],
+      status: row.status as AccessRequest["status"],
+      reviewedBy: row.reviewedBy ?? undefined,
       reviewedAt: toISOString(row.reviewedAt),
       createdAt: toISOString(row.createdAt),
     };
@@ -2040,15 +2058,15 @@ export class PostgresStorage {
       id: row.id,
       orgId: row.orgId,
       callCategory: row.callCategory,
-      name: row.name,
+      name: row.name ?? undefined,
       evaluationCriteria: row.evaluationCriteria,
-      requiredPhrases: row.requiredPhrases as any,
-      scoringWeights: row.scoringWeights as any,
-      additionalInstructions: row.additionalInstructions,
+      requiredPhrases: row.requiredPhrases as RequiredPhrase[] | undefined,
+      scoringWeights: row.scoringWeights as ScoringWeights | undefined,
+      additionalInstructions: row.additionalInstructions ?? undefined,
       isActive: row.isActive,
       isDefault: row.isDefault ?? false,
       updatedAt: toISOString(row.updatedAt),
-      updatedBy: row.updatedBy,
+      updatedBy: row.updatedBy ?? undefined,
     };
   }
 
@@ -2057,13 +2075,13 @@ export class PostgresStorage {
       id: row.id,
       orgId: row.orgId,
       employeeId: row.employeeId,
-      callId: row.callId,
-      assignedBy: row.assignedBy,
+      callId: row.callId ?? undefined,
+      assignedBy: row.assignedBy ?? undefined,
       category: row.category,
       title: row.title,
-      notes: row.notes,
-      actionPlan: row.actionPlan as any,
-      status: row.status as any,
+      notes: row.notes ?? undefined,
+      actionPlan: row.actionPlan as CoachingActionItem[] | undefined,
+      status: row.status as CoachingSession["status"],
       dueDate: toISOString(row.dueDate),
       createdAt: toISOString(row.createdAt),
       completedAt: toISOString(row.completedAt),
@@ -2086,8 +2104,8 @@ export class PostgresStorage {
       keyHash: row.keyHash,
       keyPrefix: row.keyPrefix,
       permissions: row.permissions as string[],
-      createdBy: row.createdBy,
-      status: row.status,
+      createdBy: row.createdBy ?? undefined,
+      status: row.status as ApiKey["status"],
       expiresAt: toISOString(row.expiresAt),
       lastUsedAt: toISOString(row.lastUsedAt),
       createdAt: toISOString(row.createdAt),
@@ -2199,14 +2217,14 @@ export class PostgresStorage {
     return {
       id: row.id,
       orgId: row.orgId,
-      planTier: row.planTier,
-      status: row.status,
+      planTier: row.planTier as Subscription["planTier"],
+      status: row.status as Subscription["status"],
       stripeCustomerId: row.stripeCustomerId || undefined,
       stripeSubscriptionId: row.stripeSubscriptionId || undefined,
       stripePriceId: row.stripePriceId || undefined,
       stripeSeatsItemId: row.stripeSeatsItemId || undefined,
       stripeOverageItemId: row.stripeOverageItemId || undefined,
-      billingInterval: row.billingInterval,
+      billingInterval: row.billingInterval as Subscription["billingInterval"],
       currentPeriodStart: toISOString(row.currentPeriodStart),
       currentPeriodEnd: toISOString(row.currentPeriodEnd),
       cancelAtPeriodEnd: row.cancelAtPeriodEnd || false,
@@ -2320,7 +2338,7 @@ export class PostgresStorage {
       id: row.id,
       orgId: row.orgId,
       name: row.name,
-      category: row.category,
+      category: row.category as ReferenceDocument["category"],
       description: row.description || undefined,
       fileName: row.fileName,
       fileSize: row.fileSize,
@@ -2333,9 +2351,9 @@ export class PostgresStorage {
       createdAt: toISOString(row.createdAt),
       version: row.version ?? 1,
       previousVersionId: row.previousVersionId || undefined,
-      indexingStatus: row.indexingStatus || "pending",
+      indexingStatus: (row.indexingStatus || "pending") as ReferenceDocument["indexingStatus"],
       indexingError: row.indexingError || undefined,
-      sourceType: row.sourceType || "upload",
+      sourceType: (row.sourceType || "upload") as ReferenceDocument["sourceType"],
       sourceUrl: row.sourceUrl || undefined,
       retrievalCount: row.retrievalCount ?? 0,
     };
@@ -2346,10 +2364,10 @@ export class PostgresStorage {
       id: row.id,
       orgId: row.orgId,
       email: row.email,
-      role: row.role,
+      role: row.role as Invitation["role"],
       token: row.token,
       invitedBy: row.invitedBy,
-      status: row.status,
+      status: row.status as Invitation["status"],
       expiresAt: toISOString(row.expiresAt),
       acceptedAt: toISOString(row.acceptedAt),
       createdAt: toISOString(row.createdAt),
