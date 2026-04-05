@@ -15,6 +15,7 @@ import { aiProvider } from "../services/ai-factory";
 import { logger } from "../services/logger";
 import { withRetry, validateUUIDParam } from "./helpers";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
+import { asyncHandler } from "../middleware/error-handler";
 import type { LearningModule, InsertLearningModule, LearningPath } from "@shared/schema";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 
@@ -110,7 +111,7 @@ export function registerLmsRoutes(app: Express): void {
   // --- Learning Modules ---
 
   /** GET /api/lms/modules — List all learning modules for the org */
-  app.get("/api/lms/modules", requireAuth, injectOrgContext, async (req: Request, res: Response) => {
+  app.get("/api/lms/modules", requireAuth, injectOrgContext, asyncHandler(async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -121,20 +122,20 @@ export function registerLmsRoutes(app: Express): void {
       isPublished: published === "true" ? true : published === "false" ? false : undefined,
     });
     res.json(modules);
-  });
+  }));
 
   /** GET /api/lms/modules/:id — Get a specific module */
-  app.get("/api/lms/modules/:id", requireAuth, injectOrgContext, validateUUIDParam(), async (req: Request, res: Response) => {
+  app.get("/api/lms/modules/:id", requireAuth, injectOrgContext, validateUUIDParam(), asyncHandler(async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
     const module = await storage.getLearningModule(orgId, req.params.id);
     if (!module) return res.status(404).json({ message: "Module not found" });
     res.json(module);
-  });
+  }));
 
   /** POST /api/lms/modules — Create a new learning module */
-  app.post("/api/lms/modules", requireAuth, injectOrgContext, requireRole("manager"), async (req: Request, res: Response) => {
+  app.post("/api/lms/modules", requireAuth, injectOrgContext, requireRole("manager"), asyncHandler(async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -193,7 +194,7 @@ export function registerLmsRoutes(app: Express): void {
     }
 
     res.status(201).json(module);
-  });
+  }));
 
   /** PATCH /api/lms/modules/:id — Update a module */
   app.patch(
@@ -201,7 +202,7 @@ export function registerLmsRoutes(app: Express): void {
     requireAuth,
     requireRole("manager"),
     validateUUIDParam(),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -225,7 +226,7 @@ export function registerLmsRoutes(app: Express): void {
       const updated = await storage.updateLearningModule(orgId, req.params.id, req.body);
       if (!updated) return res.status(404).json({ message: "Module not found" });
       res.json(updated);
-    },
+    }),
   );
 
   /** DELETE /api/lms/modules/:id — Delete a module */
@@ -234,7 +235,7 @@ export function registerLmsRoutes(app: Express): void {
     requireAuth,
     requireRole("manager"),
     validateUUIDParam(),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -265,39 +266,38 @@ export function registerLmsRoutes(app: Express): void {
 
       await storage.deleteLearningModule(orgId, moduleId);
       res.json({ message: "Module deleted", cleanedPaths: allPaths.filter((p) => (p.moduleIds as string[]).includes(moduleId)).length });
-    },
+    }),
   );
 
   /**
    * POST /api/lms/modules/generate — AI-generate a learning module from a reference document.
    * Takes a reference document ID and generates structured learning content.
    */
-  app.post("/api/lms/modules/generate", requireAuth, injectOrgContext, requireRole("manager"), async (req: Request, res: Response) => {
+  app.post("/api/lms/modules/generate", requireAuth, injectOrgContext, requireRole("manager"), asyncHandler(async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
     const { documentId, category, difficulty, generateQuiz } = req.body;
     if (!documentId) return res.status(400).json({ message: "documentId is required" });
 
-    try {
-      // Load the reference document
-      const doc = await storage.getReferenceDocument(orgId, documentId);
-      if (!doc) return res.status(404).json({ message: "Reference document not found" });
-      if (!doc.extractedText || doc.extractedText.length < 50) {
-        return res.status(400).json({ message: "Document has insufficient text content for module generation" });
-      }
+    // Load the reference document
+    const doc = await storage.getReferenceDocument(orgId, documentId);
+    if (!doc) return res.status(404).json({ message: "Reference document not found" });
+    if (!doc.extractedText || doc.extractedText.length < 50) {
+      return res.status(400).json({ message: "Document has insufficient text content for module generation" });
+    }
 
-      if (!aiProvider.isAvailable || !aiProvider.generateText) {
-        return res.status(503).json({ message: "AI provider not available for module generation" });
-      }
+    if (!aiProvider.isAvailable || !aiProvider.generateText) {
+      return res.status(503).json({ message: "AI provider not available for module generation" });
+    }
 
-      const docText = doc.extractedText.slice(0, 30000); // Cap text length
-      const quizInstruction = generateQuiz
-        ? `\n\nAlso generate a "quiz" section with 5-8 multiple-choice questions testing key concepts. Format each question as:
+    const docText = doc.extractedText.slice(0, 30000); // Cap text length
+    const quizInstruction = generateQuiz
+      ? `\n\nAlso generate a "quiz" section with 5-8 multiple-choice questions testing key concepts. Format each question as:
 {"question":"...","options":["A","B","C","D"],"correctIndex":0,"explanation":"Why this is correct"}`
-        : "";
+      : "";
 
-      const prompt = `You are creating a training module from a company document. Convert the following document into structured learning content.
+    const prompt = `You are creating a training module from a company document. Convert the following document into structured learning content.
 
 DOCUMENT: "${doc.name}" (${doc.category})
 ---
@@ -317,56 +317,52 @@ Create a training module with:
 Respond with ONLY valid JSON (no markdown fences):
 {"title":"...","description":"...","content":"...markdown content...","estimatedMinutes":0${generateQuiz ? ',"quizQuestions":[...]' : ""}}`;
 
-      const response = await withRetry(() => aiProvider.generateText!(prompt), {
-        retries: 2,
-        baseDelay: 2000,
-        label: "LMS module generation",
-      });
+    const response = await withRetry(() => aiProvider.generateText!(prompt), {
+      retries: 2,
+      baseDelay: 2000,
+      label: "LMS module generation",
+    });
 
-      // Parse AI response
-      const jsonMatch = response.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        return res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "AI response was not parseable"));
-      }
-      const generated = JSON.parse(jsonMatch[0]);
-
-      // Create the module
-      const module = await storage.createLearningModule(orgId, {
-        orgId,
-        title: generated.title || `Training: ${doc.name}`,
-        description: generated.description || `Auto-generated from ${doc.name}`,
-        contentType: "ai_generated",
-        category: category || "general",
-        content: generated.content || "",
-        quizQuestions: generated.quizQuestions || undefined,
-        estimatedMinutes: generated.estimatedMinutes || 10,
-        difficulty: difficulty || "intermediate",
-        tags: [doc.category, "ai_generated"],
-        sourceDocumentId: documentId,
-        isPublished: false, // Draft by default
-        createdBy: (req.user as any)?.name || "system",
-      });
-
-      res.status(201).json(module);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to generate learning module");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to generate learning module"));
+    // Parse AI response
+    const jsonMatch = response.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      return res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "AI response was not parseable"));
     }
-  });
+    const generated = JSON.parse(jsonMatch[0]);
+
+    // Create the module
+    const module = await storage.createLearningModule(orgId, {
+      orgId,
+      title: generated.title || `Training: ${doc.name}`,
+      description: generated.description || `Auto-generated from ${doc.name}`,
+      contentType: "ai_generated",
+      category: category || "general",
+      content: generated.content || "",
+      quizQuestions: generated.quizQuestions || undefined,
+      estimatedMinutes: generated.estimatedMinutes || 10,
+      difficulty: difficulty || "intermediate",
+      tags: [doc.category, "ai_generated"],
+      sourceDocumentId: documentId,
+      isPublished: false, // Draft by default
+      createdBy: (req.user as any)?.name || "system",
+    });
+
+    res.status(201).json(module);
+  }));
 
   // --- Learning Paths ---
 
   /** GET /api/lms/paths — List all learning paths */
-  app.get("/api/lms/paths", requireAuth, injectOrgContext, async (req: Request, res: Response) => {
+  app.get("/api/lms/paths", requireAuth, injectOrgContext, asyncHandler(async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
     const paths = await storage.listLearningPaths(orgId);
     res.json(paths);
-  });
+  }));
 
   /** GET /api/lms/paths/:id — Get a learning path with modules */
-  app.get("/api/lms/paths/:id", requireAuth, injectOrgContext, validateUUIDParam(), async (req: Request, res: Response) => {
+  app.get("/api/lms/paths/:id", requireAuth, injectOrgContext, validateUUIDParam(), asyncHandler(async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -380,10 +376,10 @@ Respond with ONLY valid JSON (no markdown fences):
       ...path,
       modules: modules.filter(Boolean),
     });
-  });
+  }));
 
   /** POST /api/lms/paths — Create a learning path */
-  app.post("/api/lms/paths", requireAuth, injectOrgContext, requireRole("manager"), async (req: Request, res: Response) => {
+  app.post("/api/lms/paths", requireAuth, injectOrgContext, requireRole("manager"), asyncHandler(async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -426,7 +422,7 @@ Respond with ONLY valid JSON (no markdown fences):
     }
 
     res.status(201).json(path);
-  });
+  }));
 
   /** PATCH /api/lms/paths/:id — Update a learning path */
   app.patch(
@@ -434,14 +430,14 @@ Respond with ONLY valid JSON (no markdown fences):
     requireAuth,
     requireRole("manager"),
     validateUUIDParam(),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
       const updated = await storage.updateLearningPath(orgId, req.params.id, req.body);
       if (!updated) return res.status(404).json({ message: "Path not found" });
       res.json(updated);
-    },
+    }),
   );
 
   /** DELETE /api/lms/paths/:id — Delete a learning path */
@@ -450,13 +446,13 @@ Respond with ONLY valid JSON (no markdown fences):
     requireAuth,
     requireRole("manager"),
     validateUUIDParam(),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
       await storage.deleteLearningPath(orgId, req.params.id);
       res.json({ message: "Path deleted" });
-    },
+    }),
   );
 
   // --- Employee Progress ---
@@ -466,17 +462,17 @@ Respond with ONLY valid JSON (no markdown fences):
     "/api/lms/progress/:employeeId",
     requireAuth,
     validateUUIDParam("employeeId"),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
       const progress = await storage.getEmployeeLearningProgress(orgId, req.params.employeeId);
       res.json(progress);
-    },
+    }),
   );
 
   /** POST /api/lms/progress — Update learning progress (start, complete, quiz score) */
-  app.post("/api/lms/progress", requireAuth, injectOrgContext, async (req: Request, res: Response) => {
+  app.post("/api/lms/progress", requireAuth, injectOrgContext, asyncHandler(async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -528,7 +524,7 @@ Respond with ONLY valid JSON (no markdown fences):
       notes,
     });
     res.json(progress);
-  });
+  }));
 
   /**
    * POST /api/lms/modules/:id/submit-quiz — Submit quiz answers for grading.
@@ -538,7 +534,7 @@ Respond with ONLY valid JSON (no markdown fences):
     "/api/lms/modules/:id/submit-quiz",
     requireAuth,
     validateUUIDParam(),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -549,174 +545,164 @@ Respond with ONLY valid JSON (no markdown fences):
           .json(errorResponse(ERROR_CODES.VALIDATION_ERROR, "employeeId and answers array are required"));
       }
 
-      try {
-        const module = await storage.getLearningModule(orgId, req.params.id);
-        if (!module) return res.status(404).json({ message: "Module not found" });
-        if (!module.quizQuestions || module.quizQuestions.length === 0) {
-          return res.status(400).json({ message: "This module does not have quiz questions" });
-        }
+      const module = await storage.getLearningModule(orgId, req.params.id);
+      if (!module) return res.status(404).json({ message: "Module not found" });
+      if (!module.quizQuestions || module.quizQuestions.length === 0) {
+        return res.status(400).json({ message: "This module does not have quiz questions" });
+      }
 
-        // Check if module is part of any path with a passed deadline
-        const pathId = req.body.pathId;
-        if (pathId) {
-          const path = await storage.getLearningPath(orgId, pathId);
-          if (path) {
-            const deadline = checkPathDeadline(path);
-            if (deadline?.overdue) {
-              return res.status(403).json({
-                message: "This learning path's deadline has passed. Contact your manager for an extension.",
-                code: "OBS-LMS-DEADLINE-PASSED",
-                daysOverdue: Math.abs(deadline.daysRemaining),
-              });
-            }
-          }
-        }
-
-        // Check prerequisites before allowing quiz submission
-        const prereqs = Array.isArray(module.prerequisiteModuleIds) ? (module.prerequisiteModuleIds as string[]) : [];
-        if (prereqs.length > 0) {
-          for (const prereqId of prereqs) {
-            const prereqProgress = await storage.getLearningProgress(orgId, employeeId, prereqId);
-            if (!prereqProgress || prereqProgress.status !== "completed") {
-              return res.status(403).json({
-                message: "Complete all prerequisite modules before taking this quiz.",
-                code: "OBS-LMS-PREREQ-INCOMPLETE",
-                unmetPrerequisite: prereqId,
-              });
-            }
-          }
-        }
-
-        const questions = module.quizQuestions as Array<{
-          question: string;
-          options: string[];
-          correctIndex: number;
-          explanation?: string;
-        }>;
-
-        // Validate answer count matches question count
-        if (answers.length !== questions.length) {
-          return res.status(400).json({
-            message: `Expected ${questions.length} answers, got ${answers.length}`,
-            code: "OBS-LMS-ANSWER-MISMATCH",
-          });
-        }
-
-        // Validate each answer is a valid index
-        for (let i = 0; i < answers.length; i++) {
-          const ans = answers[i];
-          if (typeof ans !== "number" || !Number.isInteger(ans) || ans < 0 || ans >= questions[i].options.length) {
-            return res.status(400).json({
-              message: `Invalid answer for question ${i + 1}: must be 0-${questions[i].options.length - 1}`,
-              code: "OBS-LMS-INVALID-ANSWER",
+      // Check if module is part of any path with a passed deadline
+      const pathId = req.body.pathId;
+      if (pathId) {
+        const path = await storage.getLearningPath(orgId, pathId);
+        if (path) {
+          const deadline = checkPathDeadline(path);
+          if (deadline?.overdue) {
+            return res.status(403).json({
+              message: "This learning path's deadline has passed. Contact your manager for an extension.",
+              code: "OBS-LMS-DEADLINE-PASSED",
+              daysOverdue: Math.abs(deadline.daysRemaining),
             });
           }
         }
-
-        // Grade each answer
-        const results = questions.map((q, i) => {
-          const userAnswer = answers[i] ?? -1;
-          const correct = userAnswer === q.correctIndex;
-          return {
-            questionIndex: i,
-            question: q.question,
-            userAnswer,
-            correctIndex: q.correctIndex,
-            correct,
-            explanation: q.explanation,
-          };
-        });
-
-        const correctCount = results.filter((r) => r.correct).length;
-        const score = Math.round((correctCount / questions.length) * 100);
-        const passingScore = (module.passingScore as number) || 70;
-
-        // Get existing progress to track attempts
-        const existing = await storage.getLearningProgress(orgId, employeeId, module.id);
-        const attempts = (existing?.quizAttempts || 0) + 1;
-
-        // Compute quiz version hash — detects if questions changed since last attempt
-        const { createHash } = await import("crypto");
-        const quizVersionHash = createHash("sha256")
-          .update(JSON.stringify(questions.map((q) => ({ q: q.question, o: q.options, c: q.correctIndex }))))
-          .digest("hex")
-          .slice(0, 16);
-
-        // Update progress with quiz results
-        const progress = await storage.upsertLearningProgress(orgId, {
-          orgId,
-          employeeId,
-          moduleId: module.id,
-          status: score >= passingScore ? "completed" : "in_progress",
-          quizScore: score,
-          quizAttempts: attempts,
-          completedAt: score >= passingScore ? new Date().toISOString() : undefined,
-          quizVersionHash,
-        } as any);
-
-        res.json({
-          score,
-          passed: score >= passingScore,
-          passingScore,
-          correctCount,
-          totalQuestions: questions.length,
-          results,
-          attempts,
-          progress,
-        });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to grade quiz");
-        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to grade quiz"));
       }
-    },
+
+      // Check prerequisites before allowing quiz submission
+      const prereqs = Array.isArray(module.prerequisiteModuleIds) ? (module.prerequisiteModuleIds as string[]) : [];
+      if (prereqs.length > 0) {
+        for (const prereqId of prereqs) {
+          const prereqProgress = await storage.getLearningProgress(orgId, employeeId, prereqId);
+          if (!prereqProgress || prereqProgress.status !== "completed") {
+            return res.status(403).json({
+              message: "Complete all prerequisite modules before taking this quiz.",
+              code: "OBS-LMS-PREREQ-INCOMPLETE",
+              unmetPrerequisite: prereqId,
+            });
+          }
+        }
+      }
+
+      const questions = module.quizQuestions as Array<{
+        question: string;
+        options: string[];
+        correctIndex: number;
+        explanation?: string;
+      }>;
+
+      // Validate answer count matches question count
+      if (answers.length !== questions.length) {
+        return res.status(400).json({
+          message: `Expected ${questions.length} answers, got ${answers.length}`,
+          code: "OBS-LMS-ANSWER-MISMATCH",
+        });
+      }
+
+      // Validate each answer is a valid index
+      for (let i = 0; i < answers.length; i++) {
+        const ans = answers[i];
+        if (typeof ans !== "number" || !Number.isInteger(ans) || ans < 0 || ans >= questions[i].options.length) {
+          return res.status(400).json({
+            message: `Invalid answer for question ${i + 1}: must be 0-${questions[i].options.length - 1}`,
+            code: "OBS-LMS-INVALID-ANSWER",
+          });
+        }
+      }
+
+      // Grade each answer
+      const results = questions.map((q, i) => {
+        const userAnswer = answers[i] ?? -1;
+        const correct = userAnswer === q.correctIndex;
+        return {
+          questionIndex: i,
+          question: q.question,
+          userAnswer,
+          correctIndex: q.correctIndex,
+          correct,
+          explanation: q.explanation,
+        };
+      });
+
+      const correctCount = results.filter((r) => r.correct).length;
+      const score = Math.round((correctCount / questions.length) * 100);
+      const passingScore = (module.passingScore as number) || 70;
+
+      // Get existing progress to track attempts
+      const existing = await storage.getLearningProgress(orgId, employeeId, module.id);
+      const attempts = (existing?.quizAttempts || 0) + 1;
+
+      // Compute quiz version hash — detects if questions changed since last attempt
+      const { createHash } = await import("crypto");
+      const quizVersionHash = createHash("sha256")
+        .update(JSON.stringify(questions.map((q) => ({ q: q.question, o: q.options, c: q.correctIndex }))))
+        .digest("hex")
+        .slice(0, 16);
+
+      // Update progress with quiz results
+      const progress = await storage.upsertLearningProgress(orgId, {
+        orgId,
+        employeeId,
+        moduleId: module.id,
+        status: score >= passingScore ? "completed" : "in_progress",
+        quizScore: score,
+        quizAttempts: attempts,
+        completedAt: score >= passingScore ? new Date().toISOString() : undefined,
+        quizVersionHash,
+      } as any);
+
+      res.json({
+        score,
+        passed: score >= passingScore,
+        passingScore,
+        correctCount,
+        totalQuestions: questions.length,
+        results,
+        attempts,
+        progress,
+      });
+    }),
   );
 
   /**
    * GET /api/lms/paths/:id/progress/:employeeId — Get an employee's progress through a learning path.
    * Returns the path with per-module completion status.
    */
-  app.get("/api/lms/paths/:id/progress/:employeeId", requireAuth, injectOrgContext, async (req: Request, res: Response) => {
+  app.get("/api/lms/paths/:id/progress/:employeeId", requireAuth, injectOrgContext, asyncHandler(async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-    try {
-      const path = await storage.getLearningPath(orgId, req.params.id);
-      if (!path) return res.status(404).json({ message: "Path not found" });
+    const path = await storage.getLearningPath(orgId, req.params.id);
+    if (!path) return res.status(404).json({ message: "Path not found" });
 
-      const allProgress = await storage.getEmployeeLearningProgress(orgId, req.params.employeeId);
-      const progressMap = new Map(allProgress.map((p) => [p.moduleId, p]));
+    const allProgress = await storage.getEmployeeLearningProgress(orgId, req.params.employeeId);
+    const progressMap = new Map(allProgress.map((p) => [p.moduleId, p]));
 
-      // Batch-fetch all modules in the path (avoids N+1 query — was 1 query per module)
-      const allModules = await storage.listLearningModules(orgId);
-      const moduleMap = new Map(allModules.map((m) => [m.id, m]));
-      const modules = (path.moduleIds as string[])
-        .map((mid) => {
-          const mod = moduleMap.get(mid);
-          if (!mod) return null;
-          return { ...mod, progress: progressMap.get(mid) || null };
-        })
-        .filter(Boolean);
+    // Batch-fetch all modules in the path (avoids N+1 query — was 1 query per module)
+    const allModules = await storage.listLearningModules(orgId);
+    const moduleMap = new Map(allModules.map((m) => [m.id, m]));
+    const modules = (path.moduleIds as string[])
+      .map((mid) => {
+        const mod = moduleMap.get(mid);
+        if (!mod) return null;
+        return { ...mod, progress: progressMap.get(mid) || null };
+      })
+      .filter(Boolean);
 
-      const validModules = modules;
-      const completedCount = validModules.filter((m: any) => m.progress?.status === "completed").length;
+    const validModules = modules;
+    const completedCount = validModules.filter((m: any) => m.progress?.status === "completed").length;
 
-      res.json({
-        ...path,
-        modules: validModules,
-        completedCount,
-        totalModules: validModules.length,
-        percentComplete: validModules.length > 0 ? Math.round((completedCount / validModules.length) * 100) : 0,
-      });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to get path progress");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get path progress"));
-    }
-  });
+    res.json({
+      ...path,
+      modules: validModules,
+      completedCount,
+      totalModules: validModules.length,
+      percentComplete: validModules.length > 0 ? Math.round((completedCount / validModules.length) * 100) : 0,
+    });
+  }));
 
   // ── Bulk progress operations (manager+) ──────────────────────────────────
 
   /** POST /api/lms/bulk/complete — Mark multiple employees as completed for a module */
-  app.post("/api/lms/bulk/complete", requireAuth, injectOrgContext, requireRole("manager"), async (req: Request, res: Response) => {
+  app.post("/api/lms/bulk/complete", requireAuth, injectOrgContext, requireRole("manager"), asyncHandler(async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
     const { moduleId, employeeIds } = req.body;
@@ -727,31 +713,26 @@ Respond with ONLY valid JSON (no markdown fences):
       return res.status(400).json({ message: "Maximum 200 employees per bulk operation" });
     }
 
-    try {
-      let completed = 0;
-      for (const empId of employeeIds) {
-        try {
-          await storage.upsertLearningProgress(orgId, {
-            orgId,
-            employeeId: empId,
-            moduleId,
-            status: "completed",
-            completedAt: new Date().toISOString(),
-          });
-          completed++;
-        } catch {
-          // Skip individual failures
-        }
+    let completed = 0;
+    for (const empId of employeeIds) {
+      try {
+        await storage.upsertLearningProgress(orgId, {
+          orgId,
+          employeeId: empId,
+          moduleId,
+          status: "completed",
+          completedAt: new Date().toISOString(),
+        });
+        completed++;
+      } catch {
+        // Skip individual failures
       }
-      res.json({ completed, total: employeeIds.length });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to bulk complete module");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to bulk complete"));
     }
-  });
+    res.json({ completed, total: employeeIds.length });
+  }));
 
   /** POST /api/lms/bulk/reset — Reset progress for multiple employees on a module */
-  app.post("/api/lms/bulk/reset", requireAuth, injectOrgContext, requireRole("manager"), async (req: Request, res: Response) => {
+  app.post("/api/lms/bulk/reset", requireAuth, injectOrgContext, requireRole("manager"), asyncHandler(async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
     const { moduleId, employeeIds } = req.body;
@@ -762,33 +743,28 @@ Respond with ONLY valid JSON (no markdown fences):
       return res.status(400).json({ message: "Maximum 200 employees per bulk operation" });
     }
 
-    try {
-      let reset = 0;
-      for (const empId of employeeIds) {
-        try {
-          await storage.upsertLearningProgress(orgId, {
-            orgId,
-            employeeId: empId,
-            moduleId,
-            status: "not_started",
-            quizScore: 0,
-            quizAttempts: 0,
-            completedAt: undefined,
-          });
-          reset++;
-        } catch {
-          // Skip individual failures
-        }
+    let reset = 0;
+    for (const empId of employeeIds) {
+      try {
+        await storage.upsertLearningProgress(orgId, {
+          orgId,
+          employeeId: empId,
+          moduleId,
+          status: "not_started",
+          quizScore: 0,
+          quizAttempts: 0,
+          completedAt: undefined,
+        });
+        reset++;
+      } catch {
+        // Skip individual failures
       }
-      res.json({ reset, total: employeeIds.length });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to bulk reset progress");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to bulk reset"));
     }
-  });
+    res.json({ reset, total: employeeIds.length });
+  }));
 
   /** POST /api/lms/bulk/assign — Assign a path to multiple employees */
-  app.post("/api/lms/bulk/assign", requireAuth, injectOrgContext, requireRole("manager"), async (req: Request, res: Response) => {
+  app.post("/api/lms/bulk/assign", requireAuth, injectOrgContext, requireRole("manager"), asyncHandler(async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
     const { pathId, employeeIds } = req.body;
@@ -796,120 +772,110 @@ Respond with ONLY valid JSON (no markdown fences):
       return res.status(400).json({ message: "pathId and employeeIds array required" });
     }
 
-    try {
-      const path = await storage.getLearningPath(orgId, pathId);
-      if (!path) return res.status(404).json({ message: "Path not found" });
+    const path = await storage.getLearningPath(orgId, pathId);
+    if (!path) return res.status(404).json({ message: "Path not found" });
 
-      // Merge new employees into assignedTo (deduplicate)
-      const existing = new Set((path.assignedTo as string[]) || []);
-      for (const empId of employeeIds) existing.add(empId);
-      await storage.updateLearningPath(orgId, pathId, {
-        assignedTo: Array.from(existing),
-      });
+    // Merge new employees into assignedTo (deduplicate)
+    const existing = new Set((path.assignedTo as string[]) || []);
+    for (const empId of employeeIds) existing.add(empId);
+    await storage.updateLearningPath(orgId, pathId, {
+      assignedTo: Array.from(existing),
+    });
 
-      // Send notification emails
-      const newAssignees = employeeIds.filter((id) => !(path.assignedTo as string[] || []).includes(id));
-      if (newAssignees.length > 0) {
-        notifyAssignedEmployees(orgId, path, newAssignees, (req.user as any)?.name || "Manager").catch(() => {});
-      }
-
-      res.json({ assigned: employeeIds.length, totalAssigned: existing.size });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to bulk assign path");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to bulk assign"));
+    // Send notification emails
+    const newAssignees = employeeIds.filter((id) => !(path.assignedTo as string[] || []).includes(id));
+    if (newAssignees.length > 0) {
+      notifyAssignedEmployees(orgId, path, newAssignees, (req.user as any)?.name || "Manager").catch(() => {});
     }
-  });
+
+    res.json({ assigned: employeeIds.length, totalAssigned: existing.size });
+  }));
 
   /** GET /api/lms/stats — LMS analytics overview */
-  app.get("/api/lms/stats", requireAuth, injectOrgContext, async (req: Request, res: Response) => {
+  app.get("/api/lms/stats", requireAuth, injectOrgContext, asyncHandler(async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
+    // Optimized: fetch modules + paths + aggregate progress in parallel.
+    // Previous version loaded all employees (could be thousands) then fetched
+    // progress per-employee (N+1 queries capped at 50). Now uses storage-level
+    // aggregation for progress stats.
+    const [modules, paths] = await Promise.all([
+      storage.listLearningModules(orgId),
+      storage.listLearningPaths(orgId),
+    ]);
+
+    const publishedModules = modules.filter((m) => m.isPublished);
+    const aiGenerated = modules.filter((m) => m.contentType === "ai_generated");
+
+    // Aggregate progress stats — try SQL-level aggregation, fall back to in-memory
+    let totalCompletions = 0;
+    let totalInProgress = 0;
+    let avgQuizScore: number | null = null;
+    let totalEmployeesLearning = 0;
+
     try {
-      // Optimized: fetch modules + paths + aggregate progress in parallel.
-      // Previous version loaded all employees (could be thousands) then fetched
-      // progress per-employee (N+1 queries capped at 50). Now uses storage-level
-      // aggregation for progress stats.
-      const [modules, paths] = await Promise.all([
-        storage.listLearningModules(orgId),
-        storage.listLearningPaths(orgId),
-      ]);
-
-      const publishedModules = modules.filter((m) => m.isPublished);
-      const aiGenerated = modules.filter((m) => m.contentType === "ai_generated");
-
-      // Aggregate progress stats — try SQL-level aggregation, fall back to in-memory
-      let totalCompletions = 0;
-      let totalInProgress = 0;
-      let avgQuizScore: number | null = null;
-      let totalEmployeesLearning = 0;
-
-      try {
-        const { getDatabase } = await import("../db/index");
-        const db = getDatabase();
-        if (db) {
-          const { sql } = await import("drizzle-orm");
-          const statsResult = await db.execute(sql`
-            SELECT
-              COUNT(*) FILTER (WHERE status = 'completed') AS completed_count,
-              COUNT(*) FILTER (WHERE status = 'in_progress') AS in_progress_count,
-              ROUND(AVG(quiz_score) FILTER (WHERE quiz_score IS NOT NULL))::int AS avg_quiz,
-              COUNT(DISTINCT employee_id) AS unique_learners
-            FROM learning_progress
-            WHERE org_id = ${orgId}
-          `);
-          const row = (statsResult.rows[0] as any) || {};
-          totalCompletions = parseInt(row.completed_count) || 0;
-          totalInProgress = parseInt(row.in_progress_count) || 0;
-          avgQuizScore = row.avg_quiz != null ? parseInt(row.avg_quiz) : null;
-          totalEmployeesLearning = parseInt(row.unique_learners) || 0;
-        }
-      } catch {
-        // Fall back to in-memory if SQL fails (e.g., no DB)
-        const employees = await storage.getAllEmployees(orgId);
-        const progressArrays = await Promise.all(
-          employees.slice(0, 50).map((emp) => storage.getEmployeeLearningProgress(orgId, emp.id)),
-        );
-        const allProgress = progressArrays.flat();
-        totalCompletions = allProgress.filter((p) => p.status === "completed").length;
-        totalInProgress = allProgress.filter((p) => p.status === "in_progress").length;
-        const quizScores = allProgress.filter((p) => p.quizScore != null);
-        avgQuizScore = quizScores.length > 0
-          ? Math.round(quizScores.reduce((sum, p) => sum + (p.quizScore || 0), 0) / quizScores.length)
-          : null;
-        totalEmployeesLearning = new Set(allProgress.map((p) => p.employeeId)).size;
+      const { getDatabase } = await import("../db/index");
+      const db = getDatabase();
+      if (db) {
+        const { sql } = await import("drizzle-orm");
+        const statsResult = await db.execute(sql`
+          SELECT
+            COUNT(*) FILTER (WHERE status = 'completed') AS completed_count,
+            COUNT(*) FILTER (WHERE status = 'in_progress') AS in_progress_count,
+            ROUND(AVG(quiz_score) FILTER (WHERE quiz_score IS NOT NULL))::int AS avg_quiz,
+            COUNT(DISTINCT employee_id) AS unique_learners
+          FROM learning_progress
+          WHERE org_id = ${orgId}
+        `);
+        const row = (statsResult.rows[0] as any) || {};
+        totalCompletions = parseInt(row.completed_count) || 0;
+        totalInProgress = parseInt(row.in_progress_count) || 0;
+        avgQuizScore = row.avg_quiz != null ? parseInt(row.avg_quiz) : null;
+        totalEmployeesLearning = parseInt(row.unique_learners) || 0;
       }
-
-      res.json({
-        totalModules: modules.length,
-        publishedModules: publishedModules.length,
-        aiGeneratedModules: aiGenerated.length,
-        totalPaths: paths.length,
-        totalCompletions,
-        totalInProgress,
-        avgQuizScore,
-        totalEmployeesLearning,
-        modulesByCategory: modules.reduce(
-          (acc, m) => {
-            const cat = m.category || "general";
-            acc[cat] = (acc[cat] || 0) + 1;
-            return acc;
-          },
-          {} as Record<string, number>,
-        ),
-        modulesByType: modules.reduce(
-          (acc, m) => {
-            acc[m.contentType] = (acc[m.contentType] || 0) + 1;
-            return acc;
-          },
-          {} as Record<string, number>,
-        ),
-      });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to get LMS stats");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get LMS statistics"));
+    } catch {
+      // Fall back to in-memory if SQL fails (e.g., no DB)
+      const employees = await storage.getAllEmployees(orgId);
+      const progressArrays = await Promise.all(
+        employees.slice(0, 50).map((emp) => storage.getEmployeeLearningProgress(orgId, emp.id)),
+      );
+      const allProgress = progressArrays.flat();
+      totalCompletions = allProgress.filter((p) => p.status === "completed").length;
+      totalInProgress = allProgress.filter((p) => p.status === "in_progress").length;
+      const quizScores = allProgress.filter((p) => p.quizScore != null);
+      avgQuizScore = quizScores.length > 0
+        ? Math.round(quizScores.reduce((sum, p) => sum + (p.quizScore || 0), 0) / quizScores.length)
+        : null;
+      totalEmployeesLearning = new Set(allProgress.map((p) => p.employeeId)).size;
     }
-  });
+
+    res.json({
+      totalModules: modules.length,
+      publishedModules: publishedModules.length,
+      aiGeneratedModules: aiGenerated.length,
+      totalPaths: paths.length,
+      totalCompletions,
+      totalInProgress,
+      avgQuizScore,
+      totalEmployeesLearning,
+      modulesByCategory: modules.reduce(
+        (acc, m) => {
+          const cat = m.category || "general";
+          acc[cat] = (acc[cat] || 0) + 1;
+          return acc;
+        },
+        {} as Record<string, number>,
+      ),
+      modulesByType: modules.reduce(
+        (acc, m) => {
+          acc[m.contentType] = (acc[m.contentType] || 0) + 1;
+          return acc;
+        },
+        {} as Record<string, number>,
+      ),
+    });
+  }));
 
   /**
    * GET /api/lms/modules/:id/prerequisites — Check if employee has met prerequisites.
@@ -918,7 +884,7 @@ Respond with ONLY valid JSON (no markdown fences):
     "/api/lms/modules/:id/prerequisites",
     requireAuth,
     validateUUIDParam(),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -927,43 +893,38 @@ Respond with ONLY valid JSON (no markdown fences):
         return res.status(400).json({ message: "employeeId query param is required" });
       }
 
-      try {
-        const module = await storage.getLearningModule(orgId, req.params.id);
-        if (!module) return res.status(404).json({ message: "Module not found" });
+      const module = await storage.getLearningModule(orgId, req.params.id);
+      if (!module) return res.status(404).json({ message: "Module not found" });
 
-        const prereqs = (module.prerequisiteModuleIds || []) as string[];
-        if (prereqs.length === 0) {
-          return res.json({ met: true, prerequisites: [], unmetPrerequisites: [] });
-        }
-
-        const employeeProgress = await storage.getEmployeeLearningProgress(orgId, employeeId);
-        const completedModuleIds = new Set(
-          employeeProgress.filter((p) => p.status === "completed").map((p) => p.moduleId),
-        );
-
-        const unmet: Array<{ moduleId: string; title: string }> = [];
-        const metList: Array<{ moduleId: string; title: string }> = [];
-
-        for (const prereqId of prereqs) {
-          const prereqModule = await storage.getLearningModule(orgId, prereqId);
-          const title = prereqModule?.title || "Unknown Module";
-          if (completedModuleIds.has(prereqId)) {
-            metList.push({ moduleId: prereqId, title });
-          } else {
-            unmet.push({ moduleId: prereqId, title });
-          }
-        }
-
-        res.json({
-          met: unmet.length === 0,
-          prerequisites: metList,
-          unmetPrerequisites: unmet,
-        });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to check prerequisites");
-        res.status(500).json({ message: "Failed to check prerequisites" });
+      const prereqs = (module.prerequisiteModuleIds || []) as string[];
+      if (prereqs.length === 0) {
+        return res.json({ met: true, prerequisites: [], unmetPrerequisites: [] });
       }
-    },
+
+      const employeeProgress = await storage.getEmployeeLearningProgress(orgId, employeeId);
+      const completedModuleIds = new Set(
+        employeeProgress.filter((p) => p.status === "completed").map((p) => p.moduleId),
+      );
+
+      const unmet: Array<{ moduleId: string; title: string }> = [];
+      const metList: Array<{ moduleId: string; title: string }> = [];
+
+      for (const prereqId of prereqs) {
+        const prereqModule = await storage.getLearningModule(orgId, prereqId);
+        const title = prereqModule?.title || "Unknown Module";
+        if (completedModuleIds.has(prereqId)) {
+          metList.push({ moduleId: prereqId, title });
+        } else {
+          unmet.push({ moduleId: prereqId, title });
+        }
+      }
+
+      res.json({
+        met: unmet.length === 0,
+        prerequisites: metList,
+        unmetPrerequisites: unmet,
+      });
+    }),
   );
 
   /**
@@ -974,75 +935,70 @@ Respond with ONLY valid JSON (no markdown fences):
     requireAuth,
     requireRole("manager"),
     validateUUIDParam(),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-      try {
-        const path = await storage.getLearningPath(orgId, req.params.id);
-        if (!path) return res.status(404).json({ message: "Path not found" });
-        if (!path.dueDate) return res.json({ hasDueDate: false, employees: [] });
+      const path = await storage.getLearningPath(orgId, req.params.id);
+      if (!path) return res.status(404).json({ message: "Path not found" });
+      if (!path.dueDate) return res.json({ hasDueDate: false, employees: [] });
 
-        const dueDate = new Date(path.dueDate);
-        const now = new Date();
-        const isOverdue = now > dueDate;
-        const daysRemaining = Math.max(0, Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+      const dueDate = new Date(path.dueDate);
+      const now = new Date();
+      const isOverdue = now > dueDate;
+      const daysRemaining = Math.max(0, Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
 
-        // Get assigned employees
-        const employees = await storage.getAllEmployees(orgId);
-        const assignedEmployees =
-          path.assignedTo && path.assignedTo.length > 0
-            ? employees.filter((e) => path.assignedTo!.includes(e.id))
-            : employees;
+      // Get assigned employees
+      const employees = await storage.getAllEmployees(orgId);
+      const assignedEmployees =
+        path.assignedTo && path.assignedTo.length > 0
+          ? employees.filter((e) => path.assignedTo!.includes(e.id))
+          : employees;
 
-        const employeeStatuses = await Promise.all(
-          assignedEmployees.map(async (emp) => {
-            const progress = await storage.getEmployeeLearningProgress(orgId, emp.id);
-            const pathProgress = progress.filter((p) => path.moduleIds.includes(p.moduleId));
-            const completedCount = pathProgress.filter((p) => p.status === "completed").length;
-            const percentComplete =
-              path.moduleIds.length > 0 ? Math.round((completedCount / path.moduleIds.length) * 100) : 0;
+      const employeeStatuses = await Promise.all(
+        assignedEmployees.map(async (emp) => {
+          const progress = await storage.getEmployeeLearningProgress(orgId, emp.id);
+          const pathProgress = progress.filter((p) => path.moduleIds.includes(p.moduleId));
+          const completedCount = pathProgress.filter((p) => p.status === "completed").length;
+          const percentComplete =
+            path.moduleIds.length > 0 ? Math.round((completedCount / path.moduleIds.length) * 100) : 0;
 
-            return {
-              employeeId: emp.id,
-              employeeName: emp.name,
-              completedModules: completedCount,
-              totalModules: path.moduleIds.length,
-              percentComplete,
-              status:
-                percentComplete === 100
-                  ? ("completed" as const)
-                  : isOverdue
-                    ? ("overdue" as const)
-                    : daysRemaining <= 3
-                      ? ("at_risk" as const)
-                      : ("on_track" as const),
-            };
-          }),
-        );
+          return {
+            employeeId: emp.id,
+            employeeName: emp.name,
+            completedModules: completedCount,
+            totalModules: path.moduleIds.length,
+            percentComplete,
+            status:
+              percentComplete === 100
+                ? ("completed" as const)
+                : isOverdue
+                  ? ("overdue" as const)
+                  : daysRemaining <= 3
+                    ? ("at_risk" as const)
+                    : ("on_track" as const),
+          };
+        }),
+      );
 
-        res.json({
-          hasDueDate: true,
-          dueDate: path.dueDate,
-          isOverdue,
-          daysRemaining,
-          employees: employeeStatuses,
-          completedCount: employeeStatuses.filter((e) => e.status === "completed").length,
-          overdueCount: employeeStatuses.filter((e) => e.status === "overdue").length,
-          atRiskCount: employeeStatuses.filter((e) => e.status === "at_risk").length,
-        });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to get deadline status");
-        res.status(500).json({ message: "Failed to get deadline status" });
-      }
-    },
+      res.json({
+        hasDueDate: true,
+        dueDate: path.dueDate,
+        isOverdue,
+        daysRemaining,
+        employees: employeeStatuses,
+        completedCount: employeeStatuses.filter((e) => e.status === "completed").length,
+        overdueCount: employeeStatuses.filter((e) => e.status === "overdue").length,
+        atRiskCount: employeeStatuses.filter((e) => e.status === "at_risk").length,
+      });
+    }),
   );
 
   /**
    * GET /api/lms/modules/:id/certificate — Generate completion certificate data.
    * Returns structured data for certificate rendering (client generates PDF).
    */
-  app.get("/api/lms/modules/:id/certificate", requireAuth, injectOrgContext, validateUUIDParam(), async (req: Request, res: Response) => {
+  app.get("/api/lms/modules/:id/certificate", requireAuth, injectOrgContext, validateUUIDParam(), asyncHandler(async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -1051,44 +1007,39 @@ Respond with ONLY valid JSON (no markdown fences):
       return res.status(400).json({ message: "employeeId query param is required" });
     }
 
-    try {
-      const [module, employee, progress, org] = await Promise.all([
-        storage.getLearningModule(orgId, req.params.id),
-        storage.getEmployee(orgId, employeeId),
-        storage.getLearningProgress(orgId, employeeId, req.params.id),
-        storage.getOrganization(orgId),
-      ]);
+    const [module, employee, progress, org] = await Promise.all([
+      storage.getLearningModule(orgId, req.params.id),
+      storage.getEmployee(orgId, employeeId),
+      storage.getLearningProgress(orgId, employeeId, req.params.id),
+      storage.getOrganization(orgId),
+    ]);
 
-      if (!module) return res.status(404).json({ message: "Module not found" });
-      if (!employee) return res.status(404).json({ message: "Employee not found" });
-      if (!progress || progress.status !== "completed") {
-        return res.status(400).json({ message: "Module must be completed to generate certificate" });
-      }
-
-      res.json({
-        certificate: {
-          employeeName: employee.name,
-          moduleName: module.title,
-          moduleCategory: module.category,
-          completedAt: progress.completedAt,
-          quizScore: progress.quizScore,
-          organizationName: org?.name || "Organization",
-          difficulty: module.difficulty,
-          estimatedMinutes: module.estimatedMinutes,
-          certificateId: `CERT-${progress.id.slice(0, 8).toUpperCase()}`,
-          issuedAt: new Date().toISOString(),
-        },
-      });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to generate certificate");
-      res.status(500).json({ message: "Failed to generate certificate" });
+    if (!module) return res.status(404).json({ message: "Module not found" });
+    if (!employee) return res.status(404).json({ message: "Employee not found" });
+    if (!progress || progress.status !== "completed") {
+      return res.status(400).json({ message: "Module must be completed to generate certificate" });
     }
-  });
+
+    res.json({
+      certificate: {
+        employeeName: employee.name,
+        moduleName: module.title,
+        moduleCategory: module.category,
+        completedAt: progress.completedAt,
+        quizScore: progress.quizScore,
+        organizationName: org?.name || "Organization",
+        difficulty: module.difficulty,
+        estimatedMinutes: module.estimatedMinutes,
+        certificateId: `CERT-${progress.id.slice(0, 8).toUpperCase()}`,
+        issuedAt: new Date().toISOString(),
+      },
+    });
+  }));
 
   /**
    * GET /api/lms/coaching-recommendations — Recommend modules based on coaching session topics.
    */
-  app.get("/api/lms/coaching-recommendations", requireAuth, injectOrgContext, async (req: Request, res: Response) => {
+  app.get("/api/lms/coaching-recommendations", requireAuth, injectOrgContext, asyncHandler(async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -1097,9 +1048,8 @@ Respond with ONLY valid JSON (no markdown fences):
       return res.status(400).json({ message: "employeeId query param is required" });
     }
 
-    try {
-      // Get published modules
-      const modules = await storage.listLearningModules(orgId, { isPublished: true });
+    // Get published modules
+    const modules = await storage.listLearningModules(orgId, { isPublished: true });
       const employeeProgress = await storage.getEmployeeLearningProgress(orgId, employeeId);
       const completedModuleIds = new Set(
         employeeProgress.filter((p) => p.status === "completed").map((p) => p.moduleId),
@@ -1223,14 +1173,10 @@ Respond with ONLY valid JSON (no markdown fences):
         weakAreas,
         coachingCategory,
       });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to get coaching recommendations");
-      res.status(500).json({ message: "Failed to get coaching recommendations" });
-    }
-  });
+  }));
 
   /** GET /api/lms/knowledge-search — Search the knowledge base (RAG) for employees */
-  app.get("/api/lms/knowledge-search", requireAuth, injectOrgContext, async (req: Request, res: Response) => {
+  app.get("/api/lms/knowledge-search", requireAuth, injectOrgContext, asyncHandler(async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -1239,52 +1185,47 @@ Respond with ONLY valid JSON (no markdown fences):
       return res.status(400).json({ message: "Search query must be at least 3 characters" });
     }
 
-    try {
-      // Search published modules
-      const modules = await storage.listLearningModules(orgId, { isPublished: true });
-      const matches = modules
-        .filter((m) => {
-          const searchText =
-            `${m.title} ${m.description || ""} ${m.content || ""} ${(m.tags || []).join(" ")}`.toLowerCase();
-          return query
-            .toLowerCase()
-            .split(" ")
-            .every((term) => searchText.includes(term));
-        })
-        .slice(0, 10);
+    // Search published modules
+    const modules = await storage.listLearningModules(orgId, { isPublished: true });
+    const matches = modules
+      .filter((m) => {
+        const searchText =
+          `${m.title} ${m.description || ""} ${m.content || ""} ${(m.tags || []).join(" ")}`.toLowerCase();
+        return query
+          .toLowerCase()
+          .split(" ")
+          .every((term) => searchText.includes(term));
+      })
+      .slice(0, 10);
 
-      // Also search reference documents (RAG)
-      let ragResults: Array<{ text: string; documentName: string; relevance: number }> = [];
-      if (process.env.DATABASE_URL) {
-        try {
-          const { searchRelevantChunks, formatRetrievedContext } = await import("../services/rag");
-          const { getDatabase } = await import("../db/index");
-          const db = getDatabase();
-          if (db) {
-            const refDocs = await storage.listReferenceDocuments(orgId);
-            const docIds = refDocs.filter((d) => d.isActive).map((d) => d.id);
-            if (docIds.length > 0) {
-              const chunks = await searchRelevantChunks(db as any, orgId, query, docIds, { topK: 5 });
-              ragResults = chunks.map((c) => ({
-                text: c.text.slice(0, 500),
-                documentName: refDocs.find((d) => d.id === c.documentId)?.name || "Unknown",
-                relevance: c.score,
-              }));
-            }
+    // Also search reference documents (RAG)
+    let ragResults: Array<{ text: string; documentName: string; relevance: number }> = [];
+    if (process.env.DATABASE_URL) {
+      try {
+        const { searchRelevantChunks, formatRetrievedContext } = await import("../services/rag");
+        const { getDatabase } = await import("../db/index");
+        const db = getDatabase();
+        if (db) {
+          const refDocs = await storage.listReferenceDocuments(orgId);
+          const docIds = refDocs.filter((d) => d.isActive).map((d) => d.id);
+          if (docIds.length > 0) {
+            const chunks = await searchRelevantChunks(db as any, orgId, query, docIds, { topK: 5 });
+            ragResults = chunks.map((c) => ({
+              text: c.text.slice(0, 500),
+              documentName: refDocs.find((d) => d.id === c.documentId)?.name || "Unknown",
+              relevance: c.score,
+            }));
           }
-        } catch (ragErr) {
-          logger.warn({ err: ragErr }, "RAG search failed in LMS knowledge search");
         }
+      } catch (ragErr) {
+        logger.warn({ err: ragErr }, "RAG search failed in LMS knowledge search");
       }
-
-      res.json({
-        modules: matches,
-        knowledgeBase: ragResults,
-        totalResults: matches.length + ragResults.length,
-      });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to search LMS knowledge base");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Knowledge search failed"));
     }
-  });
+
+    res.json({
+      modules: matches,
+      knowledgeBase: ragResults,
+      totalResults: matches.length + ragResults.length,
+    });
+  }));
 }

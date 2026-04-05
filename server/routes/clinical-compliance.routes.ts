@@ -12,6 +12,7 @@ import { logPhiAccess, auditContext } from "../services/audit-log";
 import { decryptField, encryptField, decryptClinicalNotePhi } from "../services/phi-encryption";
 import { buildFhirBundle } from "../services/fhir";
 import type { OrgSettings } from "@shared/schema";
+import { asyncHandler } from "../middleware/error-handler";
 
 export function registerClinicalComplianceRoutes(app: Express, requireClinicalPlan: () => RequestHandler): void {
   // ==================== AMENDMENT / ADDENDUM WORKFLOW ====================
@@ -19,8 +20,7 @@ export function registerClinicalComplianceRoutes(app: Express, requireClinicalPl
   app.get(
     "/api/clinical/notes/:callId/amendments",
     requireAuth, injectOrgContext, requireClinicalPlan(),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const analysis = await storage.getCallAnalysis(req.orgId!, req.params.callId);
         if (!analysis?.clinicalNote) {
           res.status(404).json({ message: "No clinical note found for this encounter" });
@@ -60,18 +60,13 @@ export function registerClinicalComplianceRoutes(app: Express, requireClinicalPl
         }
 
         res.json({ amendments, count: amendments.length });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to get clinical note amendments");
-        res.status(500).json({ message: "Failed to get amendments" });
-      }
-    },
+      }),
   );
 
   app.post(
     "/api/clinical/notes/:callId/addendum",
     requireAuth, injectOrgContext, requireClinicalPlan(), requireRole("manager", "admin"),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const { content, reason } = req.body;
 
         if (!content || typeof content !== "string" || !content.trim()) {
@@ -141,11 +136,7 @@ export function registerClinicalComplianceRoutes(app: Express, requireClinicalPl
 
         logger.info({ callId: req.params.callId }, "Clinical note addendum added");
         res.json({ success: true, addendum });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to add clinical note addendum");
-        res.status(500).json({ message: "Failed to add addendum" });
-      }
-    },
+      }),
   );
 
   // ==================== FHIR R4 EXPORT ====================
@@ -153,8 +144,7 @@ export function registerClinicalComplianceRoutes(app: Express, requireClinicalPl
   app.get(
     "/api/clinical/notes/:callId/fhir",
     requireAuth, injectOrgContext, requireClinicalPlan(),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const analysis = await storage.getCallAnalysis(req.orgId!, req.params.callId);
         if (!analysis?.clinicalNote) {
           res.status(404).json({ message: "No clinical note found for this encounter" });
@@ -230,11 +220,7 @@ export function registerClinicalComplianceRoutes(app: Express, requireClinicalPl
 
         res.setHeader("Content-Type", "application/fhir+json");
         res.json(fhirBundle);
-      } catch (error) {
-        logger.error({ err: error }, "Failed to export FHIR bundle");
-        res.status(500).json({ message: "Failed to export FHIR bundle" });
-      }
-    },
+      }),
   );
 
   // ==================== CO-SIGNATURE WORKFLOW ====================
@@ -242,8 +228,7 @@ export function registerClinicalComplianceRoutes(app: Express, requireClinicalPl
   app.post(
     "/api/clinical/notes/:callId/cosign",
     requireAuth, injectOrgContext, requireClinicalPlan(), requireRole("manager", "admin"),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const { npiNumber, role } = req.body;
 
         // Validate NPI format if provided (same check as attestation endpoint)
@@ -333,10 +318,6 @@ export function registerClinicalComplianceRoutes(app: Express, requireClinicalPl
 
         logger.info({ callId: req.params.callId }, "Clinical note co-signed");
         res.json({ success: true, cosignedAt });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to co-sign clinical note");
-        res.status(500).json({ message: "Failed to co-sign clinical note" });
-      }
-    },
+      }),
   );
 }

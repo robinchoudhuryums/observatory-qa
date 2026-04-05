@@ -6,6 +6,7 @@ import { logger } from "../services/logger";
 import { validateUUIDParam } from "./helpers";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import { logPhiAccess, auditContext } from "../services/audit-log";
+import { asyncHandler } from "../middleware/error-handler";
 
 const updateRevenueSchema = z.object({
   estimatedRevenue: z.number().min(0).optional(),
@@ -46,22 +47,16 @@ const updateRevenueSchema = z.object({
 
 export function registerRevenueRoutes(app: Express) {
   // Get revenue metrics summary
-  app.get("/api/revenue/metrics", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/revenue/metrics", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
       const metrics = await storage.getRevenueMetrics(orgId);
       res.json(metrics);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to get revenue metrics");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get revenue metrics"));
-    }
-  });
+    }));
 
   // List all call revenue records
-  app.get("/api/revenue", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/revenue", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -95,26 +90,17 @@ export function registerRevenueRoutes(app: Express) {
       );
 
       res.json(enriched);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to list revenue records");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to list revenue records"));
-    }
-  });
+    }));
 
   // Get revenue for a specific call
-  app.get("/api/revenue/call/:callId", requireAuth, injectOrgContext, validateUUIDParam("callId"), async (req, res) => {
-    try {
+  app.get("/api/revenue/call/:callId", requireAuth, injectOrgContext, validateUUIDParam("callId"), asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
       const revenue = await storage.getCallRevenue(orgId, req.params.callId);
       if (!revenue) return res.status(404).json({ message: "Revenue record not found" });
       res.json(revenue);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to get call revenue");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get call revenue"));
-    }
-  });
+    }));
 
   // Create or update revenue for a call
   app.put(
@@ -123,8 +109,7 @@ export function registerRevenueRoutes(app: Express) {
     requireRole("manager"),
     injectOrgContext,
     validateUUIDParam("callId"),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const orgId = req.orgId;
         if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -168,16 +153,11 @@ export function registerRevenueRoutes(app: Express) {
           resourceId: callId,
         });
         logger.info({ orgId, callId }, "Call revenue updated");
-      } catch (error) {
-        logger.error({ err: error }, "Failed to update call revenue");
-        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update call revenue"));
-      }
-    },
+      }),
   );
 
   // Get revenue by employee (aggregated)
-  app.get("/api/revenue/by-employee", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/revenue/by-employee", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -225,15 +205,10 @@ export function registerRevenueRoutes(app: Express) {
 
       const result = Object.values(byEmployee).sort((a, b) => b.totalActual - a.totalActual);
       res.json(result);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to get revenue by employee");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get revenue by employee"));
-    }
-  });
+    }));
 
   // --- Revenue forecasting ---
-  app.get("/api/revenue/forecast", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/revenue/forecast", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -301,15 +276,10 @@ export function registerRevenueRoutes(app: Express) {
         trackedCallCount: tracked.length,
         convertedCallCount: converted.length,
       });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to compute revenue forecast");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to compute forecast"));
-    }
-  });
+    }));
 
   // --- Attribution funnel: call → appointment → treatment → payment ---
-  app.get("/api/revenue/attribution", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/revenue/attribution", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -383,15 +353,10 @@ export function registerRevenueRoutes(app: Express) {
       };
 
       res.json({ funnel, conversionRates: rates, revenueByStage });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to get attribution funnel");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get attribution data"));
-    }
-  });
+    }));
 
   // --- Payer mix analysis ---
-  app.get("/api/revenue/payer-mix", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/revenue/payer-mix", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -475,11 +440,7 @@ export function registerRevenueRoutes(app: Express) {
         totalRecords: revenues.length,
         totalRevenue: Math.round(totalRevenue * 100) / 100,
       });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to compute payer mix");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to compute payer mix"));
-    }
-  });
+    }));
 
   // --- EHR revenue sync: pull treatment/payment data from EHR ---
   app.post(
@@ -488,8 +449,7 @@ export function registerRevenueRoutes(app: Express) {
     requireRole("manager"),
     injectOrgContext,
     validateUUIDParam("callId"),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const orgId = req.orgId;
         if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -629,16 +589,11 @@ export function registerRevenueRoutes(app: Express) {
           treatmentPlanStatus: relevantPlan.status,
           treatmentPlansFound: treatmentPlans.length,
         });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to sync revenue from EHR");
-        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to sync from EHR"));
-      }
-    },
+      }),
   );
 
   // Get revenue trend data (weekly buckets for last 12 weeks)
-  app.get("/api/revenue/trend", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/revenue/trend", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -683,9 +638,5 @@ export function registerRevenueRoutes(app: Express) {
       }
 
       res.json(weeks);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to get revenue trend");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get revenue trend"));
-    }
-  });
+    }));
 }

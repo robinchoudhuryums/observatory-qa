@@ -8,6 +8,7 @@ import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { requirePlanFeature } from "./billing";
 import { INSURANCE_LETTER_TYPES, type InsuranceNarrative } from "@shared/schema";
+import { asyncHandler } from "../middleware/error-handler";
 
 // --- Payer-specific templates ---
 const PAYER_TEMPLATES = [
@@ -260,8 +261,7 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
   });
 
   // Create a new insurance narrative (optionally linked to a call)
-  app.post("/api/insurance-narratives", requireAuth, requireRole("manager"), injectOrgContext, async (req, res) => {
-    try {
+  app.post("/api/insurance-narratives", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -337,15 +337,10 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
 
       logger.info({ orgId, narrativeId: narrative.id, letterType }, "Insurance narrative created");
       res.json(narrative);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to create insurance narrative");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to create insurance narrative"));
-    }
-  });
+    }));
 
   // List narratives for the org
-  app.get("/api/insurance-narratives", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/insurance-narratives", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -355,26 +350,17 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
         status: status as string | undefined,
       });
       res.json(narratives);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to list insurance narratives");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to list insurance narratives"));
-    }
-  });
+    }));
 
   // Get a specific narrative
-  app.get("/api/insurance-narratives/:id", requireAuth, injectOrgContext, validateUUIDParam(), async (req, res) => {
-    try {
+  app.get("/api/insurance-narratives/:id", requireAuth, injectOrgContext, validateUUIDParam(), asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
       const narrative = await storage.getInsuranceNarrative(orgId, req.params.id);
       if (!narrative) return res.status(404).json({ message: "Narrative not found" });
       res.json(narrative);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to get insurance narrative");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get insurance narrative"));
-    }
-  });
+    }));
 
   // Update narrative (edit content, change status)
   app.patch(
@@ -383,19 +369,14 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
     requireRole("manager"),
     injectOrgContext,
     validateUUIDParam(),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const orgId = req.orgId;
         if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
         const updated = await storage.updateInsuranceNarrative(orgId, req.params.id, req.body);
         if (!updated) return res.status(404).json({ message: "Narrative not found" });
         res.json(updated);
-      } catch (error) {
-        logger.error({ err: error }, "Failed to update insurance narrative");
-        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to update insurance narrative"));
-      }
-    },
+      }),
   );
 
   // Delete a narrative
@@ -405,18 +386,13 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
     requireRole("manager"),
     injectOrgContext,
     validateUUIDParam(),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const orgId = req.orgId;
         if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
         await storage.deleteInsuranceNarrative(orgId, req.params.id);
         res.json({ success: true });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to delete insurance narrative");
-        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to delete insurance narrative"));
-      }
-    },
+      }),
   );
 
   // --- Payer-specific templates ---
@@ -431,8 +407,7 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
     requireRole("manager"),
     injectOrgContext,
     validateUUIDParam(),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const orgId = req.orgId;
         if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -470,11 +445,7 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
           resourceId: req.params.id,
         });
         res.json(updated);
-      } catch (error) {
-        logger.error({ err: error }, "Failed to record narrative outcome");
-        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to record outcome"));
-      }
-    },
+      }),
   );
 
   // --- Denial code analysis ---
@@ -483,8 +454,7 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
     requireAuth,
     requireRole("manager"),
     injectOrgContext,
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const orgId = req.orgId;
         if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -554,16 +524,11 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
             }))
             .sort((a, b) => a.approvalRate - b.approvalRate),
         });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to compute denial analysis");
-        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to compute denial analysis"));
-      }
-    },
+      }),
   );
 
   // --- Deadline tracking: narratives approaching their submission deadline ---
-  app.get("/api/insurance-narratives/deadlines", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/insurance-narratives/deadlines", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -603,11 +568,7 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
         critical: withDeadlines.filter((n) => n.urgency === "critical").length,
         warning: withDeadlines.filter((n) => n.urgency === "warning").length,
       });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to get deadline tracking");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get deadlines"));
-    }
-  });
+  }));
 
   // --- Generate supporting document checklist for a letter type ---
   app.get(
@@ -615,8 +576,7 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
     requireAuth,
     injectOrgContext,
     validateUUIDParam(),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const orgId = req.orgId;
         if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -644,11 +604,7 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
               ? Math.round((merged.filter((i) => i.attached || !i.required).length / merged.length) * 100)
               : 100,
         });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to generate checklist");
-        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to generate checklist"));
-      }
-    },
+      }),
   );
 
   // Regenerate narrative text with updated params
@@ -658,8 +614,7 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
     requireRole("manager"),
     injectOrgContext,
     validateUUIDParam(),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const orgId = req.orgId;
         if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -688,10 +643,6 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
 
         const updated = await storage.updateInsuranceNarrative(orgId, req.params.id, { generatedNarrative });
         res.json(updated);
-      } catch (error) {
-        logger.error({ err: error }, "Failed to regenerate insurance narrative");
-        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to regenerate narrative"));
-      }
-    },
+      }),
   );
 }

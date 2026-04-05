@@ -11,6 +11,7 @@ import { trackUsage } from "../services/queue";
 import { upload } from "./helpers";
 import { logger } from "../services/logger";
 import { requireActiveSubscription, requirePlanFeature } from "./billing";
+import { asyncHandler } from "../middleware/error-handler";
 import { BEDROCK_MODEL_PRESETS, CALL_CATEGORIES, type UsageRecord } from "@shared/schema";
 
 // --- Cost estimation functions ---
@@ -46,30 +47,20 @@ async function cleanupFile(filePath: string) {
 
 export function registerABTestRoutes(app: Express): void {
   // List all A/B tests
-  app.get("/api/ab-tests", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/ab-tests", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
       const tests = await storage.getAllABTests(req.orgId!);
       res.json(tests);
-    } catch (error) {
-      logger.error({ err: error }, "Error fetching A/B tests");
-      res.status(500).json({ message: "Failed to fetch A/B tests" });
-    }
-  });
+  }));
 
   // Get a single A/B test
-  app.get("/api/ab-tests/:id", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/ab-tests/:id", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
       const test = await storage.getABTest(req.orgId!, req.params.id);
       if (!test) {
         res.status(404).json({ message: "A/B test not found" });
         return;
       }
       res.json(test);
-    } catch (error) {
-      logger.error({ err: error }, "Error fetching A/B test");
-      res.status(500).json({ message: "Failed to fetch A/B test" });
-    }
-  });
+  }));
 
   // Upload audio for A/B model comparison
   app.post(
@@ -133,8 +124,7 @@ export function registerABTestRoutes(app: Express): void {
   );
 
   // Export A/B test result as JSON
-  app.get("/api/ab-tests/:id/export", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/ab-tests/:id/export", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
       const test = await storage.getABTest(req.orgId!, req.params.id);
       if (!test) {
         res.status(404).json({ message: "A/B test not found" });
@@ -171,15 +161,10 @@ export function registerABTestRoutes(app: Express): void {
       res.setHeader("Content-Type", "application/json");
       res.setHeader("Content-Disposition", `attachment; filename="ab-test-${safeName}-${test.id.slice(0, 8)}.json"`);
       res.json(exportData);
-    } catch (error) {
-      logger.error({ err: error }, "Error exporting A/B test");
-      res.status(500).json({ message: "Failed to export A/B test" });
-    }
-  });
+  }));
 
   // Delete an A/B test
-  app.delete("/api/ab-tests/:id", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
+  app.delete("/api/ab-tests/:id", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
       const test = await storage.getABTest(req.orgId!, req.params.id);
       if (!test) {
         res.status(404).json({ message: "A/B test not found" });
@@ -187,11 +172,7 @@ export function registerABTestRoutes(app: Express): void {
       }
       await storage.deleteABTest(req.orgId!, req.params.id);
       res.json({ message: "A/B test deleted" });
-    } catch (error) {
-      logger.error({ err: error }, "Error deleting A/B test");
-      res.status(500).json({ message: "Failed to delete A/B test" });
-    }
-  });
+  }));
 
   // --- Batch upload: test multiple calls at once ---
   app.post(
@@ -264,8 +245,7 @@ export function registerABTestRoutes(app: Express): void {
   );
 
   // --- Get batch status and aggregate results ---
-  app.get("/api/ab-tests/batch/:batchId", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/ab-tests/batch/:batchId", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
       const allTests = await storage.getAllABTests(orgId);
       const batchTests = allTests.filter((t) => t.batchId === req.params.batchId);
@@ -288,14 +268,10 @@ export function registerABTestRoutes(app: Express): void {
         isComplete: processing.length === 0,
         tests: batchTests,
       });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to get batch status" });
-    }
-  });
+  }));
 
   // --- Aggregate statistics with statistical significance ---
-  app.get("/api/ab-tests/stats", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/ab-tests/stats", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
       const allTests = await storage.getAllABTests(orgId);
       const { batchId, baselineModel, testModel } = req.query;
@@ -311,14 +287,10 @@ export function registerABTestRoutes(app: Express): void {
 
       const stats = computeAggregateStats(tests);
       res.json(stats);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to compute A/B test statistics" });
-    }
-  });
+  }));
 
   // --- Segment analysis: breakdown by call category ---
-  app.get("/api/ab-tests/segments", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/ab-tests/segments", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
       const allTests = await storage.getAllABTests(orgId);
       const completed = allTests.filter((t) => t.status === "completed");
@@ -362,14 +334,10 @@ export function registerABTestRoutes(app: Express): void {
         byCategory: categoryBreakdown,
         byModelPair: modelPairBreakdown,
       });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to compute segment analysis" });
-    }
-  });
+  }));
 
   // --- Automated recommendation ---
-  app.get("/api/ab-tests/recommend", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/ab-tests/recommend", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
       const allTests = await storage.getAllABTests(orgId);
       const completed = allTests.filter((t) => t.status === "completed");
@@ -492,10 +460,7 @@ export function registerABTestRoutes(app: Express): void {
       }
 
       res.json({ recommendations });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to generate recommendations" });
-    }
-  });
+  }));
 }
 
 // ==================== STATISTICAL ANALYSIS HELPERS ====================

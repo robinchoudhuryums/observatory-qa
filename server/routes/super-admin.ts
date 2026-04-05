@@ -5,6 +5,7 @@ import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { invalidateOrgDek } from "../services/org-encryption";
 import { PLAN_DEFINITIONS } from "@shared/schema";
+import { asyncHandler } from "../middleware/error-handler";
 
 /**
  * Super-admin routes — platform-level administration.
@@ -18,8 +19,7 @@ export function registerSuperAdminRoutes(app: Express): void {
    * GET /api/super-admin/stats
    * Platform-wide statistics: total orgs, users, calls, active subscriptions.
    */
-  app.get("/api/super-admin/stats", requireAuth, requireSuperAdmin, async (_req, res) => {
-    try {
+  app.get("/api/super-admin/stats", requireAuth, requireSuperAdmin, asyncHandler(async (_req, res) => {
       const orgs = await storage.listOrganizations();
 
       let totalUsers = 0;
@@ -52,11 +52,7 @@ export function registerSuperAdminRoutes(app: Express): void {
         activeSubscriptions,
         orgsByStatus,
       });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to fetch platform stats");
-      res.status(500).json({ message: "Failed to fetch platform stats" });
-    }
-  });
+    }));
 
   // ==================== ORGANIZATION MANAGEMENT ====================
 
@@ -64,8 +60,7 @@ export function registerSuperAdminRoutes(app: Express): void {
    * GET /api/super-admin/organizations
    * List all organizations with stats (user count, call count, subscription status).
    */
-  app.get("/api/super-admin/organizations", requireAuth, requireSuperAdmin, async (_req, res) => {
-    try {
+  app.get("/api/super-admin/organizations", requireAuth, requireSuperAdmin, asyncHandler(async (_req, res) => {
       const orgs = await storage.listOrganizations();
 
       const orgsWithStats = await Promise.all(
@@ -97,18 +92,13 @@ export function registerSuperAdminRoutes(app: Express): void {
       );
 
       res.json(orgsWithStats);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to list organizations");
-      res.status(500).json({ message: "Failed to list organizations" });
-    }
-  });
+    }));
 
   /**
    * GET /api/super-admin/organizations/:id
    * Get detailed information about a specific organization.
    */
-  app.get("/api/super-admin/organizations/:id", requireAuth, requireSuperAdmin, async (req, res) => {
-    try {
+  app.get("/api/super-admin/organizations/:id", requireAuth, requireSuperAdmin, asyncHandler(async (req, res) => {
       const org = await storage.getOrganization(req.params.id);
       if (!org) {
         return res.status(404).json({ message: "Organization not found" });
@@ -141,18 +131,13 @@ export function registerSuperAdminRoutes(app: Express): void {
           createdAt: u.createdAt,
         })),
       });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to fetch organization details");
-      res.status(500).json({ message: "Failed to fetch organization details" });
-    }
-  });
+    }));
 
   /**
    * PATCH /api/super-admin/organizations/:id
    * Update an organization's status or settings (super admin only).
    */
-  app.patch("/api/super-admin/organizations/:id", requireAuth, requireSuperAdmin, async (req, res) => {
-    try {
+  app.patch("/api/super-admin/organizations/:id", requireAuth, requireSuperAdmin, asyncHandler(async (req, res) => {
       const org = await storage.getOrganization(req.params.id);
       if (!org) {
         return res.status(404).json({ message: "Organization not found" });
@@ -193,11 +178,7 @@ export function registerSuperAdminRoutes(app: Express): void {
         "Super admin updated organization",
       );
       res.json(updated);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to update organization");
-      res.status(500).json({ message: "Failed to update organization" });
-    }
-  });
+    }));
 
   /**
    * POST /api/super-admin/organizations/:id/impersonate
@@ -205,8 +186,7 @@ export function registerSuperAdminRoutes(app: Express): void {
    * This is a session-level flag — it does NOT permanently change the user.
    * Use DELETE /api/super-admin/impersonate to stop impersonating.
    */
-  app.post("/api/super-admin/organizations/:id/impersonate", requireAuth, requireSuperAdmin, async (req, res) => {
-    try {
+  app.post("/api/super-admin/organizations/:id/impersonate", requireAuth, requireSuperAdmin, asyncHandler(async (req, res) => {
       const org = await storage.getOrganization(req.params.id);
       if (!org) {
         return res.status(404).json({ message: "Organization not found" });
@@ -236,18 +216,13 @@ export function registerSuperAdminRoutes(app: Express): void {
         orgSlug: org.slug,
         orgName: org.name,
       });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to start impersonation");
-      res.status(500).json({ message: "Failed to start impersonation" });
-    }
-  });
+    }));
 
   /**
    * DELETE /api/super-admin/impersonate
    * Stop impersonating an organization and return to the super admin's own context.
    */
-  app.delete("/api/super-admin/impersonate", requireAuth, requireSuperAdmin, async (req, res) => {
-    try {
+  app.delete("/api/super-admin/impersonate", requireAuth, requireSuperAdmin, asyncHandler(async (req, res) => {
       const session = req.session as any;
       const wasImpersonating = session.impersonatingOrgId;
 
@@ -273,11 +248,7 @@ export function registerSuperAdminRoutes(app: Express): void {
         "Super admin stopped org impersonation",
       );
       res.json({ message: "Stopped impersonating organization" });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to stop impersonation");
-      res.status(500).json({ message: "Failed to stop impersonation" });
-    }
-  });
+    }));
 
   /**
    * POST /api/super-admin/unlock-account
@@ -285,8 +256,7 @@ export function registerSuperAdminRoutes(app: Express): void {
    * Use when an org admin is locked out and cannot wait for the 15-minute auto-expiry.
    * Requires: super_admin role. Every invocation is written to the tamper-evident audit log.
    */
-  app.post("/api/super-admin/unlock-account", requireAuth, requireSuperAdmin, async (req, res) => {
-    try {
+  app.post("/api/super-admin/unlock-account", requireAuth, requireSuperAdmin, asyncHandler(async (req, res) => {
       const { username } = req.body as { username?: string };
       if (!username || typeof username !== "string") {
         return res.status(400).json({ message: "username is required", code: "OBS-VALID-001" });
@@ -306,11 +276,7 @@ export function registerSuperAdminRoutes(app: Express): void {
         "Super admin performed emergency account unlock",
       );
       res.json({ message: `Account '${username}' unlocked successfully` });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to unlock account");
-      res.status(500).json({ message: "Failed to unlock account" });
-    }
-  });
+    }));
 
   // ==================== TENANT USAGE DASHBOARD ====================
 
@@ -319,8 +285,7 @@ export function registerSuperAdminRoutes(app: Express): void {
    * Per-org resource consumption aggregates for cost visibility and capacity planning.
    * Uses efficient SQL aggregates for PostgreSQL backends; falls back to per-org queries otherwise.
    */
-  app.get("/api/super-admin/usage", requireAuth, requireSuperAdmin, async (_req, res) => {
-    try {
+  app.get("/api/super-admin/usage", requireAuth, requireSuperAdmin, asyncHandler(async (_req, res) => {
       const orgs = await storage.listOrganizations();
 
       const orgsWithUsage = await Promise.all(
@@ -380,11 +345,7 @@ export function registerSuperAdminRoutes(app: Express): void {
         orgs: orgsWithUsage,
         platformTotals,
       });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to fetch platform usage");
-      res.status(500).json({ message: "Failed to fetch platform usage" });
-    }
-  });
+    }));
 
   // ==================== PER-ORG KEY ROTATION ====================
 
@@ -394,8 +355,7 @@ export function registerSuperAdminRoutes(app: Express): void {
    * Evicts the cached DEK so the next PHI access generates a new DEK via KMS.
    * For full rotation: also clears the stored encrypted DEK so a fresh one is generated.
    */
-  app.post("/api/super-admin/organizations/:id/rotate-key", requireAuth, requireSuperAdmin, async (req, res) => {
-    try {
+  app.post("/api/super-admin/organizations/:id/rotate-key", requireAuth, requireSuperAdmin, asyncHandler(async (req, res) => {
       const org = await storage.getOrganization(req.params.id);
       if (!org) {
         return res.status(404).json({ message: "Organization not found" });
@@ -428,9 +388,5 @@ export function registerSuperAdminRoutes(app: Express): void {
         message: "Key rotated — next PHI access will generate a new DEK via KMS",
         orgId: org.id,
       });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to rotate org encryption key");
-      res.status(500).json({ message: "Failed to rotate org encryption key" });
-    }
-  });
+    }));
 }

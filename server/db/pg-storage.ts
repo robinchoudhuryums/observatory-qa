@@ -81,6 +81,22 @@ import type {
 } from "@shared/schema";
 import * as tables from "./schema";
 import { normalizeAnalysis } from "../storage";
+
+// Row types inferred from Drizzle schema — used to type mapper function parameters
+type OrgRow = typeof tables.organizations.$inferSelect;
+type UserRow = typeof tables.users.$inferSelect;
+type EmployeeRow = typeof tables.employees.$inferSelect;
+type CallRow = typeof tables.calls.$inferSelect;
+type TranscriptRow = typeof tables.transcripts.$inferSelect;
+type SentimentRow = typeof tables.sentimentAnalyses.$inferSelect;
+type AnalysisRow = typeof tables.callAnalyses.$inferSelect;
+type AccessRequestRow = typeof tables.accessRequests.$inferSelect;
+type PromptTemplateRow = typeof tables.promptTemplates.$inferSelect;
+type CoachingSessionRow = typeof tables.coachingSessions.$inferSelect;
+type ApiKeyRow = typeof tables.apiKeys.$inferSelect;
+type SubscriptionRow = typeof tables.subscriptions.$inferSelect;
+type ReferenceDocumentRow = typeof tables.referenceDocuments.$inferSelect;
+type InvitationRow = typeof tables.invitations.$inferSelect;
 import { logger } from "../services/logger";
 import { encryptField, decryptField, isPhiEncryptionEnabled } from "../services/phi-encryption";
 
@@ -1850,7 +1866,7 @@ export class PostgresStorage {
 
   // --- Row mappers (DB row → app type) ---
 
-  private mapOrg(row: any): Organization {
+  private mapOrg(row: OrgRow): Organization {
     return {
       id: row.id,
       name: row.name,
@@ -1861,7 +1877,7 @@ export class PostgresStorage {
     };
   }
 
-  private mapUser(row: any): User {
+  private mapUser(row: UserRow): User {
     return {
       id: row.id,
       orgId: row.orgId,
@@ -1880,7 +1896,7 @@ export class PostgresStorage {
     };
   }
 
-  private mapEmployee(row: any): Employee {
+  private mapEmployee(row: EmployeeRow): Employee {
     return {
       id: row.id,
       orgId: row.orgId,
@@ -1894,7 +1910,7 @@ export class PostgresStorage {
     };
   }
 
-  private mapCall(row: any): Call {
+  private mapCall(row: CallRow): Call {
     return {
       id: row.id,
       orgId: row.orgId,
@@ -1923,7 +1939,7 @@ export class PostgresStorage {
     };
   }
 
-  private mapTranscript(row: any): Transcript {
+  private mapTranscript(row: TranscriptRow): Transcript {
     let text = row.text;
     if (typeof row.text === "string") {
       try {
@@ -1946,7 +1962,7 @@ export class PostgresStorage {
     };
   }
 
-  private mapSentiment(row: any): SentimentAnalysis {
+  private mapSentiment(row: SentimentRow): SentimentAnalysis {
     return {
       id: row.id,
       orgId: row.orgId,
@@ -1958,7 +1974,7 @@ export class PostgresStorage {
     };
   }
 
-  private mapAnalysis(row: any): CallAnalysis {
+  private mapAnalysis(row: AnalysisRow): CallAnalysis {
     return {
       id: row.id,
       orgId: row.orgId,
@@ -2004,7 +2020,7 @@ export class PostgresStorage {
     };
   }
 
-  private mapAccessRequest(row: any): AccessRequest {
+  private mapAccessRequest(row: AccessRequestRow): AccessRequest {
     return {
       id: row.id,
       orgId: row.orgId,
@@ -2019,7 +2035,7 @@ export class PostgresStorage {
     };
   }
 
-  private mapPromptTemplate(row: any): PromptTemplate {
+  private mapPromptTemplate(row: PromptTemplateRow): PromptTemplate {
     return {
       id: row.id,
       orgId: row.orgId,
@@ -2036,7 +2052,7 @@ export class PostgresStorage {
     };
   }
 
-  private mapCoachingSession(row: any): CoachingSession {
+  private mapCoachingSession(row: CoachingSessionRow): CoachingSession {
     return {
       id: row.id,
       orgId: row.orgId,
@@ -2062,7 +2078,7 @@ export class PostgresStorage {
     };
   }
 
-  private mapApiKey(row: any): ApiKey {
+  private mapApiKey(row: ApiKeyRow): ApiKey {
     return {
       id: row.id,
       orgId: row.orgId,
@@ -2179,7 +2195,7 @@ export class PostgresStorage {
     return row ? this.mapSubscription(row) : undefined;
   }
 
-  private mapSubscription(row: any): Subscription {
+  private mapSubscription(row: SubscriptionRow): Subscription {
     return {
       id: row.id,
       orgId: row.orgId,
@@ -2299,7 +2315,7 @@ export class PostgresStorage {
       .where(and(eq(tables.referenceDocuments.orgId, orgId), eq(tables.referenceDocuments.id, id)));
   }
 
-  private mapReferenceDocument(row: any): ReferenceDocument {
+  private mapReferenceDocument(row: ReferenceDocumentRow): ReferenceDocument {
     return {
       id: row.id,
       orgId: row.orgId,
@@ -2325,7 +2341,7 @@ export class PostgresStorage {
     };
   }
 
-  private mapInvitation(row: any): Invitation {
+  private mapInvitation(row: InvitationRow): Invitation {
     return {
       id: row.id,
       orgId: row.orgId,

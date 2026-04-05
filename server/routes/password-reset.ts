@@ -15,6 +15,7 @@ import { hashPassword, validatePasswordComplexity } from "../auth";
 import { sendEmail, buildPasswordResetEmail } from "../services/email";
 import { invalidateUserSessions } from "../services/redis";
 import { logger } from "../services/logger";
+import { asyncHandler } from "../middleware/error-handler";
 
 // In-memory token store (fallback when PostgreSQL is not available)
 // In production with PostgreSQL, tokens are stored in the password_reset_tokens table
@@ -144,8 +145,7 @@ export function registerPasswordResetRoutes(app: Express): void {
   /**
    * Reset password with a valid token.
    */
-  app.post("/api/auth/reset-password", async (req, res) => {
-    try {
+  app.post("/api/auth/reset-password", asyncHandler(async (req, res) => {
       const { token, newPassword } = req.body;
       if (!token || !newPassword) {
         return res.status(400).json({ message: "Token and new password are required" });
@@ -185,9 +185,5 @@ export function registerPasswordResetRoutes(app: Express): void {
 
       logger.info({ userId: result.userId }, "Password reset successfully");
       res.json({ message: "Password has been reset. You can now log in with your new password." });
-    } catch (error) {
-      logger.error({ err: error }, "Password reset failed");
-      res.status(500).json({ message: "Password reset failed" });
-    }
-  });
+    }));
 }

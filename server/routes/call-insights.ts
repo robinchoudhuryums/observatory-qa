@@ -12,6 +12,7 @@ import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { getOrgAIProvider } from "../services/ai-factory";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
+import { asyncHandler } from "../middleware/error-handler";
 
 /** Extract JSON from AI text response (handles markdown fences, extra text) */
 function extractJson(text: string): Record<string, unknown> | null {
@@ -39,8 +40,7 @@ export function registerCallInsightRoutes(app: Express): void {
   // ==================== SPEECH ANALYTICS ====================
 
   // GET speech metrics for a call (already stored in analysis, but convenient endpoint)
-  app.get("/api/calls/:id/speech-metrics", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/calls/:id/speech-metrics", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
       if (!analysis) {
         res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
@@ -53,17 +53,12 @@ export function registerCallInsightRoutes(app: Express): void {
         resourceId: req.params.id,
       });
       res.json((analysis as any).speechMetrics || null);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to get speech metrics");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get speech metrics"));
-    }
-  });
+    }));
 
   // ==================== SELF-REVIEW ====================
 
   // POST: Agent submits a self-review for their own call
-  app.post("/api/calls/:id/self-review", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.post("/api/calls/:id/self-review", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const parsed = selfReviewSchema.safeParse(req.body);
       if (!parsed.success) {
         res.status(400).json({ message: "Invalid self-review data", errors: parsed.error.flatten() });
@@ -94,17 +89,12 @@ export function registerCallInsightRoutes(app: Express): void {
       });
 
       res.json({ success: true, selfReview });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to submit self-review");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to submit self-review"));
-    }
-  });
+    }));
 
   // ==================== SCORE DISPUTE ====================
 
   // POST: Agent disputes a QA score
-  app.post("/api/calls/:id/dispute", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.post("/api/calls/:id/dispute", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const parsed = disputeSchema.safeParse(req.body);
       if (!parsed.success) {
         res.status(400).json({ message: "Invalid dispute data", errors: parsed.error.flatten() });
@@ -142,11 +132,7 @@ export function registerCallInsightRoutes(app: Express): void {
       });
 
       res.json({ success: true, scoreDispute });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to open score dispute");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to open score dispute"));
-    }
-  });
+    }));
 
   // PATCH: Manager resolves a score dispute
   app.patch(
@@ -154,8 +140,7 @@ export function registerCallInsightRoutes(app: Express): void {
     requireAuth,
     injectOrgContext,
     requireRole("manager", "admin"),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const parsed = resolveDisputeSchema.safeParse(req.body);
         if (!parsed.success) {
           res.status(400).json({ message: "Invalid resolution data", errors: parsed.error.flatten() });
@@ -201,11 +186,7 @@ export function registerCallInsightRoutes(app: Express): void {
         });
 
         res.json({ success: true, scoreDispute: updatedDispute });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to resolve score dispute");
-        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to resolve score dispute"));
-      }
-    },
+      }),
   );
 
   // ==================== REFERRAL LETTER GENERATION ====================
@@ -216,8 +197,7 @@ export function registerCallInsightRoutes(app: Express): void {
     requireAuth,
     injectOrgContext,
     requireRole("manager", "admin"),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const parsed = callReferralSchema.safeParse(req.body);
         if (!parsed.success) {
           res.status(400).json({ message: "Invalid referral letter request", errors: parsed.error.flatten() });
@@ -272,11 +252,7 @@ Return as JSON: { "letter": "full letter text", "urgency": "routine|urgent|emerg
         });
 
         res.json({ success: true, referralLetter: letter, urgency });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to generate referral letter");
-        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to generate referral letter"));
-      }
-    },
+      }),
   );
 
   // ==================== PATIENT VISIT SUMMARY ====================
@@ -287,8 +263,7 @@ Return as JSON: { "letter": "full letter text", "urgency": "routine|urgent|emerg
     requireAuth,
     injectOrgContext,
     requireRole("manager", "admin"),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
         if (!analysis) {
           res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
@@ -330,11 +305,7 @@ Return as JSON: { "summary": "the patient-friendly summary text" }`;
         });
 
         res.json({ success: true, patientSummary: summary });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to generate patient summary");
-        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to generate patient summary"));
-      }
-    },
+      }),
   );
 
   // ==================== AUTO-SUGGESTED BILLING CODES ====================
@@ -345,8 +316,7 @@ Return as JSON: { "summary": "the patient-friendly summary text" }`;
     requireAuth,
     injectOrgContext,
     requireRole("manager", "admin"),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
         if (!analysis) {
           res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
@@ -424,10 +394,6 @@ Only include codes you have reasonable confidence in (>= 0.5). These are suggest
         });
 
         res.json({ success: true, suggestedBillingCodes: normalized });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to suggest billing codes");
-        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to suggest billing codes"));
-      }
-    },
+      }),
   );
 }

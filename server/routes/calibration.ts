@@ -6,6 +6,7 @@ import { validateUUIDParam } from "./helpers";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import type { CalibrationEvaluation } from "@shared/schema";
+import { asyncHandler } from "../middleware/error-handler";
 
 // ==================== STATISTICAL HELPERS ====================
 
@@ -89,8 +90,7 @@ function computeICC(evaluations: Array<{ evaluatorId: string; performanceScore: 
 
 export function registerCalibrationRoutes(app: Express) {
   // Create a calibration session (manager+ only)
-  app.post("/api/calibration", requireAuth, requireRole("manager"), injectOrgContext, async (req, res) => {
-    try {
+  app.post("/api/calibration", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -122,15 +122,10 @@ export function registerCalibrationRoutes(app: Express) {
         "Calibration session created",
       );
       res.json(session);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to create calibration session");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to create calibration session"));
-    }
-  });
+    }));
 
   // List calibration sessions
-  app.get("/api/calibration", requireAuth, requireRole("manager"), injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/calibration", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -170,11 +165,7 @@ export function registerCalibrationRoutes(app: Express) {
       );
 
       res.json(enriched);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to list calibration sessions");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to list calibration sessions"));
-    }
-  });
+    }));
 
   // Get a calibration session with all evaluations
   app.get(
@@ -183,8 +174,7 @@ export function registerCalibrationRoutes(app: Express) {
     requireRole("manager"),
     injectOrgContext,
     validateUUIDParam(),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const orgId = req.orgId;
         if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -238,16 +228,11 @@ export function registerCalibrationRoutes(app: Express) {
           icc: showStats ? icc : undefined,
           isBlindActive: isBlind,
         });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to get calibration session");
-        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get calibration session"));
-      }
-    },
+    }),
   );
 
   // Submit an evaluation for a calibration session
-  app.post("/api/calibration/:id/evaluate", requireAuth, injectOrgContext, validateUUIDParam(), async (req, res) => {
-    try {
+  app.post("/api/calibration/:id/evaluate", requireAuth, injectOrgContext, validateUUIDParam(), asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -295,11 +280,7 @@ export function registerCalibrationRoutes(app: Express) {
       }
 
       logger.info({ orgId, sessionId: session.id, evaluatorId: req.user!.id }, "Calibration evaluation submitted");
-    } catch (error) {
-      logger.error({ err: error }, "Failed to submit calibration evaluation");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to submit evaluation"));
-    }
-  });
+    }));
 
   // Complete calibration session (set consensus score and notes)
   app.post(
@@ -308,8 +289,7 @@ export function registerCalibrationRoutes(app: Express) {
     requireRole("manager"),
     injectOrgContext,
     validateUUIDParam(),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const orgId = req.orgId;
         if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -331,11 +311,7 @@ export function registerCalibrationRoutes(app: Express) {
 
         logger.info({ orgId, sessionId: session.id, targetScore }, "Calibration session completed");
         res.json(updated);
-      } catch (error) {
-        logger.error({ err: error }, "Failed to complete calibration session");
-        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to complete calibration session"));
-      }
-    },
+      }),
   );
 
   // Delete calibration session (manager+)
@@ -345,23 +321,17 @@ export function registerCalibrationRoutes(app: Express) {
     requireRole("manager"),
     injectOrgContext,
     validateUUIDParam(),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const orgId = req.orgId;
         if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
         await storage.deleteCalibrationSession(orgId, req.params.id);
         res.json({ success: true });
-      } catch (error) {
-        logger.error({ err: error }, "Failed to delete calibration session");
-        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to delete calibration session"));
-      }
-    },
+      }),
   );
 
   // Get calibration analytics (score variance trends, evaluator alignment, IRR metrics)
-  app.get("/api/calibration/analytics", requireAuth, requireRole("manager"), injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/calibration/analytics", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -480,15 +450,10 @@ export function registerCalibrationRoutes(app: Express) {
         ...analytics,
         evaluatorStats: enrichedEvaluatorStats,
       });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to get calibration analytics");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get calibration analytics"));
-    }
-  });
+    }));
 
   // Suggest calls for calibration (automated call selection)
-  app.get("/api/calibration/suggest-calls", requireAuth, requireRole("manager"), injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/calibration/suggest-calls", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -594,11 +559,7 @@ export function registerCalibrationRoutes(app: Express) {
           "Low/high outlier scores — verify extreme ratings",
         ],
       });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to suggest calibration calls");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to suggest calls"));
-    }
-  });
+    }));
 
   // Export calibration report as CSV
   app.get(
@@ -607,8 +568,7 @@ export function registerCalibrationRoutes(app: Express) {
     requireRole("manager"),
     injectOrgContext,
     validateUUIDParam(),
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const orgId = req.orgId;
         if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -678,11 +638,7 @@ export function registerCalibrationRoutes(app: Express) {
         res.setHeader("Content-Type", "text/csv; charset=utf-8");
         res.setHeader("Content-Disposition", `attachment; filename="calibration-report-${safeTitle}.csv"`);
         res.send(csv);
-      } catch (error) {
-        logger.error({ err: error }, "Failed to export calibration report");
-        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to export report"));
-      }
-    },
+      }),
   );
 
   // Get evaluator certification status for all evaluators in the org
@@ -691,8 +647,7 @@ export function registerCalibrationRoutes(app: Express) {
     requireAuth,
     requireRole("manager"),
     injectOrgContext,
-    async (req, res) => {
-      try {
+    asyncHandler(async (req, res) => {
         const orgId = req.orgId;
         if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -787,10 +742,6 @@ export function registerCalibrationRoutes(app: Express) {
         certifications.sort((a, b) => statusOrder[a.certificationStatus] - statusOrder[b.certificationStatus]);
 
         res.json(certifications);
-      } catch (error) {
-        logger.error({ err: error }, "Failed to get evaluator certifications");
-        res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get certifications"));
-      }
-    },
+      }),
   );
 }

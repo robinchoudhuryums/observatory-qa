@@ -7,6 +7,7 @@ import { safeFloat } from "./helpers";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
+import { asyncHandler } from "../middleware/error-handler";
 
 /** Maximum calls to process for report generation to prevent memory exhaustion. */
 const MAX_REPORT_CALLS = 10_000;
@@ -22,8 +23,7 @@ function safeJsonParse<T>(val: unknown, fallback: T): T {
 
 export function registerReportRoutes(app: Express): void {
   // Search calls (with optional score/date/category filters)
-  app.get("/api/search", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/search", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const query = req.query.q as string;
       if (!query) {
         res.status(400).json({ message: "Search query is required" });
@@ -75,26 +75,17 @@ export function registerReportRoutes(app: Express): void {
         detail: `Search returned ${results.length} results`,
       });
       res.json(results);
-    } catch (error) {
-      res.status(500).json(errorResponse(ERROR_CODES.REPORT_SEARCH_FAILED, "Failed to search calls"));
-    }
-  });
+    }));
 
   // This new route will handle requests for the Performance page
-  app.get("/api/performance", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/performance", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       // We can reuse the existing function to get top performers
       const performers = await storage.getTopPerformers(req.orgId!, 10); // Get top 10
       logPhiAccess({ ...auditContext(req), event: "view_performance", resourceType: "performance" });
       res.json(performers);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to get performance data");
-      res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Failed to get performance data"));
-    }
-  });
+    }));
 
-  app.get("/api/reports/summary", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/reports/summary", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const [metrics, sentiment, performers] = await Promise.all([
         storage.getDashboardMetrics(req.orgId!),
         storage.getSentimentDistribution(req.orgId!),
@@ -109,15 +100,10 @@ export function registerReportRoutes(app: Express): void {
 
       logPhiAccess({ ...auditContext(req), event: "view_report_summary", resourceType: "report" });
       res.json(reportData);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to generate report data");
-      res.status(500).json(errorResponse(ERROR_CODES.REPORT_GENERATION_FAILED, "Failed to generate report data"));
-    }
-  });
+    }));
 
   // Filtered reports: accepts date range, employee, department filters
-  app.get("/api/reports/filtered", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/reports/filtered", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const { from, to, employeeId, department, callPartyType } = req.query;
 
       // Validate date parameters
@@ -301,15 +287,10 @@ export function registerReportRoutes(app: Express): void {
         avgSubScores,
         autoAssignedCount,
       });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to generate filtered report");
-      res.status(500).json(errorResponse(ERROR_CODES.REPORT_GENERATION_FAILED, "Failed to generate filtered report"));
-    }
-  });
+    }));
 
   // Comparative analytics: compare two time periods side by side
-  app.get("/api/reports/compare", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/reports/compare", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const { currentFrom, currentTo, previousFrom, previousTo } = req.query;
       if (!currentFrom || !currentTo || !previousFrom || !previousTo) {
         res.status(400).json({ message: "Required query params: currentFrom, currentTo, previousFrom, previousTo" });
@@ -365,17 +346,10 @@ export function registerReportRoutes(app: Express): void {
 
       logPhiAccess({ ...auditContext(req), event: "view_report_compare", resourceType: "report" });
       res.json({ current, previous, delta });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to generate comparative report");
-      res
-        .status(500)
-        .json(errorResponse(ERROR_CODES.REPORT_GENERATION_FAILED, "Failed to generate comparative report"));
-    }
-  });
+    }));
 
   // Agent profile: aggregated feedback across all calls for an employee
-  app.get("/api/reports/agent-profile/:employeeId", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/reports/agent-profile/:employeeId", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const { employeeId } = req.params;
       const { from, to } = req.query;
 
@@ -527,15 +501,10 @@ export function registerReportRoutes(app: Express): void {
           (a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime(),
         ),
       });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to generate agent profile");
-      res.status(500).json(errorResponse(ERROR_CODES.REPORT_GENERATION_FAILED, "Failed to generate agent profile"));
-    }
-  });
+    }));
 
   // Generate AI narrative summary for an agent's performance
-  app.post("/api/reports/agent-summary/:employeeId", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.post("/api/reports/agent-summary/:employeeId", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       if (!aiProvider.isAvailable || !aiProvider.generateText) {
         res.status(503).json({ message: "AI provider not configured. Set up Bedrock or Gemini credentials." });
         return;
@@ -642,15 +611,10 @@ export function registerReportRoutes(app: Express): void {
       logger.info({ employeeId: req.params.employeeId }, "AI summary generated");
 
       res.json({ summary });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to generate agent summary");
-      res.status(500).json(errorResponse(ERROR_CODES.REPORT_GENERATION_FAILED, "Failed to generate AI summary"));
-    }
-  });
+    }));
 
   // Export agent profile report as printable HTML (for PDF via browser print)
-  app.get("/api/reports/agent-profile/:employeeId/export", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/reports/agent-profile/:employeeId/export", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const { employeeId } = req.params;
       const employee = await storage.getEmployee(req.orgId!, employeeId);
       if (!employee) {
@@ -726,9 +690,5 @@ export function registerReportRoutes(app: Express): void {
 
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.send(html);
-    } catch (error) {
-      logger.error({ err: error }, "Failed to export agent report");
-      res.status(500).json(errorResponse(ERROR_CODES.REPORT_GENERATION_FAILED, "Failed to export agent report"));
-    }
-  });
+    }));
 }

@@ -4,6 +4,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { storage } from "../storage";
 import { requireAuth, requireRole, injectOrgContext } from "../auth";
+import { asyncHandler } from "../middleware/error-handler";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import {
@@ -287,8 +288,7 @@ export function registerBillingRoutes(app: Express): void {
   });
 
   // --- Current subscription (authenticated) ---
-  app.get("/api/billing/subscription", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/billing/subscription", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const sub = await storage.getSubscription(req.orgId!);
       const tier = (sub?.planTier as PlanTier) || "free";
       const plan = PLAN_DEFINITIONS[tier];
@@ -369,14 +369,10 @@ export function registerBillingRoutes(app: Express): void {
         gracePeriodDaysLeft,
         stripeConfigured: isStripeConfigured(),
       });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to get subscription" });
-    }
-  });
+  }));
 
   // --- Usage history (authenticated) ---
-  app.get("/api/billing/usage", requireAuth, injectOrgContext, async (req, res) => {
-    try {
+  app.get("/api/billing/usage", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
       const { months = "6" } = req.query;
       const numMonths = Math.min(parseInt(months as string) || 6, 12);
 
@@ -398,19 +394,15 @@ export function registerBillingRoutes(app: Express): void {
       }
 
       res.json(history.reverse()); // Chronological order
-    } catch (error) {
-      res.status(500).json({ message: "Failed to get usage history" });
-    }
-  });
+  }));
 
   // --- Stripe Checkout (admin only) ---
-  app.post("/api/billing/checkout", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+  app.post("/api/billing/checkout", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
     const stripe = getStripe();
     if (!stripe) {
       return res.status(503).json({ message: "Stripe not configured" });
     }
 
-    try {
       const { tier, interval = "monthly" } = req.body;
       if (!tier || !PLAN_TIERS.includes(tier)) {
         return res.status(400).json({ message: "Invalid plan tier" });
@@ -482,20 +474,15 @@ export function registerBillingRoutes(app: Express): void {
       });
       logger.info({ orgId: req.orgId, tier, interval }, "Checkout session created");
       res.json({ url: checkoutUrl });
-    } catch (error) {
-      logger.error({ err: error }, "Checkout session creation failed");
-      res.status(500).json({ message: "Failed to create checkout session" });
-    }
-  });
+  }));
 
   // --- Stripe Customer Portal (admin only) ---
-  app.post("/api/billing/portal", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+  app.post("/api/billing/portal", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
     const stripe = getStripe();
     if (!stripe) {
       return res.status(503).json({ message: "Stripe not configured" });
     }
 
-    try {
       const sub = await storage.getSubscription(req.orgId!);
       if (!sub?.stripeCustomerId) {
         return res.status(400).json({ message: "No Stripe customer found — subscribe first" });
@@ -505,15 +492,10 @@ export function registerBillingRoutes(app: Express): void {
       const portalUrl = await createPortalSession(stripe, sub.stripeCustomerId, `${baseUrl}/settings?tab=billing`);
 
       res.json({ url: portalUrl });
-    } catch (error) {
-      logger.error({ err: error }, "Portal session creation failed");
-      res.status(500).json({ message: "Failed to create portal session" });
-    }
-  });
+  }));
 
   // --- Downgrade to free (admin only) ---
-  app.post("/api/billing/downgrade", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
+  app.post("/api/billing/downgrade", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
       const sub = await storage.getSubscription(req.orgId!);
 
       // Cancel Stripe subscription if exists
@@ -548,21 +530,17 @@ export function registerBillingRoutes(app: Express): void {
       });
       logger.info({ orgId: req.orgId }, "Downgraded to free plan");
       res.json({ message: "Downgraded to free plan" });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to downgrade" });
-    }
-  });
+  }));
 
   // --- Mid-cycle plan upgrade (admin only) ---
   // Uses stripe.subscriptions.update() + proration instead of a new checkout session.
   // Only applicable when the org already has an active Stripe subscription.
-  app.post("/api/billing/upgrade", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+  app.post("/api/billing/upgrade", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
     const stripe = getStripe();
     if (!stripe) {
       return res.status(503).json({ message: "Stripe not configured" });
     }
 
-    try {
       const { tier, interval = "monthly" } = req.body;
       if (!tier || !PLAN_TIERS.includes(tier)) {
         return res.status(400).json({ message: "Invalid plan tier" });
@@ -653,15 +631,10 @@ export function registerBillingRoutes(app: Express): void {
       await syncSeatUsage(req.orgId!);
 
       res.json({ success: true, planTier: tier, interval });
-    } catch (error) {
-      logger.error({ err: error }, "Mid-cycle upgrade failed");
-      res.status(500).json({ message: "Failed to upgrade subscription" });
-    }
-  });
+  }));
 
   // --- Billing alert configuration (admin only) ---
-  app.patch("/api/billing/alerts", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
-    try {
+  app.patch("/api/billing/alerts", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
       const { enabled, quotaThresholdPct, alertEmail } = req.body;
       const org = await storage.getOrganization(req.orgId!);
       if (!org) return res.status(404).json({ message: "Organization not found" });
@@ -678,19 +651,15 @@ export function registerBillingRoutes(app: Express): void {
       await storage.updateOrganization(req.orgId!, { settings: updatedSettings as any });
       logger.info({ orgId: req.orgId, enabled, quotaThresholdPct }, "Billing alerts updated");
       res.json({ success: true, billingAlerts: updatedSettings.billingAlerts });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to update billing alerts" });
-    }
-  });
+  }));
 
   // --- Seat usage sync (admin only) ---
-  app.post("/api/billing/seats/sync", requireAuth, requireRole("admin"), injectOrgContext, async (req, res) => {
+  app.post("/api/billing/seats/sync", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
     const stripe = getStripe();
     if (!stripe) {
       return res.status(503).json({ message: "Stripe not configured" });
     }
 
-    try {
       const sub = await storage.getSubscription(req.orgId!);
       if (!sub?.stripeSeatsItemId) {
         return res.status(400).json({
@@ -713,11 +682,7 @@ export function registerBillingRoutes(app: Express): void {
         additionalSeats,
         reportedToStripe: true,
       });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to sync seat usage");
-      res.status(500).json({ message: "Failed to sync seat usage" });
-    }
-  });
+  }));
 
   // --- Stripe Webhook (unauthenticated — verified by signature) ---
   // NOTE: This route must use raw body parsing. The caller must configure
