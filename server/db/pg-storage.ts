@@ -284,10 +284,10 @@ export class PostgresStorage {
     if (updates.mfaEnabled !== undefined) setClause.mfaEnabled = updates.mfaEnabled;
     if (updates.mfaSecret !== undefined) setClause.mfaSecret = updates.mfaSecret;
     if (updates.mfaBackupCodes !== undefined) setClause.mfaBackupCodes = updates.mfaBackupCodes;
-    if ((updates as any).subTeam !== undefined) setClause.subTeam = (updates as any).subTeam;
-    if ((updates as any).webauthnCredentials !== undefined) setClause.webauthnCredentials = (updates as any).webauthnCredentials;
-    if ((updates as any).mfaTrustedDevices !== undefined) setClause.mfaTrustedDevices = (updates as any).mfaTrustedDevices;
-    if ((updates as any).mfaEnrollmentDeadline !== undefined) setClause.mfaEnrollmentDeadline = (updates as any).mfaEnrollmentDeadline;
+    if (updates.subTeam !== undefined) setClause.subTeam = updates.subTeam;
+    if (updates.webauthnCredentials !== undefined) setClause.webauthnCredentials = updates.webauthnCredentials;
+    if (updates.mfaTrustedDevices !== undefined) setClause.mfaTrustedDevices = updates.mfaTrustedDevices;
+    if (updates.mfaEnrollmentDeadline !== undefined) setClause.mfaEnrollmentDeadline = updates.mfaEnrollmentDeadline;
 
     if (Object.keys(setClause).length === 0) return this.getUser(id);
 
@@ -756,8 +756,8 @@ export class PostgresStorage {
         text: typeof transcript.text === "string" ? encryptField(transcript.text) : transcript.text,
         confidence: transcript.confidence,
         words: transcript.words || null,
-        corrections: (transcript as any).corrections || null,
-        correctedText: (transcript as any).correctedText || null,
+        corrections: transcript.corrections || null,
+        correctedText: transcript.correctedText || null,
       })
       .returning();
     return this.mapTranscript(row);
@@ -842,17 +842,17 @@ export class PostgresStorage {
         subScores: analysis.subScores || null,
         detectedAgentName: analysis.detectedAgentName,
         clinicalNote: analysis.clinicalNote || null,
-        speechMetrics: (analysis as any).speechMetrics || null,
-        selfReview: (analysis as any).selfReview || null,
-        scoreDispute: (analysis as any).scoreDispute || null,
-        patientSummary: (analysis as any).patientSummary || null,
-        referralLetter: (analysis as any).referralLetter || null,
-        suggestedBillingCodes: (analysis as any).suggestedBillingCodes || null,
-        scoreRationale: (analysis as any).scoreRationale || null,
-        promptVersionId: (analysis as any).promptVersionId || null,
-        speakerRoleMap: (analysis as any).speakerRoleMap || null,
-        detectedLanguage: (analysis as any).detectedLanguage || null,
-        ehrPushStatus: (analysis as any).ehrPushStatus || null,
+        speechMetrics: analysis.speechMetrics || null,
+        selfReview: analysis.selfReview || null,
+        scoreDispute: analysis.scoreDispute || null,
+        patientSummary: analysis.patientSummary || null,
+        referralLetter: analysis.referralLetter || null,
+        suggestedBillingCodes: analysis.suggestedBillingCodes || null,
+        scoreRationale: analysis.scoreRationale || null,
+        promptVersionId: analysis.promptVersionId || null,
+        speakerRoleMap: analysis.speakerRoleMap || null,
+        detectedLanguage: analysis.detectedLanguage || null,
+        ehrPushStatus: analysis.ehrPushStatus || null,
       })
       .returning();
     return this.mapAnalysis(row);
@@ -882,17 +882,17 @@ export class PostgresStorage {
     if (updates.responseTime !== undefined) setClause.responseTime = updates.responseTime;
     if (updates.lemurResponse !== undefined) setClause.lemurResponse = updates.lemurResponse;
     if (updates.callPartyType !== undefined) setClause.callPartyType = updates.callPartyType;
-    if ((updates as any).speechMetrics !== undefined) setClause.speechMetrics = (updates as any).speechMetrics;
-    if ((updates as any).selfReview !== undefined) setClause.selfReview = (updates as any).selfReview;
-    if ((updates as any).scoreDispute !== undefined) setClause.scoreDispute = (updates as any).scoreDispute;
-    if ((updates as any).patientSummary !== undefined) setClause.patientSummary = (updates as any).patientSummary;
-    if ((updates as any).referralLetter !== undefined) setClause.referralLetter = (updates as any).referralLetter;
-    if ((updates as any).suggestedBillingCodes !== undefined) setClause.suggestedBillingCodes = (updates as any).suggestedBillingCodes;
-    if ((updates as any).scoreRationale !== undefined) setClause.scoreRationale = (updates as any).scoreRationale;
-    if ((updates as any).promptVersionId !== undefined) setClause.promptVersionId = (updates as any).promptVersionId;
-    if ((updates as any).speakerRoleMap !== undefined) setClause.speakerRoleMap = (updates as any).speakerRoleMap;
-    if ((updates as any).detectedLanguage !== undefined) setClause.detectedLanguage = (updates as any).detectedLanguage;
-    if ((updates as any).ehrPushStatus !== undefined) setClause.ehrPushStatus = (updates as any).ehrPushStatus;
+    if (updates.speechMetrics !== undefined) setClause.speechMetrics = updates.speechMetrics;
+    if (updates.selfReview !== undefined) setClause.selfReview = updates.selfReview;
+    if (updates.scoreDispute !== undefined) setClause.scoreDispute = updates.scoreDispute;
+    if (updates.patientSummary !== undefined) setClause.patientSummary = updates.patientSummary;
+    if (updates.referralLetter !== undefined) setClause.referralLetter = updates.referralLetter;
+    if (updates.suggestedBillingCodes !== undefined) setClause.suggestedBillingCodes = updates.suggestedBillingCodes;
+    if (updates.scoreRationale !== undefined) setClause.scoreRationale = updates.scoreRationale;
+    if (updates.promptVersionId !== undefined) setClause.promptVersionId = updates.promptVersionId;
+    if (updates.speakerRoleMap !== undefined) setClause.speakerRoleMap = updates.speakerRoleMap;
+    if (updates.detectedLanguage !== undefined) setClause.detectedLanguage = updates.detectedLanguage;
+    if (updates.ehrPushStatus !== undefined) setClause.ehrPushStatus = updates.ehrPushStatus;
 
     if (Object.keys(setClause).length === 0) return this.getCallAnalysis(orgId, callId);
 
@@ -1381,19 +1381,19 @@ export class PostgresStorage {
     if (updates.dueDate !== undefined) setClause.dueDate = updates.dueDate ? new Date(updates.dueDate) : null;
     if (updates.completedAt !== undefined)
       setClause.completedAt = updates.completedAt ? new Date(updates.completedAt) : null;
-    if ((updates as any).selfAssessmentScore !== undefined)
-      setClause.selfAssessmentScore = (updates as any).selfAssessmentScore;
-    if ((updates as any).selfAssessmentNotes !== undefined)
-      setClause.selfAssessmentNotes = (updates as any).selfAssessmentNotes;
-    if ((updates as any).selfAssessedAt !== undefined)
-      setClause.selfAssessedAt = (updates as any).selfAssessedAt ? new Date((updates as any).selfAssessedAt) : null;
-    if ((updates as any).effectivenessSnapshot !== undefined)
-      setClause.effectivenessSnapshot = (updates as any).effectivenessSnapshot;
-    if ((updates as any).effectivenessCalculatedAt !== undefined)
-      setClause.effectivenessCalculatedAt = (updates as any).effectivenessCalculatedAt
-        ? new Date((updates as any).effectivenessCalculatedAt)
+    if (updates.selfAssessmentScore !== undefined)
+      setClause.selfAssessmentScore = updates.selfAssessmentScore;
+    if (updates.selfAssessmentNotes !== undefined)
+      setClause.selfAssessmentNotes = updates.selfAssessmentNotes;
+    if (updates.selfAssessedAt !== undefined)
+      setClause.selfAssessedAt = updates.selfAssessedAt ? new Date(updates.selfAssessedAt) : null;
+    if (updates.effectivenessSnapshot !== undefined)
+      setClause.effectivenessSnapshot = updates.effectivenessSnapshot;
+    if (updates.effectivenessCalculatedAt !== undefined)
+      setClause.effectivenessCalculatedAt = updates.effectivenessCalculatedAt
+        ? new Date(updates.effectivenessCalculatedAt)
         : null;
-    if ((updates as any).templateId !== undefined) setClause.templateId = (updates as any).templateId;
+    if (updates.templateId !== undefined) setClause.templateId = updates.templateId;
 
     const [row] = await this.db
       .update(tables.coachingSessions)
@@ -1425,7 +1425,7 @@ export class PostgresStorage {
     const overdue = mapped.filter(
       (s) => s.dueDate && new Date(s.dueDate).getTime() < now && s.status !== "completed" && s.status !== "dismissed",
     );
-    const automated = mapped.filter((s) => (s as any).automatedTrigger);
+    const automated = mapped.filter((s) => s.automatedTrigger);
 
     const avgClose =
       completed.length > 0
@@ -1450,7 +1450,7 @@ export class PostgresStorage {
     // Improvement by category: sessions with effectiveness snapshots
     const improvementByCategory: Record<string, { before: number; after: number; delta: number; count: number }> = {};
     for (const s of mapped) {
-      const snap = (s as any).effectivenessSnapshot as any;
+      const snap = s.effectivenessSnapshot as any;
       if (!snap?.preCoaching?.avgScore || !snap?.postCoaching?.avgScore) continue;
       const cat = s.category;
       if (!improvementByCategory[cat]) improvementByCategory[cat] = { before: 0, after: 0, delta: 0, count: 0 };
@@ -1608,11 +1608,11 @@ export class PostgresStorage {
     const result = (await this.db.execute(sql`
       UPDATE automation_rules SET
         is_enabled = COALESCE(${updates.isEnabled ?? null}, is_enabled),
-        name = COALESCE(${(updates as any).name ?? null}, name),
+        name = COALESCE(${updates.name ?? null}, name),
         conditions = COALESCE(${updates.conditions ? JSON.stringify(updates.conditions) : null}::jsonb, conditions),
         actions = COALESCE(${updates.actions ? JSON.stringify(updates.actions) : null}::jsonb, actions),
-        last_triggered_at = COALESCE(${(updates as any).lastTriggeredAt ? new Date((updates as any).lastTriggeredAt) : null}, last_triggered_at),
-        trigger_count = COALESCE(${(updates as any).triggerCount ?? null}, trigger_count),
+        last_triggered_at = COALESCE(${updates.lastTriggeredAt ? new Date(updates.lastTriggeredAt) : null}, last_triggered_at),
+        trigger_count = COALESCE(${updates.triggerCount ?? null}, trigger_count),
         updated_at = NOW()
       WHERE id = ${id} AND org_id = ${orgId}
       RETURNING *

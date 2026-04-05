@@ -32,6 +32,16 @@ import type {
   CallWithDetails,
 } from "@shared/schema";
 
+// Row types inferred from Drizzle schema — used to type mapper function parameters
+type ABTestRow = typeof tables.abTests.$inferSelect;
+type LearningModuleRow = typeof tables.learningModules.$inferSelect;
+type LearningPathRow = typeof tables.learningPaths.$inferSelect;
+type LearningProgressRow = typeof tables.learningProgress.$inferSelect;
+type MarketingCampaignRow = typeof tables.marketingCampaigns.$inferSelect;
+type CallAttributionRow = typeof tables.callAttributions.$inferSelect;
+type ProviderTemplateRow = typeof tables.providerTemplates.$inferSelect;
+type BaaRow = typeof tables.businessAssociateAgreements.$inferSelect;
+
 function toISOString(date: Date | null | undefined): string | undefined {
   return date ? date.toISOString() : undefined;
 }
@@ -123,7 +133,7 @@ P.deleteABTest = async function(orgId: string, id: string): Promise<void> {
     await db(this).delete(tables.abTests).where(and(eq(tables.abTests.orgId, orgId), eq(tables.abTests.id, id)));
   }
 
-function mapABTest(row: any): ABTest {
+function mapABTest(row: ABTestRow): ABTest {
     return {
       id: row.id,
       orgId: row.orgId,
@@ -1095,7 +1105,7 @@ P.getModuleCompletionStats = async function(
     };
   }
 
-function mapLearningModule(r: any): LearningModule {
+function mapLearningModule(r: LearningModuleRow): LearningModule {
     return {
       id: r.id,
       orgId: r.orgId,
@@ -1120,7 +1130,7 @@ function mapLearningModule(r: any): LearningModule {
     };
   }
 
-function mapLearningPath(r: any): LearningPath {
+function mapLearningPath(r: LearningPathRow): LearningPath {
     return {
       id: r.id,
       orgId: r.orgId,
@@ -1139,7 +1149,7 @@ function mapLearningPath(r: any): LearningPath {
     };
   }
 
-function mapLearningProgress(r: any): LearningProgress {
+function mapLearningProgress(r: LearningProgressRow): LearningProgress {
     return {
       id: r.id,
       orgId: r.orgId,
@@ -1307,7 +1317,7 @@ P.deleteCallAttribution = async function(orgId: string, callId: string): Promise
       .where(and(eq(tables.callAttributions.orgId, orgId), eq(tables.callAttributions.callId, callId)));
   }
 
-function mapCampaign(r: any): MarketingCampaign {
+function mapCampaign(r: MarketingCampaignRow): MarketingCampaign {
     return {
       id: r.id,
       orgId: r.orgId,
@@ -1326,7 +1336,7 @@ function mapCampaign(r: any): MarketingCampaign {
     };
   }
 
-function mapAttribution(r: any): CallAttribution {
+function mapAttribution(r: CallAttributionRow): CallAttribution {
     return {
       id: r.id,
       orgId: r.orgId,
@@ -1567,7 +1577,7 @@ P.getOrgUsageSummary = async function(orgId: string): Promise<{
     };
   }
 
-function mapProviderTemplate(r: any): any {
+function mapProviderTemplate(r: ProviderTemplateRow): any {
   return {
     id: r.id,
     orgId: r.orgId,
@@ -1588,7 +1598,7 @@ function mapProviderTemplate(r: any): any {
 
 // ==================== BAA Management (HIPAA §164.502(e)) ====================
 
-function mapBaa(r: any): any {
+function mapBaa(r: BaaRow): any {
   return {
     id: r.id,
     orgId: r.orgId,
