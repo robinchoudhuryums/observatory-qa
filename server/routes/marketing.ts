@@ -6,7 +6,7 @@
  */
 import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
-import { requireAuth, requireRole } from "../auth";
+import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { validateUUIDParam } from "./helpers";
 import { MARKETING_SOURCES } from "@shared/schema";
 import { asyncHandler, AppError } from "../middleware/error-handler";
@@ -33,7 +33,7 @@ function mapUtmSourceToMarketingSource(utmSource: string): string {
 export function registerMarketingRoutes(app: Express): void {
   // --- Marketing Campaigns ---
 
-  app.get("/api/marketing/campaigns", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+  app.get("/api/marketing/campaigns", requireAuth, injectOrgContext, asyncHandler(async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) throw new AppError(403, "Organization context required");
     const { source, active } = req.query;
@@ -44,7 +44,7 @@ export function registerMarketingRoutes(app: Express): void {
     res.json(campaigns);
   }));
 
-  app.get("/api/marketing/campaigns/:id", requireAuth, validateUUIDParam(), asyncHandler(async (req: Request, res: Response) => {
+  app.get("/api/marketing/campaigns/:id", requireAuth, injectOrgContext, validateUUIDParam(), asyncHandler(async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) throw new AppError(403, "Organization context required");
     const campaign = await storage.getMarketingCampaign(orgId, req.params.id);
@@ -52,7 +52,7 @@ export function registerMarketingRoutes(app: Express): void {
     res.json(campaign);
   }));
 
-  app.post("/api/marketing/campaigns", requireAuth, requireRole("manager"), asyncHandler(async (req: Request, res: Response) => {
+  app.post("/api/marketing/campaigns", requireAuth, injectOrgContext, requireRole("manager"), asyncHandler(async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) throw new AppError(403, "Organization context required");
     const { name, source, medium, startDate, endDate, budget, trackingCode, notes } = req.body;
@@ -86,6 +86,7 @@ export function registerMarketingRoutes(app: Express): void {
   app.patch(
     "/api/marketing/campaigns/:id",
     requireAuth,
+    injectOrgContext,
     requireRole("manager"),
     validateUUIDParam(),
     asyncHandler(async (req: Request, res: Response) => {
@@ -100,6 +101,7 @@ export function registerMarketingRoutes(app: Express): void {
   app.delete(
     "/api/marketing/campaigns/:id",
     requireAuth,
+    injectOrgContext,
     requireRole("manager"),
     validateUUIDParam(),
     asyncHandler(async (req: Request, res: Response) => {
@@ -117,6 +119,7 @@ export function registerMarketingRoutes(app: Express): void {
   app.get(
     "/api/marketing/attribution/:callId",
     requireAuth,
+    injectOrgContext,
     validateUUIDParam("callId"),
     asyncHandler(async (req: Request, res: Response) => {
       const orgId = req.orgId;
@@ -130,6 +133,7 @@ export function registerMarketingRoutes(app: Express): void {
   app.put(
     "/api/marketing/attribution/:callId",
     requireAuth,
+    injectOrgContext,
     validateUUIDParam("callId"),
     asyncHandler(async (req: Request, res: Response) => {
       const orgId = req.orgId;
@@ -187,6 +191,7 @@ export function registerMarketingRoutes(app: Express): void {
   app.delete(
     "/api/marketing/attribution/:callId",
     requireAuth,
+    injectOrgContext,
     requireRole("manager"),
     validateUUIDParam("callId"),
     asyncHandler(async (req: Request, res: Response) => {
@@ -200,7 +205,7 @@ export function registerMarketingRoutes(app: Express): void {
   // --- Marketing Analytics ---
 
   /** GET /api/marketing/metrics — Aggregated metrics by source */
-  app.get("/api/marketing/metrics", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+  app.get("/api/marketing/metrics", requireAuth, injectOrgContext, asyncHandler(async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) throw new AppError(403, "Organization context required");
 
@@ -348,6 +353,7 @@ export function registerMarketingRoutes(app: Express): void {
   app.get(
     "/api/marketing/campaigns/:id/metrics",
     requireAuth,
+    injectOrgContext,
     validateUUIDParam(),
     asyncHandler(async (req: Request, res: Response) => {
       const orgId = req.orgId;
@@ -405,6 +411,7 @@ export function registerMarketingRoutes(app: Express): void {
   app.get(
     "/api/marketing/detect-source/:callId",
     requireAuth,
+    injectOrgContext,
     validateUUIDParam("callId"),
     asyncHandler(async (req: Request, res: Response) => {
       const orgId = req.orgId;
@@ -590,7 +597,7 @@ export function registerMarketingRoutes(app: Express): void {
   );
 
   /** GET /api/marketing/sources — List available marketing source types */
-  app.get("/api/marketing/sources", requireAuth, (_req: Request, res: Response) => {
+  app.get("/api/marketing/sources", requireAuth, injectOrgContext, (_req: Request, res: Response) => {
     res.json(MARKETING_SOURCES);
   });
 
@@ -599,7 +606,7 @@ export function registerMarketingRoutes(app: Express): void {
    * Groups calls by month and tracks conversion rate over a configurable follow-up window.
    * Example: "Of calls from January, what % converted within 90 days?"
    */
-  app.get("/api/marketing/cohort", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/marketing/cohort", requireAuth, injectOrgContext, async (req: Request, res: Response) => {
     const orgId = req.orgId;
     if (!orgId) return res.status(403).json({ message: "Organization context required" });
 

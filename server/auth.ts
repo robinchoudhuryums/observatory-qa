@@ -516,7 +516,7 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
   // The ssoLoginAt timestamp is stamped by the SAML/OIDC callback handlers.
   if (session.ssoLoginAt && req.user?.orgId) {
     try {
-      const org = await storage.getOrganization(req.user.orgId);
+      const org = await getCachedOrganization(req.user.orgId);
       const maxHours = (org?.settings as any)?.ssoSessionMaxHours;
       if (typeof maxHours === "number" && maxHours > 0) {
         const ssoSessionAge = Date.now() - session.ssoLoginAt;
