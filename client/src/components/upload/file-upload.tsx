@@ -113,7 +113,7 @@ export default function FileUpload() {
         xhr.withCredentials = true;
 
         // Get CSRF token from cookie
-        const csrfMatch = document.cookie.match(/csrf_token=([^;]+)/);
+        const csrfMatch = document.cookie.match(/csrf-token=([^;]+)/);
         if (csrfMatch) xhr.setRequestHeader("X-CSRF-Token", csrfMatch[1]);
 
         xhr.upload.onprogress = (event) => {

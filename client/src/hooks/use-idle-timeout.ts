@@ -61,10 +61,20 @@ export function useIdleTimeout(): IdleTimeoutState {
     }, IDLE_TIMEOUT_MS);
   }, [clearTimers, startWarning]);
 
+  // Track warning state in a ref so the event handler sees the latest value
+  // without needing isWarning in the dependency array (which would re-register listeners).
+  const isWarningRef = useRef(false);
+  isWarningRef.current = isWarning;
+
   useEffect(() => {
     resetIdleTimer();
     const handler = () => {
-      resetIdleTimer();
+      // During the warning phase, only explicit "Stay Logged In" should reset.
+      // Background mouse movement or scrolling must NOT dismiss the warning —
+      // HIPAA requires intentional re-engagement.
+      if (!isWarningRef.current) {
+        resetIdleTimer();
+      }
     };
     for (const event of ACTIVITY_EVENTS) document.addEventListener(event, handler, { passive: true });
     return () => {
