@@ -216,6 +216,43 @@ export function getRedisStatus(): { connected: boolean; mode: "distributed" | "i
   };
 }
 
+/**
+ * Invalidate all sessions for a specific user by scanning Redis session keys.
+ * Uses SCAN (non-blocking) instead of KEYS to avoid Redis event loop stalls.
+ * Returns the number of sessions destroyed, or 0 if Redis is unavailable.
+ *
+ * Used after: password reset, account deactivation, admin password change.
+ */
+export async function invalidateUserSessions(userId: string): Promise<number> {
+  if (!redisClient) return 0;
+
+  try {
+    let cursor = "0";
+    let deleted = 0;
+    do {
+      const [nextCursor, keys] = await redisClient.scan(cursor, "MATCH", "sess:*", "COUNT", 100);
+      cursor = nextCursor;
+      for (const key of keys) {
+        try {
+          const sessionData = await redisClient.get(key);
+          if (sessionData) {
+            const parsed = JSON.parse(sessionData);
+            if (parsed?.passport?.user === userId) {
+              await redisClient.del(key);
+              deleted++;
+            }
+          }
+        } catch {
+          /* skip unparseable sessions */
+        }
+      }
+    } while (cursor !== "0");
+    return deleted;
+  } catch {
+    return 0;
+  }
+}
+
 // ── Ephemeral key-value store (Redis-backed with in-memory fallback) ──────
 // Used by OIDC state, email OTP, and other short-lived session data.
 // Falls back to in-memory Map when Redis is unavailable (single-instance only).

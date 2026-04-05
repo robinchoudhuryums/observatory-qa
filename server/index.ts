@@ -28,11 +28,19 @@ const app = express();
 
 // --- In-memory sliding window rate limiter (fallback when Redis unavailable) ---
 // Tracks individual request timestamps per key for accurate sliding window behavior
+// UUID pattern for normalizing rate limit keys — replaces actual UUIDs with :id
+// so /api/calls/abc-123/transcript and /api/calls/def-456/transcript share one bucket.
+// Without this, per-endpoint PHI rate limits (30/min on transcript reads) are
+// per-call-ID, letting an attacker cycle IDs to exfiltrate data.
+const UUID_SEGMENT_RE = /\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
 const MAX_RATE_LIMIT_ENTRIES = 50_000;
 const rateLimitMap = new Map<string, number[]>();
 function rateLimitKey(req: Request, includeOrg: boolean): string {
   const orgPart = includeOrg && req.orgId ? `:org:${req.orgId}` : "";
-  return `${req.ip}:${req.path}${orgPart}`;
+  // Normalize path: replace UUID segments with :id so rate limits apply per-endpoint-class
+  const normalizedPath = req.path.replace(UUID_SEGMENT_RE, "/:id");
+  return `${req.ip}:${normalizedPath}${orgPart}`;
 }
 
 function setRateLimitHeaders(res: Response, limit: number, remaining: number, resetSeconds: number): void {
