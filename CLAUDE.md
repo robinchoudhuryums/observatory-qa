@@ -252,31 +252,38 @@ server/routes/               # Modular API route files (38 route files)
   clinical-analytics.routes.ts   #   Extracted: style learning, population analytics, prefill, custom templates
   admin-security.routes.ts   #   Extracted: audit logs, WAF, incidents, breach reports, GDPR, vocab, MFA recovery
 
-server/services/             # Business logic & integrations (30 files)
-  ai-factory.ts              #   AI provider setup (Bedrock, per-org model config)
+server/services/             # Business logic & integrations (46 files)
+  ai-factory.ts              #   AI provider setup (Bedrock, per-org model config, circuit breaker)
   ai-provider.ts             #   AI analysis interface, prompt building, JSON parsing, clinical note generation
-  bedrock.ts                 #   AWS Bedrock Claude provider (raw REST + SigV4)
+  ai-prompts.ts              #   System/user prompt construction for Bedrock Converse API
+  ai-types.ts                #   AI response type definitions, flag validation schemas
+  bedrock.ts                 #   AWS Bedrock Claude provider (raw REST + SigV4, Converse API, prompt caching, retry with jitter)
+  bedrock-batch.ts           #   AWS Bedrock batch inference: pending items → S3 → batch job → poll → complete (50% cost savings)
   assemblyai.ts              #   AssemblyAI transcription + transcript processing. TranscriptionOptions: webhookUrl, wordBoost, piiRedaction, languageDetection. continueAfterTranscription() for webhook/polling dual-path
   assemblyai-realtime.ts     #   AssemblyAI real-time streaming transcription
+  call-processing.ts         #   Core audio pipeline: upload → transcribe → analyze → store → notify. Handles polling/webhook/batch modes
+  call-clustering.ts         #   TF-IDF cosine similarity topic clustering + trend detection for call pattern discovery
+  auto-calibration.ts        #   AI score drift detection over configurable time windows (per-org)
   aws-credentials.ts         #   AWS credential resolution (env vars, instance roles, STS)
   s3.ts                      #   S3 client (raw REST + SigV4, no AWS SDK)
   redis.ts                   #   Redis connection, session store, rate limiter, pub/sub
-  queue.ts                   #   BullMQ queue definitions (5 queues)
-  websocket.ts               #   WebSocket for real-time call processing updates (org-scoped)
+  queue.ts                   #   BullMQ queue definitions (6 queues: audio-processing, reanalysis, retention, usage, indexing, ehr-note-push)
+  websocket.ts               #   WebSocket for real-time call processing updates (org-scoped, Redis pub/sub for multi-instance)
   stripe.ts                  #   Stripe SDK integration
   logger.ts                  #   Pino structured logging + Betterstack transport
-  audit-log.ts               #   HIPAA audit logging (PHI access events)
-  notifications.ts           #   Webhook notifications for flagged calls
-  embeddings.ts              #   Amazon Titan Embed V2 via Bedrock (1024-dim vectors)
-  rag.ts                     #   RAG orchestrator (chunk → embed → pgvector search → BM25 rerank)
-  rag-worker.ts              #   In-process RAG indexing fallback
-  chunker.ts                 #   Document chunking (sliding window, natural breaks, section detection)
+  audit-log.ts               #   HIPAA audit logging (PHI access events, tamper-evident hash chain)
+  notifications.ts           #   Webhook notifications for flagged calls (Slack/Teams)
+  embeddings.ts              #   Amazon Titan Embed V2 via Bedrock (1024-dim vectors), two-tier cache (LRU + Redis)
+  rag.ts                     #   RAG orchestrator (chunk → embed → pgvector search → BM25 rerank, adaptive query-type weights, synonym expansion)
+  rag-worker.ts              #   In-process RAG indexing fallback (when BullMQ unavailable)
+  chunker.ts                 #   Document chunking (sliding window, natural breaks, section detection, table preservation, page tracking)
   phi-encryption.ts          #   AES-256-GCM field-level encryption for PHI data
   email.ts                   #   Transactional email (AWS SES API, SMTP, console fallback)
   error-codes.ts             #   Standardized error codes (OBS-{DOMAIN}-{NUMBER})
   coaching-engine.ts         #   Auto-recommendations and AI coaching plan generation
   clinical-templates.ts      #   Pre-built clinical note templates (10+ specialties, multiple formats)
   clinical-validation.ts     #   Clinical note field validation and completeness scoring
+  clinical-extraction.ts     #   Structured data extraction from clinical notes (vitals, medications, allergies)
   style-learning.ts          #   Provider style analysis — auto-detect note preferences from history
   scoring-calibration.ts     #   Cross-evaluator scoring calibration and variance analysis
   sentry.ts                  #   Sentry server-side error tracking with HIPAA PHI sanitization
@@ -284,7 +291,6 @@ server/services/             # Business logic & integrations (30 files)
   incident-response.ts       #   Automated incident detection and response workflows
   proactive-alerts.ts        #   Proactive performance/compliance alerting engine
   fhir.ts                    #   FHIR R4 export builder (Composition, DocumentReference, Bundle)
-  clinical-extraction.ts     #   Structured data extraction from clinical notes (vitals, medications, allergies)
   org-encryption.ts          #   Per-org KMS envelope encryption: getOrgDataKey, encryptFieldForOrg, decryptFieldForOrg
   rag-trace.ts               #   RAG pipeline observability: per-query timing breakdown, confidence metrics, injection audit trail
   faq-analytics.ts           #   FAQ detection from RAG query patterns: query normalization, gap analysis, confidence distribution
@@ -293,11 +299,14 @@ server/services/             # Business logic & integrations (30 files)
   scheduled-reports.ts       #   Periodic report generation (weekly/monthly) with top/bottom performer rankings
   cost-estimation.ts         #   Pure math: estimateBedrockCost(), estimateAssemblyAICost() — no external deps
   dashboard-cache.ts         #   Dashboard Redis cache invalidation (extracted from routes/dashboard.ts)
+  telephony-ingestion.ts     #   Pluggable telephony auto-ingestion framework (webhook + polling, scaffolded for RingCentral/8x8/Twilio/Five9)
 
 server/middleware/           # Express middleware
   waf.ts                     #   Web Application Firewall (request filtering, bot detection)
+  error-handler.ts           #   Global error handler (AppError, asyncHandler wrapper, HIPAA-safe messages)
   tracing.ts                 #   OpenTelemetry request tracing (trace IDs, span attributes)
   correlation-id.ts          #   Per-request correlation ID via AsyncLocalStorage
+  validate.ts                #   Zod-based request body/query/params validation middleware
 
 server/utils/                # Shared server utilities
   helpers.ts                 #   Pure utility functions (safeFloat, safeInt, withRetry, parseDateParam, parsePagination) — safe to import from services layer
@@ -318,11 +327,18 @@ server/scheduled/            # Wall-clock scheduled background tasks
   audit-chain-verify.ts      #   Nightly HIPAA audit chain integrity verification
   coaching-tasks.ts          #   Coaching automation rules, effectiveness caching, follow-up reminders
 
-server/services/ehr/         # EHR integration adapters
-  types.ts                   #   IEhrAdapter interface, EhrPatient, EhrAppointment, EhrClinicalNote, EhrTreatmentPlan
-  index.ts                   #   EHR adapter factory (Open Dental, Eaglesoft)
+server/services/ehr/         # EHR integration adapters (11 files)
+  types.ts                   #   IEhrAdapter interface, EhrPatient, EhrAppointment, EhrClinicalNote, EhrTreatmentPlan, EhrHealthStatus
+  index.ts                   #   EHR adapter factory (5 adapters: open_dental, eaglesoft, dentrix, fhir_r4, mock)
   open-dental.ts             #   Open Dental adapter (bidirectional: patient lookup, note push, treatment plans)
-  eaglesoft.ts               #   Eaglesoft/Patterson eDex adapter (read-focused: patients, appointments)
+  eaglesoft.ts               #   Eaglesoft/Patterson eDex adapter (bidirectional with eDex v2+)
+  dentrix.ts                 #   Dentrix Ascend / G7 adapter (bidirectional)
+  fhir-r4.ts                 #   Generic FHIR R4-compliant server adapter (bidirectional)
+  mock.ts                    #   Development/demo adapter (returns fixture data)
+  request.ts                 #   Shared HTTP request utilities for EHR adapters
+  secrets-manager.ts         #   AWS Secrets Manager credential resolution (falls back to PHI-encrypted apiKey)
+  health-monitor.ts          #   Periodic EHR connection health checks (runs in worker process every 15 min)
+  appointment-matcher.ts     #   Call-to-appointment matching logic
 
 server/storage/              # Storage abstraction layer
   types.ts                   #   IStorage interface (all methods org-scoped)
@@ -336,16 +352,22 @@ server/db/                   # PostgreSQL (Drizzle ORM)
   migrate.ts                 #   Migration runner
   pg-storage.ts              #   PostgresStorage core (org/user/employee/call CRUD, dashboards, search, audio, coaching, refs, subscriptions, RLS helpers)
   pg-storage-features.ts     #   PostgresStorage feature methods via prototype mixin (A/B tests, LMS, gamification, revenue, calibration, marketing, BAA, provider templates, deleteOrg)
+  pg-storage-confidence.ts   #   PostgresStorage confidence metrics mixin (overrides getDashboardMetrics/getTopPerformers for avgConfidence, dataQuality breakdown)
   sync-schema.ts             #   Idempotent schema sync on startup (CREATE IF NOT EXISTS)
 
 server/workers/              # BullMQ worker processes (run separately)
-  index.ts                   #   Worker entry point — starts all workers
+  index.ts                   #   Worker entry point — starts all workers + EHR health monitor
   retention.worker.ts        #   Data retention purge (per-org)
   usage.worker.ts            #   Usage event recording
   reanalysis.worker.ts       #   Bulk call re-analysis
   indexing.worker.ts         #   RAG document indexing (chunk + embed)
+  ehr-note-push.worker.ts    #   Retry failed EHR note pushes (5 attempts, exponential backoff → DLQ)
 
-shared/schema.ts             # Zod schemas + TypeScript types (shared client/server)
+shared/schema.ts             # Zod schemas + TypeScript types (shared client/server) — barrel re-export from:
+shared/schema/org.ts         #   Organization, user, employee schemas
+shared/schema/calls.ts       #   Call, transcript, analysis schemas
+shared/schema/billing.ts     #   Billing/subscription schemas, plan definitions
+shared/schema/features.ts    #   Feature-specific schemas (selfReview, dispute, callReferral, etc.)
 data/dental/                 # Dental-specific reference data
   default-prompt-templates.json  # 5 dental call categories with evaluation criteria
   dental-terminology-reference.md  # CDT codes, insurance terminology, coverage tiers
@@ -477,7 +499,7 @@ Priority order:
 PostgreSQL + S3 hybrid: When using PostgresStorage, set `S3_BUCKET` alongside `DATABASE_URL` for audio blob storage in S3 while structured data lives in PostgreSQL.
 
 ### Job Queue System (BullMQ)
-Five queues, all Redis-backed with fallback to in-process execution:
+Six queues, all Redis-backed with fallback to in-process execution:
 | Queue | Purpose | Retries |
 |-------|---------|---------|
 | `audio-processing` | Transcription + AI analysis pipeline | 2 (exponential backoff) |
@@ -485,11 +507,171 @@ Five queues, all Redis-backed with fallback to in-process execution:
 | `data-retention` | Purge expired calls per org policy | 3 |
 | `usage-metering` | Track per-org usage events for billing | 3 |
 | `document-indexing` | RAG indexing (chunk + embed) | 2 |
+| `ehr-note-push` | Retry failed EHR clinical note pushes | 5 (exponential backoff → DLQ) |
 
 Workers run as a separate process: `npm run workers` (dev) or `node dist/workers.js` (prod).
 
 ### AI Provider System (server/services/ai-factory.ts)
 Uses AWS Bedrock (Claude) for AI analysis. Per-org `bedrockModel` can be configured via org's `OrgSettings`. The provider implements the `AIAnalysisProvider` interface defined in `ai-provider.ts`. Per-org providers are cached to avoid re-creation on every call.
+
+## Systems Map
+
+This section provides a verified dependency map and data flow overview of the codebase. It is maintained by running `/systems-map` and updated via `/sync-docs`.
+
+### Module Dependency Overview (Highest Fan-Out)
+
+These modules are imported by the most consumers. Changes here have the widest blast radius:
+
+| Module | Key Exports | Consumer Count | Notes |
+|--------|-------------|----------------|-------|
+| `server/storage/index.ts` | `storage`, `initPostgresStorage`, `objectStorage`, `IStorage` | 50+ | Nearly all routes, services, scheduled tasks, workers |
+| `shared/schema.ts` (barrel) | Types, Zod schemas, `PLAN_DEFINITIONS`, `CALL_CATEGORIES` | 50+ | Routes, services, storage, client pages. Workers get types indirectly via queue job interfaces |
+| `server/auth.ts` | `requireAuth`, `injectOrgContext`, `requireOrgContext`, `requireRole`, `getTeamScopedEmployeeIds`, `sessionMiddleware`, `resolveUserOrgId` | 36 | All authenticated route files + websocket |
+| `server/services/audit-log.ts` | `logPhiAccess`, `auditContext`, `queryAuditLogs`, `exportAuditLogs`, `verifyAuditChain` | 30+ | 30 route files + admin-security |
+| `server/services/phi-encryption.ts` | `encryptField`, `decryptField`, `decryptClinicalNotePhi`, `isPhiEncryptionEnabled`, `encryptMfaSecret`, `decryptMfaSecret` | 10 | Clinical routes, calls, mfa, ehr, live-session, pg-storage, call-processing, ehr-note-push worker |
+| `server/services/ai-factory.ts` | `aiProvider`, `getOrgAIProvider`, `getBedrockCircuitState`, `withBedrockProtection` | 11 | call-processing, coaching-engine, clinical, call-insights, reports, insurance-narratives, lms, health, admin, live-session, emails |
+| `server/services/logger.ts` | `logger` | All | Every server file |
+
+### Key Inter-Module Dependencies
+
+```
+call-processing.ts → {assemblyai, ai-factory, rag, phi-encryption, websocket,
+                       dashboard-cache, notifications, proactive-alerts, queue,
+                       scoring-calibration, clinical-validation, clinical-extraction,
+                       cost-estimation, storage, bedrock-batch, ai-prompts}
+
+rag.ts → {chunker, embeddings, db/schema, ai-guardrails, phi-redactor, rag-trace, faq-analytics}
+
+ai-factory.ts → {bedrock, ai-provider, lru-cache}
+  ↑ consumed by: call-processing, clinical, call-insights, reports, insurance-narratives,
+                  lms, health, admin, live-session, coaching-engine, emails
+
+websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMessage, getSubscriberClient)}
+  ↑ consumed by: call-processing, calls, live-session, emails, ab-testing, admin
+```
+
+### Data Flow: Call Upload → Analysis Completion
+
+```
+1. POST /api/calls/upload [routes/calls.ts]
+   ├─ requireAuth → injectOrgContext → requireActiveSubscription → enforceQuota
+   ├─ multer → SHA-256 file hash (streaming) → dedup check → acquire upload lock
+   ├─ storage.createCall() → release lock
+   └─ processAudioFile() [services/call-processing.ts] (async, non-blocking)
+        ├─ Step 1: uploadAndArchive() → assemblyai.uploadAudioFile() + storage.uploadAudio() (S3)
+        ├─ Step 2-3: transcribe()
+        │    ├─ assemblyai.transcribeAudio() → storage.updateCall(assemblyAiId)
+        │    ├─ [WEBHOOK MODE] return → webhook handler resumes later
+        │    └─ [POLLING MODE] assemblyai.pollTranscript() → empty transcript guard
+        └─ continueAfterTranscription()
+             ├─ [BATCH MODE] savePendingBatchItem() → S3 → return
+             ├─ Step 4: runAiAnalysis() → prompt template + RAG + Bedrock Claude
+             ├─ Step 5: processTranscriptData() → confidence + calibration + clinical note encryption
+             ├─ Step 6: storage.withTransaction() → atomic write (transcript + sentiment + analysis + status)
+             ├─ broadcastCallUpdate() → WebSocket
+             └─ postProcessing() → notifications + coaching recommendations + usage tracking
+
+   [ASYNC WEBHOOK PATH]
+   POST /api/webhooks/assemblyai [routes/assemblyai-webhook.ts]
+     → verify token → lookup call by assemblyAiId → continueAfterTranscription()
+```
+
+### Data Flow: RAG Document Indexing
+
+```
+1. POST /api/reference-documents [routes/onboarding.ts]
+   ├─ multer → text extraction → contentHash dedup
+   ├─ storage.createReferenceDocument(indexingStatus: "pending")
+   └─ enqueueDocumentIndexing() [services/queue.ts]
+        ├─ [WITH REDIS] BullMQ add("index-document") → workers/indexing.worker.ts
+        └─ [WITHOUT REDIS] rag-worker.indexDocumentInProcess() (in-process fallback)
+
+2. rag.indexDocument() [services/rag.ts]
+   ├─ chunkDocument() [services/chunker.ts] → sliding window, tables, page numbers
+   ├─ generateEmbeddingsBatch() [services/embeddings.ts] → Titan V2 (L1 LRU + L2 Redis cache)
+   ├─ db.insert(documentChunks) → pgvector(1024) embeddings
+   └─ updateIndexingStatus("indexed")
+```
+
+### Data Flow: Authentication (Login → Session → Org Context)
+
+```
+1. POST /api/auth/login [routes/auth.ts]
+   ├─ distributedRateLimit(15min, 5)
+   ├─ passport.authenticate("local") [auth.ts LocalStrategy]
+   │    ├─ isAccountLocked() → recordFailedAttempt() or clearFailedAttempts()
+   │    ├─ getUserByUsername(orgId?) → env users first, then DB
+   │    └─ scrypt hash comparison (timing-safe)
+   ├─ [MFA] trustedDevice cookie check → or return { requiresMfa: true }
+   └─ req.login() → session stored in Redis or MemoryStore
+
+2. Subsequent requests:
+   ├─ requireAuth → passport.deserializeUser() → SSO session expiry check
+   └─ injectOrgContext → req.orgId from session → org status gate (suspended=403, deleted=410)
+```
+
+### Data Flow: Clinical Note Lifecycle
+
+```
+1. Generation [services/call-processing.ts]
+   ├─ AI returns clinical_note → mapClinicalNote() → extractStructuredData()
+   └─ validateAndEncryptClinicalNote() → AES-256-GCM on PHI fields
+
+2. Retrieval [routes/clinical.ts GET]
+   ├─ decryptClinicalNotePhi() → HIPAA PHI_DECRYPT audit event
+   └─ viewer role → PHI fields redacted
+
+3. Attestation [routes/clinical.ts POST .../attest]
+   └─ NPI validation + encryption → providerAttested: true
+
+4. Amendment [routes/clinical-compliance.routes.ts POST .../addendum]
+   └─ Version conflict check → SHA-256 amendment chain → clears attestation
+
+5. FHIR Export [routes/clinical-compliance.routes.ts GET .../fhir]
+   └─ Requires attestation → decrypt → buildFhirBundle() → application/fhir+json
+```
+
+### Auth & Security Surface
+
+- **`requireAuth` + `injectOrgContext`** applied to **36 of 44 route files**
+- **6 intentionally public routes:** `auth.ts`, `oauth.ts`, `sso.ts`, `scim.ts`, `password-reset.ts`, `assemblyai-webhook.ts` (each has its own auth/verification)
+- **CSRF:** Double-submit cookie (timing-safe); exemptions for webhooks, API keys, SCIM, SSO callbacks, pre-auth
+- **Rate limiting:** Distributed (Redis) with in-memory fallback; per-IP pre-auth, per-IP+orgId for data endpoints
+- **PHI encryption/decryption** in 10 files: clinical routes (3), calls, mfa, ehr, live-session, pg-storage, call-processing, ehr-note-push worker
+
+### External Service Dependencies
+
+| Service | SDK/Client | Used By |
+|---------|-----------|---------|
+| AWS Bedrock (Claude) | `@aws-sdk/client-bedrock-runtime` + raw SigV4 | `bedrock.ts`, `ai-factory.ts` |
+| AWS Bedrock (batch) | `@aws-sdk/client-bedrock` | `bedrock-batch.ts` |
+| AWS S3 | Custom REST SigV4 (`s3.ts`) | Audio storage, batch inference I/O |
+| AWS SES | `@aws-sdk/client-ses` | `email.ts` |
+| AWS KMS | `@aws-sdk/client-kms` | `org-encryption.ts` |
+| AWS Secrets Manager | Custom REST SigV4 | `ehr/secrets-manager.ts` |
+| Amazon Titan Embed V2 | Bedrock Converse (1024-dim) | `embeddings.ts` |
+| AssemblyAI | REST API (custom client) | `assemblyai.ts`, `assemblyai-realtime.ts` |
+| Stripe | `stripe` SDK | `stripe.ts`, `billing.ts` |
+| PostgreSQL + pgvector | `drizzle-orm` + `pg` | `db/*.ts`, `rag.ts` |
+| Redis | `ioredis` | Sessions, rate limiting, queues, pub/sub, cache |
+| Sentry | `@sentry/node` + `@sentry/react` | `sentry.ts`, `error-reporting.ts` |
+| OpenTelemetry | `@opentelemetry/sdk-node` | `telemetry.ts`, `tracing.ts` |
+
+### Complexity & Risk Rankings
+
+**Highest-complexity subsystems** (most likely to contain hidden issues):
+1. `server/services/call-processing.ts` — 14+ service deps, 3 processing branches (real-time, webhook, batch), transaction management
+2. `server/db/pg-storage.ts` + mixins — 3-file prototype mixin pattern, 82+ `as any` casts, entire IStorage impl
+3. `server/services/rag.ts` — Hybrid search, 4 query types, adaptive weights, synonym expansion, confidence reconciliation
+4. `server/auth.ts` — Lockout, sessions, org context, SSO expiry, impersonation, multi-org resolution
+5. `server/index.ts` — Rate limiting (distributed + fallback), CSRF, security headers, 10-step startup, graceful shutdown
+
+**Highest-risk subsystems** (most impactful if broken):
+1. `server/services/phi-encryption.ts` — Key loss = permanent PHI data loss. Used by 10 files
+2. `server/auth.ts` — Auth bypass = full tenant data exposure
+3. `server/storage/index.ts` — Storage singleton swap during init. Proxy throws = app dead
+4. `server/services/audit-log.ts` — HIPAA compliance depends on hash chain integrity
+5. `server/db/sync-schema.ts` — Runs DDL on every startup. Bug = cascading 500s
 
 ## API Routes Overview
 
