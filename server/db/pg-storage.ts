@@ -13,6 +13,7 @@
  */
 import { eq, and, or, desc, sql, ilike, lt, gte, lte, inArray } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import { AsyncLocalStorage } from "async_hooks";
 import type { Database } from "./index";
 import type { ObjectStorageClient } from "../storage";
 import type { IStorage } from "../storage";
@@ -130,7 +131,7 @@ import { encryptField, decryptField, isPhiEncryptionEnabled } from "../services/
  * Convert a Drizzle row (with Date objects for timestamps)
  * to the app's format (ISO strings for timestamps).
  */
-function toISOString(date: Date | null | undefined): string | undefined {
+export function toISOString(date: Date | null | undefined): string | undefined {
   return date ? date.toISOString() : undefined;
 }
 
@@ -139,7 +140,7 @@ function toISOString(date: Date | null | undefined): string | undefined {
  * Prevents runaway memory usage when fetching all records for large orgs.
  * Routes that need to serve more records should use cursor- or offset-based pagination.
  */
-const QUERY_HARD_CAP = 5000;
+export const QUERY_HARD_CAP = 5000;
 
 /**
  * Execute an inArray query in chunks to avoid exceeding PostgreSQL's parameter limit.
@@ -169,15 +170,43 @@ async function chunkedInArray<T>(
 // feature methods are attached via prototype in pg-storage-features.ts —
 // TypeScript can't see prototype assignments as satisfying the interface.
 export class PostgresStorage {
-  protected db: Database;
+  /**
+   * AsyncLocalStorage for transaction-scoped database handles.
+   *
+   * When a transaction is active (via withTransaction), the tx handle is stored
+   * here so all methods on this instance — including prototype methods from
+   * pg-storage-features.ts — automatically use the transaction without any
+   * shared mutable state. This is safe under concurrent requests because each
+   * async call chain has its own ALS context.
+   */
+  private static txStorage = new AsyncLocalStorage<Database>();
+
+  /** The root database connection (never swapped). */
+  protected _rootDb: Database;
   protected blobClient: ObjectStorageClient | null;
+
+  /**
+   * Returns the active database handle — either the transaction handle
+   * from AsyncLocalStorage (if inside withTransaction) or the root connection.
+   *
+   * All internal code accesses `this.db` which triggers this getter.
+   * pg-storage-features.ts accesses via `self["db"]` which also triggers it.
+   */
+  get db(): Database {
+    return PostgresStorage.txStorage.getStore() ?? this._rootDb;
+  }
+
+  // Setter preserved for backward compatibility (e.g. tests that assign db directly)
+  set db(value: Database) {
+    this._rootDb = value;
+  }
 
   /**
    * @param db - Drizzle database instance
    * @param blobClient - Optional S3/GCS client for audio file storage
    */
   constructor(db: Database, blobClient: ObjectStorageClient | null = null) {
-    this.db = db;
+    this._rootDb = db;
     this.blobClient = blobClient;
   }
 
@@ -187,7 +216,8 @@ export class PostgresStorage {
    *
    * The callback receives no arguments — during the transaction, all
    * storage methods on this instance automatically use the transaction
-   * handle (this.db is temporarily swapped to the tx handle).
+   * handle via AsyncLocalStorage. This is concurrency-safe: each async
+   * call chain sees its own transaction handle without shared mutable state.
    *
    * This matches the IStorage interface so callers can use
    * `storage.withTransaction(() => { ... })` regardless of backend.
@@ -200,23 +230,11 @@ export class PostgresStorage {
    * });
    */
   async withTransaction<T>(fn: () => Promise<T>): Promise<T> {
-    const originalDb = this.db;
-    try {
-      return await originalDb.transaction(async (tx) => {
-        // Temporarily replace the DB handle so all methods called within
-        // the callback use the transaction automatically.
-        this.db = tx as unknown as Database;
-        try {
-          return await fn();
-        } finally {
-          this.db = originalDb;
-        }
-      });
-    } catch (err) {
-      // Ensure db is restored even if transaction setup itself fails
-      this.db = originalDb;
-      throw err;
-    }
+    return this._rootDb.transaction(async (tx) => {
+      // Store the tx handle in AsyncLocalStorage so all methods called within
+      // the callback automatically use the transaction via the `db` getter.
+      return PostgresStorage.txStorage.run(tx as unknown as Database, fn);
+    });
   }
 
   // --- Organization operations ---
@@ -301,6 +319,7 @@ export class PostgresStorage {
         passwordHash: user.passwordHash,
         name: user.name,
         role: user.role || "viewer",
+        subTeam: user.subTeam || null,
       })
       .returning();
     return this.mapUser(row);
@@ -663,6 +682,17 @@ export class PostgresStorage {
     if (filters.status) conditions.push(eq(tables.calls.status, filters.status));
     if (filters.employee) conditions.push(eq(tables.calls.employeeId, filters.employee));
 
+    // When sentiment filter is present, use a SQL JOIN to filter at the DB level
+    // instead of loading all calls and filtering in memory
+    if (filters.sentiment) {
+      conditions.push(
+        sql`${tables.calls.id} IN (
+          SELECT call_id FROM sentiment_analyses
+          WHERE org_id = ${orgId} AND overall_sentiment = ${filters.sentiment}
+        )`,
+      );
+    }
+
     // Apply query-level limit to prevent OOM on large orgs (export routes can have 100K+ calls)
     const queryLimit = filters.limit ?? 50_000; // Hard cap: never load more than 50K rows
     let query = this.db
@@ -692,7 +722,7 @@ export class PostgresStorage {
     const sentMap = new Map(sentRows.map((s) => [s.callId, this.mapSentiment(s)]));
     const analysisMap = new Map(analysisRows.map((a) => [a.callId, this.mapAnalysis(a)]));
 
-    let results: CallSummary[] = callRows.map((row) => {
+    return callRows.map((row) => {
       const call = this.mapCall(row);
       return {
         ...call,
@@ -701,12 +731,6 @@ export class PostgresStorage {
         analysis: normalizeAnalysis(analysisMap.get(call.id)),
       };
     });
-
-    if (filters.sentiment) {
-      results = results.filter((c) => c.sentiment?.overallSentiment === filters.sentiment);
-    }
-
-    return results;
   }
 
   // --- Call share operations ---
@@ -851,7 +875,7 @@ export class PostgresStorage {
       .from(tables.callAnalyses)
       .where(and(eq(tables.callAnalyses.callId, callId), eq(tables.callAnalyses.orgId, orgId)))
       .limit(1);
-    return rows[0] ? this.mapAnalysis(rows[0]) : undefined;
+    return rows[0] ? normalizeAnalysis(this.mapAnalysis(rows[0])) : undefined;
   }
 
   async createCallAnalysis(orgId: string, analysis: InsertCallAnalysis): Promise<CallAnalysis> {
@@ -1978,19 +2002,23 @@ export class PostgresStorage {
 
   private mapTranscript(row: TranscriptRow): Transcript {
     let text = row.text;
+    let decryptionFailed = false;
     if (typeof row.text === "string") {
       try {
         text = decryptField(row.text);
       } catch (err) {
         logger.error({ err, callId: row.callId }, "PHI decryption failed for transcript text");
-        throw new Error(`PHI decryption failed for transcript ${row.callId}: ${(err as Error).message}`);
+        // Return undefined instead of throwing — allows the rest of the record to be used.
+        // Routes that need the text can check for undefined and return 503.
+        text = undefined as unknown as typeof text;
+        decryptionFailed = true;
       }
     }
     return {
       id: row.id,
       orgId: row.orgId,
       callId: row.callId,
-      text: text ?? undefined,
+      text: decryptionFailed ? undefined : (text ?? undefined),
       confidence: row.confidence ?? undefined,
       words: row.words as TranscriptWord[] | undefined,
       corrections: row.corrections as TranscriptCorrection[] | undefined,
@@ -2027,7 +2055,9 @@ export class PostgresStorage {
           return decryptField(row.summary);
         } catch (err) {
           logger.error({ err, callId: row.callId }, "PHI decryption failed for analysis summary");
-          throw new Error(`PHI decryption failed for analysis ${row.callId}: ${(err as Error).message}`);
+          // Return undefined instead of throwing — allows the rest of the analysis to be used.
+          // Consumers use `summary || fallback` which handles undefined correctly.
+          return undefined;
         }
       })(),
       actionItems: row.actionItems as string[],
@@ -2401,22 +2431,28 @@ export class PostgresStorage {
 
   /**
    * Execute a function with RLS bypassed — for cross-org super-admin operations.
+   *
+   * Wraps the callback in a transaction with transaction-local set_config
+   * so the bypass setting is automatically cleaned up when the transaction
+   * completes — no risk of leaking to other requests on the same pooled connection.
    */
   async withBypassRls<T>(fn: () => Promise<T>): Promise<T> {
-    await this.db.execute(sql`SELECT set_config('app.bypass_rls', 'true', false)`);
-    try {
-      return await fn();
-    } finally {
-      await this.db.execute(sql`SELECT set_config('app.bypass_rls', 'false', false)`);
-    }
+    return this._rootDb.transaction(async (tx) => {
+      // true = transaction-local (automatically reverted on commit/rollback)
+      await tx.execute(sql`SELECT set_config('app.bypass_rls', 'true', true)`);
+      return PostgresStorage.txStorage.run(tx as unknown as Database, fn);
+    });
   }
 
   /**
    * Execute a function with org context set — adds RLS enforcement layer.
+   * Uses transaction-local set_config for connection pool safety.
    */
   async withOrgContext<T>(orgId: string, fn: () => Promise<T>): Promise<T> {
-    await this.db.execute(sql`SELECT set_config('app.org_id', ${orgId}, true)`);
-    return fn();
+    return this._rootDb.transaction(async (tx) => {
+      await tx.execute(sql`SELECT set_config('app.org_id', ${orgId}, true)`);
+      return PostgresStorage.txStorage.run(tx as unknown as Database, fn);
+    });
   }
 }
 

@@ -13,7 +13,7 @@
 import { eq, and, desc, sql, inArray, gte, lte } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import * as tables from "./schema";
-import { PostgresStorage } from "./pg-storage";
+import { PostgresStorage, toISOString, QUERY_HARD_CAP } from "./pg-storage";
 import { normalizeAnalysis } from "../storage";
 import { logger } from "../services/logger";
 import type { Database } from "./index";
@@ -42,11 +42,7 @@ type CallAttributionRow = typeof tables.callAttributions.$inferSelect;
 type ProviderTemplateRow = typeof tables.providerTemplates.$inferSelect;
 type BaaRow = typeof tables.businessAssociateAgreements.$inferSelect;
 
-function toISOString(date: Date | null | undefined): string | undefined {
-  return date ? date.toISOString() : undefined;
-}
-
-const QUERY_HARD_CAP = 5000;
+// toISOString and QUERY_HARD_CAP imported from pg-storage.ts (single source of truth)
 
 /** Type-safe access to the protected db field. */
 function db(self: PostgresStorage): Database {
@@ -1502,25 +1498,25 @@ P.deleteOrgData = async function(
       await tx.execute(sql`DELETE FROM provider_templates WHERE org_id = ${orgId}`);
       // 20. Delete marketing data
       await tx.execute(sql`DELETE FROM marketing_campaigns WHERE org_id = ${orgId}`);
-      // 21. Delete users (NOT the current user — mark them in memory as deleted)
+      // 21. Delete MFA recovery requests and password reset tokens (must precede user deletion — password_reset_tokens references user_id)
+      await tx.execute(sql`DELETE FROM mfa_recovery_requests WHERE org_id = ${orgId}`);
+      await tx.execute(sql`DELETE FROM password_reset_tokens WHERE user_id IN (SELECT id FROM users WHERE org_id = ${orgId})`);
+      // 22. Delete users
       const usersResult = await tx.execute(sql`DELETE FROM users WHERE org_id = ${orgId}`);
       const usersDeleted = ((usersResult as { rowCount?: number }).rowCount ?? 0);
-      // 22. Delete coaching templates and automation rules
+      // 23. Delete coaching templates and automation rules
       await tx.execute(sql`DELETE FROM coaching_templates WHERE org_id = ${orgId}`);
       await tx.execute(sql`DELETE FROM automation_rules WHERE org_id = ${orgId}`);
-      // 23. Delete subscriptions and usage events
+      // 24. Delete subscriptions and usage events
       await tx.execute(sql`DELETE FROM subscriptions WHERE org_id = ${orgId}`);
       await tx.execute(sql`DELETE FROM usage_events WHERE org_id = ${orgId}`);
       await tx.execute(sql`DELETE FROM usage_records WHERE org_id = ${orgId}`);
-      // 24. Delete call shares
+      // 25. Delete call shares
       await tx.execute(sql`DELETE FROM call_shares WHERE org_id = ${orgId}`);
-      // 25. Delete BAA records and security incidents
+      // 26. Delete BAA records and security incidents
       await tx.execute(sql`DELETE FROM business_associate_agreements WHERE org_id = ${orgId}`);
       await tx.execute(sql`DELETE FROM security_incidents WHERE org_id = ${orgId}`);
       await tx.execute(sql`DELETE FROM breach_reports WHERE org_id = ${orgId}`);
-      // 26. Delete MFA recovery requests and password reset tokens
-      await tx.execute(sql`DELETE FROM mfa_recovery_requests WHERE org_id = ${orgId}`);
-      await tx.execute(sql`DELETE FROM password_reset_tokens WHERE user_id IN (SELECT id FROM users WHERE org_id = ${orgId})`);
       // 27. Delete audit logs last (preserve audit trail as long as possible)
       await tx.execute(sql`DELETE FROM audit_logs WHERE org_id = ${orgId}`);
 
