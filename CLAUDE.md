@@ -524,12 +524,13 @@ These modules are imported by the most consumers. Changes here have the widest b
 
 | Module | Key Exports | Consumer Count | Notes |
 |--------|-------------|----------------|-------|
-| `server/storage/index.ts` | `storage`, `initPostgresStorage`, `objectStorage`, `IStorage` | 50+ | Nearly all routes, services, scheduled tasks, workers |
+| `server/storage/index.ts` | `storage`, `initPostgresStorage`, `objectStorage`, `IStorage`, `normalizeAnalysis` | 56 | 38 route files, 9 services, 2 db files, auth.ts, index.ts. Workers access via dynamic `require()`. Scheduled tasks receive storage as a parameter, not via singleton import |
 | `shared/schema.ts` (barrel) | Types, Zod schemas, `PLAN_DEFINITIONS`, `CALL_CATEGORIES` | 50+ | Routes, services, storage, client pages. Workers get types indirectly via queue job interfaces |
-| `server/auth.ts` | `requireAuth`, `injectOrgContext`, `requireOrgContext`, `requireRole`, `getTeamScopedEmployeeIds`, `sessionMiddleware`, `resolveUserOrgId` | 36 | All authenticated route files + websocket |
-| `server/services/audit-log.ts` | `logPhiAccess`, `auditContext`, `queryAuditLogs`, `exportAuditLogs`, `verifyAuditChain` | 30+ | 30 route files + admin-security |
-| `server/services/phi-encryption.ts` | `encryptField`, `decryptField`, `decryptClinicalNotePhi`, `isPhiEncryptionEnabled`, `encryptMfaSecret`, `decryptMfaSecret` | 10 | Clinical routes, calls, mfa, ehr, live-session, pg-storage, call-processing, ehr-note-push worker |
-| `server/services/ai-factory.ts` | `aiProvider`, `getOrgAIProvider`, `getBedrockCircuitState`, `withBedrockProtection` | 11 | call-processing, coaching-engine, clinical, call-insights, reports, insurance-narratives, lms, health, admin, live-session, emails |
+| `server/auth.ts` | `requireAuth`, `injectOrgContext`, `requireOrgContext`, `requireRole`, `getTeamScopedEmployeeIds`, `sessionMiddleware`, `resolveUserOrgId` | 36 | All authenticated route files + websocket. Applied per-route (not globally in index.ts) |
+| `server/services/audit-log.ts` | `logPhiAccess`, `auditContext`, `queryAuditLogs`, `exportAuditLogs`, `verifyAuditChain` | 35 | 32 route files + auth.ts + incident-response.ts + retention.worker.ts |
+| `server/services/call-processing.ts` | `processAudioFile`, `continueAfterTranscription`, `invalidateRefDocCache`, `cleanupFile`, `computeConfidence`, `autoAssignEmployee`, `mapClinicalNote` | 2 | routes/calls.ts, routes/assemblyai-webhook.ts. Low consumer count but highest internal complexity (14+ deps) |
+| `server/services/phi-encryption.ts` | `encryptField`, `decryptField`, `decryptClinicalNotePhi`, `isPhiEncryptionEnabled`, `encryptMfaSecret`, `decryptMfaSecret` | 12 | Clinical routes (3), calls, mfa, ehr, live-session, pg-storage, call-processing, ehr-note-push worker, ehr/health-monitor, ehr/appointment-matcher |
+| `server/services/ai-factory.ts` | `aiProvider`, `getOrgAIProvider`, `getBedrockCircuitState`, `withBedrockProtection`, `acquireBedrockSlot`, `releaseBedrockSlot` | 11 | call-processing, coaching-engine, clinical, call-insights, reports, insurance-narratives, lms, health, admin, live-session, emails |
 | `server/services/logger.ts` | `logger` | All | Every server file |
 
 ### Key Inter-Module Dependencies
@@ -554,26 +555,77 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
 
 ```
 1. POST /api/calls/upload [routes/calls.ts]
-   ├─ requireAuth → injectOrgContext → requireActiveSubscription → enforceQuota
-   ├─ multer → SHA-256 file hash (streaming) → dedup check → acquire upload lock
-   ├─ storage.createCall() → release lock
-   └─ processAudioFile() [services/call-processing.ts] (async, non-blocking)
-        ├─ Step 1: uploadAndArchive() → assemblyai.uploadAudioFile() + storage.uploadAudio() (S3)
-        ├─ Step 2-3: transcribe()
-        │    ├─ assemblyai.transcribeAudio() → storage.updateCall(assemblyAiId)
-        │    ├─ [WEBHOOK MODE] return → webhook handler resumes later
-        │    └─ [POLLING MODE] assemblyai.pollTranscript() → empty transcript guard
-        └─ continueAfterTranscription()
-             ├─ [BATCH MODE] savePendingBatchItem() → S3 → return
-             ├─ Step 4: runAiAnalysis() → prompt template + RAG + Bedrock Claude
-             ├─ Step 5: processTranscriptData() → confidence + calibration + clinical note encryption
-             ├─ Step 6: storage.withTransaction() → atomic write (transcript + sentiment + analysis + status)
-             ├─ broadcastCallUpdate() → WebSocket
-             └─ postProcessing() → notifications + coaching recommendations + usage tracking
+   ├─ requireAuth → injectOrgContext → requireOrgContext → requireActiveSubscription → enforceQuota
+   ├─ handleUpload (multer wrapper with file-size/type error handling)
+   ├─ acquireUploadSlot(orgId) — concurrency limiter
+   ├─ SHA-256 file hash (streaming) → storage.getCallByFileHash() dedup check
+   ├─ acquireUploadLock() — TOCTOU race prevention
+   ├─ storage.createCall() → releaseUploadLock() (fire-and-forget)
+   ├─ reportCallOverageToStripe() (fire-and-forget, if over quota)
+   ├─ processAudioFile() [services/call-processing.ts] (async, fire-and-forget)
+   ├─ releaseUploadSlot(orgId)
+   └─ res.status(201).json(call) — response returns immediately
+
+2. processAudioFile() [services/call-processing.ts]
+   ├─ broadcastCallUpdate("uploading") → WebSocket
+   ├─ Step 1: uploadAndArchive()
+   │    ├─ assemblyai.uploadAudioFile() → audioUrl
+   │    └─ storage.uploadAudio() → S3 archive (non-blocking, continues on failure)
+   ├─ Build transcription options from org settings (wordBoost, piiRedaction, webhookUrl)
+   ├─ Step 2-3: transcribe()
+   │    ├─ assemblyai.transcribeAudio(audioUrl, opts) → transcriptId
+   │    ├─ storage.updateCall(assemblyAiId)
+   │    ├─ [WEBHOOK MODE] return — webhook handler resumes later
+   │    └─ [POLLING MODE] assemblyai.pollTranscript(transcriptId, 60, progressCallback)
+   │         └─ Empty transcript guard (<10 chars) → handleEmptyTranscript() → return
+   └─ continueAfterTranscription()
+        ├─ Empty transcript guard (duplicate for webhook path) → withTransaction() → return
+        ├─ [BATCH MODE] shouldUseBatchMode() check
+        │    ├─ buildSystemPrompt + buildUserMessage → savePendingBatchItem() → S3
+        │    ├─ processTranscriptData() (with null AI analysis)
+        │    ├─ storage.withTransaction() → createTranscript + createSentiment + createAnalysis + updateCall
+        │    ├─ broadcastCallUpdate("completed", "Queued for batch analysis")
+        │    └─ return
+        ├─ Step 4: runAiAnalysis()
+        │    ├─ loadPromptTemplate() — cached by org+category
+        │    │    ├─ storage.getPromptTemplateByCategory() (with LRU cache)
+        │    │    ├─ Clinical metadata injection (specialty, noteFormat, provider style prefs)
+        │    │    └─ loadReferenceContext()
+        │    │         ├─ getCachedRefDocs() — refDocCache / storage.listReferenceDocuments()
+        │    │         ├─ storage.getSubscription() → check RAG eligibility (plan tier)
+        │    │         ├─ [RAG] searchRelevantChunks() → formatRetrievedContext() → scanAndRedactOutput()
+        │    │         └─ [FALLBACK] full-text document injection
+        │    └─ withBedrockProtection() → withRetry() → aiProvider.analyzeCallTranscript()
+        ├─ Step 5: processTranscriptData() → { transcript, sentiment, analysis }
+        │    ├─ computeConfidence() → confidenceScore + factors
+        │    ├─ applyScoreCalibration() [services/scoring-calibration.ts]
+        │    ├─ [CLINICAL] mapClinicalNote() → extractStructuredDataFromSections()
+        │    │    └─ validateAndEncryptClinicalNote() ← PHI ENCRYPTION (AES-256-GCM)
+        │    ├─ [NO CLINICAL NOTE EXPECTED] → flag requires_clinical_retry
+        │    ├─ enforceServerFlags() (low_score/exceptional_call)
+        │    └─ autoAssignEmployee() — match detected agent name to active employees
+        ├─ Step 6: storage.withTransaction() ← TRANSACTION BOUNDARY
+        │    ├─ storage.createTranscript()
+        │    ├─ storage.createSentimentAnalysis()
+        │    ├─ storage.createCallAnalysis()
+        │    └─ storage.updateCall(status: "completed", employeeId, tags)
+        ├─ broadcastCallUpdate("completed") ← WEBSOCKET BROADCAST
+        ├─ invalidateDashboardCache()
+        └─ postProcessing() (non-blocking, all with withRetry)
+             ├─ notifyFlaggedCall() [services/notifications.ts]
+             ├─ onCallAnalysisComplete() [services/proactive-alerts.ts] → coaching recommendations
+             ├─ recordActivity() [routes/gamification.ts] → gamification points (conditional)
+             ├─ trackUsage("transcription") + trackUsage("ai_analysis") [services/queue.ts]
+             └─ Usage rollback check (if call marked failed after tracking)
+
+   [ERROR PATH]
+   ├─ storage.updateCall(status: "failed") → broadcastCallUpdate("failed")
+   └─ enqueueCallRetry() [services/queue.ts] → audio-processing queue (max 2 retries)
 
    [ASYNC WEBHOOK PATH]
    POST /api/webhooks/assemblyai [routes/assemblyai-webhook.ts]
-     → verify token → lookup call by assemblyAiId → continueAfterTranscription()
+     → verify X-Assembly-Webhook-Token (timing-safe) → lookup call by assemblyAiId
+     → continueAfterTranscription() (same as step 2 above)
 ```
 
 ### Data Flow: RAG Document Indexing
@@ -633,11 +685,23 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
 
 ### Auth & Security Surface
 
-- **`requireAuth` + `injectOrgContext`** applied to **36 of 44 route files**
-- **6 intentionally public routes:** `auth.ts`, `oauth.ts`, `sso.ts`, `scim.ts`, `password-reset.ts`, `assemblyai-webhook.ts` (each has its own auth/verification)
-- **CSRF:** Double-submit cookie (timing-safe); exemptions for webhooks, API keys, SCIM, SSO callbacks, pre-auth
-- **Rate limiting:** Distributed (Redis) with in-memory fallback; per-IP pre-auth, per-IP+orgId for data endpoints
-- **PHI encryption/decryption** in 10 files: clinical routes (3), calls, mfa, ehr, live-session, pg-storage, call-processing, ehr-note-push worker
+**Authentication & authorization:**
+- **`requireAuth` + `injectOrgContext`** applied to **36 of 44 route files** (applied per-route, not globally in index.ts)
+- **8 files without auth:** 6 intentionally public routes (`auth.ts`, `oauth.ts`, `sso.ts`, `scim.ts`, `password-reset.ts`, `assemblyai-webhook.ts` — each has its own verification) + 2 utility files (`helpers.ts`, `index.ts`)
+
+**Middleware stack in `server/index.ts` (order matters):**
+- **Correlation ID** (`correlationIdMiddleware`) — per-request UUID via AsyncLocalStorage
+- **WAF** (`wafMiddleware`) — SQL injection, XSS, path traversal detection
+- **Security headers** — CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy
+- **HTTPS enforcement** — HTTP→HTTPS redirect in production
+- **CSRF** — double-submit cookie (timing-safe); exemptions for webhooks, API keys, SCIM, SSO callbacks, pre-auth
+- **Audit logging** — inline middleware logs all API calls with user/org/method/status/duration (separate from `logPhiAccess`)
+- **Rate limiting** — distributed (Redis) with in-memory fallback; per-IP pre-auth, per-IP+orgId for data endpoints
+- **Sentry** (`sentryErrorMiddleware`) — captures unhandled errors before global handler
+- **Global error handler** (`globalErrorHandler`) — handles AppError + HIPAA-safe generic messages
+
+**PHI touchpoints:**
+- **PHI encryption/decryption** in 12 files: clinical routes (3), calls, mfa, ehr, live-session, pg-storage, call-processing, ehr-note-push worker, ehr/health-monitor, ehr/appointment-matcher
 
 ### External Service Dependencies
 
@@ -645,17 +709,25 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
 |---------|-----------|---------|
 | AWS Bedrock (Claude) | `@aws-sdk/client-bedrock-runtime` + raw SigV4 | `bedrock.ts`, `ai-factory.ts` |
 | AWS Bedrock (batch) | `@aws-sdk/client-bedrock` | `bedrock-batch.ts` |
-| AWS S3 | Custom REST SigV4 (`s3.ts`) | Audio storage, batch inference I/O |
+| AWS S3 | `@aws-sdk/client-s3` | `s3.ts` — audio storage, batch inference I/O |
 | AWS SES | `@aws-sdk/client-ses` | `email.ts` |
 | AWS KMS | `@aws-sdk/client-kms` | `org-encryption.ts` |
+| AWS Credentials | `@aws-sdk/credential-providers` | `aws-credentials.ts` — env vars, instance roles, STS |
 | AWS Secrets Manager | Custom REST SigV4 | `ehr/secrets-manager.ts` |
 | Amazon Titan Embed V2 | Bedrock Converse (1024-dim) | `embeddings.ts` |
 | AssemblyAI | REST API (custom client) | `assemblyai.ts`, `assemblyai-realtime.ts` |
 | Stripe | `stripe` SDK | `stripe.ts`, `billing.ts` |
 | PostgreSQL + pgvector | `drizzle-orm` + `pg` | `db/*.ts`, `rag.ts` |
-| Redis | `ioredis` | Sessions, rate limiting, queues, pub/sub, cache |
+| Redis + BullMQ | `ioredis`, `bullmq`, `connect-redis` | Sessions, rate limiting, queues, pub/sub, cache |
+| Google OAuth | `passport-google-oauth20` | `routes/oauth.ts` |
+| SAML 2.0 SSO | `@node-saml/passport-saml` | `routes/sso.ts` |
+| WebAuthn/FIDO2 | `@simplewebauthn/server` v13 | `routes/mfa.ts` |
+| TOTP (MFA) | `otplib` | `routes/mfa.ts` |
+| SMTP Email | `nodemailer` | `email.ts` (fallback when SES not configured) |
+| PDF Parsing | `pdf-parse` | `routes/onboarding.ts` — RAG document text extraction |
 | Sentry | `@sentry/node` + `@sentry/react` | `sentry.ts`, `error-reporting.ts` |
 | OpenTelemetry | `@opentelemetry/sdk-node` | `telemetry.ts`, `tracing.ts` |
+| Betterstack | `@logtail/pino` | `logger.ts` — structured log aggregation |
 
 ### Complexity & Risk Rankings
 
@@ -667,7 +739,7 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
 5. `server/index.ts` — Rate limiting (distributed + fallback), CSRF, security headers, 10-step startup, graceful shutdown
 
 **Highest-risk subsystems** (most impactful if broken):
-1. `server/services/phi-encryption.ts` — Key loss = permanent PHI data loss. Used by 10 files
+1. `server/services/phi-encryption.ts` — Key loss = permanent PHI data loss. Used by 12 files
 2. `server/auth.ts` — Auth bypass = full tenant data exposure
 3. `server/storage/index.ts` — Storage singleton swap during init. Proxy throws = app dead
 4. `server/services/audit-log.ts` — HIPAA compliance depends on hash chain integrity
