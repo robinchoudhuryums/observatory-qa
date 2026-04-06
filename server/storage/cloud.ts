@@ -1104,6 +1104,22 @@ export class CloudStorage implements IStorage {
       deletePromises.push(this.client.deleteObject(`${prefix}/sentiments/${call.id}.json`).catch(() => {}));
       deletePromises.push(this.client.deleteObject(`${prefix}/analyses/${call.id}.json`).catch(() => {}));
     }
+    // Delete employee JSON objects
+    for (const emp of employees) {
+      deletePromises.push(this.client.deleteObject(`${prefix}/employees/${emp.id}.json`).catch(() => {}));
+    }
+    // Delete other org-scoped S3 objects (best-effort via prefix listing)
+    const subdirectories = ["coaching", "prompt-templates", "access-requests", "coaching-templates", "reference-documents"];
+    for (const subdir of subdirectories) {
+      try {
+        const keys = await this.client.listObjects(`${prefix}/${subdir}/`);
+        for (const key of keys) {
+          deletePromises.push(this.client.deleteObject(key).catch(() => {}));
+        }
+      } catch {
+        // Subdirectory may not exist — skip
+      }
+    }
     await Promise.allSettled(deletePromises);
     return {
       employeesDeleted: employees.length,

@@ -243,6 +243,10 @@ export class MemStorage implements IStorage {
     for (const key of Array.from(this.audioFiles.keys())) {
       if (key.startsWith(`${orgId}/audio/${id}/`)) this.audioFiles.delete(key);
     }
+    // Clean up call shares for deleted call
+    for (const [shareId, share] of Array.from(this.callShares.entries())) {
+      if (share.callId === id && share.orgId === orgId) this.callShares.delete(shareId);
+    }
   }
   async getCallByFileHash(orgId: string, fileHash: string): Promise<Call | undefined> {
     return Array.from(this.calls.values()).find(
@@ -1540,6 +1544,76 @@ export class MemStorage implements IStorage {
     for (const [id, req] of Array.from(this.accessRequests.entries())) {
       if (req.orgId === orgId) this.accessRequests.delete(id);
     }
+    // Delete call shares
+    for (const [id, share] of Array.from(this.callShares.entries())) {
+      if (share.orgId === orgId) this.callShares.delete(id);
+    }
+    // Delete coaching templates and automation rules
+    for (const [id, t] of Array.from(this.coachingTemplates.entries())) {
+      if (t.orgId === orgId) this.coachingTemplates.delete(id);
+    }
+    for (const [id, r] of Array.from(this.automationRules.entries())) {
+      if (r.orgId === orgId) this.automationRules.delete(id);
+    }
+    // Delete A/B tests
+    for (const [id, t] of Array.from(this.abTests.entries())) {
+      if (t.orgId === orgId) this.abTests.delete(id);
+    }
+    // Delete usage records (array-based)
+    this.usageRecords = this.usageRecords.filter((r) => r.orgId !== orgId);
+    // Delete feedbacks
+    for (const [id, f] of Array.from(this.feedbacks.entries())) {
+      if (f.orgId === orgId) this.feedbacks.delete(id);
+    }
+    // Delete employee badges and gamification profiles
+    for (const [id, b] of Array.from(this.employeeBadgesStore.entries())) {
+      if (b.orgId === orgId) this.employeeBadgesStore.delete(id);
+    }
+    for (const [key] of Array.from(this.gamificationProfilesStore.entries())) {
+      if (key.startsWith(`${orgId}:`)) this.gamificationProfilesStore.delete(key);
+    }
+    // Delete insurance narratives
+    for (const [id, n] of Array.from(this.insuranceNarrativesStore.entries())) {
+      if (n.orgId === orgId) this.insuranceNarrativesStore.delete(id);
+    }
+    // Delete call revenues
+    for (const [id, r] of Array.from(this.callRevenuesStore.entries())) {
+      if (r.orgId === orgId) this.callRevenuesStore.delete(id);
+    }
+    // Delete calibration sessions and evaluations
+    for (const [id, s] of Array.from(this.calibrationSessionsStore.entries())) {
+      if (s.orgId === orgId) this.calibrationSessionsStore.delete(id);
+    }
+    for (const [id, e] of Array.from(this.calibrationEvaluationsStore.entries())) {
+      if (e.orgId === orgId) this.calibrationEvaluationsStore.delete(id);
+    }
+    // Delete LMS data
+    for (const [id, m] of Array.from(this.learningModulesStore.entries())) {
+      if (m.orgId === orgId) this.learningModulesStore.delete(id);
+    }
+    for (const [id, p] of Array.from(this.learningPathsStore.entries())) {
+      if (p.orgId === orgId) this.learningPathsStore.delete(id);
+    }
+    for (const [id, p] of Array.from(this.learningProgressStore.entries())) {
+      if (p.orgId === orgId) this.learningProgressStore.delete(id);
+    }
+    // Delete marketing campaigns and attributions
+    for (const [id, c] of Array.from(this.marketingCampaignsStore.entries())) {
+      if (c.orgId === orgId) this.marketingCampaignsStore.delete(id);
+    }
+    for (const [id, a] of Array.from(this.callAttributionsStore.entries())) {
+      if (a.orgId === orgId) this.callAttributionsStore.delete(id);
+    }
+    // Delete provider templates
+    for (const [id, t] of Array.from(this.providerTemplatesStore.entries())) {
+      if (t.orgId === orgId) this.providerTemplatesStore.delete(id);
+    }
+    // Delete subscriptions
+    for (const [id, s] of Array.from(this.subscriptions.entries())) {
+      if (s.orgId === orgId) this.subscriptions.delete(id);
+    }
+    // Delete usage events (array-based)
+    this.usageEvents = this.usageEvents.filter((e) => e.orgId !== orgId);
     return { employeesDeleted, callsDeleted, usersDeleted };
   }
 

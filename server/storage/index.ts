@@ -36,10 +36,21 @@ function createStorage(): IStorage {
     if (!process.env.DATABASE_URL) {
       throw new Error("DATABASE_URL is required when STORAGE_BACKEND=postgres");
     }
-    // PostgresStorage is initialized asynchronously in initPostgresStorage()
-    // For now, return MemStorage as placeholder (will be replaced on startup)
+    // PostgresStorage is initialized asynchronously in initPostgresStorage().
+    // Return a Proxy that throws on any access — prevents silent data loss into
+    // a temporary MemStorage that would be replaced on startup.
     logger.info("PostgreSQL backend selected — will initialize after DB connection");
-    return new MemStorage();
+    return new Proxy({} as IStorage, {
+      get(_target, prop) {
+        // Allow typeof checks and Symbol.toStringTag to pass through
+        if (prop === Symbol.toStringTag) return "UninitializedStorage";
+        if (typeof prop === "symbol") return undefined;
+        throw new Error(
+          `Storage accessed before PostgreSQL initialization (attempted: ${String(prop)}). ` +
+          `Ensure initPostgresStorage() completes before using storage.`,
+        );
+      },
+    });
   }
 
   // Explicit S3 or auto-detect via AWS credentials + S3_BUCKET
