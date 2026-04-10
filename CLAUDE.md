@@ -72,6 +72,7 @@ npm run db:generate    # Generate Drizzle migration files
 npm run db:migrate     # Run Drizzle migrations (tsx server/db/migrate.ts)
 npm run db:push        # Push schema to DB (drizzle-kit push)
 npm run db:studio      # Open Drizzle Studio (DB GUI)
+npx tsx server/db/migrate-audit-chain.ts  # One-time: recompute audit log hash chain (run after F37 deploy)
 npx vite build         # Frontend-only build (quick verification)
 ```
 
@@ -350,6 +351,7 @@ server/db/                   # PostgreSQL (Drizzle ORM)
   schema.ts                  #   Table definitions (20+ tables + pgvector document_chunks)
   index.ts                   #   Database connection initialization
   migrate.ts                 #   Migration runner
+  migrate-audit-chain.ts     #   One-time audit hash chain recomputation (run after F37 timestamp fix deploy)
   pg-storage.ts              #   PostgresStorage core (org/user/employee/call CRUD, dashboards, search, audio, coaching, refs, subscriptions, RLS helpers)
   pg-storage-features.ts     #   PostgresStorage feature methods via prototype mixin (A/B tests, LMS, gamification, revenue, calibration, marketing, BAA, provider templates, deleteOrg)
   pg-storage-confidence.ts   #   PostgresStorage confidence metrics mixin (overrides getDashboardMetrics/getTopPerformers for avgConfidence, dataQuality breakdown)
@@ -1416,6 +1418,7 @@ Internet → Caddy (:443, auto TLS) → Node.js (:5000) → PostgreSQL + S3 + Be
 - IAM instance role for S3 + Bedrock (no hardcoded AWS keys)
 - **Auto-rollback**: deploy.sh saves previous SHA before deploy; if health check fails, automatically rolls back to previous version, rebuilds, and restarts
 - **Pre-flight validation**: required env vars (`DATABASE_URL`, `ASSEMBLYAI_API_KEY`, `SESSION_SECRET`, `PHI_ENCRYPTION_KEY`) are hard-checked before deploy in production; use `--force` to skip
+- **Post-deploy migration**: After deploying the F37 audit timestamp fix, run `npx tsx server/db/migrate-audit-chain.ts` once to recompute pre-existing audit hash chains using stored `createdAt` timestamps. Idempotent — safe to run multiple times. Requires `DATABASE_URL`
 - Estimated ~$13/month (after free tier)
 - See `deploy/ec2/README.md` for full setup guide
 
