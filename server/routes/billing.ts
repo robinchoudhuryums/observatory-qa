@@ -3,7 +3,7 @@
  */
 import type { Express, Request, Response, NextFunction } from "express";
 import { storage } from "../storage";
-import { requireAuth, requireRole, injectOrgContext } from "../auth";
+import { requireAuth, requireRole, injectOrgContext, invalidateOrgCache } from "../auth";
 import { asyncHandler } from "../middleware/error-handler";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
@@ -81,10 +81,8 @@ export function enforceQuota(eventType: "transcription" | "ai_analysis" | "api_c
 
       next();
     } catch (error) {
-      // Fail open for transient errors, but track consecutive failures.
-      // In production with sustained failures, this could allow unbounded usage.
-      logger.error({ err: error, orgId, eventType }, "Quota check failed — allowing request (fail-open)");
-      next();
+      logger.error({ err: error, orgId, eventType }, "Quota check failed — blocking request (fail-closed)");
+      return res.status(503).json({ message: "Unable to verify quota. Please try again.", code: "QUOTA_CHECK_FAILED" });
     }
   };
 }
@@ -118,7 +116,8 @@ export function enforceUserQuota() {
 
       next();
     } catch (error) {
-      next();
+      logger.error({ err: error, orgId }, "User quota check failed — blocking request (fail-closed)");
+      return res.status(503).json({ message: "Unable to verify user quota. Please try again.", code: "QUOTA_CHECK_FAILED" });
     }
   };
 }
@@ -151,8 +150,8 @@ export function requirePlanFeature(feature: keyof import("@shared/schema").PlanL
       }
       next();
     } catch (err) {
-      logger.warn({ err }, "Plan feature check failed, failing open");
-      next(); // Fail open
+      logger.error({ err, orgId }, "Plan feature check failed — blocking request (fail-closed)");
+      return res.status(503).json({ message: "Unable to verify plan features. Please try again.", code: "PLAN_CHECK_FAILED" });
     }
   };
 }
@@ -216,8 +215,8 @@ export function requireActiveSubscription() {
 
       next();
     } catch (err) {
-      logger.warn({ err }, "Active subscription check failed, failing open");
-      next(); // Fail open
+      logger.error({ err, orgId }, "Subscription check failed — blocking request (fail-closed)");
+      return res.status(503).json({ message: "Unable to verify subscription status. Please try again.", code: "SUBSCRIPTION_CHECK_FAILED" });
     }
   };
 }
@@ -825,6 +824,7 @@ export function registerBillingRoutes(app: Express): void {
           // Suspend org access on subscription cancellation — enforced by injectOrgContext gate.
           // Admins can contact support to reactivate or resubscribe.
           await storage.updateOrganization(orgId, { status: "suspended" } as any);
+          invalidateOrgCache(orgId);
           logger.info({ orgId }, "Subscription canceled — org suspended, reverted to free");
           break;
         }

@@ -134,7 +134,13 @@ function checkPatterns(value: string, patterns: RegExp[]): boolean {
 function scanRequest(req: Request): { reason: string; points: number } | null {
   let url: string;
   try {
-    url = decodeURIComponent(req.originalUrl || req.url);
+    // Recursive decode to catch double/triple-encoding bypass (e.g., %252e%252e → %2e%2e → ..)
+    url = req.originalUrl || req.url;
+    for (let i = 0; i < 3; i++) {
+      const decoded = decodeURIComponent(url);
+      if (decoded === url) break; // No further decoding possible
+      url = decoded;
+    }
   } catch {
     // Malformed percent-encoding (e.g., %GG) — use raw URL and flag as suspicious
     url = req.originalUrl || req.url;

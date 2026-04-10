@@ -152,8 +152,17 @@ export function buildFhirPractitioner(params: {
   }
   if (identifiers.length > 0) practitioner.identifier = identifiers;
 
-  // If there's a cosigner, create a qualification entry
+  // If there's a cosigner, add their NPI to identifiers and create a qualification entry
   if (cosigner) {
+    if (cosigner.npi) {
+      identifiers.push({
+        system: "http://hl7.org/fhir/sid/us-npi",
+        value: cosigner.npi,
+        type: { text: "Cosigner NPI" },
+      });
+      // Update identifiers on practitioner (may have been set above for primary NPI)
+      practitioner.identifier = identifiers;
+    }
     practitioner.qualification = [
       {
         code: {

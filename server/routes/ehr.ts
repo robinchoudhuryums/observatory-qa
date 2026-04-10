@@ -516,13 +516,23 @@ export function registerEhrRoutes(app: Express): void {
         }
       } catch (ehrErr) {
         logger.warn({ err: ehrErr, ehrPatientId }, "EHR patient lookup failed for prefill");
+        // Surface the failure so clinical staff knows allergies may be incomplete
+        res.json({
+          medications,
+          allergies,
+          chiefComplaintHistory: lastChiefComplaint ? [lastChiefComplaint] : [],
+          demographicsNote,
+          ehrLookupFailed: true,
+          ehrLookupError: "EHR patient data could not be retrieved. Allergy and medication lists may be incomplete.",
+        });
+        return;
       }
 
       res.json({
         medications,
         allergies,
         chiefComplaintHistory: lastChiefComplaint ? [lastChiefComplaint] : [],
-      demographicsNote,
+        demographicsNote,
     });
   }));
 
