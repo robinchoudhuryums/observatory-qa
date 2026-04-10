@@ -23,9 +23,9 @@ before starting. Do not make any changes to any files during this session.
 
 SUBSYSTEM FILE REFERENCE:
 Core Architecture & Data Pipeline:
-  server/index.ts, server/routes/index.ts, server/middleware/, server/services/websocket.ts, server/services/queue.ts, server/services/redis.ts, server/services/logger.ts, server/scheduled/, server/workers/
+  server/index.ts, server/routes/index.ts, server/middleware/, server/services/websocket.ts, server/services/queue.ts, server/services/redis.ts, server/services/logger.ts, server/scheduled/, server/scheduled/scheduler.ts, server/scheduled/weekly-digest.ts, server/workers/
 Storage Layer / Database:
-  server/storage/types.ts, server/storage/index.ts, server/storage/memory.ts, server/storage/cloud.ts, server/db/index.ts, server/db/schema.ts, server/db/pg-storage.ts, server/db/pg-storage-features.ts, server/db/pg-storage-confidence.ts, server/db/sync-schema.ts, server/db/migrate.ts
+  server/storage/types.ts, server/storage/index.ts, server/storage/memory.ts, server/storage/cloud.ts, server/db/index.ts, server/db/schema.ts, server/db/pg-storage.ts, server/db/pg-storage-features.ts, server/db/pg-storage-confidence.ts, server/db/sync-schema.ts, server/db/migrate.ts, shared/schema/org.ts, shared/schema/calls.ts
 Security & HIPAA Compliance:
   server/auth.ts, server/services/phi-encryption.ts, server/services/org-encryption.ts, server/services/audit-log.ts, server/services/incident-response.ts, server/middleware/waf.ts, server/routes/mfa.ts, server/routes/sso.ts, server/routes/scim.ts, server/routes/oauth.ts, server/routes/admin-security.routes.ts, server/utils/phi-redactor.ts, server/utils/ai-guardrails.ts
 Call Analysis Pipeline:
@@ -35,9 +35,9 @@ RAG System:
 Clinical Documentation / Medical Scribe:
   server/routes/clinical.ts, server/routes/clinical-compliance.routes.ts, server/routes/clinical-analytics.routes.ts, server/services/clinical-templates.ts, server/services/clinical-validation.ts, server/services/clinical-extraction.ts, server/services/style-learning.ts, server/services/fhir.ts
 EHR Integration:
-  server/services/ehr/, server/routes/ehr.ts
+  server/services/ehr/, server/routes/ehr.ts, server/workers/ehr-note-push.worker.ts
 Integrations & External Services:
-  server/services/stripe.ts, server/services/email.ts, server/services/notifications.ts, server/services/telephony-ingestion.ts, server/services/sentry.ts, server/routes/assemblyai-webhook.ts
+  server/services/stripe.ts, server/services/email.ts, server/services/notifications.ts, server/services/telephony-ingestion.ts, server/services/sentry.ts, server/routes/assemblyai-webhook.ts, server/routes/emails.ts
 UI/UX & Frontend:
   client/src/App.tsx, client/src/pages/, client/src/components/, client/src/hooks/, client/src/lib/
 Billing / Business Plan:

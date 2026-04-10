@@ -318,7 +318,7 @@ server/utils/                # Shared server utilities
   lru-cache.ts               #   TTL-aware LRU cache utility (replaces FIFO Map pattern in 3+ locations)
 
 server/scheduled/            # Wall-clock scheduled background tasks
-  index.ts                   #   Barrel exports + runAllDailyTasks() orchestrator (single listOrganizations call)
+  index.ts                   #   Barrel exports + runAllDailyTasks() orchestrator (single listOrganizations call, per-task error isolation)
   scheduler.ts               #   scheduleDaily(utcHour, fn) and scheduleWeekly(dayOfWeek, utcHour, fn) — setTimeout chains, no drift
   retention.ts               #   Data retention purge (per-org retentionDays)
   trial-downgrade.ts         #   Trial subscription auto-downgrade to free
@@ -1339,7 +1339,7 @@ On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add mi
 - **Style learning recency weighting**: Provider style analysis uses exponential decay (30-day half-life) to prefer recent notes, requires minimum 3 attested notes
 - **A/B testing cost tracking**: Each A/B test records estimated costs for both models, enabling data-driven model selection decisions
 - **Industry-aware registration**: Orgs set `industryType` at registration (general/dental/medical/behavioral_health/veterinary) which influences default prompt templates and available features
-- **Billing enforcement gates**: Plan feature gating (`requirePlanFeature`), quota enforcement (`enforceQuota`, `enforceUserQuota`), and active subscription checks (`requireActiveSubscription`) are applied as middleware on write routes. All reject requests with missing `orgId` rather than silently allowing
+- **Billing enforcement gates**: Plan feature gating (`requirePlanFeature`), quota enforcement (`enforceQuota`, `enforceUserQuota`), and active subscription checks (`requireActiveSubscription`) are applied as middleware on write routes. All reject requests with missing `orgId` (403). On database errors, all four gates **fail closed** (return 503) rather than allowing the request through — this prevents billing bypass during transient DB outages but means users see errors during DB hiccups
 - **AI response hardening**: `parseJsonResponse()` validates every field type, clamps scores to valid ranges, and provides safe defaults. `normalizeAnalysis()` also clamps on the read path. Server-side flag enforcement overrides AI-set flags
 - **Per-org username uniqueness**: Usernames are unique within an org (composite index `orgId + username`), not globally. `getUserByUsername()` accepts optional `orgId` for scoped lookups. OAuth/SSO flows without org context search globally
 - **Org-scoped rate limiting**: Authenticated data routes include `orgId` in rate limit keys so tenants sharing an IP (corporate networks) don't affect each other. Pre-auth routes (login, register) use IP-only keys
@@ -1487,6 +1487,13 @@ Server serves both API and static frontend from the same process.
 - **Username uniqueness is per-org**: The DB unique index is on `(orgId, username)`, not global `username`. Same email can exist in multiple orgs. The old global index was dropped in `sync-schema.ts` migration
 - **WebSocket `broadcastCallUpdate()` requires `orgId`**: The `orgId` parameter is mandatory (not optional). All callers in calls.ts, admin.ts, and ab-testing.ts already pass it
 - **Quota/plan middleware rejects missing `orgId`**: `enforceQuota()`, `enforceUserQuota()`, `requirePlanFeature()`, and `requireActiveSubscription()` return 403 if `req.orgId` is missing — they do NOT silently allow requests without org context
+- **Billing gates fail closed on DB errors**: `enforceQuota()`, `enforceUserQuota()`, `requirePlanFeature()`, and `requireActiveSubscription()` return 503 (not next()) when the database is unreachable. This is intentional — failing open would allow free accounts to access paid features during outages
+- **WAF uses recursive URL decoding**: `scanRequest()` in `waf.ts` decodes URLs up to 3 times to catch double/triple-encoded payloads (e.g., `%252e%252e` → `%2e%2e` → `..`). The loop exits early when decoding produces no change
+- **Prompt injection detection strips zero-width Unicode**: `normalizeForDetection()` in `ai-guardrails.ts` strips zero-width spaces (U+200B), zero-width joiners (U+200D), soft hyphens (U+00AD), and other invisible characters before pattern matching. This prevents attackers from splitting keywords with invisible chars
+- **Audit log timestamp is application-set**: `persistAuditEntry()` explicitly sets `createdAt` to the application-level timestamp used for hash computation (not PostgreSQL's `defaultNow()`). This ensures `verifyAuditChain()` can recompute matching hashes. Pre-existing entries may have mismatched timestamps
+- **FHIR export decrypts nested cosignature NPI**: `decryptClinicalNotePhi()` decrypts both top-level PHI fields and nested `cosignature.cosignedNpi`. The cosigner NPI is included in the FHIR Practitioner resource as an additional identifier with type "Cosigner NPI"
+- **EHR prefill surfaces lookup failures**: The prefill endpoint returns `ehrLookupFailed: true` and `ehrLookupError` when EHR patient data retrieval fails, instead of silently returning empty allergies/medications. Frontend should display a warning banner when this flag is present
+- **Daily task orchestrator is error-isolated**: Each task in `runAllDailyTasks()` is wrapped in its own try-catch. A failure in one task (e.g., audit chain verification) does not prevent other tasks (e.g., retention purge, quota alerts) from running
 - **AI response validation**: `parseJsonResponse()` in `ai-provider.ts` clamps `performanceScore` to 0-10, sentiment scores to 0-1, sub-scores to 0-10, and validates all field types. Missing fields get safe defaults (5.0 for scores, "neutral" for sentiment). `normalizeAnalysis()` in `storage/types.ts` also clamps on read
 - **Empty transcript handling**: If transcript text is <10 characters, the pipeline saves the call with `empty_transcript` flag, low confidence, and skips AI analysis entirely — prevents generating junk analysis from silence/noise
 - **Employee auto-assignment safety**: Only considers active employees. If multiple employees match the detected name, prefers exact full-name match; skips assignment if ambiguous (logs the ambiguity)
@@ -1959,7 +1966,7 @@ See earlier sections in this file for full details of prior work on this branch.
 - **LMS progress upsert** — `pg-storage-features.ts`: `INSERT ON CONFLICT DO UPDATE` replaces race-prone select-then-insert
 
 **Data integrity & correctness:**
-- **Org cache invalidation** — `admin.ts`, `super-admin.ts`, `admin-security.routes.ts`: `invalidateOrgCache()` after all 7 `updateOrganization()` call sites (closes 30s authorization bypass after suspension)
+- **Org cache invalidation** — `admin.ts`, `super-admin.ts`, `admin-security.routes.ts`, `billing.ts`, `ehr.ts`, `clinical.ts`, `clinical-analytics.routes.ts`: `invalidateOrgCache()` after security-critical `updateOrganization()` call sites (closes authorization bypass after suspension/deletion). Note: some non-security settings updates (gamification, onboarding branding, spend-tracking budget) do not invalidate cache — settings changes take effect after 30s TTL
 - **Upload lock release** — `helpers.ts` + `calls.ts`: explicit `releaseUploadLock()` after `createCall()` success (was waiting for 30s TTL)
 - **MemStorage audio cap** — `memory.ts`: 200-entry FIFO cap on audioFiles Map (prevents OOM in dev)
 - **Auto-assignment** — `call-processing.ts`: require explicit `status === "Active"` (missing status no longer treated as active)
