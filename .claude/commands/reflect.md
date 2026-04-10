@@ -1,15 +1,25 @@
-Do not make any changes to any files. The regression check above is complete — now provide an honest post-cycle assessment.
+Now that the regression check is complete, provide an honest post-cycle assessment. Do not make any changes to any files.
 
-$ARGUMENTS
+For each action completed this cycle, answer two questions:
 
-For each action completed this cycle, classify it:
-- Real bug fix: corrects behavior that was actively wrong in a currently-reachable code path
-- Defensive fix: prevents a future failure in currently-untriggered or low-frequency code
-- Architectural improvement: no behavioral impact today, but structurally important at scale
-- Housekeeping: code quality, deduplication, or consistency with no behavioral change
-- No-op: the "fix" was already handled elsewhere (FK cascade, schema default, unused path, idempotent operation)
+1. "Would this bug have actually fired in production this month?"
+   Answer YES (real production bug — currently-reachable code path, realistic load, active user scenario) or NO (speculative, defensive, future-proofing, dead code, or zero-caller path).
+   Be specific: if YES, describe the trigger scenario. If NO, say why it wouldn't have fired.
+
+2. "Did this action introduce a new failure mode, documented or not?"
+   Answer YES or NO. If YES: describe the new failure mode, whether it is better or worse than what it replaced, and under what conditions it would fire. Do not bury this in a "tradeoffs" section — if the post-cycle state is worse under any realistic scenario, that is a regression and must be counted as one.
+
+Tally:
+- Production bug fixes (YES to question 1): [count]
+- Speculative/defensive fixes (NO to question 1): [count]
+- Actions that introduced new failure modes (YES to question 2): [count]
+- Net score: [production fixes] − [new failure modes] = [net]
 
 Flag any fixes that introduced tradeoffs or new failure modes — cases where the new behavior is better in aggregate but worse in specific scenarios. Note what failure mode was replaced and what new one was introduced.
+
+Invariant growth — answer this:
+- "What invariants does this cycle establish that the next Verification Pass should probe?"
+  List any rules that must now hold as a result of this cycle's changes. These become candidates for the invariant library. Format each as: [proposed ID] | [one-sentence rule] | [which subsystem/seam it guards] | [how to verify: code read, test, or assertion]
 
 Honest impact summary — answer each directly:
 - What actually changed for a user of this application right now?
@@ -22,5 +32,4 @@ End with:
 - One sentence: the finding that should have been deferred — lowest practical impact relative to implementation cost
 - Any actions where a design decision produced a tradeoff worth documenting in CLAUDE.md
 
-After completing the reflection, state:
-"Run /sync-docs to check whether CLAUDE.md and the audit.md subsystem file reference have drifted based on the changes made this cycle. Recommended if any of the following were true this cycle: a module's behavior changed, a new file was added or deleted, a known issue was resolved, or a new pattern was introduced."
+Then suggest running /sync-docs if any module behavior changed, files were added/deleted, known issues were resolved, or new patterns were introduced.
