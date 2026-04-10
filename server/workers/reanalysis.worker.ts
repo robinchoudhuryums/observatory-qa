@@ -29,99 +29,110 @@ export function createReanalysisWorker(
         return { succeeded: 0, failed: 0, skipped: 0, reason: "AI provider unavailable" };
       }
 
-      // Get target calls — use pagination to avoid loading entire table into memory
-      let callsWithTranscripts: Awaited<ReturnType<typeof storage.getCallsWithDetails>>;
+      let succeeded = 0;
+      let failed = 0;
+      let totalProcessed = 0;
+
+      // Cache prompt templates by category to avoid repeated DB lookups
+      const templateCache = new Map<string, any>();
+
+      // Helper: process a single call through reanalysis
+      const processCall = async (call: any) => {
+        const transcriptText = call.transcript!.text!;
+
+        let promptTemplate = undefined;
+        if (call.callCategory) {
+          if (templateCache.has(call.callCategory)) {
+            promptTemplate = templateCache.get(call.callCategory);
+          } else {
+            const tmpl = await storage.getPromptTemplateByCategory(orgId, call.callCategory);
+            if (tmpl) {
+              promptTemplate = {
+                evaluationCriteria: tmpl.evaluationCriteria,
+                requiredPhrases: tmpl.requiredPhrases,
+                scoringWeights: tmpl.scoringWeights,
+                additionalInstructions: tmpl.additionalInstructions,
+              };
+            }
+            templateCache.set(call.callCategory, promptTemplate);
+          }
+        }
+
+        const aiAnalysis = await aiProvider.analyzeCallTranscript(
+          transcriptText,
+          call.id,
+          call.callCategory,
+          promptTemplate,
+        );
+
+        const { analysis } = assemblyAIService.processTranscriptData(
+          { id: "", status: "completed", text: transcriptText, words: call.transcript?.words },
+          aiAnalysis,
+          call.id,
+        );
+
+        if (aiAnalysis.sub_scores) {
+          analysis.subScores = {
+            compliance: aiAnalysis.sub_scores.compliance ?? 0,
+            customerExperience: aiAnalysis.sub_scores.customer_experience ?? 0,
+            communication: aiAnalysis.sub_scores.communication ?? 0,
+            resolution: aiAnalysis.sub_scores.resolution ?? 0,
+          };
+        }
+        if (aiAnalysis.detected_agent_name) {
+          analysis.detectedAgentName = aiAnalysis.detected_agent_name;
+        }
+
+        await storage.createCallAnalysis(orgId, { ...analysis, callId: call.id });
+      };
 
       if (callIds?.length) {
         // Specific call IDs requested — fetch only those (small set, no full table scan)
         const targetCalls = await storage.getCallsWithDetails(orgId, { status: "completed", limit: callIds.length });
-        callsWithTranscripts = targetCalls.filter((c) => callIds.includes(c.id) && c.transcript?.text);
+        const callsWithTranscripts = targetCalls.filter((c) => callIds.includes(c.id) && c.transcript?.text);
+        totalProcessed = callsWithTranscripts.length;
+        for (const call of callsWithTranscripts) {
+          try {
+            await processCall(call);
+            succeeded++;
+          } catch (error) {
+            logger.error({ callId: call.id, err: error }, "Reanalysis worker: call failed");
+            failed++;
+          }
+          await job.updateProgress(Math.round(((succeeded + failed) / totalProcessed) * 100));
+        }
       } else {
-        // All completed calls — paginate in chunks to avoid memory exhaustion
+        // All completed calls — process in streaming chunks to avoid OOM.
+        // Each chunk is fetched, processed, and discarded before the next chunk.
         const CHUNK_SIZE = 200;
-        callsWithTranscripts = [];
         let offset = 0;
         let hasMore = true;
         while (hasMore) {
           const chunk = await storage.getCallsWithDetails(orgId, { status: "completed", limit: CHUNK_SIZE, offset });
           const withTranscripts = chunk.filter((c) => c.transcript?.text);
-          callsWithTranscripts.push(...withTranscripts);
-          offset += CHUNK_SIZE;
-          hasMore = chunk.length === CHUNK_SIZE;
-        }
-      }
-
-      let succeeded = 0;
-      let failed = 0;
-
-      // Cache prompt templates by category to avoid repeated DB lookups
-      const templateCache = new Map<string, any>();
-
-      for (const call of callsWithTranscripts) {
-        try {
-          const transcriptText = call.transcript!.text!;
-
-          // Load prompt template (cached per category within this job)
-          let promptTemplate = undefined;
-          if (call.callCategory) {
-            if (templateCache.has(call.callCategory)) {
-              promptTemplate = templateCache.get(call.callCategory);
-            } else {
-              const tmpl = await storage.getPromptTemplateByCategory(orgId, call.callCategory);
-              if (tmpl) {
-                promptTemplate = {
-                  evaluationCriteria: tmpl.evaluationCriteria,
-                  requiredPhrases: tmpl.requiredPhrases,
-                  scoringWeights: tmpl.scoringWeights,
-                  additionalInstructions: tmpl.additionalInstructions,
-                };
-              }
-              templateCache.set(call.callCategory, promptTemplate);
+          for (const call of withTranscripts) {
+            try {
+              await processCall(call);
+              succeeded++;
+            } catch (error) {
+              logger.error({ callId: call.id, err: error }, "Reanalysis worker: call failed");
+              failed++;
             }
           }
-
-          const aiAnalysis = await aiProvider.analyzeCallTranscript(
-            transcriptText,
-            call.id,
-            call.callCategory,
-            promptTemplate,
-          );
-
-          const { analysis } = assemblyAIService.processTranscriptData(
-            { id: "", status: "completed", text: transcriptText, words: call.transcript?.words },
-            aiAnalysis,
-            call.id,
-          );
-
-          if (aiAnalysis.sub_scores) {
-            analysis.subScores = {
-              compliance: aiAnalysis.sub_scores.compliance ?? 0,
-              customerExperience: aiAnalysis.sub_scores.customer_experience ?? 0,
-              communication: aiAnalysis.sub_scores.communication ?? 0,
-              resolution: aiAnalysis.sub_scores.resolution ?? 0,
-            };
-          }
-          if (aiAnalysis.detected_agent_name) {
-            analysis.detectedAgentName = aiAnalysis.detected_agent_name;
-          }
-
-          await storage.createCallAnalysis(orgId, { ...analysis, callId: call.id });
-          succeeded++;
-
-          // Update progress
-          await job.updateProgress(Math.round(((succeeded + failed) / callsWithTranscripts.length) * 100));
-        } catch (error) {
-          logger.error({ callId: call.id, err: error }, "Reanalysis worker: call failed");
-          failed++;
+          totalProcessed += withTranscripts.length;
+          offset += CHUNK_SIZE;
+          hasMore = chunk.length === CHUNK_SIZE;
+          // Progress is approximate since we don't know total upfront
+          await job.updateProgress(hasMore ? Math.min(95, offset / 10) : 100);
         }
       }
 
       logger.info(
-        { orgId, succeeded, failed, total: callsWithTranscripts.length, requestedBy },
+        { orgId, succeeded, failed, total: totalProcessed, requestedBy },
         "Reanalysis worker: complete",
       );
 
-      return { succeeded, failed, total: callsWithTranscripts.length };
+      return { succeeded, failed, total: totalProcessed };
     },
     {
       connection,

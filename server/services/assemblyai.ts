@@ -378,8 +378,11 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
     let overallSentiment = aiAnalysis?.sentiment || "neutral";
     let overallScore = aiAnalysis?.sentiment_score ?? 0.5;
 
-    // If no AI analysis, derive sentiment from AssemblyAI's built-in sentiment results
-    if (!aiAnalysis && transcriptResponse.sentiment_analysis_results?.length) {
+    // Use AssemblyAI's sentiment results when AI analysis is missing OR when AI returned
+    // no sentiment data. Previously, this only triggered when aiAnalysis was null, silently
+    // discarding AssemblyAI sentiment when AI returned a valid analysis with null sentiment.
+    const aiSentimentMissing = !aiAnalysis?.sentiment && !aiAnalysis?.sentiment_score;
+    if (aiSentimentMissing && transcriptResponse.sentiment_analysis_results?.length) {
       const sentiments = transcriptResponse.sentiment_analysis_results;
       const positiveCount = sentiments.filter((s) => s.sentiment === "POSITIVE").length;
       const negativeCount = sentiments.filter((s) => s.sentiment === "NEGATIVE").length;

@@ -113,6 +113,14 @@ async function main() {
   // Start EHR health monitor (periodic connection checks + alerting)
   const healthMonitorInterval = startEhrHealthMonitor();
 
+  // Register error handlers on all workers for Redis disconnection/errors.
+  // Without these, workers hang indefinitely on Redis drop with no logging.
+  for (const w of workers) {
+    w.on("error", (err) => {
+      logger.error({ err, workerName: w.name }, "Worker error (possible Redis disconnection)");
+    });
+  }
+
   logger.info({ count: workers.length }, "All workers started. Waiting for jobs...");
 
   // Graceful shutdown
