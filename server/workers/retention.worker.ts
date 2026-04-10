@@ -13,6 +13,7 @@
 import { Worker, type Job } from "bullmq";
 import type { DataRetentionJob } from "../services/queue";
 import { logger } from "../services/logger";
+import { sendSlackNotification } from "../services/notifications";
 import { logPhiAccess } from "../services/audit-log";
 
 /** HIPAA: Minimum audit log retention — 7 years. */
@@ -75,6 +76,14 @@ export function createRetentionWorker(
               { orgId, s3Purged, s3Failed, retentionDays },
               `Retention worker: ${s3Failed} S3 audio deletions failed — PHI may remain in storage`,
             );
+            // Alert admins via webhook — orphaned PHI in S3 requires attention
+            sendSlackNotification(
+              {
+                channel: "alerts",
+                text: `:warning: *PHI Retention Alert*: ${s3Failed} S3 audio file(s) failed to delete for org \`${orgId}\`. ${s3Purged} succeeded. PHI audio may remain in storage past retention policy (${retentionDays} days). Manual cleanup required.`,
+              },
+              orgId,
+            ).catch(() => {}); // Non-blocking — alert failure shouldn't crash retention
           }
           if (s3Purged > 0) {
             logger.info({ orgId, s3Purged, retentionDays }, "Retention worker: orphaned S3 audio files purged");
