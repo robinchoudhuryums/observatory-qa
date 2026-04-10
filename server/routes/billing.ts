@@ -159,6 +159,12 @@ export function requirePlanFeature(feature: keyof import("@shared/schema").PlanL
 /** Grace period after a payment failure before hard-blocking the account (days) */
 const DUNNING_GRACE_PERIOD_DAYS = 7;
 
+/** Stripe webhook idempotency: track processed event IDs to prevent double-processing.
+ *  In multi-instance deployments, move this to Redis for cross-instance dedup. */
+const processedWebhookEvents = new Map<string, number>();
+const WEBHOOK_DEDUP_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const WEBHOOK_DEDUP_MAX_SIZE = 10_000;
+
 /**
  * Middleware to block requests when subscription is past_due or canceled.
  * Allows read-only access (GET) but blocks mutations.
@@ -648,6 +654,7 @@ export function registerBillingRoutes(app: Express): void {
         },
       };
       await storage.updateOrganization(req.orgId!, { settings: updatedSettings as any });
+      invalidateOrgCache(req.orgId!);
       logger.info({ orgId: req.orgId, enabled, quotaThresholdPct }, "Billing alerts updated");
       res.json({ success: true, billingAlerts: updatedSettings.billingAlerts });
   }));
@@ -703,6 +710,21 @@ export function registerBillingRoutes(app: Express): void {
     } catch (err) {
       logger.error({ err }, "Webhook signature verification failed");
       return res.status(400).json({ message: "Invalid webhook signature" });
+    }
+
+    // Idempotency: Stripe can redeliver events. Track processed event IDs
+    // to prevent double-processing (e.g., re-suspending a reactivated org).
+    if (processedWebhookEvents.has(event.id)) {
+      logger.info({ eventId: event.id, type: event.type }, "Stripe webhook: duplicate event skipped");
+      return res.json({ received: true, duplicate: true });
+    }
+    processedWebhookEvents.set(event.id, Date.now());
+    // Prune old entries every 100 events to prevent unbounded growth
+    if (processedWebhookEvents.size > WEBHOOK_DEDUP_MAX_SIZE) {
+      const cutoff = Date.now() - WEBHOOK_DEDUP_TTL_MS;
+      for (const [id, ts] of Array.from(processedWebhookEvents)) {
+        if (ts < cutoff) processedWebhookEvents.delete(id);
+      }
     }
 
     try {
@@ -784,9 +806,13 @@ export function registerBillingRoutes(app: Express): void {
           const orgId = stripeSub.metadata?.orgId;
           if (!orgId) break;
 
-          const priceId = stripeSub.items?.data?.[0]?.price?.id;
+          // Find the flat-rate item (not metered) — same logic as checkout.session.completed.
+          // Using items.data[0] is wrong when metered items (seats, overage) exist.
+          const subItems: any[] = stripeSub.items?.data || [];
+          const flatItem = subItems.find((i: any) => i.price?.recurring?.usage_type !== "metered") || subItems[0];
+          const priceId = flatItem?.price?.id;
           const tier = resolveTierFromPriceId(priceId);
-          const interval = stripeSub.items?.data?.[0]?.price?.recurring?.interval === "year" ? "yearly" : "monthly";
+          const interval = flatItem?.price?.recurring?.interval === "year" ? "yearly" : "monthly";
 
           const statusMap: Record<string, string> = {
             active: "active",

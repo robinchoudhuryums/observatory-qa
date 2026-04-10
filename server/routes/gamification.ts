@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { storage } from "../storage";
-import { requireAuth, requireRole, injectOrgContext } from "../auth";
+import { requireAuth, requireRole, injectOrgContext, invalidateOrgCache } from "../auth";
 import { logger } from "../services/logger";
 import { validateUUIDParam } from "./helpers";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
@@ -277,6 +277,7 @@ export function registerGamificationRoutes(app: Express) {
       await storage.updateOrganization(orgId, {
         settings: { ...settings, gamification } as any,
       });
+      invalidateOrgCache(orgId);
 
       logger.info({ orgId, gamification: { enabled: gamification.enabled } }, "Gamification settings updated");
       res.json(gamification);

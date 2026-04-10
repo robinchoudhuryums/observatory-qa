@@ -51,10 +51,10 @@ const refDocCache = new LruCache<RefDocList>({ maxSize: MAX_REF_DOC_CACHE_ENTRIE
 
 /** Invalidate cached reference docs for an org (call on doc upload/delete) */
 export function invalidateRefDocCache(orgId: string): void {
-  // Invalidate all category-specific keys for this org
-  // Since LruCache doesn't support prefix delete, delete the org key
-  // and rely on TTL for category variants
+  // Delete all cache entries for this org: both the base key and category-specific keys
+  // (e.g., "orgId", "orgId:appointment", "orgId:complaint", etc.)
   refDocCache.delete(orgId);
+  refDocCache.deleteByPrefix(`${orgId}:`);
 }
 
 async function getCachedRefDocs(orgId: string, callCategory: string) {

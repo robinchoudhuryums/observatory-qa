@@ -57,16 +57,24 @@ export function createRetentionWorker(
           const objects = await s3.listObjectsWithMetadata(prefix);
           const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
           let s3Purged = 0;
+          let s3Failed = 0;
           for (const obj of objects) {
             const updated = new Date(obj.updated);
             if (updated < cutoff) {
               try {
                 await s3.deleteObject(obj.name);
                 s3Purged++;
-              } catch {
-                // Individual delete failure — log but continue
+              } catch (delErr) {
+                s3Failed++;
+                logger.warn({ orgId, err: delErr, key: obj.name }, "Retention worker: S3 object delete failed");
               }
             }
+          }
+          if (s3Failed > 0) {
+            logger.error(
+              { orgId, s3Purged, s3Failed, retentionDays },
+              `Retention worker: ${s3Failed} S3 audio deletions failed — PHI may remain in storage`,
+            );
           }
           if (s3Purged > 0) {
             logger.info({ orgId, s3Purged, retentionDays }, "Retention worker: orphaned S3 audio files purged");

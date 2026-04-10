@@ -22,6 +22,7 @@ const MAX_TRACKED_IPS = 10_000; // Prevent unbounded memory growth
 // --- Attack pattern regexes ---
 const SQL_INJECTION_PATTERNS = [
   /(\b(union|select|insert|update|delete|drop|alter|create|exec|execute)\b.*\b(from|into|table|database|where|set)\b)/i,
+  /\bunion\b\s+\bselect\b/i, // UNION SELECT (standalone, no clause keyword required)
   /(\b(or|and)\b\s+\d+\s*=\s*\d+)/i, // OR 1=1 / AND 1=1
   /(--|#|\/\*)\s/, // SQL comments
   /;\s*(drop|delete|update|insert|alter)\b/i, // Chained destructive statements

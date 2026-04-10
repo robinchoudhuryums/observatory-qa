@@ -389,13 +389,17 @@ Evaluate the agent on: professionalism, product knowledge, empathy, problem reso
       else if (negativeCount > total * 0.3) overallSentiment = "negative";
       else overallSentiment = "neutral";
 
-      const avgConfidence =
+      // Compute overall sentiment positivity score (0 = strongly negative, 0.5 = neutral, 1 = strongly positive).
+      // POSITIVE segments contribute their confidence directly (high conf positive → near 1).
+      // NEGATIVE segments contribute (1 - confidence) — high conf negative → near 0.
+      // NEUTRAL segments contribute 0.5 regardless of confidence.
+      const positivityScore =
         sentiments.reduce((sum, s) => {
-          const weight =
-            s.sentiment === "POSITIVE" ? s.confidence : s.sentiment === "NEGATIVE" ? 1 - s.confidence : 0.5;
-          return sum + weight;
+          if (s.sentiment === "POSITIVE") return sum + s.confidence;
+          if (s.sentiment === "NEGATIVE") return sum + (1 - s.confidence);
+          return sum + 0.5;
         }, 0) / total;
-      overallScore = Math.round(avgConfidence * 100) / 100;
+      overallScore = Math.round(positivityScore * 100) / 100;
     }
 
     // Validate overallSentiment to match the enum type

@@ -83,6 +83,18 @@ export class LruCache<T> {
     return this.map.delete(key);
   }
 
+  /** Delete all keys that start with the given prefix. */
+  deleteByPrefix(prefix: string): number {
+    let deleted = 0;
+    for (const key of Array.from(this.map.keys())) {
+      if (key.startsWith(prefix)) {
+        this.map.delete(key);
+        deleted++;
+      }
+    }
+    return deleted;
+  }
+
   /** Current number of entries (including potentially expired ones). */
   get size(): number {
     return this.map.size;

@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { storage } from "../storage";
-import { requireAuth, requireRole, injectOrgContext } from "../auth";
+import { requireAuth, requireRole, injectOrgContext, invalidateOrgCache } from "../auth";
 import { logger } from "../services/logger";
 import { asyncHandler, AppError } from "../middleware/error-handler";
 import type { UsageRecord } from "@shared/schema";
@@ -368,6 +368,7 @@ export function registerSpendTrackingRoutes(app: Express): void {
     await storage.updateOrganization(orgId, {
       settings: { ...currentSettings, budgetAlerts } as any,
     });
+    invalidateOrgCache(orgId);
 
     logger.info({ orgId, budgetAlerts: { enabled, monthlyBudgetUsd } }, "Budget alerts updated");
     res.json(budgetAlerts);
