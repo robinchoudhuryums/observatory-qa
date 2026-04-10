@@ -50,12 +50,34 @@ function isAccountLocked(username: string): boolean {
 }
 
 function recordFailedAttempt(username: string): void {
-  // If the map is at capacity and this is a new key, evict the oldest entry
-  // before inserting so a flood of unique usernames can't exhaust memory
-  // between the periodic cleanup cycles.
+  // If the map is at capacity and this is a new key, evict an entry.
+  // IMPORTANT: Never evict locked accounts — an attacker flooding unique usernames
+  // must not push out real lockout entries. Evict only unlocked (stale) entries.
   if (!loginAttempts.has(username) && loginAttempts.size >= MAX_LOGIN_ATTEMPTS_ENTRIES) {
-    const oldest = loginAttempts.keys().next().value;
-    if (oldest) loginAttempts.delete(oldest);
+    const now = Date.now();
+    let evictKey: string | undefined;
+    let evictAge = 0;
+    for (const [key, record] of loginAttempts) {
+      // Skip locked accounts — never evict these
+      if (record.lockedUntil && now < record.lockedUntil) continue;
+      // Among unlocked entries, pick the oldest (most stale)
+      const age = now - record.lastAttempt;
+      if (age > evictAge) {
+        evictAge = age;
+        evictKey = key;
+      }
+    }
+    // If all entries are locked (extremely unlikely), evict the one closest to expiry
+    if (!evictKey) {
+      let soonestExpiry = Infinity;
+      for (const [key, record] of loginAttempts) {
+        if (record.lockedUntil && record.lockedUntil < soonestExpiry) {
+          soonestExpiry = record.lockedUntil;
+          evictKey = key;
+        }
+      }
+    }
+    if (evictKey) loginAttempts.delete(evictKey);
   }
   const record = loginAttempts.get(username) || { count: 0, lastAttempt: 0 };
   record.count++;
