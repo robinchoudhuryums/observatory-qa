@@ -42,10 +42,21 @@ export async function runAllDailyTasks(storage: IStorage, opts: DailyTaskOptions
 
   const retentionOpts = { queuesReady: opts.queuesReady, defaultRetentionDays: opts.defaultRetentionDays };
 
-  // Run tasks in sequence to avoid thundering herd on DB
-  await runRetention(storage, retentionOpts, orgs);
-  await runTrialDowngrade(storage, orgs);
-  await runQuotaAlerts(storage, orgs);
-  await runAuditChainVerify(storage, orgs);
-  await runCoachingScheduledTasks(storage, orgs);
+  // Run tasks in sequence to avoid thundering herd on DB.
+  // Each task is individually wrapped so a failure in one doesn't prevent the rest from running.
+  const tasks: Array<{ name: string; fn: () => Promise<void> }> = [
+    { name: "retention", fn: () => runRetention(storage, retentionOpts, orgs) },
+    { name: "trial-downgrade", fn: () => runTrialDowngrade(storage, orgs) },
+    { name: "quota-alerts", fn: () => runQuotaAlerts(storage, orgs) },
+    { name: "audit-chain-verify", fn: () => runAuditChainVerify(storage, orgs) },
+    { name: "coaching-tasks", fn: () => runCoachingScheduledTasks(storage, orgs) },
+  ];
+
+  for (const task of tasks) {
+    try {
+      await task.fn();
+    } catch (err) {
+      logger.error({ err, task: task.name }, `Scheduled task '${task.name}' failed — continuing with remaining tasks`);
+    }
+  }
 }

@@ -305,6 +305,8 @@ app.post("/api/auth/register", distributedRateLimit(60 * 60 * 1000, 3) as any);
 // Rate limit password reset: 5 per 15 minutes per IP (prevent token brute-force & enumeration)
 app.post("/api/auth/forgot-password", distributedRateLimit(15 * 60 * 1000, 5) as any);
 app.post("/api/auth/reset-password", distributedRateLimit(15 * 60 * 1000, 5) as any);
+// Rate limit invitation acceptance: 10 per 15 minutes per IP (prevent token brute-force)
+app.post("/api/invitations/accept", distributedRateLimit(15 * 60 * 1000, 10) as any);
 // HIPAA: Read rate limiting to prevent bulk data exfiltration
 // Org-scoped so one tenant's usage doesn't block another on shared IPs
 app.get("/api/calls", distributedRateLimit(60 * 1000, 100, true) as any);

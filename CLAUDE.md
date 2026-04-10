@@ -72,6 +72,7 @@ npm run db:generate    # Generate Drizzle migration files
 npm run db:migrate     # Run Drizzle migrations (tsx server/db/migrate.ts)
 npm run db:push        # Push schema to DB (drizzle-kit push)
 npm run db:studio      # Open Drizzle Studio (DB GUI)
+npx tsx server/db/migrate-audit-chain.ts  # One-time: recompute audit log hash chain (run after F37 deploy)
 npx vite build         # Frontend-only build (quick verification)
 ```
 
@@ -318,7 +319,7 @@ server/utils/                # Shared server utilities
   lru-cache.ts               #   TTL-aware LRU cache utility (replaces FIFO Map pattern in 3+ locations)
 
 server/scheduled/            # Wall-clock scheduled background tasks
-  index.ts                   #   Barrel exports + runAllDailyTasks() orchestrator (single listOrganizations call)
+  index.ts                   #   Barrel exports + runAllDailyTasks() orchestrator (single listOrganizations call, per-task error isolation)
   scheduler.ts               #   scheduleDaily(utcHour, fn) and scheduleWeekly(dayOfWeek, utcHour, fn) — setTimeout chains, no drift
   retention.ts               #   Data retention purge (per-org retentionDays)
   trial-downgrade.ts         #   Trial subscription auto-downgrade to free
@@ -350,6 +351,7 @@ server/db/                   # PostgreSQL (Drizzle ORM)
   schema.ts                  #   Table definitions (20+ tables + pgvector document_chunks)
   index.ts                   #   Database connection initialization
   migrate.ts                 #   Migration runner
+  migrate-audit-chain.ts     #   One-time audit hash chain recomputation (run after F37 timestamp fix deploy)
   pg-storage.ts              #   PostgresStorage core (org/user/employee/call CRUD, dashboards, search, audio, coaching, refs, subscriptions, RLS helpers)
   pg-storage-features.ts     #   PostgresStorage feature methods via prototype mixin (A/B tests, LMS, gamification, revenue, calibration, marketing, BAA, provider templates, deleteOrg)
   pg-storage-confidence.ts   #   PostgresStorage confidence metrics mixin (overrides getDashboardMetrics/getTopPerformers for avgConfidence, dataQuality breakdown)
@@ -1339,7 +1341,7 @@ On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add mi
 - **Style learning recency weighting**: Provider style analysis uses exponential decay (30-day half-life) to prefer recent notes, requires minimum 3 attested notes
 - **A/B testing cost tracking**: Each A/B test records estimated costs for both models, enabling data-driven model selection decisions
 - **Industry-aware registration**: Orgs set `industryType` at registration (general/dental/medical/behavioral_health/veterinary) which influences default prompt templates and available features
-- **Billing enforcement gates**: Plan feature gating (`requirePlanFeature`), quota enforcement (`enforceQuota`, `enforceUserQuota`), and active subscription checks (`requireActiveSubscription`) are applied as middleware on write routes. All reject requests with missing `orgId` rather than silently allowing
+- **Billing enforcement gates**: Plan feature gating (`requirePlanFeature`), quota enforcement (`enforceQuota`, `enforceUserQuota`), and active subscription checks (`requireActiveSubscription`) are applied as middleware on write routes. All reject requests with missing `orgId` (403). On database errors, all four gates **fail closed** (return 503) rather than allowing the request through — this prevents billing bypass during transient DB outages but means users see errors during DB hiccups
 - **AI response hardening**: `parseJsonResponse()` validates every field type, clamps scores to valid ranges, and provides safe defaults. `normalizeAnalysis()` also clamps on the read path. Server-side flag enforcement overrides AI-set flags
 - **Per-org username uniqueness**: Usernames are unique within an org (composite index `orgId + username`), not globally. `getUserByUsername()` accepts optional `orgId` for scoped lookups. OAuth/SSO flows without org context search globally
 - **Org-scoped rate limiting**: Authenticated data routes include `orgId` in rate limit keys so tenants sharing an IP (corporate networks) don't affect each other. Pre-auth routes (login, register) use IP-only keys
@@ -1416,6 +1418,7 @@ Internet → Caddy (:443, auto TLS) → Node.js (:5000) → PostgreSQL + S3 + Be
 - IAM instance role for S3 + Bedrock (no hardcoded AWS keys)
 - **Auto-rollback**: deploy.sh saves previous SHA before deploy; if health check fails, automatically rolls back to previous version, rebuilds, and restarts
 - **Pre-flight validation**: required env vars (`DATABASE_URL`, `ASSEMBLYAI_API_KEY`, `SESSION_SECRET`, `PHI_ENCRYPTION_KEY`) are hard-checked before deploy in production; use `--force` to skip
+- **Post-deploy migration**: After deploying the F37 audit timestamp fix, run `npx tsx server/db/migrate-audit-chain.ts` once to recompute pre-existing audit hash chains using stored `createdAt` timestamps. Idempotent — safe to run multiple times. Requires `DATABASE_URL`
 - Estimated ~$13/month (after free tier)
 - See `deploy/ec2/README.md` for full setup guide
 
@@ -1487,6 +1490,19 @@ Server serves both API and static frontend from the same process.
 - **Username uniqueness is per-org**: The DB unique index is on `(orgId, username)`, not global `username`. Same email can exist in multiple orgs. The old global index was dropped in `sync-schema.ts` migration
 - **WebSocket `broadcastCallUpdate()` requires `orgId`**: The `orgId` parameter is mandatory (not optional). All callers in calls.ts, admin.ts, and ab-testing.ts already pass it
 - **Quota/plan middleware rejects missing `orgId`**: `enforceQuota()`, `enforceUserQuota()`, `requirePlanFeature()`, and `requireActiveSubscription()` return 403 if `req.orgId` is missing — they do NOT silently allow requests without org context
+- **Billing gates fail closed on DB errors**: `enforceQuota()`, `enforceUserQuota()`, `requirePlanFeature()`, and `requireActiveSubscription()` return 503 (not next()) when the database is unreachable. This is intentional — failing open would allow free accounts to access paid features during outages
+- **WAF uses recursive URL decoding**: `scanRequest()` in `waf.ts` decodes URLs up to 3 times to catch double/triple-encoded payloads (e.g., `%252e%252e` → `%2e%2e` → `..`). The loop exits early when decoding produces no change
+- **Prompt injection detection strips zero-width Unicode**: `normalizeForDetection()` in `ai-guardrails.ts` strips zero-width spaces (U+200B), zero-width joiners (U+200D), soft hyphens (U+00AD), and other invisible characters before pattern matching. This prevents attackers from splitting keywords with invisible chars
+- **Audit log timestamp is application-set**: `persistAuditEntry()` explicitly sets `createdAt` to the application-level timestamp used for hash computation (not PostgreSQL's `defaultNow()`). This ensures `verifyAuditChain()` can recompute matching hashes. Pre-existing entries may have mismatched timestamps
+- **FHIR export decrypts nested cosignature NPI**: `decryptClinicalNotePhi()` decrypts both top-level PHI fields and nested `cosignature.cosignedNpi`. The cosigner NPI is included in the FHIR Practitioner resource as an additional identifier with type "Cosigner NPI"
+- **EHR prefill surfaces lookup failures**: The prefill endpoint returns `ehrLookupFailed: true` and `ehrLookupError` when EHR patient data retrieval fails, instead of silently returning empty allergies/medications. Frontend should display a warning banner when this flag is present
+- **Daily task orchestrator is error-isolated**: Each task in `runAllDailyTasks()` is wrapped in its own try-catch. A failure in one task (e.g., audit chain verification) does not prevent other tasks (e.g., retention purge, quota alerts) from running
+- **Breach notification is idempotent**: `sendBreachNotificationEmails()` checks `notificationStatus` before sending. If individuals have already been notified, it returns 0 and logs a warning. This prevents duplicate HIPAA notifications on retry or accidental re-invocation
+- **Registration blocks reserved org slugs**: Slugs like "api", "admin", "auth", "sso", "webhook" and 12 other system names are rejected during registration to prevent route collisions
+- **Invitation acceptance is rate-limited**: `POST /api/invitations/accept` has a 10-per-15-min rate limit per IP to prevent token brute-force
+- **Account lockout is Redis-backed**: Login attempt tracking uses `ephemeralSet`/`ephemeralGet`/`ephemeralDel` from `redis.ts` (Redis with in-memory fallback). Records auto-expire via TTL — no manual eviction or cleanup interval needed. Lockout state persists across server restarts and works across multiple instances when Redis is configured
+- **Stripe webhook events are deduplicated**: The billing webhook handler tracks processed event IDs via `ephemeralGet`/`ephemeralSet` from `redis.ts` (Redis with in-memory fallback, 24h TTL). Duplicate event deliveries from Stripe are skipped before any state mutations. Multi-instance safe when Redis is configured
+- **Reanalysis worker processes in streaming chunks**: The bulk reanalysis worker fetches and processes calls in 200-call chunks, discarding each chunk before fetching the next, to prevent OOM on large orgs. Progress reporting is approximate for the "all calls" path
 - **AI response validation**: `parseJsonResponse()` in `ai-provider.ts` clamps `performanceScore` to 0-10, sentiment scores to 0-1, sub-scores to 0-10, and validates all field types. Missing fields get safe defaults (5.0 for scores, "neutral" for sentiment). `normalizeAnalysis()` in `storage/types.ts` also clamps on read
 - **Empty transcript handling**: If transcript text is <10 characters, the pipeline saves the call with `empty_transcript` flag, low confidence, and skips AI analysis entirely — prevents generating junk analysis from silence/noise
 - **Employee auto-assignment safety**: Only considers active employees. If multiple employees match the detected name, prefers exact full-name match; skips assignment if ambiguous (logs the ambiguity)
@@ -1501,7 +1517,7 @@ Server serves both API and static frontend from the same process.
 - **GDPR purge is irreversible**: `deleteOrgData()` deletes employees, calls, and users but preserves the org record (status=deleted) for audit trail. The session is destroyed immediately after purge. Backups should be the recovery path
 - **AssemblyAI webhook verification**: `POST /api/webhooks/assemblyai` checks `X-Assembly-Webhook-Token` header against `ASSEMBLYAI_WEBHOOK_SECRET` (falls back to `SESSION_SECRET`). Register this endpoint as the webhook URL in your AssemblyAI account
 - **SCIM `listOrganizations()` scan**: SCIM auth scans all orgs to match the token hash. This is fine at current scale. For >1000 orgs, add a dedicated `scim_token_hash` index on the `organizations` table.
-- **OIDC state map is in-memory**: OIDC `state` → `{ orgSlug, nonce, expiresAt }` entries expire after 10 minutes and are purged every 5 minutes. In a multi-instance deployment, OIDC state must be moved to Redis (otherwise state from one instance won't be found by another).
+- **OIDC state uses Redis when available**: OIDC `state` → `{ orgSlug, nonce }` is stored via `ephemeralSet`/`ephemeralConsume` from `redis.ts`, which uses Redis when available and falls back to in-memory. 10-minute TTL. Multi-instance safe when Redis is configured.
 - **JWKS cache is in-memory per instance**: The `jwksCache` Map caches IDP public keys for 1 hour. Multi-instance deployments each maintain their own cache — this is fine since JWKS is public.
 - **WebAuthn rpID must match origin**: The `rpID` (relying party ID) in WebAuthn is derived from the hostname (e.g. `observatory-qa.com`). It must match what the browser sees. In development, `localhost` works. Behind a reverse proxy, ensure the correct hostname is used. The `expectedOrigin` (full URL) must also match exactly.
 - **WebAuthn challenge stored in session**: `req.session.webauthnChallenge` holds the current registration or authentication challenge. Sessions must be persistent (Redis or DB-backed) across the two WebAuthn round-trips. In-memory sessions will lose the challenge.
@@ -1959,7 +1975,7 @@ See earlier sections in this file for full details of prior work on this branch.
 - **LMS progress upsert** — `pg-storage-features.ts`: `INSERT ON CONFLICT DO UPDATE` replaces race-prone select-then-insert
 
 **Data integrity & correctness:**
-- **Org cache invalidation** — `admin.ts`, `super-admin.ts`, `admin-security.routes.ts`: `invalidateOrgCache()` after all 7 `updateOrganization()` call sites (closes 30s authorization bypass after suspension)
+- **Org cache invalidation** — `admin.ts`, `super-admin.ts`, `admin-security.routes.ts`, `billing.ts`, `ehr.ts`, `clinical.ts`, `clinical-analytics.routes.ts`, `gamification.ts`, `spend-tracking.ts`: `invalidateOrgCache()` after `updateOrganization()` call sites that change settings read by other middleware. Note: some low-impact settings updates (onboarding branding, edit pattern insights) do not invalidate cache — settings changes take effect after 30s TTL
 - **Upload lock release** — `helpers.ts` + `calls.ts`: explicit `releaseUploadLock()` after `createCall()` success (was waiting for 30s TTL)
 - **MemStorage audio cap** — `memory.ts`: 200-entry FIFO cap on audioFiles Map (prevents OOM in dev)
 - **Auto-assignment** — `call-processing.ts`: require explicit `status === "Active"` (missing status no longer treated as active)
@@ -2129,7 +2145,7 @@ Longer-term improvements identified during codebase audits. Work on these increm
 | ✅ Done | **deleteOrgData completeness** | — | — | `claude/audit-and-prioritize-GydTL` — added 11 missing tables to GDPR deletion |
 | ✅ Done | **Dead BAA table removal** | — | — | `claude/audit-and-prioritize-GydTL` — removed unused baaRecords Drizzle definition |
 | LOW | **290 ESLint `no-unused-vars` warnings** | 1 day | Low — reduces CI noise | Spread across ~100 files, mostly unused function params. Prefix with `_` or remove. Can be done incrementally. Sprint 3+ |
-| LOW | **OIDC state persistence** | 1 day | Low until multi-instance | OIDC state map is in-memory. Multi-instance deployments need Redis-backed state. Only relevant when scaling to >1 server. Sprint 3+ |
+| ✅ Done | **OIDC state persistence** | — | — | `claude/update-command-files-mjbzv` — already uses `ephemeralSet`/`ephemeralConsume` from redis.ts (Redis with in-memory fallback) |
 | LOW | **UUID validation on remaining routes** | 1 day | Low — defense-in-depth | validateUUIDParam added to critical PHI routes. ~30 non-PHI routes still missing. Add incrementally. Sprint 3+ |
 | LOW | **Scores as VARCHAR→NUMERIC migration** | 2 days | Medium — eliminates parse/cast overhead | performanceScore, confidenceScore, talkTimeRatio, responseTime stored as VARCHAR(20) but always used as numbers. Would require Drizzle migration + update all comparison/sort code. High risk, defer unless performance bottleneck proven. Sprint 4+ |
 
@@ -2139,7 +2155,7 @@ Longer-term improvements identified during codebase audits. Work on these increm
 | ✅ Done | **Session invalidation after password reset** | — | — | `claude/audit-and-prioritize-GydTL` — new `invalidateUserSessions()` utility in redis.ts; called from password-reset and admin password-change; refactored admin.ts from 30 lines inline to 4-line utility call |
 | ✅ Done | **Invitation token hashing** | — | — | `claude/audit-and-prioritize-GydTL` — SHA-256 hash before storage; tokenPrefix for admin display; backward-compatible plaintext fallback for 7-day expiry window |
 | ✅ Done | **CSRF on direct fetch() calls** | — | — | `claude/audit-and-prioritize-GydTL` — new `csrfFetch()` utility in queryClient.ts; migrated 15 client files (40+ fetch calls) from raw fetch() to csrfFetch() |
-| MEDIUM | **Account lockout eviction** | 0.5 days | Medium — brute-force mitigation gap | `loginAttempts` map evicts oldest entry when full; attacker floods with unique usernames to evict target's lockout tracking. Fix: use username hash + IP composite key, or move to Redis sorted set. Sprint 2 |
+| ✅ Done | **Account lockout eviction** | — | — | `claude/update-command-files-mjbzv` — eviction now skips locked accounts and evicts most stale unlocked entry. Full Redis migration still recommended for multi-instance deployments |
 | MEDIUM | **Session absolute max configurable** | 0.5 days | Medium — NIST compliance | 8-hour absolute max exceeds NIST 4-6h recommendation for healthcare. Make configurable per-org via org settings (default 6h). Sprint 2 |
 | MEDIUM | **CSP `unsafe-inline` for styles** | 5 days | Medium — prevents CSS injection | Required by Recharts inline styles + Framer Motion transforms. Fix: extract Recharts styles to CSS classes, use Framer Motion's CSS transform option. Large effort due to chart component refactoring. Sprint 3+ |
 | ✅ Done | **CSRF bypass via x-api-key** | — | — | `claude/audit-and-prioritize-GydTL` — now requires `Bearer obs_k_` prefix |
@@ -2182,7 +2198,7 @@ Longer-term improvements identified during codebase audits. Work on these increm
 ### DevOps / Infrastructure
 | Priority | Item | Effort | Impact | Notes |
 |----------|------|--------|--------|-------|
-| HIGH | **Move in-memory state to Redis** | 3 days | High — enables multi-instance | 7+ in-memory Maps lose state on restart/across instances: OIDC state (mfa.ts), email OTP (mfa.ts), live sessions (live-session.ts), loginAttempts (auth.ts), rateLimitMap (index.ts). Fix: use Redis with TTL keys. Required before horizontal scaling. Sprint 1-2 |
+| HIGH | **Move in-memory state to Redis** | 2 days | High — enables multi-instance | 3 remaining in-memory Maps lose state on restart/across instances: email OTP (mfa.ts), live sessions (live-session.ts), rateLimitMap (index.ts). OIDC state, loginAttempts, and Stripe webhook dedup are already migrated to Redis ephemeral API. Sprint 1-2 |
 | HIGH | **Pin CI actions to SHA** | 0.5 days | High — supply chain security | Main CI workflow uses floating tags (`@v4`). Nightly/PR-review correctly pin SHAs. Fix: pin all actions to SHA digests. Sprint 1 |
 | HIGH | **Backup script PHI safety** | 0.5 days | High — HIPAA compliance | `deploy/ec2/backup.sh` stores dumps in `/tmp` (world-readable) before S3 upload. Fix: use `mktemp -d` with 700 permissions, cleanup on exit trap. Sprint 1 |
 | MEDIUM | **Dependency audit on PRs** | 0.5 days | Medium — vulnerability detection | Weekly-only check; critical vulns can ship for days. Fix: add `npm audit --audit-level=high` to PR review workflow. Sprint 2 |

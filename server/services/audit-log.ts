@@ -472,6 +472,10 @@ async function persistAuditEntry(entry: AuditEntry & { timestamp: string }): Pro
         integrityHash,
         prevHash: state.prevHash,
         sequenceNum: nextSeq,
+        // Explicitly set createdAt to the application timestamp used in hash computation.
+        // Without this, PostgreSQL's defaultNow() produces a different timestamp than
+        // entry.timestamp, causing verifyAuditChain() to fail hash recomputation.
+        createdAt: new Date(entry.timestamp),
       });
 
       // Update chain state (evict oldest if at capacity)

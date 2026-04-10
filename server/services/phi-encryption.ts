@@ -39,8 +39,8 @@ function getKey(): Buffer | null {
   const keyHex = process.env.PHI_ENCRYPTION_KEY;
   if (!keyHex) return null;
 
-  if (keyHex.length !== 64) {
-    logger.error("PHI_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes)");
+  if (keyHex.length !== 64 || !/^[0-9a-fA-F]{64}$/.test(keyHex)) {
+    logger.error("PHI_ENCRYPTION_KEY must be exactly 64 valid hex characters (0-9, a-f). Invalid characters will silently truncate the key.");
     return null;
   }
 
@@ -62,8 +62,8 @@ function getPrevKey(): Buffer | null {
     return null;
   }
 
-  if (keyHex.length !== 64) {
-    logger.error("PHI_ENCRYPTION_KEY_PREV must be exactly 64 hex characters (32 bytes)");
+  if (keyHex.length !== 64 || !/^[0-9a-fA-F]{64}$/.test(keyHex)) {
+    logger.error("PHI_ENCRYPTION_KEY_PREV must be exactly 64 valid hex characters (0-9, a-f).");
     prevEncryptionKey = null;
     return null;
   }
@@ -224,6 +224,16 @@ export function decryptClinicalNotePhi(
   for (const field of PHI_FIELDS) {
     if (typeof cn[field] === "string" && (cn[field] as string).startsWith("enc_v1:")) {
       cn[field] = decryptField(cn[field] as string);
+      decryptedCount++;
+    }
+  }
+
+  // Decrypt nested cosignature fields — cosignedNpi is stored inside cn.cosignature object,
+  // not as a top-level field on cn, so the PHI_FIELDS loop above won't reach it.
+  const cosignature = cn.cosignature as Record<string, unknown> | undefined;
+  if (cosignature && typeof cosignature === "object") {
+    if (typeof cosignature.cosignedNpi === "string" && (cosignature.cosignedNpi as string).startsWith("enc_v1:")) {
+      cosignature.cosignedNpi = decryptField(cosignature.cosignedNpi as string);
       decryptedCount++;
     }
   }

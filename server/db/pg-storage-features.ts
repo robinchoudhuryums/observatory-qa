@@ -398,7 +398,7 @@ P.awardBadge = async function(orgId: string, badge: Omit<EmployeeBadge, "id">): 
       }
       throw e;
     }
-    return { ...badge, id };
+    return { ...badge, id, awardedAt: badge.awardedAt || new Date().toISOString() };
   }
 
 P.getGamificationProfile = async function(orgId: string, employeeId: string) {

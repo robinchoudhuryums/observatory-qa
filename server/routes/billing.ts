@@ -3,10 +3,11 @@
  */
 import type { Express, Request, Response, NextFunction } from "express";
 import { storage } from "../storage";
-import { requireAuth, requireRole, injectOrgContext } from "../auth";
+import { requireAuth, requireRole, injectOrgContext, invalidateOrgCache } from "../auth";
 import { asyncHandler } from "../middleware/error-handler";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
+import { ephemeralSet, ephemeralGet } from "../services/redis";
 import {
   getStripe,
   isStripeConfigured,
@@ -81,10 +82,8 @@ export function enforceQuota(eventType: "transcription" | "ai_analysis" | "api_c
 
       next();
     } catch (error) {
-      // Fail open for transient errors, but track consecutive failures.
-      // In production with sustained failures, this could allow unbounded usage.
-      logger.error({ err: error, orgId, eventType }, "Quota check failed — allowing request (fail-open)");
-      next();
+      logger.error({ err: error, orgId, eventType }, "Quota check failed — blocking request (fail-closed)");
+      return res.status(503).json({ message: "Unable to verify quota. Please try again.", code: "QUOTA_CHECK_FAILED" });
     }
   };
 }
@@ -118,7 +117,8 @@ export function enforceUserQuota() {
 
       next();
     } catch (error) {
-      next();
+      logger.error({ err: error, orgId }, "User quota check failed — blocking request (fail-closed)");
+      return res.status(503).json({ message: "Unable to verify user quota. Please try again.", code: "QUOTA_CHECK_FAILED" });
     }
   };
 }
@@ -151,14 +151,17 @@ export function requirePlanFeature(feature: keyof import("@shared/schema").PlanL
       }
       next();
     } catch (err) {
-      logger.warn({ err }, "Plan feature check failed, failing open");
-      next(); // Fail open
+      logger.error({ err, orgId }, "Plan feature check failed — blocking request (fail-closed)");
+      return res.status(503).json({ message: "Unable to verify plan features. Please try again.", code: "PLAN_CHECK_FAILED" });
     }
   };
 }
 
 /** Grace period after a payment failure before hard-blocking the account (days) */
 const DUNNING_GRACE_PERIOD_DAYS = 7;
+
+/** Stripe webhook idempotency TTL — events older than this are no longer deduplicated. */
+const WEBHOOK_DEDUP_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /**
  * Middleware to block requests when subscription is past_due or canceled.
@@ -216,8 +219,8 @@ export function requireActiveSubscription() {
 
       next();
     } catch (err) {
-      logger.warn({ err }, "Active subscription check failed, failing open");
-      next(); // Fail open
+      logger.error({ err, orgId }, "Subscription check failed — blocking request (fail-closed)");
+      return res.status(503).json({ message: "Unable to verify subscription status. Please try again.", code: "SUBSCRIPTION_CHECK_FAILED" });
     }
   };
 }
@@ -649,6 +652,7 @@ export function registerBillingRoutes(app: Express): void {
         },
       };
       await storage.updateOrganization(req.orgId!, { settings: updatedSettings as any });
+      invalidateOrgCache(req.orgId!);
       logger.info({ orgId: req.orgId, enabled, quotaThresholdPct }, "Billing alerts updated");
       res.json({ success: true, billingAlerts: updatedSettings.billingAlerts });
   }));
@@ -705,6 +709,17 @@ export function registerBillingRoutes(app: Express): void {
       logger.error({ err }, "Webhook signature verification failed");
       return res.status(400).json({ message: "Invalid webhook signature" });
     }
+
+    // Idempotency: Stripe can redeliver events. Track processed event IDs
+    // via Redis (cross-instance) with in-memory fallback (single-instance).
+    // Uses ephemeralGet/Set which auto-selects Redis when available.
+    const dedupKey = event.id;
+    const alreadyProcessed = await ephemeralGet("stripe-webhook", dedupKey);
+    if (alreadyProcessed) {
+      logger.info({ eventId: event.id, type: event.type }, "Stripe webhook: duplicate event skipped");
+      return res.json({ received: true, duplicate: true });
+    }
+    await ephemeralSet("stripe-webhook", dedupKey, "1", WEBHOOK_DEDUP_TTL_MS);
 
     try {
       switch (event.type) {
@@ -785,9 +800,13 @@ export function registerBillingRoutes(app: Express): void {
           const orgId = stripeSub.metadata?.orgId;
           if (!orgId) break;
 
-          const priceId = stripeSub.items?.data?.[0]?.price?.id;
+          // Find the flat-rate item (not metered) — same logic as checkout.session.completed.
+          // Using items.data[0] is wrong when metered items (seats, overage) exist.
+          const subItems: any[] = stripeSub.items?.data || [];
+          const flatItem = subItems.find((i: any) => i.price?.recurring?.usage_type !== "metered") || subItems[0];
+          const priceId = flatItem?.price?.id;
           const tier = resolveTierFromPriceId(priceId);
-          const interval = stripeSub.items?.data?.[0]?.price?.recurring?.interval === "year" ? "yearly" : "monthly";
+          const interval = flatItem?.price?.recurring?.interval === "year" ? "yearly" : "monthly";
 
           const statusMap: Record<string, string> = {
             active: "active",
@@ -825,6 +844,7 @@ export function registerBillingRoutes(app: Express): void {
           // Suspend org access on subscription cancellation — enforced by injectOrgContext gate.
           // Admins can contact support to reactivate or resubscribe.
           await storage.updateOrganization(orgId, { status: "suspended" } as any);
+          invalidateOrgCache(orgId);
           logger.info({ orgId }, "Subscription canceled — org suspended, reverted to free");
           break;
         }

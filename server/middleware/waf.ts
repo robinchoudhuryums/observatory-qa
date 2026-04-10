@@ -22,6 +22,7 @@ const MAX_TRACKED_IPS = 10_000; // Prevent unbounded memory growth
 // --- Attack pattern regexes ---
 const SQL_INJECTION_PATTERNS = [
   /(\b(union|select|insert|update|delete|drop|alter|create|exec|execute)\b.*\b(from|into|table|database|where|set)\b)/i,
+  /\bunion\b\s+\bselect\b/i, // UNION SELECT (standalone, no clause keyword required)
   /(\b(or|and)\b\s+\d+\s*=\s*\d+)/i, // OR 1=1 / AND 1=1
   /(--|#|\/\*)\s/, // SQL comments
   /;\s*(drop|delete|update|insert|alter)\b/i, // Chained destructive statements
@@ -134,7 +135,13 @@ function checkPatterns(value: string, patterns: RegExp[]): boolean {
 function scanRequest(req: Request): { reason: string; points: number } | null {
   let url: string;
   try {
-    url = decodeURIComponent(req.originalUrl || req.url);
+    // Recursive decode to catch double/triple-encoding bypass (e.g., %252e%252e → %2e%2e → ..)
+    url = req.originalUrl || req.url;
+    for (let i = 0; i < 3; i++) {
+      const decoded = decodeURIComponent(url);
+      if (decoded === url) break; // No further decoding possible
+      url = decoded;
+    }
   } catch {
     // Malformed percent-encoding (e.g., %GG) — use raw URL and flag as suspicious
     url = req.originalUrl || req.url;

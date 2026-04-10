@@ -262,7 +262,7 @@ export function registerSuperAdminRoutes(app: Express): void {
         return res.status(400).json({ message: "username is required", code: "OBS-VALID-001" });
       }
 
-      unlockAccount(username);
+      await unlockAccount(username);
 
       logPhiAccess({
         ...auditContext(req),

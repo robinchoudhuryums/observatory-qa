@@ -79,7 +79,9 @@ const CALL_ANALYSIS_INJECTION_PATTERNS: Array<{ regex: RegExp; label: string }> 
  * Also normalizes Cyrillic lookalikes to Latin equivalents.
  */
 function normalizeForDetection(input: string): string {
-  let normalized = input.normalize("NFKD").replace(/[\u0300-\u036f]/g, ""); // Strip combining diacritical marks
+  // Strip zero-width characters that can break keyword matching (e.g., "i\u200Bgnore" → "ignore")
+  let normalized = input.replace(/[\u200B\u200C\u200D\uFEFF\u00AD\u2060\u180E]/g, "");
+  normalized = normalized.normalize("NFKD").replace(/[\u0300-\u036f]/g, ""); // Strip combining diacritical marks
   // Cyrillic lookalike substitution
   const cyrillicMap: Record<string, string> = { 'а': 'a', 'е': 'e', 'і': 'i', 'о': 'o', 'р': 'p', 'с': 'c', 'у': 'y', 'х': 'x' };
   normalized = normalized.replace(/[\u0400-\u04FF]/g, (ch) => cyrillicMap[ch.toLowerCase()] || ch);
