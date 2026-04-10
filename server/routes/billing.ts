@@ -7,6 +7,7 @@ import { requireAuth, requireRole, injectOrgContext, invalidateOrgCache } from "
 import { asyncHandler } from "../middleware/error-handler";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
+import { ephemeralSet, ephemeralGet } from "../services/redis";
 import {
   getStripe,
   isStripeConfigured,
@@ -159,11 +160,8 @@ export function requirePlanFeature(feature: keyof import("@shared/schema").PlanL
 /** Grace period after a payment failure before hard-blocking the account (days) */
 const DUNNING_GRACE_PERIOD_DAYS = 7;
 
-/** Stripe webhook idempotency: track processed event IDs to prevent double-processing.
- *  In multi-instance deployments, move this to Redis for cross-instance dedup. */
-const processedWebhookEvents = new Map<string, number>();
+/** Stripe webhook idempotency TTL — events older than this are no longer deduplicated. */
 const WEBHOOK_DEDUP_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-const WEBHOOK_DEDUP_MAX_SIZE = 10_000;
 
 /**
  * Middleware to block requests when subscription is past_due or canceled.
@@ -713,19 +711,15 @@ export function registerBillingRoutes(app: Express): void {
     }
 
     // Idempotency: Stripe can redeliver events. Track processed event IDs
-    // to prevent double-processing (e.g., re-suspending a reactivated org).
-    if (processedWebhookEvents.has(event.id)) {
+    // via Redis (cross-instance) with in-memory fallback (single-instance).
+    // Uses ephemeralGet/Set which auto-selects Redis when available.
+    const dedupKey = event.id;
+    const alreadyProcessed = await ephemeralGet("stripe-webhook", dedupKey);
+    if (alreadyProcessed) {
       logger.info({ eventId: event.id, type: event.type }, "Stripe webhook: duplicate event skipped");
       return res.json({ received: true, duplicate: true });
     }
-    processedWebhookEvents.set(event.id, Date.now());
-    // Prune old entries every 100 events to prevent unbounded growth
-    if (processedWebhookEvents.size > WEBHOOK_DEDUP_MAX_SIZE) {
-      const cutoff = Date.now() - WEBHOOK_DEDUP_TTL_MS;
-      for (const [id, ts] of Array.from(processedWebhookEvents)) {
-        if (ts < cutoff) processedWebhookEvents.delete(id);
-      }
-    }
+    await ephemeralSet("stripe-webhook", dedupKey, "1", WEBHOOK_DEDUP_TTL_MS);
 
     try {
       switch (event.type) {

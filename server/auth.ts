@@ -7,7 +7,7 @@ import { promisify } from "util";
 import type { Express, Request, Response, NextFunction, RequestHandler } from "express";
 import { logPhiAccess } from "./services/audit-log";
 import { storage } from "./storage";
-import { createRedisSessionStore } from "./services/redis";
+import { createRedisSessionStore, ephemeralSet, ephemeralGet, ephemeralDel } from "./services/redis";
 import { logger } from "./services/logger";
 
 const scryptAsync = promisify(scrypt) as (
@@ -17,88 +17,67 @@ const scryptAsync = promisify(scrypt) as (
   options?: { N?: number; r?: number; p?: number; maxmem?: number },
 ) => Promise<Buffer>;
 
-// HIPAA: Login attempt tracking for account lockout
+// HIPAA: Login attempt tracking for account lockout.
+// Uses Redis (via ephemeralSet/ephemeralGet) when available for cross-instance
+// consistency. Falls back to in-memory automatically when Redis is unavailable.
+// Redis keys auto-expire via TTL — no manual cleanup or eviction needed.
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
-// Hard cap prevents a bot flooding with unique usernames from exhausting memory
-// between the 5-minute cleanup cycles.
-const MAX_LOGIN_ATTEMPTS_ENTRIES = 10_000;
-const loginAttempts = new Map<string, { count: number; lastAttempt: number; lockedUntil?: number }>();
+const LOGIN_ATTEMPT_TTL_MS = LOCKOUT_DURATION_MS * 2; // Auto-expire stale entries
+const LOGIN_ATTEMPT_PREFIX = "login-attempts";
 
-// Prune expired lockout entries every 5 minutes to prevent unbounded memory growth
-setInterval(
-  () => {
-    const now = Date.now();
-    for (const [key, record] of Array.from(loginAttempts)) {
-      // Remove entries whose lockout has expired, or that are stale (no activity for 2x lockout window)
-      const expiry = record.lockedUntil || record.lastAttempt + LOCKOUT_DURATION_MS * 2;
-      if (now > expiry) loginAttempts.delete(key);
-    }
-  },
-  5 * 60 * 1000,
-).unref();
+interface LoginAttemptRecord {
+  count: number;
+  lastAttempt: number;
+  lockedUntil?: number;
+}
 
-function isAccountLocked(username: string): boolean {
-  const record = loginAttempts.get(username);
-  if (!record?.lockedUntil) return false;
-  if (Date.now() > record.lockedUntil) {
-    // Lockout expired — reset
-    loginAttempts.delete(username);
-    return false;
+async function getLoginRecord(username: string): Promise<LoginAttemptRecord | null> {
+  const json = await ephemeralGet(LOGIN_ATTEMPT_PREFIX, username);
+  if (!json) return null;
+  try {
+    return JSON.parse(json) as LoginAttemptRecord;
+  } catch {
+    return null;
   }
+}
+
+async function setLoginRecord(username: string, record: LoginAttemptRecord): Promise<void> {
+  // TTL: if locked, keep until lockout expires + buffer; otherwise 2x lockout window
+  const ttl = record.lockedUntil
+    ? Math.max(record.lockedUntil - Date.now() + 60_000, LOGIN_ATTEMPT_TTL_MS)
+    : LOGIN_ATTEMPT_TTL_MS;
+  await ephemeralSet(LOGIN_ATTEMPT_PREFIX, username, JSON.stringify(record), ttl);
+}
+
+async function isAccountLocked(username: string): Promise<boolean> {
+  const record = await getLoginRecord(username);
+  if (!record?.lockedUntil) return false;
+  if (Date.now() > record.lockedUntil) return false;
   return true;
 }
 
-function recordFailedAttempt(username: string): void {
-  // If the map is at capacity and this is a new key, evict an entry.
-  // IMPORTANT: Never evict locked accounts — an attacker flooding unique usernames
-  // must not push out real lockout entries. Evict only unlocked (stale) entries.
-  if (!loginAttempts.has(username) && loginAttempts.size >= MAX_LOGIN_ATTEMPTS_ENTRIES) {
-    const now = Date.now();
-    let evictKey: string | undefined;
-    let evictAge = 0;
-    for (const [key, record] of loginAttempts) {
-      // Skip locked accounts — never evict these
-      if (record.lockedUntil && now < record.lockedUntil) continue;
-      // Among unlocked entries, pick the oldest (most stale)
-      const age = now - record.lastAttempt;
-      if (age > evictAge) {
-        evictAge = age;
-        evictKey = key;
-      }
-    }
-    // If all entries are locked (extremely unlikely), evict the one closest to expiry
-    if (!evictKey) {
-      let soonestExpiry = Infinity;
-      for (const [key, record] of loginAttempts) {
-        if (record.lockedUntil && record.lockedUntil < soonestExpiry) {
-          soonestExpiry = record.lockedUntil;
-          evictKey = key;
-        }
-      }
-    }
-    if (evictKey) loginAttempts.delete(evictKey);
-  }
-  const record = loginAttempts.get(username) || { count: 0, lastAttempt: 0 };
+async function recordFailedAttempt(username: string): Promise<void> {
+  const record = (await getLoginRecord(username)) || { count: 0, lastAttempt: 0 };
   record.count++;
   record.lastAttempt = Date.now();
   if (record.count >= MAX_FAILED_ATTEMPTS) {
     record.lockedUntil = Date.now() + LOCKOUT_DURATION_MS;
     logger.warn({ username, failedAttempts: record.count }, "Account locked after excessive failed attempts");
   }
-  loginAttempts.set(username, record);
+  await setLoginRecord(username, record);
 }
 
 /**
  * Break-glass: immediately clear a locked account so the user can log in again.
  * Called by the super-admin unlock endpoint. Emits a HIPAA audit entry.
  */
-export function unlockAccount(username: string): void {
-  loginAttempts.delete(username);
+export async function unlockAccount(username: string): Promise<void> {
+  await ephemeralDel(LOGIN_ATTEMPT_PREFIX, username);
 }
 
-function clearFailedAttempts(username: string): void {
-  loginAttempts.delete(username);
+async function clearFailedAttempts(username: string): Promise<void> {
+  await ephemeralDel(LOGIN_ATTEMPT_PREFIX, username);
 }
 
 /**
@@ -359,7 +338,7 @@ export async function setupAuth(app: Express) {
         const userAgent = req.headers["user-agent"];
         try {
           // HIPAA: Check account lockout before attempting authentication
-          if (isAccountLocked(username)) {
+          if (await isAccountLocked(username)) {
             logPhiAccess({
               event: "login_locked",
               username,
@@ -376,7 +355,7 @@ export async function setupAuth(app: Express) {
           if (envUser) {
             const isValid = await comparePasswords(password, envUser.passwordHash);
             if (!isValid) {
-              recordFailedAttempt(username);
+              await recordFailedAttempt(username);
               logPhiAccess({ event: "login_failed", username, resourceType: "auth", ip, userAgent });
               return done(null, false, { message: "Invalid username or password" });
             }
@@ -388,7 +367,7 @@ export async function setupAuth(app: Express) {
               }
             }
 
-            clearFailedAttempts(username);
+            await clearFailedAttempts(username);
             logPhiAccess({
               event: "login_success",
               orgId: envUser.orgId,
@@ -440,14 +419,14 @@ export async function setupAuth(app: Express) {
           }
 
           if (!dbUser) {
-            recordFailedAttempt(username);
+            await recordFailedAttempt(username);
             logPhiAccess({ event: "login_failed", username, resourceType: "auth" });
             return done(null, false, { message: "Invalid username or password" });
           }
 
           const isValid = await comparePasswords(password, dbUser.passwordHash);
           if (!isValid) {
-            recordFailedAttempt(username);
+            await recordFailedAttempt(username);
             logPhiAccess({ event: "login_failed", username, resourceType: "auth" });
             return done(null, false, { message: "Invalid username or password" });
           }
