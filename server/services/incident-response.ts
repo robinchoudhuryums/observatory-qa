@@ -525,6 +525,16 @@ export async function sendBreachNotificationEmails(
     throw new Error("Breach report not found");
   }
 
+  // Idempotency guard: if individuals have already been notified, don't send again.
+  // Prevents duplicate HIPAA breach notifications on retry or accidental re-invocation.
+  if (report.notificationStatus === "individuals_notified" || report.notificationStatus === "complete") {
+    logger.warn(
+      { orgId, breachId: reportId, status: report.notificationStatus },
+      "Breach notification already sent — skipping duplicate to prevent double-notification",
+    );
+    return 0;
+  }
+
   const { sendEmail } = await import("./email");
 
   let sentCount = 0;

@@ -72,6 +72,18 @@ export function registerRegistrationRoutes(app: Express): void {
         });
       }
 
+      // Block reserved slugs that could collide with API route prefixes or system paths
+      const RESERVED_SLUGS = [
+        "api", "admin", "auth", "billing", "health", "static", "assets",
+        "login", "logout", "register", "callback", "webhook", "webhooks",
+        "sso", "scim", "oauth", "mfa", "system", "super-admin", "internal",
+      ];
+      if (RESERVED_SLUGS.includes(orgSlug)) {
+        return res.status(400).json({
+          message: `"${orgSlug}" is a reserved name and cannot be used as an organization slug`,
+        });
+      }
+
       // Validate industryType against allowed values
       const VALID_INDUSTRIES = ["general", "dental", "medical", "behavioral_health", "veterinary"];
       if (industryType && !VALID_INDUSTRIES.includes(industryType)) {
