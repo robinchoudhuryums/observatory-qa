@@ -51,6 +51,19 @@ const MAX_AUDIO_CHUNK_SIZE = 200_000; // ~200KB per chunk (base64)
 const AUDIO_RATE_LIMIT_MS = 100; // Max 10 chunks/second per session
 const audioLastSent = new Map<string, number>();
 
+// Continuous clinical-scribe mode: automatically regenerate draft note as new final segments arrive.
+// Client opts in at session creation via { continuousDraftMode: true }.
+const sessionContinuousMode = new Map<string, boolean>();
+// Track new-segment count since last auto-draft per session — we trigger an auto-draft every
+// CONTINUOUS_DRAFT_SEGMENT_THRESHOLD new final segments OR CONTINUOUS_DRAFT_INTERVAL_MS elapsed.
+const sessionSegmentsSinceDraft = new Map<string, number>();
+const sessionLastAutoDraftAt = new Map<string, number>();
+// Flag: auto-draft is currently in flight for this session (prevents overlapping AI calls)
+const sessionAutoDraftInFlight = new Map<string, boolean>();
+const CONTINUOUS_DRAFT_SEGMENT_THRESHOLD = 3; // Draft every 3 new final segments
+const CONTINUOUS_DRAFT_INTERVAL_MS = 20_000; // Or every 20s, whichever comes first
+const CONTINUOUS_MIN_TRANSCRIPT_CHARS = 40; // Don't attempt a draft below this
+
 /**
  * Clean up an orphaned or expired session.
  */
@@ -81,6 +94,10 @@ async function cleanupSession(sessionId: string) {
   sessionStartTimes.delete(sessionId);
   sessionOrgIds.delete(sessionId);
   audioLastSent.delete(sessionId);
+  sessionContinuousMode.delete(sessionId);
+  sessionSegmentsSinceDraft.delete(sessionId);
+  sessionLastAutoDraftAt.delete(sessionId);
+  sessionAutoDraftInFlight.delete(sessionId);
   logger.info({ sessionId }, "Cleaned up orphaned/expired live session");
 }
 
@@ -105,6 +122,20 @@ const cleanupInterval = setInterval(
   5 * 60 * 1000,
 );
 cleanupInterval.unref(); // Don't prevent process exit
+
+// Time-based trigger for continuous clinical-scribe mode: scan sessions every 5 seconds
+// and fire maybeTriggerAutoDraft so that idle sessions (no new segments for a while)
+// still get refreshed drafts. The per-session guards inside maybeTriggerAutoDraft
+// enforce the actual trigger logic (segment-count OR time threshold).
+const continuousDraftInterval = setInterval(() => {
+  for (const [sessionId, enabled] of Array.from(sessionContinuousMode)) {
+    if (!enabled) continue;
+    const orgId = sessionOrgIds.get(sessionId);
+    if (!orgId) continue;
+    maybeTriggerAutoDraft(sessionId, orgId);
+  }
+}, 5_000);
+continuousDraftInterval.unref();
 
 /**
  * Encrypt PHI fields in a clinical note object.
@@ -214,6 +245,119 @@ async function buildClinicalTemplateConfig(
 }
 
 /**
+ * Generate a draft clinical note from the accumulated transcript for a session.
+ * Extracted as a shared helper so both the manual /draft-note endpoint and the
+ * continuous-mode auto-draft loop can use the same pipeline.
+ *
+ * Returns { displayNote, encryptedNote } on success, or null when there is not
+ * enough transcript or the AI provider doesn't produce a clinical_note.
+ */
+async function generateDraftNoteForSession(
+  orgId: string,
+  sessionId: string,
+  userId: string,
+): Promise<{ displayNote: ClinicalNote; encryptedNote: ClinicalNote } | null> {
+  const session = await storage.getLiveSession(orgId, sessionId);
+  if (!session) return null;
+
+  const segments = sessionTranscripts.get(sessionId) || [];
+  const fullTranscript = segments.join(" ").trim();
+  if (fullTranscript.length < CONTINUOUS_MIN_TRANSCRIPT_CHARS) return null;
+
+  const org = await storage.getOrganization(orgId);
+  const orgSettings = (org?.settings || null) as OrgSettings | null;
+
+  const templateConfig = await buildClinicalTemplateConfig(
+    orgId,
+    userId,
+    session.encounterType || "clinical_encounter",
+    session.noteFormat,
+  );
+
+  const draftTranscript = `[LIVE RECORDING - IN PROGRESS]\n\n${fullTranscript}\n\n[Note: This is a partial recording. Generate a draft note based on available information. Mark any sections with insufficient data as "Pending - encounter in progress".]`;
+  const provider = getOrgAIProvider(orgId, orgSettings);
+  const result = await provider.analyzeCallTranscript(
+    draftTranscript,
+    sessionId,
+    session.encounterType,
+    templateConfig,
+  );
+
+  const parsed = parseJsonResponse(JSON.stringify(result), sessionId);
+  const draftNoteRaw = parsed.clinical_note || null;
+  if (!draftNoteRaw) return null;
+
+  const encryptedRaw = encryptNotePhi(draftNoteRaw as Record<string, unknown>);
+  const encryptedNote = toClinicalNoteForStorage(encryptedRaw, session.noteFormat || "soap");
+  const displayNote = toClinicalNoteForStorage(
+    draftNoteRaw as Record<string, unknown>,
+    session.noteFormat || "soap",
+  );
+
+  await storage.updateLiveSession(orgId, sessionId, {
+    draftClinicalNote: encryptedNote,
+    transcriptText: fullTranscript,
+    durationSeconds: Math.round(
+      (Date.now() - new Date(session.startedAt || Date.now()).getTime()) / 1000,
+    ),
+  });
+
+  return { displayNote, encryptedNote };
+}
+
+/**
+ * Trigger an auto-draft for a continuous-mode session. Fire-and-forget — errors are
+ * logged but never propagated to the realtime transcript callback (which must stay
+ * responsive). Skips if another auto-draft is already in flight for this session.
+ */
+function maybeTriggerAutoDraft(sessionId: string, orgId: string): void {
+  if (!sessionContinuousMode.get(sessionId)) return;
+  if (sessionAutoDraftInFlight.get(sessionId)) return;
+
+  const segmentsSince = sessionSegmentsSinceDraft.get(sessionId) || 0;
+  const lastDraftAt = sessionLastAutoDraftAt.get(sessionId) || 0;
+  const timeSinceLast = Date.now() - lastDraftAt;
+  const segmentTrigger = segmentsSince >= CONTINUOUS_DRAFT_SEGMENT_THRESHOLD;
+  const timeTrigger = timeSinceLast >= CONTINUOUS_DRAFT_INTERVAL_MS && segmentsSince > 0;
+  if (!segmentTrigger && !timeTrigger) return;
+
+  sessionAutoDraftInFlight.set(sessionId, true);
+  // Reset counters BEFORE the async call so new segments during this draft are
+  // counted against the next threshold and won't re-trigger this same draft.
+  sessionSegmentsSinceDraft.set(sessionId, 0);
+  sessionLastAutoDraftAt.set(sessionId, Date.now());
+
+  // Resolve the session's creator for provider style learning — fall back to session creator
+  (async () => {
+    try {
+      const session = await storage.getLiveSession(orgId, sessionId);
+      if (!session) return;
+      const userId = session.createdBy;
+      const result = await generateDraftNoteForSession(orgId, sessionId, userId);
+      if (result) {
+        broadcastLiveTranscript(
+          sessionId,
+          "draft_note",
+          { draftNote: result.displayNote, autoDrafted: true },
+          orgId,
+        );
+        logPhiAccess({
+          event: "live_draft_note_auto_generated",
+          orgId,
+          resourceType: "live_session",
+          resourceId: sessionId,
+          detail: "Continuous clinical-scribe auto-draft",
+        });
+      }
+    } catch (err) {
+      logger.warn({ err, sessionId, orgId }, "Continuous clinical-scribe auto-draft failed");
+    } finally {
+      sessionAutoDraftInFlight.set(sessionId, false);
+    }
+  })();
+}
+
+/**
  * Middleware to ensure clinical documentation plan.
  */
 function requireClinicalPlan() {
@@ -252,7 +396,7 @@ export function registerLiveSessionRoutes(app: Express): void {
     asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
       const user = req.user!;
-      const { specialty, noteFormat, encounterType, consentObtained } = req.body;
+      const { specialty, noteFormat, encounterType, consentObtained, continuousDraftMode } = req.body;
 
       if (!consentObtained) {
         res.status(400).json({ message: "Patient consent must be obtained before recording" });
@@ -274,6 +418,15 @@ export function registerLiveSessionRoutes(app: Express): void {
       sessionOrgIds.set(session.id, orgId);
       sessionLastActivity.set(session.id, now);
       sessionStartTimes.set(session.id, now);
+      // Continuous clinical-scribe mode: opt-in at session creation. When enabled, the
+      // server auto-regenerates the draft note as new final segments arrive (every
+      // CONTINUOUS_DRAFT_SEGMENT_THRESHOLD segments or CONTINUOUS_DRAFT_INTERVAL_MS elapsed).
+      if (continuousDraftMode === true) {
+        sessionContinuousMode.set(session.id, true);
+        sessionSegmentsSinceDraft.set(session.id, 0);
+        sessionLastAutoDraftAt.set(session.id, now);
+        sessionAutoDraftInFlight.set(session.id, false);
+      }
 
       // Connect to AssemblyAI real-time transcription
       const apiKey = process.env.ASSEMBLYAI_API_KEY;
@@ -286,6 +439,12 @@ export function registerLiveSessionRoutes(app: Express): void {
             const segments = sessionTranscripts.get(session.id);
             if (segments) {
               segments.push(event.text);
+            }
+            // Increment new-segment counter for continuous-mode auto-drafting
+            if (sessionContinuousMode.get(session.id)) {
+              const prev = sessionSegmentsSinceDraft.get(session.id) || 0;
+              sessionSegmentsSinceDraft.set(session.id, prev + 1);
+              maybeTriggerAutoDraft(session.id, orgId);
             }
             broadcastLiveTranscript(
               session.id,
