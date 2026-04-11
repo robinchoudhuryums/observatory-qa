@@ -427,7 +427,7 @@ Every data entity has an `orgId` field. All storage methods take `orgId` as the 
 - `Transcript` — id, orgId, callId, text, confidence, words[]
 - `SentimentAnalysis` — id, orgId, callId, overallSentiment, overallScore, segments[]
 - `CallAnalysis` — id, orgId, callId, performanceScore, subScores, summary, topics, feedback, flags, clinicalNote (optional)
-- `ClinicalNote` — embedded in CallAnalysis: format (SOAP/DAP/BIRP/HPI/procedure), specialty, subjective, objective, assessment, plan, HPI, ROS, differentialDiagnoses, icd10Codes, cptCodes, cdtCodes, toothNumbers, periodontalFindings, treatmentPhases, providerAttested, attestedBy, editHistory, consentObtained, documentationCompleteness (0-10), clinicalAccuracy (0-10), `amendments[]` — array of post-attestation amendment snapshots (reason, changedBy, timestamp, fieldsChanged), `cosignature` — supervising provider co-signature (signedBy, signedAt, providerName, credentials), `cosignatureRequired` — boolean flag, `structuredData` — extracted vitals (BP, HR, RR, temp, O2sat, pain, weight), medications[], allergies[], `qualityScoreBreakdown` — icd10Specificity, requiredElementsPresent, planDiagnosisAlignment, overallQuality (all 0-10)
+- `ClinicalNote` — embedded in CallAnalysis: format (SOAP/DAP/BIRP/HPI/procedure), specialty, subjective, objective, assessment, plan, HPI, ROS, differentialDiagnoses, icd10Codes, cptCodes, cdtCodes, toothNumbers, periodontalFindings, treatmentPhases, providerAttested, attestedBy, editHistory, consentObtained, documentationCompleteness (0-10), clinicalAccuracy (0-10), `amendments[]` — array of post-attestation amendment snapshots (reason, changedBy, timestamp, fieldsChanged), `cosignature` — supervising provider co-signature (cosignedBy, cosignedById, cosignedNpi, cosignedAt, role, acknowledgedAddendaCount), `cosignatureRequired` — boolean flag, `structuredData` — extracted vitals (BP, HR, RR, temp, O2sat, pain, weight), medications[], allergies[], `qualityScoreBreakdown` — icd10Specificity, requiredElementsPresent, planDiagnosisAlignment, overallQuality (all 0-10)
 - `ABTest` — id, orgId, fileName, baselineModel, testModel, transcriptText, baselineAnalysis, testAnalysis, baselineLatencyMs, testLatencyMs, status, createdBy, `batchId` (text, groups tests in a batch upload)
 - `UsageRecord` — id, orgId, callId, type (transcription/ai_analysis/ab-test), services (assemblyai/bedrock cost breakdown), totalEstimatedCost
 - `AccessRequest` — id, orgId, name, email, requestedRole, status
@@ -613,7 +613,7 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
         │    └─ storage.updateCall(status: "completed", employeeId, tags)
         ├─ broadcastCallUpdate("completed") ← WEBSOCKET BROADCAST
         ├─ invalidateDashboardCache()
-        └─ postProcessing() (non-blocking, all with withRetry)
+        └─ postProcessing() (wrapped in try/catch — errors logged but NEVER mark the call as failed or trigger retries; individual steps use withRetry)
              ├─ notifyFlaggedCall() [services/notifications.ts]
              ├─ onCallAnalysisComplete() [services/proactive-alerts.ts] → coaching recommendations
              ├─ recordActivity() [routes/gamification.ts] → gamification points (conditional)
@@ -923,7 +923,7 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
 | GET | `/api/clinical/notes/:callId/amendments` | authenticated | List amendment history |
 | POST | `/api/clinical/notes/:callId/addendum` | manager+ | Add addendum to attested note |
 | GET | `/api/clinical/notes/:callId/fhir` | authenticated | Export note as FHIR R4 Bundle (requires attestation) |
-| POST | `/api/clinical/notes/:callId/cosign` | manager+ | Co-sign/supervising provider attestation |
+| POST | `/api/clinical/notes/:callId/cosign` | manager+ | Co-sign/supervising provider attestation. Body supports optional `acknowledgedAddenda: true` — required when post-attestation addenda exist (409 `OBS-CLINICAL-COSIGN-ADDENDA` otherwise). `acknowledgedAddendaCount` is captured in the cosignature record and audit log for compliance trail |
 | GET | `/api/clinical/analytics/population` | admin | Population-level clinical analytics |
 | GET | `/api/clinical/notes/:callId/prefill-suggestions` | authenticated | EHR-prefilled note suggestions |
 | GET | `/api/clinical/templates/my` | authenticated | List provider's custom templates |
@@ -1286,7 +1286,7 @@ TRUST_PROXY                     # Set to "0" to disable trust proxy in productio
 | `reference_documents` | index on `(org_id, category)` | RAG source documents. Versioning: `version`, `previous_version_id`. Indexing: `indexing_status`, `indexing_error`. Sources: `source_type` (upload/url), `source_url`. Analytics: `retrieval_count` |
 | `document_chunks` | index on `org_id`, `document_id` | pgvector(1024) embeddings |
 | `usage_events` | index on `(org_id, event_type)`, `created_at` | Billing metering |
-| `password_reset_tokens` | unique on `token` | Expirable reset tokens |
+| `password_reset_tokens` | unique on `token_hash`, index on `user_id`, `org_id` | Expirable reset tokens (1h TTL). SHA-256 hashed. `org_id` column for RLS tenant isolation; pre-auth store/consume wrap queries in a transaction with `set_config('app.bypass_rls', 'true', true)`. RLS-protected (`org_isolation` policy). |
 | `audit_logs` | index on `(org_id, event_type)`, `created_at` | Tamper-evident with `integrity_hash`, `prev_hash`, `sequence_num` |
 | `ab_tests` | index on `org_id` | Dual-model comparison results, latency, cost |
 | `usage_records` | index on `(org_id, type)`, `timestamp` | Per-call cost tracking (AssemblyAI + Bedrock spend) |
@@ -1298,7 +1298,7 @@ TRUST_PROXY                     # Set to "0" to disable trust proxy in productio
 | `calibration_sessions` | index on `(org_id, status)` | Multi-evaluator QA alignment sessions |
 | `calibration_evaluations` | unique on `(session_id, evaluator_id)` | Individual evaluator scores, cascade delete with session |
 | `provider_templates` | index on `(org_id, user_id)`, `(org_id, specialty)` | Per-provider custom clinical note templates. JSONB sections, defaultCodes, tags |
-| `mfa_recovery_requests` | index on `(org_id, status)`, `user_id` | Emergency MFA bypass: user requests → email-verified → admin approves → time-limited use token (15 min). Cascade delete with user/org. |
+| `mfa_recovery_requests` | index on `(org_id, status)`, `user_id` | Emergency MFA bypass: user requests → email-verified → admin approves → time-limited use token (15 min). Cascade delete with user/org. RLS-protected (`org_isolation` policy). |
 | `security_incidents` | index on `(org_id, phase)` | HIPAA breach tracking: severity, phase lifecycle, timeline, action items, breach notification deadline. RLS-protected |
 | `breach_reports` | index on `(org_id, notification_status)` | HIPAA §164.408: affected individuals count, PHI types, 60-day notification deadline, notification status tracking, corrective actions |
 | `business_associate_agreements` | index on `(org_id, status)`, `(expires_at)` | HIPAA §164.502(e): vendor BAA tracking with expiry dates, renewal reminders, PHI categories, signatory info. RLS-protected |
@@ -1521,7 +1521,7 @@ Server serves both API and static frontend from the same process.
 - **Registration blocks reserved org slugs**: Slugs like "api", "admin", "auth", "sso", "webhook" and 12 other system names are rejected during registration to prevent route collisions
 - **Invitation acceptance is rate-limited**: `POST /api/invitations/accept` has a 10-per-15-min rate limit per IP to prevent token brute-force
 - **Account lockout is Redis-backed**: Login attempt tracking uses `ephemeralSet`/`ephemeralGet`/`ephemeralDel` from `redis.ts` (Redis with in-memory fallback). Records auto-expire via TTL — no manual eviction or cleanup interval needed. Lockout state persists across server restarts and works across multiple instances when Redis is configured
-- **Stripe webhook events are deduplicated**: The billing webhook handler tracks processed event IDs via `ephemeralGet`/`ephemeralSet` from `redis.ts` (Redis with in-memory fallback, 24h TTL). Duplicate event deliveries from Stripe are skipped before any state mutations. Multi-instance safe when Redis is configured
+- **Stripe webhook events are deduplicated atomically**: The billing webhook handler tracks processed event IDs via `ephemeralSetNx` from `redis.ts` (Redis `SET NX PX`, 24h TTL, in-memory fallback). Single atomic call — no TOCTOU window between check and set. Multi-instance safe when Redis is configured
 - **Reanalysis worker processes in streaming chunks**: The bulk reanalysis worker fetches and processes calls in 200-call chunks, discarding each chunk before fetching the next, to prevent OOM on large orgs. Progress reporting is approximate for the "all calls" path
 - **AI response validation**: `parseJsonResponse()` in `ai-provider.ts` clamps `performanceScore` to 0-10, sentiment scores to 0-1, sub-scores to 0-10, and validates all field types. Missing fields get safe defaults (5.0 for scores, "neutral" for sentiment). `normalizeAnalysis()` in `storage/types.ts` also clamps on read
 - **Empty transcript handling**: If transcript text is <10 characters, the pipeline saves the call with `empty_transcript` flag, low confidence, and skips AI analysis entirely — prevents generating junk analysis from silence/noise
@@ -1648,6 +1648,18 @@ Full audit of 108K LOC across 360 files with priority-ordered ratings and fixes.
 - `useIsMobile` returns false on first render causing layout shift on mobile
 
 ### Branch: `claude/broad-scan-feature-0YtPG`
+
+#### ✅ Completed & committed: 5 P0/P1 fixes from broad-scan audit (F-44, F-11, F-13, F-03, F-01)
+- **F-44 (High) — Post-commit error path data corruption** (`server/services/call-processing.ts`): `postProcessing()` was awaited inside the main try block, so notification/coaching/usage-tracking failures would mark the successfully-committed call as "failed" AND enqueue a retry, producing duplicate transcripts/analyses on re-processing. Fix: wrapped `postProcessing()` in its own try/catch that logs errors but keeps the call in "completed" state.
+- **F-11 (High) — Cosign bypass via addenda** (`server/routes/clinical-compliance.routes.ts`, `shared/schema/calls.ts`): Cosign route filtered amendments by `type === "amendment"`, missing post-attestation addenda. A cosigner could unknowingly sign a note with unreviewed post-attestation content. Fix: returns 409 `OBS-CLINICAL-COSIGN-ADDENDA` when post-attestation addenda exist unless `acknowledgedAddenda: true` is in the request body; `acknowledgedAddendaCount` captured in the cosignature record and audit event. Schema gained optional `acknowledgedAddendaCount` field.
+- **F-13 (High) — Stripe webhook dedup TOCTOU** (`server/services/redis.ts`, `server/routes/billing.ts`): `ephemeralGet` → check → `ephemeralSet` created a window where concurrent Stripe redeliveries could both pass the dedup check. Fix: added `ephemeralSetNx(prefix, key, value, ttlMs)` atomic primitive using Redis `SET NX PX`. In-memory fallback uses Node event-loop serialization. Billing webhook replaced check-then-set with single atomic call.
+- **F-03 (Critical) — S3 retention audit trail** (`server/workers/retention.worker.ts`): S3 deletion failures had no tamper-evident audit trail — compliance officers could not prove retention attempts. Fix: per-failure `logPhiAccess` audit entry with specific object key and error message (`s3_audio_delete_failed` event); summary `s3_audio_purge_partial_failure` event on any partial failure; setup-failure `s3_audio_purge_setup_failed` event when listObjects itself fails. Slack alert now includes sample of failed keys. Retention worker naturally retries failed keys on the next scheduled run via the mtime scan.
+- **F-01 (Critical) — Missing RLS on auth-adjacent tables** (`server/db/schema.ts`, `server/db/sync-schema.ts`, `server/routes/password-reset.ts`): `password_reset_tokens` and `mfa_recovery_requests` lacked RLS policies. `password_reset_tokens` additionally lacked an `org_id` column. Fix: added `addRlsPolicy()` calls for both tables; added `org_id TEXT REFERENCES organizations(id) ON DELETE CASCADE` column to `password_reset_tokens` via idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`; backfill UPDATE from users table on every startup (no-op after first run); Drizzle schema updated with nullable `orgId`. `storeResetToken`/`validateAndConsumeToken` now wrap DB ops in a transaction with local `set_config('app.bypass_rls', 'true', true)` since password reset is pre-auth and has no org context.
+
+#### Follow-on items surfaced during F-01 implementation
+- **Session-level bypass bug**: `server/db/sync-schema.ts:44` sets `app.bypass_rls='true'` with `false` (session-level, not transaction-local). Combined with pg pool connection reuse, this likely leaves at least one pool connection permanently bypassing RLS at runtime. F-01 adds the missing policies as defense-in-depth, but they won't be enforced at runtime until this pre-existing startup bug is fixed.
+- **Auto-retry visibility**: Retention worker auto-retries failed S3 keys on the next scheduled run, but there's no metric for "age of oldest unsuccessfully-deleted S3 key".
+- **`ephemeralSetNx` adoption elsewhere**: Other read-then-write patterns (OIDC state, upload dedup) could benefit from the same atomic primitive.
 
 #### ✅ Completed & committed: Strategic features from broad-scan audit (Stage 3 suggestions)
 - **Plan-aware sidebar navigation** (`client/src/components/layout/sidebar.tsx`) — `meetsPlan()` helper + `PLAN_LEVEL` map. Free/Starter tiers hide Channels and Engagement sections; Calibration gated to Professional+; Insurance Letters gated to clinical plans. First-load effect applies plan-specific collapse defaults, respecting explicit user overrides persisted in localStorage. Users can still reach these pages by URL if they have role access — the sidebar gate is UX-only.
