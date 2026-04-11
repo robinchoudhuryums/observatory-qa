@@ -63,6 +63,10 @@ export default function ClinicalLivePage() {
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   const [transcriptionConnected, setTranscriptionConnected] = useState(true);
+  // F-38: surface audio upload failures instead of silently swallowing them.
+  // Shown as a persistent banner after AUDIO_UPLOAD_FAIL_THRESHOLD consecutive
+  // failures so clinicians know audio is being lost.
+  const [audioUploadFailed, setAudioUploadFailed] = useState(false);
 
   // Refs — isPausedRef solves the closure capture bug in onaudioprocess
   const isPausedRef = useRef(false);
@@ -72,6 +76,10 @@ export default function ClinicalLivePage() {
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+  // F-38: track consecutive audio upload failures. Single blips are expected
+  // (network jitter); N in a row means audio is being lost.
+  const audioUploadFailCountRef = useRef(0);
+  const AUDIO_UPLOAD_FAIL_THRESHOLD = 3;
 
   // Keep isPausedRef in sync with state
   useEffect(() => {
@@ -166,14 +174,34 @@ export default function ClinicalLivePage() {
           }
           const base64 = btoa(binary);
 
-          // RiSendPlaneLine to server (fire-and-forget)
+          // F-38: track audio upload failures instead of silently swallowing them.
+          // A single failure is tolerated (network blip), but repeated failures
+          // surface as a persistent banner so clinicians know audio is being lost.
           csrfFetch(`/api/live-sessions/${sessionIdRef.current}/audio`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ audio: base64 }),
-          }).catch(() => {
-            // Silently handle audio send failures
-          });
+          })
+            .then((res) => {
+              if (!res.ok) {
+                audioUploadFailCountRef.current += 1;
+                if (audioUploadFailCountRef.current >= AUDIO_UPLOAD_FAIL_THRESHOLD) {
+                  setAudioUploadFailed(true);
+                }
+                return;
+              }
+              // Success — reset counter and clear the error banner if it was showing.
+              if (audioUploadFailCountRef.current > 0) {
+                audioUploadFailCountRef.current = 0;
+                setAudioUploadFailed(false);
+              }
+            })
+            .catch(() => {
+              audioUploadFailCountRef.current += 1;
+              if (audioUploadFailCountRef.current >= AUDIO_UPLOAD_FAIL_THRESHOLD) {
+                setAudioUploadFailed(true);
+              }
+            });
         };
 
         source.connect(processor);
@@ -409,6 +437,20 @@ export default function ClinicalLivePage() {
             unavailable.
           </div>
         )}
+        {audioUploadFailed && (
+          <div
+            className="flex items-center gap-2 p-3 mb-4 rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 text-sm text-red-700 dark:text-red-400"
+            role="alert"
+            aria-live="assertive"
+          >
+            <RiErrorWarningLine className="w-4 h-4 shrink-0" />
+            <span>
+              <strong>Audio upload failing.</strong> The server stopped accepting audio chunks — your recording
+              may be incomplete. Check your network connection, then pause and resume to retry. If the problem
+              persists, stop the session and restart.
+            </span>
+          </div>
+        )}
 
         {/* Header with controls */}
         <div className="flex items-center justify-between mb-6">
@@ -576,6 +618,8 @@ export default function ClinicalLivePage() {
                 setConsentConfirmed(false);
                 setMicError(null);
                 setTranscriptionConnected(true);
+                setAudioUploadFailed(false);
+                audioUploadFailCountRef.current = 0;
                 sessionIdRef.current = null;
               }}
             >

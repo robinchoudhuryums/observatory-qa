@@ -167,26 +167,139 @@ function parseScoreRationale(raw: unknown): Record<string, string[]> | undefined
 }
 
 /**
- * Parse a JSON object from model output, handling markdown fences and extra text.
+ * Extract ALL top-level balanced JSON-object-like substrings from a string by
+ * walking braces with string-literal awareness. Returns them in source order.
+ *
+ * Avoids the F-05 bug where a greedy `/\{[\s\S]*\}/` regex matched from the
+ * first `{` to the LAST `}`, silently capturing explanation text. Correctly
+ * handles `{`/`}` inside string literals and escaped quotes.
+ *
+ * Note: this finds BALANCED objects (e.g. `{example}` is balanced even though
+ * it isn't valid JSON). The caller should attempt `JSON.parse` on each candidate
+ * in order and use the first one that parses successfully — this lets us skip
+ * over "{example}"-style placeholders in an AI preamble before reaching the
+ * real JSON block.
+ */
+function extractBalancedJsonObjects(text: string): string[] {
+  const results: string[] = [];
+  let i = 0;
+  while (i < text.length) {
+    const start = text.indexOf("{", i);
+    if (start === -1) break;
+
+    let depth = 0;
+    let inString = false;
+    let escapeNext = false;
+    let end = -1;
+
+    for (let j = start; j < text.length; j++) {
+      const ch = text[j];
+      if (escapeNext) {
+        escapeNext = false;
+        continue;
+      }
+      if (ch === "\\" && inString) {
+        escapeNext = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+
+      if (ch === "{") {
+        depth++;
+      } else if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          end = j;
+          break;
+        }
+      }
+    }
+
+    if (end === -1) {
+      // Unclosed object from this `{` onward — no more candidates possible.
+      break;
+    }
+    results.push(text.slice(start, end + 1));
+    i = end + 1;
+  }
+  return results;
+}
+
+/**
+ * Parse a JSON object from model output, handling markdown fences, preamble
+ * text, and balanced-brace placeholders like `{example}` that aren't valid JSON.
+ *
+ * Strategy (in order, first success wins):
+ *   1. Strip markdown code fences (```json ... ```) and try parsing the content.
+ *   2. Try parsing the full trimmed response as JSON.
+ *   3. Walk the response looking for balanced `{...}` substrings and try each
+ *      one in source order until one parses as a JSON object.
+ *
+ * This avoids the F-05 bug where a greedy regex matched from the first `{`
+ * to the LAST `}`, silently capturing explanation text between the AI's
+ * preamble and its actual JSON block.
  */
 export function parseJsonResponse(text: string, callId: string): CallAnalysis {
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    logger.warn(
-      { callId, responsePreview: text.slice(0, 200), responseLength: text.length, errorCode: "AI_NO_JSON" },
-      "AI response contained no JSON object — may be truncated or an error message",
-    );
-    const err = new Error("AI response did not contain valid JSON");
-    (err as any).code = "AI_NO_JSON";
-    throw err;
+  const tryParseObject = (candidate: string): Record<string, unknown> | null => {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Fall through to return null.
+    }
+    return null;
+  };
+
+  // 1. Strip markdown code fences if present (```json ... ``` or ``` ... ```).
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  const fencedContent = fenceMatch ? fenceMatch[1] : null;
+
+  let raw: Record<string, unknown> | null = null;
+
+  // 2. Try fenced content first (highest precedence when present).
+  if (fencedContent) {
+    raw = tryParseObject(fencedContent.trim());
   }
 
-  let raw: Record<string, unknown>;
-  try {
-    raw = JSON.parse(jsonMatch[0]);
-  } catch (parseError) {
+  // 3. Try the full trimmed response — covers the clean-JSON happy path.
+  if (!raw) {
+    raw = tryParseObject(text.trim());
+  }
+
+  // 4. Fall back to walking the response for balanced {...} objects and try each.
+  //    This handles AI preamble like "Here's the analysis {example}: {...real JSON...}"
+  //    where a naive first-balanced match would grab `{example}`.
+  if (!raw) {
+    const candidates = extractBalancedJsonObjects(fencedContent || text);
+    for (const candidate of candidates) {
+      const parsed = tryParseObject(candidate);
+      if (parsed) {
+        raw = parsed;
+        break;
+      }
+    }
+  }
+
+  if (!raw) {
+    // Distinguish "no brace candidates at all" from "candidates existed but none parsed".
+    const hadBraceCandidates = extractBalancedJsonObjects(fencedContent || text).length > 0;
+    if (!hadBraceCandidates) {
+      logger.warn(
+        { callId, responsePreview: text.slice(0, 200), responseLength: text.length, errorCode: "AI_NO_JSON" },
+        "AI response contained no JSON object — may be truncated or an error message",
+      );
+      const err = new Error("AI response did not contain valid JSON");
+      (err as any).code = "AI_NO_JSON";
+      throw err;
+    }
     logger.warn(
-      { callId, err: parseError, responsePreview: text.slice(0, 300), errorCode: "AI_MALFORMED_JSON" },
+      { callId, responsePreview: text.slice(0, 300), errorCode: "AI_MALFORMED_JSON" },
       "AI response JSON parse failed — response may be truncated or contain syntax errors",
     );
     const err2 = new Error("AI response contained malformed JSON");
