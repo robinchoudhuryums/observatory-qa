@@ -670,6 +670,10 @@ export const liveSessions = pgTable(
     draftClinicalNote: jsonb("draft_clinical_note"),
     durationSeconds: integer("duration_seconds").notNull().default(0),
     consentObtained: boolean("consent_obtained").notNull().default(false),
+    // HIPAA §164.508: structured consent metadata for audit trail. Added per F-12.
+    consentMethod: varchar("consent_method", { length: 20 }),
+    consentCapturedAt: timestamp("consent_captured_at"),
+    consentCapturedBy: text("consent_captured_by"),
     callId: text("call_id").references(() => calls.id),
     startedAt: timestamp("started_at").defaultNow(),
     endedAt: timestamp("ended_at"),

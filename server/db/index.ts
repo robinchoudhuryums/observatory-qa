@@ -18,6 +18,16 @@ export function getDatabase(): Database | null {
   return db;
 }
 
+/**
+ * Direct access to the underlying pg Pool. Needed by schema sync to acquire a
+ * dedicated client whose session-level state (e.g. set_config without a transaction)
+ * can be safely destroyed with client.release(true) instead of leaking back to the
+ * pool. See `syncSchema` in db/sync-schema.ts.
+ */
+export function getPool(): pg.Pool | null {
+  return pool;
+}
+
 export async function initDatabase(): Promise<Database | null> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {

@@ -189,6 +189,7 @@ P.getUsageRecords = async function(orgId: string): Promise<UsageRecord[]> {
 P.createLiveSession = async function(orgId: string, session: InsertLiveSession): Promise<LiveSession> {
     const id = randomUUID();
     const now = new Date();
+    const consentCapturedAt = session.consentCapturedAt ? new Date(session.consentCapturedAt) : null;
     await db(this).insert(tables.liveSessions).values({
       id,
       orgId,
@@ -201,6 +202,9 @@ P.createLiveSession = async function(orgId: string, session: InsertLiveSession):
       draftClinicalNote: null,
       durationSeconds: 0,
       consentObtained: session.consentObtained || false,
+      consentMethod: session.consentMethod || null,
+      consentCapturedAt,
+      consentCapturedBy: session.consentCapturedBy || null,
       startedAt: now,
     });
     return {
@@ -214,6 +218,9 @@ P.createLiveSession = async function(orgId: string, session: InsertLiveSession):
       transcriptText: "",
       durationSeconds: 0,
       consentObtained: session.consentObtained || false,
+      consentMethod: session.consentMethod,
+      consentCapturedAt: session.consentCapturedAt,
+      consentCapturedBy: session.consentCapturedBy,
       startedAt: now.toISOString(),
     };
   }
@@ -276,6 +283,9 @@ function mapLiveSessionRow(r: typeof tables.liveSessions.$inferSelect): LiveSess
       draftClinicalNote: r.draftClinicalNote as LiveSession["draftClinicalNote"],
       durationSeconds: r.durationSeconds,
       consentObtained: r.consentObtained,
+      consentMethod: (r.consentMethod as LiveSession["consentMethod"]) || undefined,
+      consentCapturedAt: toISOString(r.consentCapturedAt),
+      consentCapturedBy: r.consentCapturedBy || undefined,
       callId: r.callId || undefined,
       startedAt: toISOString(r.startedAt),
       endedAt: toISOString(r.endedAt),

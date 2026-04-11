@@ -15,13 +15,22 @@
 
 set -euo pipefail
 
+# HIPAA: restrict umask for the entire script so every file and directory
+# created below is owner-only (0700/0600) from the moment of creation. This
+# closes the race window between `mktemp -d` (default 0022 umask -> 0755)
+# and the subsequent `chmod 700`. Applies to BACKUP_DIR, the dump file, and
+# any other temp artifacts. See F-18 in broad-scan audit.
+umask 077
+
 APP_DIR="/opt/callanalyzer"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_FILE="observatory_${TIMESTAMP}.dump"
 RETENTION_DAYS=30
 
-# Create a secure temp directory (mode 700) for PHI-containing dump files.
-# Avoids /tmp (world-readable) per HIPAA requirements.
+# Create a secure temp directory for PHI-containing dump files.
+# With umask 077 above, mktemp creates the directory with 0700 atomically.
+# The follow-up chmod 700 is kept as defense-in-depth in case umask was
+# somehow overridden by a parent environment.
 BACKUP_DIR=$(mktemp -d /tmp/observatory-backup-XXXXXX)
 chmod 700 "$BACKUP_DIR"
 

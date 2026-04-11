@@ -6,9 +6,22 @@
  *
  * This avoids requiring `drizzle-kit push` (a devDependency) in production,
  * while ensuring new tables and columns are created automatically on deploy.
+ *
+ * Connection isolation (IMPORTANT):
+ * `syncSchema` sets `app.bypass_rls = 'true'` at the session level so that
+ * DDL operations aren't blocked by RLS policies. To prevent this bypass from
+ * leaking back to the pool and disabling RLS on subsequent requests, sync
+ * acquires a DEDICATED pg client via `getPool().connect()`, runs all DDL on
+ * a drizzle instance bound to that client, and finally calls `client.release(true)`
+ * which destroys the connection instead of returning it to the pool.
+ * See broad-scan audit follow-on for F-01.
  */
 import { sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/node-postgres";
+import type pg from "pg";
 import type { Database } from "./index";
+import { getPool } from "./index";
+import * as schemaExports from "./schema";
 import { logger } from "../services/logger";
 
 /**
@@ -36,11 +49,26 @@ async function addRlsPolicy(db: Database, table: string): Promise<void> {
   );
 }
 
-export async function syncSchema(db: Database): Promise<void> {
+export async function syncSchema(_dbArg: Database): Promise<void> {
   logger.info("Running schema sync...");
+
+  // Acquire a dedicated pg client so the session-level `set_config('app.bypass_rls')`
+  // below can be safely destroyed at the end instead of leaking to the pool.
+  // If the pool is unavailable (test/non-pg environments), fall back to the shared db.
+  const pool = getPool();
+  let dedicatedClient: pg.PoolClient | null = null;
+  let db: Database;
+  if (pool) {
+    dedicatedClient = await pool.connect();
+    db = drizzle(dedicatedClient as any, { schema: schemaExports }) as unknown as Database;
+  } else {
+    db = _dbArg;
+  }
 
   try {
     // Set bypass_rls so DDL operations in syncSchema are not blocked by RLS.
+    // This is session-level on the dedicated client and will be discarded when
+    // the client is released with `true` in the finally block below.
     await db.execute(sql`SELECT set_config('app.bypass_rls', 'true', false)`).catch(() => {});
 
     // Validate pgvector extension — required for RAG vector search.
@@ -792,6 +820,16 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(
       sql`CREATE INDEX IF NOT EXISTS live_sessions_created_by_idx ON live_sessions (org_id, created_by)`,
     );
+    // F-12: Structured consent metadata for HIPAA §164.508 audit trail.
+    await db.execute(
+      sql`ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS consent_method VARCHAR(20)`,
+    );
+    await db.execute(
+      sql`ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS consent_captured_at TIMESTAMP`,
+    );
+    await db.execute(
+      sql`ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS consent_captured_by TEXT`,
+    );
     await addRlsPolicy(db, "live_sessions").catch((e) =>
       logger.warn({ err: e }, "RLS setup skipped for live_sessions"),
     );
@@ -1353,6 +1391,18 @@ export async function syncSchema(db: Database): Promise<void> {
     logger.info("Schema sync complete");
   } catch (error) {
     logger.error({ err: error }, "Schema sync failed — some features may not work");
+  } finally {
+    // CRITICAL: destroy the dedicated client (release with true) so that its
+    // session-level `app.bypass_rls='true'` setting cannot leak to future
+    // requests that reuse this connection from the pool. This is what makes
+    // every RLS policy in the codebase actually enforced at runtime.
+    if (dedicatedClient) {
+      try {
+        dedicatedClient.release(true);
+      } catch (releaseErr) {
+        logger.warn({ err: releaseErr }, "Schema sync: failed to destroy dedicated client (non-fatal)");
+      }
+    }
   }
 }
 

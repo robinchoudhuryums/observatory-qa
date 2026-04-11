@@ -396,13 +396,28 @@ export function registerLiveSessionRoutes(app: Express): void {
     asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
       const user = req.user!;
-      const { specialty, noteFormat, encounterType, consentObtained, continuousDraftMode } = req.body;
+      const { specialty, noteFormat, encounterType, consentObtained, consentMethod, continuousDraftMode } =
+        req.body;
 
+      // HIPAA §164.508 requires explicit, auditable consent. Reject sessions
+      // without structured metadata — the boolean alone is not enough for a
+      // compliance audit to prove consent was captured. See F-12 in broad-scan audit.
       if (!consentObtained) {
         res.status(400).json({ message: "Patient consent must be obtained before recording" });
         return;
       }
+      const validMethods = ["verbal", "written", "electronic"] as const;
+      if (!consentMethod || !validMethods.includes(consentMethod)) {
+        res.status(400).json({
+          message:
+            "consentMethod is required and must be one of: verbal, written, electronic. " +
+            "This proves the consent capture was recorded, not just claimed.",
+          code: "OBS-CLINICAL-CONSENT-METHOD-REQUIRED",
+        });
+        return;
+      }
 
+      const consentCapturedAt = new Date().toISOString();
       const session = await storage.createLiveSession(orgId, {
         orgId,
         createdBy: user.id,
@@ -410,6 +425,19 @@ export function registerLiveSessionRoutes(app: Express): void {
         noteFormat: noteFormat || "soap",
         encounterType: encounterType || "clinical_encounter",
         consentObtained: true,
+        consentMethod,
+        consentCapturedAt,
+        consentCapturedBy: user.id,
+      });
+
+      // HIPAA audit event — compliance officers need a tamper-evident record
+      // that consent was captured, who captured it, and the method.
+      logPhiAccess({
+        ...auditContext(req),
+        event: "clinical_consent_obtained",
+        resourceType: "live_session",
+        resourceId: session.id,
+        detail: `Patient consent captured via ${consentMethod} by ${user.name || user.username || user.id}`,
       });
 
       // Initialize in-memory tracking
