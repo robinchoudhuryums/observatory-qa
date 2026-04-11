@@ -207,7 +207,7 @@ server/
   types.d.ts                 # Express type augmentations
   logger.ts                  # (Legacy) Logger — prefer server/services/logger.ts
 
-server/routes/               # Modular API route files (38 route files)
+server/routes/               # Modular API route files (44 route files)
   index.ts                   #   Route registration orchestrator
   auth.ts                    #   Login/logout/me (trusted-device cookie check, grace period logic)
   registration.ts            #   Self-service org + user registration (supports industryType)
@@ -221,7 +221,7 @@ server/routes/               # Modular API route files (38 route files)
   employees.ts               #   Employee CRUD, CSV import
   dashboard.ts               #   Metrics, sentiment distribution, top performers
   reports.ts                 #   Summary/filtered reports, agent profiles
-  coaching.ts                #   Coaching session CRUD
+  coaching.ts                #   Coaching session CRUD, AI coaching plan generation, automation rules, templates, self-assessment, LMS module generation bridge
   admin.ts                   #   User management, prompt templates, org settings
   access.ts                  #   Access request flow
   api-keys.ts                #   API key CRUD + middleware
@@ -238,10 +238,10 @@ server/routes/               # Modular API route files (38 route files)
   gamification.ts            #   Gamification: leaderboard, badges, employee profiles, points
   insurance-narratives.ts    #   Insurance narrative drafting: prior auth, appeals, medical necessity
   revenue.ts                 #   Revenue tracking: per-call dollar values, conversion status, metrics
-  calibration.ts             #   Calibration sessions: multi-evaluator QA alignment, variance tracking
+  calibration.ts             #   Calibration sessions: multi-evaluator QA alignment, variance tracking, IRR analytics, evaluator certification, multi-session QA audit packet export
   call-insights.ts           #   Call-level insights and trend analysis
   emails.ts                  #   Email management: templates, send history, email analytics
-  live-session.ts            #   Real-time live call session support (AssemblyAI real-time)
+  live-session.ts            #   Real-time live clinical session (AssemblyAI real-time), manual draft notes, opt-in continuous clinical-scribe auto-drafting
   lms.ts                     #   Learning Management System: courses, lessons, AI-generated training
   marketing.ts               #   Lead tracking (renamed from marketing): call source attribution, campaign ROI
   benchmarks.ts              #   QA benchmarking: anonymized cross-org performance percentiles by industry
@@ -526,7 +526,7 @@ These modules are imported by the most consumers. Changes here have the widest b
 
 | Module | Key Exports | Consumer Count | Notes |
 |--------|-------------|----------------|-------|
-| `server/storage/index.ts` | `storage`, `initPostgresStorage`, `objectStorage`, `IStorage`, `normalizeAnalysis` | 56 | 38 route files, 9 services, 2 db files, auth.ts, index.ts. Workers access via dynamic `require()`. Scheduled tasks receive storage as a parameter, not via singleton import |
+| `server/storage/index.ts` | `storage`, `initPostgresStorage`, `objectStorage`, `IStorage`, `normalizeAnalysis` | 56 | 44 route files, 9 services, 2 db files, auth.ts, index.ts. Workers access via dynamic `require()`. Scheduled tasks receive storage as a parameter, not via singleton import |
 | `shared/schema.ts` (barrel) | Types, Zod schemas, `PLAN_DEFINITIONS`, `CALL_CATEGORIES` | 50+ | Routes, services, storage, client pages. Workers get types indirectly via queue job interfaces |
 | `server/auth.ts` | `requireAuth`, `injectOrgContext`, `requireOrgContext`, `requireRole`, `getTeamScopedEmployeeIds`, `sessionMiddleware`, `resolveUserOrgId` | 36 | All authenticated route files + websocket. Applied per-route (not globally in index.ts) |
 | `server/services/audit-log.ts` | `logPhiAccess`, `auditContext`, `queryAuditLogs`, `exportAuditLogs`, `verifyAuditChain` | 35 | 32 route files + auth.ts + incident-response.ts + retention.worker.ts |
@@ -829,9 +829,28 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
 | GET | `/api/coaching` | manager+ | List coaching sessions |
+| GET | `/api/coaching/my` | authenticated | Get caller's own coaching sessions (auto-resolved by email/name) |
 | GET | `/api/coaching/employee/:id` | authenticated | Coaching for employee |
 | POST | `/api/coaching` | manager+ | Create coaching session |
 | PATCH | `/api/coaching/:id` | manager+ | Update coaching session |
+| POST | `/api/coaching/:id/generate-plan` | manager+ | AI-generate structured coaching action plan from call history |
+| POST | `/api/coaching/:id/generate-lms-module` | manager+ | Auto-generate an LMS module from the coaching session (body: `assignToEmployee?`, `generateQuiz?`, `difficulty?`) |
+| POST | `/api/coaching/:id/self-assess` | authenticated | Employee self-assessment of a coaching session |
+| GET | `/api/coaching/:id/self-assessment` | authenticated | Read self-assessment |
+| GET | `/api/coaching/:id/effectiveness` | authenticated | Compute pre/post coaching effectiveness |
+| POST | `/api/coaching/:id/effectiveness/snapshot` | manager+ | Cache effectiveness snapshot |
+| GET | `/api/coaching/templates` | authenticated | List coaching templates |
+| POST | `/api/coaching/templates` | manager+ | Create coaching template |
+| PATCH | `/api/coaching/templates/:id` | manager+ | Update coaching template |
+| DELETE | `/api/coaching/templates/:id` | manager+ | Delete coaching template |
+| GET | `/api/coaching/automation-rules` | admin | List automation rules |
+| POST | `/api/coaching/automation-rules` | admin | Create automation rule |
+| PATCH | `/api/coaching/automation-rules/:id` | admin | Update automation rule |
+| DELETE | `/api/coaching/automation-rules/:id` | admin | Delete automation rule |
+| POST | `/api/coaching/automation-rules/run` | admin | Run automation rules now |
+| GET | `/api/coaching/digest` | manager+ | Preview weekly coaching digest |
+| POST | `/api/coaching/digest/send` | admin | Send weekly coaching digest |
+| GET | `/api/coaching/overdue` | manager+ | List overdue coaching sessions |
 
 ### Admin & Configuration (org-scoped)
 | Method | Path | Role | Description |
@@ -1022,11 +1041,12 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
 | GET | `/api/calibration/analytics` | manager+ | Variance trends, IRR metrics (Krippendorff's alpha, ICC), evaluator certification |
 | GET | `/api/calibration/suggest-calls` | manager+ | Automated call selection for calibration (borderline, flagged, recent) |
 | GET | `/api/calibration/certifications` | manager+ | Evaluator certification status with consistency scores and trends |
+| GET | `/api/calibration/audit-packet` | manager+ | Multi-session QA audit packet with org-wide Krippendorff α, ICC, evaluator certification summary, and per-session breakdowns (query: `startDate`, `endDate`, `format=json\|csv`; default window 90 days) |
 
 ### Live Sessions (org-scoped, requires Clinical Documentation plan)
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
-| POST | `/api/live-sessions` | authenticated | Start real-time clinical session (AssemblyAI streaming) |
+| POST | `/api/live-sessions` | manager+ | Start real-time clinical session (AssemblyAI streaming). Body supports `continuousDraftMode: true` to enable server-side auto-drafting of the clinical note every 3 new final segments or 20s elapsed (whichever first). WebSocket `draft_note` events carry `autoDrafted: true` when generated automatically |
 | GET | `/api/live-sessions/:id` | authenticated | Get session status + transcript |
 | GET | `/api/live-sessions/:id/audio` | authenticated | Stream live audio |
 | POST | `/api/live-sessions/:id/draft-note` | authenticated | Draft clinical note during session |
@@ -1618,14 +1638,29 @@ Full audit of 108K LOC across 360 files with priority-ordered ratings and fixes.
 - `AudioRecorder` cleanup stale closure doesn't revoke blob URL on unmount
 
 **P2 (Medium):**
-- ~380 `as any` casts across 68 server files (82 in pg-storage.ts alone)
-- 290 ESLint `no-unused-vars` warnings
-- ~330 remaining catch blocks across 26 route files for asyncHandler Phase 2
+- ~375 `as any` casts across 68 server files (the 82 in pg-storage.ts have been refactored away via typed mappers)
+- 250 ESLint `no-unused-vars` warnings
+- ~105 remaining catch blocks across 29 route files for asyncHandler Phase 2
 - Duplicate URL validation utilities (`url-validation.ts` + `url-validator.ts`)
-- Live session Maps have no hard cap (7 unbounded Maps)
-- `request-metrics.ts` unbounded key growth (each UUID creates a new key)
+- Live session Maps have no hard cap (11 unbounded Maps — added 4 for continuous clinical-scribe mode; all cleared on session cleanup)
+- `request-metrics.ts` key growth bounded by Express `req.route?.path` normalization but falls back to `req.path` (raw URL with IDs) when no route match
 - Missing `htmlFor`/`id` pairing on multiple form labels (a11y)
 - `useIsMobile` returns false on first render causing layout shift on mobile
+
+### Branch: `claude/broad-scan-feature-0YtPG`
+
+#### ✅ Completed & committed: Strategic features from broad-scan audit (Stage 3 suggestions)
+- **Plan-aware sidebar navigation** (`client/src/components/layout/sidebar.tsx`) — `meetsPlan()` helper + `PLAN_LEVEL` map. Free/Starter tiers hide Channels and Engagement sections; Calibration gated to Professional+; Insurance Letters gated to clinical plans. First-load effect applies plan-specific collapse defaults, respecting explicit user overrides persisted in localStorage. Users can still reach these pages by URL if they have role access — the sidebar gate is UX-only.
+- **QA audit packet export** (`server/routes/calibration.ts`) — `GET /api/calibration/audit-packet?startDate&endDate&format=json|csv` (manager+, default 90-day window). Aggregates all completed calibration sessions in the range, computes org-wide Krippendorff α / ICC, evaluator certification summary (certified/probationary/flagged/needs_calibration), and per-session breakdowns. HIPAA audit-logged via `calibration_audit_packet_generated` event.
+- **Coaching → LMS bridge** (`server/routes/coaching.ts`) — `POST /api/coaching/:id/generate-lms-module` (manager+). Uses the coaching session's category, notes, and linked call analysis to generate a focused, PHI-free LMS module via `aiProvider.generateText`. Optionally auto-assigns to the coached employee and links the module back to the session (via `linkedLearningModuleIds` — currently cast as `any` since the field isn't in the Zod schema). HIPAA audit event `coaching_lms_module_generated`.
+- **Clinical-scribe continuous mode** (`server/routes/live-session.ts`) — `POST /api/live-sessions` accepts `continuousDraftMode: true`. When enabled, the server auto-regenerates the draft clinical note every 3 new final segments or 20s elapsed (whichever first), bypassing the manual 15s cooldown. Extracted shared `generateDraftNoteForSession()` helper and `maybeTriggerAutoDraft()` trigger with in-flight guard. Added 4 new in-memory Maps (`sessionContinuousMode`, `sessionSegmentsSinceDraft`, `sessionLastAutoDraftAt`, `sessionAutoDraftInFlight`), all cleared in `cleanupSession()`. 5-second periodic timer scans continuous sessions for time-based triggers. Auto-drafts broadcast via `broadcastLiveTranscript` with `autoDrafted: true`.
+
+#### Follow-on items (not yet implemented)
+- Add `linkedLearningModuleIds` to the `CoachingSession` Zod schema + DB columns so the coaching→LMS back-link persists properly (currently via `as any` cast)
+- Add client UI for the Calibration audit packet download button on `/calibration`
+- Add client UI for clinical-scribe continuous-mode opt-in toggle on `clinical-live.tsx` setup step
+- Add client UI for coaching-to-LMS "Generate Training Module" button on each coaching session card
+- Add `updateLearningProgress` to the `IStorage` interface (currently feature-detected via `(storage as any)`)
 
 ### Branch: `claude/evaluate-qa-rag-integration-MrMze`
 
@@ -2128,7 +2163,7 @@ Longer-term improvements identified during codebase audits. Work on these increm
 | Priority | Item | Effort | Impact | Notes |
 |----------|------|--------|--------|-------|
 | HIGH | **Storage layer type safety** | 5 days | High — eliminates ~200 `as any` casts | `pg-storage.ts` has 82 `as any` casts, mostly from untyped Drizzle query results. Fix: add generic return types to all IStorage methods; update mapAnalysis/mapUser/mapEmployee to use typed row objects. Eliminates the #1 source of type unsafety. Sprint 1 priority |
-| HIGH | **asyncHandler adoption Phase 2 (server routes)** | 2 days | Medium — eliminates ~330 remaining catch blocks | Phase 1 done: coaching (29→1), onboarding (28→13), mfa (21→2). Phase 2 targets by catch count: admin.ts (21), ehr.ts (20), billing.ts (20), clinical.ts (19), lms.ts (18), emails.ts (17), ab-testing.ts (16), live-session.ts (15), + 18 smaller files. Convert in batches of 4-5 via parallel agents. Sprint 2 |
+| HIGH | **asyncHandler adoption Phase 2 (server routes)** | 2 days | Medium — eliminates ~105 remaining catch blocks | Phase 1 done: coaching (29→1), onboarding (28→13), mfa (21→2). Remaining catch blocks span 29 route files. Convert in batches of 4-5 via parallel agents. Sprint 2 |
 | ✅ Done | **Call processing transaction wrapper** | — | — | `claude/audit-and-prioritize-GydTL` — added `withTransaction` to IStorage (PostgresStorage: real Drizzle tx; MemStorage/CloudStorage: no-op). Wrapped main pipeline, batch mode, empty transcript, and live session writes |
 | MEDIUM | **Consolidate URL validation utilities** | 0.5 days | Low — reduces confusion | `url-validation.ts` (used by 3 files) and `url-validator.ts` (used only by tests) have overlapping SSRF checks. Merge the best checks from both into `url-validation.ts`, update the 15 test imports in `remaining-adaptations.test.ts`, delete `url-validator.ts`. Sprint 2 |
 | MEDIUM | **Large file decomposition (remaining)** | 3 days | Medium — improves navigability | 14 files still >1000 LOC. Server: `memory.ts` (1.6K → split by domain), `sync-schema.ts` (1.5K → split by table group), `rag.ts` (1.3K → extract synonym/query modules), `call-processing.ts` (1.2K → extract pipeline steps). Client: `transcript-viewer.tsx` (1.3K → extract correction UI), `clinical-notes.tsx` (1.2K → extract print/amendment), `reports.tsx` (1.2K → extract chart sections). Sprint 2-3 |
