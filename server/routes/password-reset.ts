@@ -30,18 +30,27 @@ const memoryTokens = new Map<
 >();
 
 async function storeResetToken(userId: string, orgId: string, tokenHash: string, expiresAt: Date): Promise<void> {
-  // Try PostgreSQL first
+  // Try PostgreSQL first. Password reset is a pre-auth global operation (no
+  // session org context), so we run inside a transaction with bypass_rls set
+  // locally — the RLS policy on password_reset_tokens would otherwise reject
+  // the INSERT. orgId is still persisted so future reads can be org-scoped.
+  // See F-01 in broad-scan audit.
   try {
     const { getDatabase } = await import("../db/index");
     const db = getDatabase();
     if (db) {
       const { passwordResetTokens } = await import("../db/schema");
       const { randomUUID } = await import("crypto");
-      await db.insert(passwordResetTokens).values({
-        id: randomUUID(),
-        userId,
-        tokenHash,
-        expiresAt,
+      const { sql } = await import("drizzle-orm");
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT set_config('app.bypass_rls', 'true', true)`);
+        await tx.insert(passwordResetTokens).values({
+          id: randomUUID(),
+          orgId,
+          userId,
+          tokenHash,
+          expiresAt,
+        });
       });
       return;
     }
@@ -52,26 +61,33 @@ async function storeResetToken(userId: string, orgId: string, tokenHash: string,
 }
 
 async function validateAndConsumeToken(tokenHash: string): Promise<{ userId: string; orgId: string } | null> {
-  // Try PostgreSQL first
+  // Try PostgreSQL first. The consumer has no session org context yet (they're
+  // about to log in) — the token hash itself is the authn credential. Bypass RLS
+  // locally inside a transaction so the lookup isn't blocked. The WHERE clause
+  // on token_hash ensures only the matching row is read/updated.
+  // See F-01 in broad-scan audit.
   try {
     const { getDatabase } = await import("../db/index");
     const db = getDatabase();
     if (db) {
       const { passwordResetTokens } = await import("../db/schema");
-      const { eq } = await import("drizzle-orm");
-      const rows = await db
-        .select()
-        .from(passwordResetTokens)
-        .where(eq(passwordResetTokens.tokenHash, tokenHash))
-        .limit(1);
-      const row = rows[0];
-      if (!row) return null;
-      if (row.usedAt) return null; // Already used
-      if (new Date(row.expiresAt) < new Date()) return null; // Expired
-
-      // Mark as used
-      await db.update(passwordResetTokens).set({ usedAt: new Date() }).where(eq(passwordResetTokens.id, row.id));
-      return { userId: row.userId, orgId: (row as any).orgId || "" };
+      const { eq, sql } = await import("drizzle-orm");
+      const result = await db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT set_config('app.bypass_rls', 'true', true)`);
+        const rows = await tx
+          .select()
+          .from(passwordResetTokens)
+          .where(eq(passwordResetTokens.tokenHash, tokenHash))
+          .limit(1);
+        const row = rows[0];
+        if (!row) return null;
+        if (row.usedAt) return null; // Already used
+        if (new Date(row.expiresAt) < new Date()) return null; // Expired
+        // Mark as used
+        await tx.update(passwordResetTokens).set({ usedAt: new Date() }).where(eq(passwordResetTokens.id, row.id));
+        return { userId: row.userId as string, orgId: (row.orgId as string | null) || "" };
+      });
+      return result;
     }
   } catch (err) {
     logger.debug({ err }, "Database unavailable for password reset token validation, falling back to in-memory");

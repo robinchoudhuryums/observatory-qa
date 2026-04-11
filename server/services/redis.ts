@@ -303,6 +303,36 @@ export async function ephemeralGet(prefix: string, key: string): Promise<string 
   return null;
 }
 
+/**
+ * Atomically set a value with TTL only if the key doesn't already exist.
+ * Returns true if the value was set (first writer), false if a value already
+ * existed (loser of race). Use for idempotency guards where two concurrent
+ * writers must agree on a single winner — e.g. Stripe webhook dedup, locks.
+ *
+ * In-memory fallback implements the same check-and-set atomically within
+ * the single-threaded event loop.
+ */
+export async function ephemeralSetNx(
+  prefix: string,
+  key: string,
+  value: string,
+  ttlMs: number,
+): Promise<boolean> {
+  const fullKey = `${prefix}:${key}`;
+  if (redisClient?.status === "ready") {
+    // ioredis: SET key value PX ttl NX -> "OK" on success, null if not set
+    const result = await redisClient.set(fullKey, value, "PX", ttlMs, "NX");
+    return result === "OK";
+  }
+  // In-memory fallback: Node's single-threaded event loop makes this atomic
+  // because no other async tick can run between the get and set below.
+  const now = Date.now();
+  const existing = memFallback.get(fullKey);
+  if (existing && existing.expiresAt > now) return false;
+  memFallback.set(fullKey, { value, expiresAt: now + ttlMs });
+  return true;
+}
+
 /** Delete a value. */
 export async function ephemeralDel(prefix: string, key: string): Promise<void> {
   const fullKey = `${prefix}:${key}`;

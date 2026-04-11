@@ -647,9 +647,34 @@ export async function syncSchema(db: Database): Promise<void> {
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
+    // F-01: Add org_id column for RLS tenant isolation (retrofit on existing tables).
+    // Nullable so the ALTER succeeds on existing rows; backfill from users.org_id below.
+    await db.execute(
+      sql`ALTER TABLE password_reset_tokens ADD COLUMN IF NOT EXISTS org_id TEXT REFERENCES organizations(id) ON DELETE CASCADE`,
+    );
+    // Backfill any rows missing org_id by joining with the users table.
+    // Idempotent: subsequent runs find nothing to update.
+    await db
+      .execute(
+        sql`
+      UPDATE password_reset_tokens t
+      SET org_id = u.org_id
+      FROM users u
+      WHERE t.user_id = u.id AND t.org_id IS NULL
+    `,
+      )
+      .catch((err) => logger.warn({ err }, "password_reset_tokens org_id backfill skipped (non-fatal)"));
     await db.execute(sql`CREATE INDEX IF NOT EXISTS password_reset_user_idx ON password_reset_tokens (user_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS password_reset_org_idx ON password_reset_tokens (org_id)`);
     await db.execute(
       sql`CREATE UNIQUE INDEX IF NOT EXISTS password_reset_token_hash_idx ON password_reset_tokens (token_hash)`,
+    );
+    // F-01: Enable RLS for defense-in-depth. Policy allows access only when
+    // app.org_id matches the row's org_id (or bypass_rls is set for schema sync).
+    // Rows with NULL org_id (legacy) will be invisible under RLS — they should be
+    // cleaned up by the backfill above; any stragglers will expire naturally.
+    await addRlsPolicy(db, "password_reset_tokens").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for password_reset_tokens"),
     );
 
     // --- MFA Recovery Requests ---
@@ -675,6 +700,10 @@ export async function syncSchema(db: Database): Promise<void> {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS mfa_recovery_user_idx ON mfa_recovery_requests (user_id)`);
     await db.execute(
       sql`CREATE UNIQUE INDEX IF NOT EXISTS mfa_recovery_token_hash_idx ON mfa_recovery_requests (token_hash)`,
+    );
+    // F-01: Enable RLS for defense-in-depth on MFA recovery state.
+    await addRlsPolicy(db, "mfa_recovery_requests").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for mfa_recovery_requests"),
     );
 
     // --- Usage Events ---

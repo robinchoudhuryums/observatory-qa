@@ -268,11 +268,17 @@ export function registerClinicalComplianceRoutes(app: Express, requireClinicalPl
         // Verify the note hasn't been edited since attestation.
         // If amendments exist after attestation, the cosigner is signing a modified version
         // which they may not have reviewed. Require re-attestation first.
+        //
+        // Addenda are legitimate post-attestation additions (not edits), but a cosigner
+        // may not have seen them — require explicit acknowledgment before co-signing a
+        // note with post-attestation addenda. See F-11 in broad-scan audit.
         const amendments = analysis.clinicalNote.amendments || [];
         const attestedAt = analysis.clinicalNote.attestedAt;
+        let acknowledgedAddendaCount = 0;
         if (attestedAt && amendments.length > 0) {
+          const attestedAtDate = new Date(attestedAt);
           const postAttestAmendments = amendments.filter(
-            (a: any) => a.type === "amendment" && new Date(a.amendedAt) > new Date(attestedAt),
+            (a: any) => a.type === "amendment" && new Date(a.amendedAt) > attestedAtDate,
           );
           if (postAttestAmendments.length > 0) {
             res.status(409).json({
@@ -282,6 +288,24 @@ export function registerClinicalComplianceRoutes(app: Express, requireClinicalPl
             });
             return;
           }
+          const postAttestAddenda = amendments.filter(
+            (a: any) => a.type === "addendum" && new Date(a.amendedAt) > attestedAtDate,
+          );
+          if (postAttestAddenda.length > 0 && req.body.acknowledgedAddenda !== true) {
+            res.status(409).json({
+              message:
+                "This note has addenda added after attestation. Review the addenda and resubmit with acknowledgedAddenda: true to co-sign.",
+              code: "OBS-CLINICAL-COSIGN-ADDENDA",
+              postAttestAddenda: postAttestAddenda.length,
+              addenda: postAttestAddenda.map((a: any) => ({
+                amendedAt: a.amendedAt,
+                reason: a.reason,
+                amendedBy: a.amendedBy,
+              })),
+            });
+            return;
+          }
+          acknowledgedAddendaCount = postAttestAddenda.length;
         }
 
         // Optimistic locking: verify version hasn't changed since client loaded the note
@@ -303,6 +327,7 @@ export function registerClinicalComplianceRoutes(app: Express, requireClinicalPl
           cosignedNpi: npiNumber ? encryptField(npiNumber) : undefined,
           cosignedAt,
           role: role || undefined,
+          ...(acknowledgedAddendaCount > 0 ? { acknowledgedAddendaCount } : {}),
         };
         analysis.clinicalNote.cosignatureRequired = false;
 
@@ -313,7 +338,7 @@ export function registerClinicalComplianceRoutes(app: Express, requireClinicalPl
           event: "cosign_clinical_note",
           resourceType: "clinical_note",
           resourceId: req.params.callId,
-          detail: `Co-signed by ${req.user?.name || req.user?.username}${role ? ` (${role})` : ""}`,
+          detail: `Co-signed by ${req.user?.name || req.user?.username}${role ? ` (${role})` : ""}${acknowledgedAddendaCount > 0 ? ` — acknowledged ${acknowledgedAddendaCount} post-attestation addend${acknowledgedAddendaCount === 1 ? "um" : "a"}` : ""}`,
         });
 
         logger.info({ callId: req.params.callId }, "Clinical note co-signed");

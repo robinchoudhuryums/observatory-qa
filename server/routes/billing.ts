@@ -7,7 +7,7 @@ import { requireAuth, requireRole, injectOrgContext, invalidateOrgCache } from "
 import { asyncHandler } from "../middleware/error-handler";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
-import { ephemeralSet, ephemeralGet } from "../services/redis";
+import { ephemeralSetNx } from "../services/redis";
 import {
   getStripe,
   isStripeConfigured,
@@ -711,15 +711,16 @@ export function registerBillingRoutes(app: Express): void {
     }
 
     // Idempotency: Stripe can redeliver events. Track processed event IDs
-    // via Redis (cross-instance) with in-memory fallback (single-instance).
-    // Uses ephemeralGet/Set which auto-selects Redis when available.
+    // atomically via Redis SET NX (cross-instance) with in-memory fallback.
+    // Uses ephemeralSetNx to eliminate the read-then-write TOCTOU window
+    // where two concurrent redeliveries could both pass a non-atomic check.
+    // See F-13 in broad-scan audit.
     const dedupKey = event.id;
-    const alreadyProcessed = await ephemeralGet("stripe-webhook", dedupKey);
-    if (alreadyProcessed) {
+    const acquired = await ephemeralSetNx("stripe-webhook", dedupKey, "1", WEBHOOK_DEDUP_TTL_MS);
+    if (!acquired) {
       logger.info({ eventId: event.id, type: event.type }, "Stripe webhook: duplicate event skipped");
       return res.json({ received: true, duplicate: true });
     }
-    await ephemeralSet("stripe-webhook", dedupKey, "1", WEBHOOK_DEDUP_TTL_MS);
 
     try {
       switch (event.type) {
