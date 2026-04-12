@@ -80,7 +80,7 @@ npx vite build         # Frontend-only build (quick verification)
 - **Unit tests**: Node.js built-in `test` module via `tsx` — `npm run test`
 - **E2E tests**: Playwright (Chromium) — `npm run test:e2e` or `npm run test:e2e:ui`
 - **Location**: `tests/` (unit), `tests/e2e/` (E2E)
-- **Unit test files** (72 files, 1414 tests):
+- **Unit test files** (76 files, 1517 tests):
   - `tests/schema.test.ts` — Zod schema validation (orgId on all entities, organization schemas)
   - `tests/ai-provider.test.ts` — AI provider utilities (parseJsonResponse, buildAnalysisPrompt, smartTruncate)
   - `tests/routes.test.ts` — API route handler tests
@@ -151,6 +151,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/confidence-filter.test.ts` — Confidence as first-class filter (dashboard metrics, data quality breakdown, boundary values, MemStorage, 8 tests)
   - `tests/call-clustering.test.ts` — Call clustering (TF-IDF, cosine similarity, agglomerative clustering, trend detection, 15 tests)
   - `tests/bedrock-batch.test.ts` — Bedrock batch inference (shouldUseBatchMode, isBatchAvailable, org settings validation, 15 tests)
+  - `tests/billing-webhooks.test.ts` — Stripe webhook lifecycle (overage pricing, metered item sync, subscription state transitions, idempotency, grace period, 38 tests)
   - `tests/prompt-injection-pipeline.test.ts` — Transcript injection detection + output guardrails + orphan recovery (16 tests)
   - `tests/remaining-adaptations.test.ts` — Performance snapshots, SSRF validation, scheduled reports (21 tests)
   - `tests/rag-ums-adaptations.test.ts` — RAG improvements adapted from ums-knowledge-reference: adaptive query-type weights, confidence reconciliation, domain synonym expansion, table-aware chunking, page tracking, cross-org FAQ patterns, structured short-circuit, query reformulation, response styles (49 tests)
@@ -1378,7 +1379,7 @@ On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add mi
 - **WebAuthn storage**: WebAuthn credentials (credentialId, COSE public key, sign counter) are stored as a JSONB array on the `users` row (`webauthn_credentials`). `@simplewebauthn/server` v13 is used; registration challenge is stored in the session (`req.session.webauthnChallenge`). Public keys are base64url-encoded for JSON storage.
 - **Trusted device cookies**: After successful MFA, `trustDevice: true` in the request body generates a random 32-byte token. SHA-256(token) is stored in `user.mfaTrustedDevices[]` with a 30-day expiry. The cookie `mfa_td` holds `{userId}:{token}`. On login, the trusted device check runs before the MFA challenge — if valid, MFA is skipped for this device.
 - **MFA grace period**: When an org first enables `mfaRequired`, `mfaRequiredEnabledAt` is stamped. Each user without MFA gets an `mfaEnrollmentDeadline` = `mfaRequiredEnabledAt + mfaGracePeriodDays` (default 7). During the grace period, login succeeds with `mfaSetupRequired: true`. After the deadline, login is rejected with a specific error code. Reminder emails are sent at 7, 3, and 1 day before the deadline.
-- **Email OTP for non-admins**: A 6-digit OTP (10-minute TTL, 3 attempts max) is sent to the user's username/email. Restricted to viewer/manager roles — admin users must use TOTP or WebAuthn. Stored in an in-memory map keyed by userId (TTL too short to warrant DB overhead).
+- **Email OTP for non-admins**: A 6-digit OTP (10-minute TTL, 3 attempts max) is sent to the user's username/email. Restricted to viewer/manager roles — admin users must use TOTP or WebAuthn. Stored via Redis ephemeral API (`ephemeralSet`/`ephemeralGet`/`ephemeralDel` from `redis.ts`) keyed by userId — multi-instance safe when Redis is configured, in-memory fallback otherwise.
 - **MFA recovery flow**: User submits a recovery request; server sends a time-limited verification token to the user's email. Admin sees pending requests in the admin panel and approves or denies. On approval, a use-token (15-min TTL) is emailed to the user, which completes login and clears MFA — forcing re-enrollment. All steps are HIPAA-audit-logged. Table: `mfa_recovery_requests`.
 
 ## CI/CD Pipeline
@@ -1727,6 +1728,10 @@ Full audit of 108K LOC across 360 files with priority-ordered ratings and fixes.
 - Frontend chart components should be audited to confirm they handle undefined sub-scores gracefully (show "N/A" instead of 0)
 - `customer.subscription.updated` handler should also handle enterprise seat pricing if custom seat prices are introduced
 - Admin.ts BAA routes duplicate `baa.ts` registered routes — consider removing the dead admin.ts copy
+
+#### ✅ Completed & committed: Billing lifecycle tests + email OTP Redis migration
+- **Stripe billing webhook tests** (`tests/billing-webhooks.test.ts`, 38 tests): Overage/seat price mapping (all tiers including enterprise), plan billing consistency (volume discount, calls/seats scaling), webhook event structure validation (tier resolution, metered item extraction, flat-rate vs metered identification), subscription lifecycle state transitions (checkout upsert, deletion preserves customer ID, update syncs metered items, additional seat calculation), webhook idempotency, and grace period calculation.
+- **Email OTP Redis migration** (`server/routes/mfa.ts`): Replaced in-memory `emailOtpStore` Map + cleanup interval with Redis-backed ephemeral API (`ephemeralSet`/`ephemeralGet`/`ephemeralDel` with JSON serialization). OTP entries auto-expire via Redis TTL (10 min). Multi-instance safe: OTP created on instance A verifiable on instance B. In-memory fallback preserved via ephemeral API. Resolves the TODO comment that was in the code.
 
 ### Branch: `claude/evaluate-qa-rag-integration-MrMze`
 
@@ -2299,8 +2304,8 @@ Longer-term improvements identified during codebase audits. Work on these increm
 ### DevOps / Infrastructure
 | Priority | Item | Effort | Impact | Notes |
 |----------|------|--------|--------|-------|
-| HIGH | **Move in-memory state to Redis** | 2 days | High — enables multi-instance | 3 remaining in-memory Maps lose state on restart/across instances: email OTP (mfa.ts), live sessions (live-session.ts), rateLimitMap (index.ts). OIDC state, loginAttempts, and Stripe webhook dedup are already migrated to Redis ephemeral API. Sprint 1-2 |
-| HIGH | **Pin CI actions to SHA** | 0.5 days | High — supply chain security | Main CI workflow uses floating tags (`@v4`). Nightly/PR-review correctly pin SHAs. Fix: pin all actions to SHA digests. Sprint 1 |
+| MEDIUM | **Move live session state to Redis or sticky sessions** | 2 days | Medium — enables multi-instance for clinical | 1 remaining in-memory subsystem: live sessions (live-session.ts) with 11 Maps holding WebSocket connections and streaming state. These are inherently process-local (can't serialize connections to Redis). Solution: sticky session routing for clinical live sessions in multi-instance deployments. Email OTP, OIDC state, loginAttempts, Stripe webhook dedup, and rate limiting are already Redis-backed. Sprint 2-3 |
+| ✅ Done | **Pin CI actions to SHA** | — | — | All 4 workflow files (ci.yml, nightly.yml, pr-review.yml, dependency-check.yml) use SHA-pinned actions with version comments. Verified 2026-04-12 |
 | ✅ Done | **Backup script PHI safety** | — | — | `claude/broad-scan-feature-0YtPG` — `deploy/ec2/backup.sh` now sets `umask 077` at script start so every file and directory is created owner-only. Closes the race window between `mktemp -d` and `chmod 700`. |
 | MEDIUM | **Dependency audit on PRs** | 0.5 days | Medium — vulnerability detection | Weekly-only check; critical vulns can ship for days. Fix: add `npm audit --audit-level=high` to PR review workflow. Sprint 2 |
 | MEDIUM | **Container image scanning** | 1 day | Medium — supply chain security | No SAST/DAST or container scanning. Fix: add Trivy scan on Docker build step. Sprint 2 |
