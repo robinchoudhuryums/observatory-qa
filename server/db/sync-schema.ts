@@ -830,6 +830,13 @@ export async function syncSchema(_dbArg: Database): Promise<void> {
     await db.execute(
       sql`ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS consent_captured_by TEXT`,
     );
+    // Consent revocation: HIPAA §164.508 right to revoke consent mid-session.
+    await db.execute(
+      sql`ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS consent_revoked_at TIMESTAMP`,
+    );
+    await db.execute(
+      sql`ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS consent_revoked_by TEXT`,
+    );
     await addRlsPolicy(db, "live_sessions").catch((e) =>
       logger.warn({ err: e }, "RLS setup skipped for live_sessions"),
     );

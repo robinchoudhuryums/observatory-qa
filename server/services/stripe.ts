@@ -76,12 +76,13 @@ export function getSeatPriceId(tier: PlanTier): string | null {
 
 /**
  * Map plan tier to its metered per-call overage Price ID.
- * Returns null for tiers without a configured overage price (free, enterprise).
+ * Returns null for tiers without a configured overage price (free).
  */
 export function getOveragePriceId(tier: PlanTier): string | null {
   const overagePriceMap: Record<string, string | undefined> = {
     starter: process.env.STRIPE_PRICE_STARTER_OVERAGE,
     professional: process.env.STRIPE_PRICE_PROFESSIONAL_OVERAGE,
+    enterprise: process.env.STRIPE_PRICE_ENTERPRISE_OVERAGE,
   };
   return overagePriceMap[tier] || null;
 }

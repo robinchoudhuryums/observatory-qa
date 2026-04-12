@@ -80,7 +80,7 @@ npx vite build         # Frontend-only build (quick verification)
 - **Unit tests**: Node.js built-in `test` module via `tsx` — `npm run test`
 - **E2E tests**: Playwright (Chromium) — `npm run test:e2e` or `npm run test:e2e:ui`
 - **Location**: `tests/` (unit), `tests/e2e/` (E2E)
-- **Unit test files** (72 files, 1414 tests):
+- **Unit test files** (78 files, 1563 tests):
   - `tests/schema.test.ts` — Zod schema validation (orgId on all entities, organization schemas)
   - `tests/ai-provider.test.ts` — AI provider utilities (parseJsonResponse, buildAnalysisPrompt, smartTruncate)
   - `tests/routes.test.ts` — API route handler tests
@@ -105,6 +105,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/coaching-engine.test.ts` — Coaching recommendation engine
   - `tests/calibration-improvements.test.ts` — Calibration improvements (blind mode, IRR metrics, certification)
   - `tests/ehr.test.ts` — EHR integration adapters
+  - `tests/ehr-open-dental.test.ts` — Open Dental EHR adapter (error classification, patient/allergy/medication parsing, appointment procedure parsing, treatment plan fees, status mapping, duration patterns, 32 tests)
   - `tests/error-codes.test.ts` — Error code system
   - `tests/ab-testing-improvements.test.ts` — A/B testing improvements (t-test, batch, segments, recommendations)
   - `tests/spend-tracking-improvements.test.ts` — Spend tracking improvements (forecasting, anomalies, budget, departments)
@@ -151,6 +152,8 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/confidence-filter.test.ts` — Confidence as first-class filter (dashboard metrics, data quality breakdown, boundary values, MemStorage, 8 tests)
   - `tests/call-clustering.test.ts` — Call clustering (TF-IDF, cosine similarity, agglomerative clustering, trend detection, 15 tests)
   - `tests/bedrock-batch.test.ts` — Bedrock batch inference (shouldUseBatchMode, isBatchAvailable, org settings validation, 15 tests)
+  - `tests/billing-webhooks.test.ts` — Stripe webhook lifecycle (overage pricing, metered item sync, subscription state transitions, idempotency, grace period, 38 tests)
+  - `tests/billing-webhook-integration.test.ts` — Billing webhook integration against MemStorage (subscription lifecycle, metered item tracking, payment failure/recovery, re-subscription, 14 tests)
   - `tests/prompt-injection-pipeline.test.ts` — Transcript injection detection + output guardrails + orphan recovery (16 tests)
   - `tests/remaining-adaptations.test.ts` — Performance snapshots, SSRF validation, scheduled reports (21 tests)
   - `tests/rag-ums-adaptations.test.ts` — RAG improvements adapted from ums-knowledge-reference: adaptive query-type weights, confidence reconciliation, domain synonym expansion, table-aware chunking, page tracking, cross-org FAQ patterns, structured short-circuit, query reformulation, response styles (49 tests)
@@ -254,7 +257,7 @@ server/routes/               # Modular API route files (44 route files)
   admin-security.routes.ts   #   Extracted: audit logs, WAF, incidents, breach reports, GDPR, vocab, MFA recovery
 
 server/services/             # Business logic & integrations (46 files)
-  ai-factory.ts              #   AI provider setup (Bedrock, per-org model config, circuit breaker)
+  ai-factory.ts              #   AI provider setup (Bedrock, per-org model config, per-org circuit breaker with global fallback)
   ai-provider.ts             #   AI analysis interface, prompt building, JSON parsing, clinical note generation
   ai-prompts.ts              #   System/user prompt construction for Bedrock Converse API
   ai-types.ts                #   AI response type definitions, flag validation schemas
@@ -327,11 +330,12 @@ server/scheduled/            # Wall-clock scheduled background tasks
   weekly-digest.ts           #   Weekly performance/coaching digest to webhook
   audit-chain-verify.ts      #   Nightly HIPAA audit chain integrity verification
   coaching-tasks.ts          #   Coaching automation rules, effectiveness caching, follow-up reminders
+  post-processing-reconciliation.ts  #   Daily reconciliation: finds completed calls with missing usage records and re-tracks them
 
 server/services/ehr/         # EHR integration adapters (11 files)
-  types.ts                   #   IEhrAdapter interface, EhrPatient, EhrAppointment, EhrClinicalNote, EhrTreatmentPlan, EhrHealthStatus
+  types.ts                   #   IEhrAdapter interface, EhrPatient, EhrAppointment, EhrClinicalNote, EhrTreatmentPlan, EhrHealthStatus, EhrError class, classifyEhrError()
   index.ts                   #   EHR adapter factory (5 adapters: open_dental, eaglesoft, dentrix, fhir_r4, mock)
-  open-dental.ts             #   Open Dental adapter (bidirectional: patient lookup, note push, treatment plans)
+  open-dental.ts             #   Open Dental adapter (bidirectional: patient lookup, note push, treatment plans with procedure-level fees, appointment creation)
   eaglesoft.ts               #   Eaglesoft/Patterson eDex adapter (bidirectional with eDex v2+)
   dentrix.ts                 #   Dentrix Ascend / G7 adapter (bidirectional)
   fhir-r4.ts                 #   Generic FHIR R4-compliant server adapter (bidirectional)
@@ -479,7 +483,7 @@ Reference documents uploaded by orgs are processed through:
 2. **Chunking** (`chunker.ts`) — sliding window with overlap (400 tokens, 80 token overlap), natural break detection (paragraph > sentence > line via `lastIndexOf`), section header tracking (markdown, ALL CAPS, numbered "1.2.3", colon-suffixed), **table preservation** (pipe/tab-delimited tables kept as single chunks), **page number tracking** (via form feed markers). Configurable `charsPerToken` ratio: 3.5 for medical/dental (clinical codes are dense), 4.0 for general text. Minimum step of 40 chars prevents micro-chunks
 3. **Embedding** (`embeddings.ts`) — Amazon Titan Embed V2 via Bedrock (1024 dimensions, raw REST + SigV4). **Two-tier cache**: in-memory LRU (200 entries) + Redis shared cache (1-hour TTL) for multi-instance cost reduction
 4. **Storage** — chunks + embeddings stored in `document_chunks` table (pgvector)
-5. **Retrieval** (`rag.ts`) — hybrid search: pgvector cosine similarity (HNSW index) + BM25 keyword boosting with log-linear normalization. **Adaptive query-type weights**: queries classified as `template_lookup` (40/60 semantic/keyword), `compliance_question` (55/45), `coaching_question` (75/25), or `general` (70/30). **Domain synonym expansion** per industry vertical (dental, medical, behavioral health, veterinary) for improved BM25 recall on abbreviations. Minimum relevance score threshold (0.3) filters low-quality chunks
+5. **Retrieval** (`rag.ts`) — hybrid search: pgvector cosine similarity (HNSW index) + BM25 keyword boosting with IDF from candidate corpus and log-linear normalization. **Adaptive query-type weights**: queries classified as `template_lookup` (40/60 semantic/keyword), `compliance_question` (55/45), `coaching_question` (75/25), or `general` (70/30). **Domain synonym expansion** per industry vertical (dental, medical, behavioral health, veterinary) for improved BM25 recall on abbreviations. Minimum relevance score threshold (0.3) filters low-quality chunks
 6. **Injection** — relevant chunks formatted with XML `<knowledge_source>` tags (prompt injection defense) and injected into the AI analysis prompt
 7. **Confidence reconciliation** — retrieval scores reconciled with LLM-stated confidence tags: downgrades overconfident LLM responses when retrieval is weak, upgrades conservative responses when retrieval is strong (`reconcileConfidence()`)
 8. **Observability** (`rag-trace.ts`) — per-query traces with timing breakdown (embedding/retrieval/rerank), per-chunk IDs and scores, query type classification, weight tracking, confidence reconciliation status
@@ -532,7 +536,7 @@ These modules are imported by the most consumers. Changes here have the widest b
 | `server/services/audit-log.ts` | `logPhiAccess`, `auditContext`, `queryAuditLogs`, `exportAuditLogs`, `verifyAuditChain` | 35 | 32 route files + auth.ts + incident-response.ts + retention.worker.ts |
 | `server/services/call-processing.ts` | `processAudioFile`, `continueAfterTranscription`, `invalidateRefDocCache`, `cleanupFile`, `computeConfidence`, `autoAssignEmployee`, `mapClinicalNote` | 2 | routes/calls.ts, routes/assemblyai-webhook.ts. Low consumer count but highest internal complexity (14+ deps) |
 | `server/services/phi-encryption.ts` | `encryptField`, `decryptField`, `decryptClinicalNotePhi`, `isPhiEncryptionEnabled`, `encryptMfaSecret`, `decryptMfaSecret` | 12 | Clinical routes (3), calls, mfa, ehr, live-session, pg-storage, call-processing, ehr-note-push worker, ehr/health-monitor, ehr/appointment-matcher |
-| `server/services/ai-factory.ts` | `aiProvider`, `getOrgAIProvider`, `getBedrockCircuitState`, `withBedrockProtection`, `acquireBedrockSlot`, `releaseBedrockSlot` | 11 | call-processing, coaching-engine, clinical, call-insights, reports, insurance-narratives, lms, health, admin, live-session, emails |
+| `server/services/ai-factory.ts` | `aiProvider`, `getOrgAIProvider`, `getBedrockCircuitState`, `withBedrockProtection`, `acquireBedrockSlot`, `releaseBedrockSlot` | 11 | call-processing, coaching-engine, clinical, call-insights, reports, insurance-narratives, lms, health, admin, live-session, emails. Circuit breaker is per-org (threshold 5) with global fallback (threshold 15) |
 | `server/services/logger.ts` | `logger` | All | Every server file |
 
 ### Key Inter-Module Dependencies
@@ -1052,6 +1056,7 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
 | POST | `/api/live-sessions/:id/draft-note` | authenticated | Draft clinical note during session |
 | PATCH | `/api/live-sessions/:id/pause` | authenticated | Pause session |
 | PATCH | `/api/live-sessions/:id/stop` | authenticated | Stop session |
+| POST | `/api/live-sessions/:id/revoke-consent` | authenticated | Revoke patient consent mid-session. Immediately stops recording, closes AssemblyAI connection, marks session with revocation metadata, logs HIPAA audit event. HIPAA §164.508 right to revoke |
 
 ### LMS — Learning Management System (org-scoped)
 | Method | Path | Role | Description |
@@ -1182,6 +1187,7 @@ AWS_SECRET_ACCESS_KEY
 AWS_REGION                      # Default: us-east-1
 AWS_SESSION_TOKEN               # Optional, for IAM roles/STS
 BEDROCK_MODEL                   # Default: us.anthropic.claude-sonnet-4-6
+BEDROCK_GLOBAL_CIRCUIT_THRESHOLD # Global circuit breaker threshold (default: 15 consecutive failures across all orgs)
 
 # ─── Billing ─────────────────────────────────────────────────────────
 STRIPE_SECRET_KEY               # Stripe API secret
@@ -1193,6 +1199,7 @@ STRIPE_PRICE_PROFESSIONAL_YEARLY  # Price ID for Professional yearly ($1908)
 STRIPE_PRICE_ENTERPRISE_MONTHLY # Price ID for Enterprise monthly ($999)
 STRIPE_PRICE_ENTERPRISE_YEARLY  # Price ID for Enterprise yearly ($9588)
 STRIPE_PRICE_CLINICAL_ADDON_MONTHLY # Price ID for Clinical Documentation add-on ($49/mo, Starter only)
+STRIPE_PRICE_ENTERPRISE_OVERAGE # Price ID for Enterprise per-call overage ($0.15/call over 5000/mo)
 
 # ─── Google OAuth ────────────────────────────────────────────────────
 GOOGLE_CLIENT_ID                # OAuth client ID
@@ -1376,7 +1383,7 @@ On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add mi
 - **WebAuthn storage**: WebAuthn credentials (credentialId, COSE public key, sign counter) are stored as a JSONB array on the `users` row (`webauthn_credentials`). `@simplewebauthn/server` v13 is used; registration challenge is stored in the session (`req.session.webauthnChallenge`). Public keys are base64url-encoded for JSON storage.
 - **Trusted device cookies**: After successful MFA, `trustDevice: true` in the request body generates a random 32-byte token. SHA-256(token) is stored in `user.mfaTrustedDevices[]` with a 30-day expiry. The cookie `mfa_td` holds `{userId}:{token}`. On login, the trusted device check runs before the MFA challenge — if valid, MFA is skipped for this device.
 - **MFA grace period**: When an org first enables `mfaRequired`, `mfaRequiredEnabledAt` is stamped. Each user without MFA gets an `mfaEnrollmentDeadline` = `mfaRequiredEnabledAt + mfaGracePeriodDays` (default 7). During the grace period, login succeeds with `mfaSetupRequired: true`. After the deadline, login is rejected with a specific error code. Reminder emails are sent at 7, 3, and 1 day before the deadline.
-- **Email OTP for non-admins**: A 6-digit OTP (10-minute TTL, 3 attempts max) is sent to the user's username/email. Restricted to viewer/manager roles — admin users must use TOTP or WebAuthn. Stored in an in-memory map keyed by userId (TTL too short to warrant DB overhead).
+- **Email OTP for non-admins**: A 6-digit OTP (10-minute TTL, 3 attempts max) is sent to the user's username/email. Restricted to viewer/manager roles — admin users must use TOTP or WebAuthn. Stored via Redis ephemeral API (`ephemeralSet`/`ephemeralGet`/`ephemeralDel` from `redis.ts`) keyed by userId — multi-instance safe when Redis is configured, in-memory fallback otherwise.
 - **MFA recovery flow**: User submits a recovery request; server sends a time-limited verification token to the user's email. Admin sees pending requests in the admin panel and approves or denies. On approval, a use-token (15-min TTL) is emailed to the user, which completes login and clears MFA — forcing re-enrollment. All steps are HIPAA-audit-logged. Table: `mfa_recovery_requests`.
 
 ## CI/CD Pipeline
@@ -1524,8 +1531,9 @@ Server serves both API and static frontend from the same process.
 - **Stripe webhook events are deduplicated atomically**: The billing webhook handler tracks processed event IDs via `ephemeralSetNx` from `redis.ts` (Redis `SET NX PX`, 24h TTL, in-memory fallback). Single atomic call — no TOCTOU window between check and set. Multi-instance safe when Redis is configured
 - **Google OAuth auto-provisioning requires Workspace `hd` claim**: `server/routes/oauth.ts` auto-provisions users when their Google email matches an org's `settings.emailDomain`, but ONLY when (1) `profile.emails[0].verified === true` and (2) `profile._json.hd === emailDomain`. The `hd` claim is Google Workspace's hosted-domain identifier — it's only set when the account is managed by that tenant. Consumer Gmail accounts have no `hd` and are rejected. This prevents domain-squatting account takeover. Orgs with multiple Workspace domains mapped to one Observatory org must use invitation-based onboarding for the secondary domains. Existing-user login path is unchanged — only new-user auto-provisioning is gated.
 - **MFA rate limiting is keyed by userId, not sessionId**: `isMfaLocked`/`recordMfaAttempt`/`clearMfaAttempts` in `routes/mfa.ts` rate-limit MFA verification attempts (TOTP, backup codes, WebAuthn, email OTP) by the target `userId` from the request body. Keyed by userId so attackers can't rotate session cookies to get a fresh rate-limit window — the userId is by definition the target they're attacking. Backed by Redis `INCR` + `PEXPIRE` via `ephemeralIncrement` from `redis.ts` (in-memory counter fallback). Multi-instance safe when Redis is configured. 5 attempts per 15-minute window; the window does NOT reset on each attempt (attackers can't slide the window indefinitely).
-- **Reanalysis worker processes in streaming chunks**: The bulk reanalysis worker fetches and processes calls in 200-call chunks, discarding each chunk before fetching the next, to prevent OOM on large orgs. Progress reporting is approximate for the "all calls" path
-- **AI response validation**: `parseJsonResponse()` in `ai-types.ts` extracts JSON using a **balanced-brace walker** with string-literal awareness (not a greedy regex), so AI responses that contain `{example}`-style placeholders in a preamble before the real JSON block parse correctly. Tries markdown code fences, then full-text parse, then each balanced `{...}` candidate in source order until one parses. Clamps `performanceScore` to 0-10, sentiment scores to 0-1, sub-scores to 0-10, and validates all field types. Missing fields get safe defaults (5.0 for scores, "neutral" for sentiment). `normalizeAnalysis()` in `storage/types.ts` also clamps on read
+- **Reanalysis worker processes in streaming chunks**: The bulk reanalysis worker fetches and processes calls in 200-call chunks, discarding each chunk before fetching the next, to prevent OOM on large orgs. Progress reporting is approximate for the "all calls" path. **When the AI provider is unavailable, the worker throws** (not silently returns success) so BullMQ marks the job as failed and retries. After max retries, the job moves to the dead letter queue for admin review
+- **Circuit breaker is per-org with global fallback**: `withBedrockProtection()` in `ai-factory.ts` checks two circuit breakers: (1) per-org breaker (5 consecutive failures opens, 60s reset) and (2) global breaker (15 consecutive failures opens). One org's rate limits or Bedrock errors only affect that org's circuit. Platform-wide outages trip the global breaker. `getBedrockCircuitState(orgId?)` returns both per-org and global state. Per-org breakers auto-cleaned every 5 min when idle. Env: `BEDROCK_CIRCUIT_THRESHOLD` (per-org, default 5), `BEDROCK_GLOBAL_CIRCUIT_THRESHOLD` (global, default 15), `BEDROCK_CIRCUIT_RESET_MS` (reset window, default 60000)
+- **AI response validation**: `parseJsonResponse()` in `ai-types.ts` extracts JSON using a **balanced-brace walker** with string-literal awareness (not a greedy regex), so AI responses that contain `{example}`-style placeholders in a preamble before the real JSON block parse correctly. Tries markdown code fences, then full-text parse, then each balanced `{...}` candidate in source order until one parses. Clamps `performanceScore` to 0-10, sentiment scores to 0-1, sub-scores to 0-10, and validates all field types. Missing fields get safe defaults (5.0 for scores, "neutral" for sentiment). **Sub-score fields** (`compliance`, `customerExperience`, `communication`, `resolution`) are set to `undefined` (not 0) when the AI omits them — this prevents false 0/10 scores from appearing in the UI. `normalizeAnalysis()` in `storage/types.ts` also clamps on read
 - **Empty transcript handling**: If transcript text is <10 characters, the pipeline saves the call with `empty_transcript` flag, low confidence, and skips AI analysis entirely — prevents generating junk analysis from silence/noise
 - **Employee auto-assignment safety**: Only considers active employees. If multiple employees match the detected name, prefers exact full-name match; skips assignment if ambiguous (logs the ambiguity)
 - **speakerRoleMap schema change**: Changed from `z.object({ agentSpeaker: z.string() })` to `z.record(z.string(), z.string())` to support proper speaker label → role mapping (e.g., `{ A: "agent", B: "customer" }`). Old `{ agentSpeaker: "A" }` format was a logic error — the property name was always the literal string "agentSpeaker" instead of using the value as a key
@@ -1667,7 +1675,7 @@ Full audit of 108K LOC across 360 files with priority-ordered ratings and fixes.
 - **F-18 — backup.sh mktemp race window** (`deploy/ec2/backup.sh`) — `mktemp -d` created the PHI backup directory with default umask (0022 → 0755) before the subsequent `chmod 700`, leaving a brief window where the directory was world-readable. Fix: added `umask 077` at the top of the script so every file and directory created is owner-only from the moment of creation. The existing `chmod 700` is kept as defense-in-depth.
 
 #### Follow-on items (from the 3-fix batch)
-- **Consent revocation workflow**: Only capture is addressed. HIPAA §164.508 also requires patients to be able to revoke consent. Not implemented.
+- **Consent revocation workflow**: ✅ Implemented — `POST /api/live-sessions/:id/revoke-consent` stops recording, marks session with revocation metadata, logs HIPAA audit event.
 - **CloudStorage live session consent fields**: PostgresStorage mapper was updated. If any deployment uses CloudStorage backend for live sessions, that implementation may need to be updated to handle the new fields. MemStorage passes through via spread.
 
 #### ✅ Completed & committed: 3 High-priority fixes from top-10 follow-on list (F-38, F-05, F-09)
@@ -1681,7 +1689,7 @@ Full audit of 108K LOC across 360 files with priority-ordered ratings and fixes.
 - **F-36 (High) — Google OAuth auto-provisioning domain verification** (`server/routes/oauth.ts`): Auto-provisioning trusted any Google account whose email domain matched `org.settings.emailDomain`, with no verification that the account was managed by that domain's Google Workspace tenant. Consumer Gmail accounts and cross-Workspace accounts could claim membership — domain-squatting account takeover. Fix: added two checks to the auto-provisioning path: (1) reject if `profile.emails[0].verified === false`, (2) require `profile._json.hd === emailDomain` (Workspace hosted-domain claim must match). Existing-user login path is unchanged — only new-user auto-provisioning is gated. Admins can still invite users manually without the `hd` check.
 
 #### Follow-on items (from the 3 top-10 fixes)
-- **Consent revocation workflow**: Previous batch also noted this; still applies. HIPAA §164.508 requires the ability to revoke consent mid-session.
+- **Consent revocation workflow**: ✅ Implemented in `claude/broad-scan-feature-UXVES`.
 - **Bedrock empty-content metric**: The thrown error is logged at warn level but not counted in a metric. Ops would benefit from a per-model counter of empty-content responses for content-filter debugging.
 - **OAuth multi-domain support**: Orgs with multiple Google Workspace domains could be supported by adding `settings.allowedEmailDomains: string[]` and checking membership. Not in scope.
 - **OAuth admin approval queue**: A stricter posture would queue auto-provisioned users as "pending" until an admin approves. Not in scope.
@@ -1708,6 +1716,48 @@ Full audit of 108K LOC across 360 files with priority-ordered ratings and fixes.
 - Add client UI for clinical-scribe continuous-mode opt-in toggle on `clinical-live.tsx` setup step
 - Add client UI for coaching-to-LMS "Generate Training Module" button on each coaching session card
 - Add `updateLearningProgress` to the `IStorage` interface (currently feature-detected via `(storage as any)`)
+
+### Branch: `claude/broad-scan-feature-UXVES`
+
+#### ✅ Completed & committed: 5 broad-scan findings (F-03, F-23, F-05, F-09, F-24) + 5 pre-existing TS fixes
+- **F-03 (High) — Per-org circuit breaker** (`server/services/ai-factory.ts`): The Bedrock circuit breaker was global — one org's rate limits disabled AI for all tenants. Fix: each org now has its own circuit breaker state (`orgCircuitBreakers` Map). A global circuit breaker (threshold 15, vs per-org threshold 5) catches platform-wide Bedrock outages. Stale per-org breakers auto-cleaned every 5 min. New env var: `BEDROCK_GLOBAL_CIRCUIT_THRESHOLD`.
+- **F-23 (High) — Enterprise overage billing** (`server/services/stripe.ts`, `server/routes/billing.ts`): `getOveragePriceId()` didn't map Enterprise tier, so enterprise customers exceeding 5,000 calls/month were never billed overage. Fix: added `enterprise` to overage price map and `STRIPE_PRICE_ENTERPRISE_OVERAGE` to `findItemByKnownPriceId()` lookups in checkout handler.
+- **F-05 (High) — Zero sub-scores from missing AI data** (`server/services/call-processing.ts`, `server/workers/reanalysis.worker.ts`): Sub-score fields used `?? 0` when AI omitted them, making missing data indistinguishable from a genuine 0/10 score. Fix: sub-score fields now use `undefined` when AI omits them. `applyScoreCalibration()` preserves undefined for missing fields rather than calibrating zeros.
+- **F-09 (High) — Reanalysis worker silent completion** (`server/workers/reanalysis.worker.ts`): When AI provider was unavailable, the worker returned a success result with `{ succeeded: 0 }`. BullMQ marked the job as completed. Fix: throws an error so BullMQ marks the job as failed and retries; after max retries, moves to DLQ.
+- **F-24 (High) — Stripe webhook metered item sync** (`server/routes/billing.ts`): `customer.subscription.updated` didn't extract metered item IDs; `customer.subscription.deleted` lost `stripeCustomerId`. Fix: updated handler extracts `stripeSeatsItemId`/`stripeOverageItemId` from subscription items; deleted handler preserves customer ID and explicitly clears stale metered items.
+- **Pre-existing TS fixes** (`server/index.ts`, `server/routes/admin.ts`): `server.listen` callback was non-async but used `await import()`. BAA routes in admin.ts imported removed `baaRecords` export — updated to use `businessAssociateAgreements` with correct column names (`expiresAt`, `signedAt`, `signedBy`).
+
+#### Follow-on items
+- Per-org circuit state should be exposed in admin health dashboard for operational visibility
+- Frontend chart components should be audited to confirm they handle undefined sub-scores gracefully (show "N/A" instead of 0)
+- `customer.subscription.updated` handler should also handle enterprise seat pricing if custom seat prices are introduced
+- Admin.ts BAA routes duplicate `baa.ts` registered routes — consider removing the dead admin.ts copy
+
+#### ✅ Completed & committed: Billing lifecycle tests + email OTP Redis migration
+- **Stripe billing webhook tests** (`tests/billing-webhooks.test.ts`, 38 tests): Overage/seat price mapping (all tiers including enterprise), plan billing consistency (volume discount, calls/seats scaling), webhook event structure validation (tier resolution, metered item extraction, flat-rate vs metered identification), subscription lifecycle state transitions (checkout upsert, deletion preserves customer ID, update syncs metered items, additional seat calculation), webhook idempotency, and grace period calculation.
+- **Email OTP Redis migration** (`server/routes/mfa.ts`): Replaced in-memory `emailOtpStore` Map + cleanup interval with Redis-backed ephemeral API (`ephemeralSet`/`ephemeralGet`/`ephemeralDel` with JSON serialization). OTP entries auto-expire via Redis TTL (10 min). Multi-instance safe: OTP created on instance A verifiable on instance B. In-memory fallback preserved via ephemeral API. Resolves the TODO comment that was in the code.
+
+#### ✅ Completed & committed: Storage layer type safety improvements
+- **Confidence mixin typed** (`server/db/pg-storage-confidence.ts`): Replaced `storage: any` parameter with typed `PostgresStorage` intersection. Typed raw SQL result as `ConfidenceMetricsRow` interface (was `as any`). Removed `(r: any)` cast in map callback.
+- **rawRows generic** (`server/db/pg-storage.ts`): `rawRows()` helper now uses generic type parameter `rawRows<T>()` returning `T[]` instead of `any[]`. Callers can gradually annotate with expected row types.
+
+#### ✅ Completed & committed: Post-processing reconciliation + EHR error classification
+- **Post-processing reconciliation** (`server/scheduled/post-processing-reconciliation.ts`): New daily scheduled task finds completed calls (1-48h old) with no usage records and re-tracks transcription + AI analysis usage. Capped at 50 calls per org per run. Registered in daily task orchestrator. Addresses the F-06 gap where postProcessing() failures are intentionally swallowed (per F-44) but had no compensating mechanism.
+- **EHR error classification** (`server/services/ehr/types.ts`, `open-dental.ts`, `eaglesoft.ts`, `dentrix.ts`, `server/routes/ehr.ts`): New `EhrError` class with typed `errorType` (auth/not_found/network/server/timeout/unknown). `classifyEhrError()` parses HTTP status from error messages. Open Dental, Eaglesoft, and Dentrix adapters now throw `EhrError` for non-404 errors instead of silently returning null/[]. EHR route catches `EhrError` and returns 502/504 with `ehrErrorType` field for actionable frontend messages.
+
+#### Follow-on items
+- FHIR R4 and mock adapters not yet updated with classifyEhrError
+- Frontend should handle `ehrErrorType` field to show actionable error banners
+- Reconciliation job should be extended to re-run missed webhook notifications (currently only re-tracks usage)
+
+#### ✅ Completed & committed: Consent revocation + BM25 IDF
+- **Consent revocation** (`shared/schema/billing.ts`, `server/db/sync-schema.ts`, `server/routes/live-session.ts`): HIPAA §164.508 right to revoke consent mid-session. New `consentRevokedAt`/`consentRevokedBy` fields on LiveSession. New `POST /api/live-sessions/:id/revoke-consent` endpoint: immediately stops recording (closes AssemblyAI connection), cleans up session buffers, marks consent as revoked, logs tamper-evident `clinical_consent_revoked` audit event with original consent method and session duration.
+- **BM25 IDF in RAG production** (`server/services/rag.ts`): `searchRelevantChunks()` now computes document frequencies from the pgvector candidate set and passes `corpusSize` + `documentFrequencies` to `bm25Score()`. Previously IDF defaulted to 1.0 (all terms weighted equally). Now common terms like "patient" get lower BM25 weight while rare domain terms get higher weight. Uses local IDF (candidate window as corpus) — pragmatic approximation that avoids querying the full corpus.
+
+#### Follow-on items
+- Frontend: add "Revoke Consent" button to clinical-live.tsx session controls
+- Revoked sessions should be visually marked in the UI and excluded from clinical metrics
+- Full-corpus IDF could be computed at index time and cached per-org for even better precision
 
 ### Branch: `claude/evaluate-qa-rag-integration-MrMze`
 
@@ -2209,8 +2259,8 @@ Longer-term improvements identified during codebase audits. Work on these increm
 ### Architecture / Code Quality
 | Priority | Item | Effort | Impact | Notes |
 |----------|------|--------|--------|-------|
-| HIGH | **Storage layer type safety** | 5 days | High — eliminates ~200 `as any` casts | `pg-storage.ts` has 82 `as any` casts, mostly from untyped Drizzle query results. Fix: add generic return types to all IStorage methods; update mapAnalysis/mapUser/mapEmployee to use typed row objects. Eliminates the #1 source of type unsafety. Sprint 1 priority |
-| HIGH | **asyncHandler adoption Phase 2 (server routes)** | 2 days | Medium — eliminates ~105 remaining catch blocks | Phase 1 done: coaching (29→1), onboarding (28→13), mfa (21→2). Remaining catch blocks span 29 route files. Convert in batches of 4-5 via parallel agents. Sprint 2 |
+| LOW | **Storage layer type safety (remaining)** | 1 day | Low — mostly structural | Prior audits reduced `as any` from ~200 to 3 genuine casts. Typed row types (`$inferSelect`), JSONB field types, and typed mappers are in place. Remaining: (1) `pg-storage-features.ts` prototype extension pattern (`P = prototype as any` — 74 methods, structural, can't be fixed without file restructuring), (2) `rawRows()` helper uses generic `T` but callers don't annotate yet, (3) `as unknown as Database` for Drizzle transaction type mismatch (3 locations, unfixable without Drizzle upstream change). Low priority — diminishing returns |
+| ✅ Done | **asyncHandler adoption** | — | — | Phase 1 converted coaching (29→1), onboarding (28→13), mfa (21→2), plus 11 other route files. Audit of remaining ~105 catch blocks confirmed they are all intentional error isolation (file cleanup, non-blocking notifications, PHI decryption fallbacks, status updates). No further conversion needed |
 | ✅ Done | **Call processing transaction wrapper** | — | — | `claude/audit-and-prioritize-GydTL` — added `withTransaction` to IStorage (PostgresStorage: real Drizzle tx; MemStorage/CloudStorage: no-op). Wrapped main pipeline, batch mode, empty transcript, and live session writes |
 | MEDIUM | **Consolidate URL validation utilities** | 0.5 days | Low — reduces confusion | `url-validation.ts` (used by 3 files) and `url-validator.ts` (used only by tests) have overlapping SSRF checks. Merge the best checks from both into `url-validation.ts`, update the 15 test imports in `remaining-adaptations.test.ts`, delete `url-validator.ts`. Sprint 2 |
 | MEDIUM | **Large file decomposition (remaining)** | 3 days | Medium — improves navigability | 14 files still >1000 LOC. Server: `memory.ts` (1.6K → split by domain), `sync-schema.ts` (1.5K → split by table group), `rag.ts` (1.3K → extract synonym/query modules), `call-processing.ts` (1.2K → extract pipeline steps). Client: `transcript-viewer.tsx` (1.3K → extract correction UI), `clinical-notes.tsx` (1.2K → extract print/amendment), `reports.tsx` (1.2K → extract chart sections). Sprint 2-3 |
@@ -2280,8 +2330,8 @@ Longer-term improvements identified during codebase audits. Work on these increm
 ### DevOps / Infrastructure
 | Priority | Item | Effort | Impact | Notes |
 |----------|------|--------|--------|-------|
-| HIGH | **Move in-memory state to Redis** | 2 days | High — enables multi-instance | 3 remaining in-memory Maps lose state on restart/across instances: email OTP (mfa.ts), live sessions (live-session.ts), rateLimitMap (index.ts). OIDC state, loginAttempts, and Stripe webhook dedup are already migrated to Redis ephemeral API. Sprint 1-2 |
-| HIGH | **Pin CI actions to SHA** | 0.5 days | High — supply chain security | Main CI workflow uses floating tags (`@v4`). Nightly/PR-review correctly pin SHAs. Fix: pin all actions to SHA digests. Sprint 1 |
+| MEDIUM | **Move live session state to Redis or sticky sessions** | 2 days | Medium — enables multi-instance for clinical | 1 remaining in-memory subsystem: live sessions (live-session.ts) with 11 Maps holding WebSocket connections and streaming state. These are inherently process-local (can't serialize connections to Redis). Solution: sticky session routing for clinical live sessions in multi-instance deployments. Email OTP, OIDC state, loginAttempts, Stripe webhook dedup, and rate limiting are already Redis-backed. Sprint 2-3 |
+| ✅ Done | **Pin CI actions to SHA** | — | — | All 4 workflow files (ci.yml, nightly.yml, pr-review.yml, dependency-check.yml) use SHA-pinned actions with version comments. Verified 2026-04-12 |
 | ✅ Done | **Backup script PHI safety** | — | — | `claude/broad-scan-feature-0YtPG` — `deploy/ec2/backup.sh` now sets `umask 077` at script start so every file and directory is created owner-only. Closes the race window between `mktemp -d` and `chmod 700`. |
 | MEDIUM | **Dependency audit on PRs** | 0.5 days | Medium — vulnerability detection | Weekly-only check; critical vulns can ship for days. Fix: add `npm audit --audit-level=high` to PR review workflow. Sprint 2 |
 | MEDIUM | **Container image scanning** | 1 day | Medium — supply chain security | No SAST/DAST or container scanning. Fix: add Trivy scan on Docker build step. Sprint 2 |
@@ -2294,7 +2344,7 @@ Longer-term improvements identified during codebase audits. Work on these increm
 ### UI/UX
 | Priority | Item | Effort | Impact | Notes |
 |----------|------|--------|--------|-------|
-| HIGH | **Progressive disclosure by plan tier** | 2 days | High — reduces cognitive overload | 34 sidebar items overwhelm new users. Show only relevant features per plan tier (Free: dashboard/upload/transcripts/settings; Starter adds coaching/reports/insights; Professional adds clinical/calibration; Enterprise adds admin/SSO/audit). Sprint 1 |
+| ✅ Done | **Progressive disclosure by plan tier** | — | — | `claude/broad-scan-feature-UXVES` — Sidebar refactored with NavLink + NavSection components. Items with `minPlan` show upgrade badges linking to billing instead of being hidden. Calibration gated to Professional+, Channels/Engagement items gated to Starter+. Clinical section requires clinical docs plan. Admin section role-gated. Free-tier users see focused core + upgrade prompts |
 | HIGH | **Accessibility audit with axe-core** | 2 days | Medium — compliance + usability | Missing `htmlFor`/`id` pairing on auth.tsx, invite-accept.tsx, settings tabs. Mobile sidebar lacks focus trap. 404 page uses hardcoded colors instead of theme. Fix: add axe-core to E2E, fix all critical/serious violations. Sprint 1-2 |
 | MEDIUM | **AudioRecorder blob URL leak** | 0.5 days | Low — memory leak | Cleanup effect uses stale closure for `audioUrl`. Fix: use ref to track latest URL for unmount cleanup. Sprint 2 |
 | MEDIUM | **`useIsMobile` SSR flash** | 0.5 days | Low — mobile UX | Returns `false` on first render causing layout shift. Fix: initialize with synchronous `window.innerWidth` check. Sprint 2 |

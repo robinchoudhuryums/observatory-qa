@@ -20,6 +20,7 @@ import { storage } from "../storage";
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { getEhrAdapter, getSupportedEhrSystems, type EhrConnectionConfig } from "../services/ehr/index";
+import { EhrError } from "../services/ehr/types";
 import { encryptField, decryptField } from "../services/phi-encryption";
 import { resolveEhrCredentials, invalidateSecretCache } from "../services/ehr/secrets-manager";
 import { matchCallToAppointment } from "../services/ehr/appointment-matcher";
@@ -220,7 +221,17 @@ export function registerEhrRoutes(app: Express): void {
       return;
     }
 
-    const patient = await adapter.getPatient(await resolveConfig(ehrConfig), req.params.ehrPatientId);
+    let patient;
+    try {
+      patient = await adapter.getPatient(await resolveConfig(ehrConfig), req.params.ehrPatientId);
+    } catch (err) {
+      if (err instanceof EhrError) {
+        const status = err.errorType === "auth" ? 502 : err.errorType === "network" || err.errorType === "timeout" ? 504 : 502;
+        res.status(status).json({ message: err.message, ehrErrorType: err.errorType, code: "OBS-EHR-ERROR" });
+        return;
+      }
+      throw err;
+    }
     if (!patient) {
       res.status(404).json({ message: "Patient not found" });
       return;

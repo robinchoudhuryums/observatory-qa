@@ -715,13 +715,16 @@ export async function continueAfterTranscription(
       ...(ragCitations ? { ragCitations } : {}),
     };
 
-    // Sub-scores
+    // Sub-scores — only include fields the AI actually returned.
+    // Missing fields are left undefined rather than defaulted to 0,
+    // which would be indistinguishable from a genuine 0/10 score.
     if (aiAnalysis?.sub_scores) {
+      const ss = aiAnalysis.sub_scores;
       analysis.subScores = {
-        compliance: aiAnalysis.sub_scores.compliance ?? 0,
-        customerExperience: aiAnalysis.sub_scores.customer_experience ?? 0,
-        communication: aiAnalysis.sub_scores.communication ?? 0,
-        resolution: aiAnalysis.sub_scores.resolution ?? 0,
+        compliance: ss.compliance != null ? Number(ss.compliance) : undefined,
+        customerExperience: ss.customer_experience != null ? Number(ss.customer_experience) : undefined,
+        communication: ss.communication != null ? Number(ss.communication) : undefined,
+        resolution: ss.resolution != null ? Number(ss.resolution) : undefined,
       };
     }
 
@@ -1051,25 +1054,28 @@ async function applyScoreCalibration(orgId: string, callId: string, analysis: an
 
   try {
     const org = await storage.getOrganization(orgId);
+    // Only calibrate sub-scores that the AI actually returned (not undefined)
+    const sub = analysis.subScores || {};
     const calibrated = calibrateAnalysis(
       {
         performance_score: safeFloat(analysis.performanceScore),
         sub_scores: {
-          compliance: analysis.subScores?.compliance ?? 0,
-          customer_experience: analysis.subScores?.customerExperience ?? 0,
-          communication: analysis.subScores?.communication ?? 0,
-          resolution: analysis.subScores?.resolution ?? 0,
+          compliance: sub.compliance ?? 0,
+          customer_experience: sub.customerExperience ?? 0,
+          communication: sub.communication ?? 0,
+          resolution: sub.resolution ?? 0,
         },
       },
       org?.settings,
     );
     if (calibrated.calibration_applied) {
       analysis.performanceScore = calibrated.performance_score as any;
+      // Preserve undefined for fields the AI didn't return
       analysis.subScores = {
-        compliance: calibrated.sub_scores.compliance,
-        customerExperience: calibrated.sub_scores.customer_experience,
-        communication: calibrated.sub_scores.communication,
-        resolution: calibrated.sub_scores.resolution,
+        compliance: sub.compliance != null ? calibrated.sub_scores.compliance : undefined,
+        customerExperience: sub.customerExperience != null ? calibrated.sub_scores.customer_experience : undefined,
+        communication: sub.communication != null ? calibrated.sub_scores.communication : undefined,
+        resolution: sub.resolution != null ? calibrated.sub_scores.resolution : undefined,
       };
     }
   } catch (err) {

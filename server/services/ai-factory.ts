@@ -131,16 +131,15 @@ export async function withBedrockRateLimit<T>(orgId: string, fn: () => Promise<T
   }
 }
 
-// ==================== CIRCUIT BREAKER ====================
+// ==================== CIRCUIT BREAKER (PER-ORG) ====================
 
 /**
- * Circuit breaker for Bedrock API calls.
+ * Per-org circuit breaker for Bedrock API calls.
  *
- * Prevents cascading failures when Bedrock is unavailable.
- * After CIRCUIT_FAILURE_THRESHOLD consecutive failures the circuit opens and
- * all requests are rejected immediately (fast-fail). After CIRCUIT_RESET_MS
- * one probe request is allowed through (half-open state). On success the
- * circuit closes; on failure it re-opens and the timer resets.
+ * Each org has its own circuit breaker state so one noisy tenant's rate limits
+ * or failures don't disable AI analysis for other tenants. A global circuit
+ * breaker is also maintained — if ALL orgs are failing (Bedrock-wide outage),
+ * the global breaker opens and fast-fails all requests regardless of per-org state.
  *
  * States: CLOSED → normal operation
  *         OPEN   → fast-fail, no calls reach Bedrock
@@ -148,109 +147,169 @@ export async function withBedrockRateLimit<T>(orgId: string, fn: () => Promise<T
  */
 const CIRCUIT_FAILURE_THRESHOLD = parseInt(process.env.BEDROCK_CIRCUIT_THRESHOLD || "5", 10);
 const CIRCUIT_RESET_MS = parseInt(process.env.BEDROCK_CIRCUIT_RESET_MS || "60000", 10); // 1 min
+const GLOBAL_CIRCUIT_FAILURE_THRESHOLD = parseInt(process.env.BEDROCK_GLOBAL_CIRCUIT_THRESHOLD || "15", 10);
 
 type CircuitState = "CLOSED" | "OPEN" | "HALF_OPEN";
 
-let circuitState: CircuitState = "CLOSED";
-let consecutiveFailures = 0;
-let circuitOpenedAt: number | null = null;
-let halfOpenProbeInFlight = false;
-
-function recordBedrockSuccess(): void {
-  if (circuitState !== "CLOSED") {
-    logger.info({ previousState: circuitState }, "Bedrock circuit breaker: closing after successful probe");
-  }
-  circuitState = "CLOSED";
-  consecutiveFailures = 0;
-  circuitOpenedAt = null;
-  halfOpenProbeInFlight = false;
+interface OrgCircuitBreaker {
+  state: CircuitState;
+  consecutiveFailures: number;
+  openedAt: number | null;
+  halfOpenProbeInFlight: boolean;
 }
 
-function recordBedrockFailure(): void {
-  consecutiveFailures++;
-  halfOpenProbeInFlight = false;
-  if (circuitState === "CLOSED" && consecutiveFailures >= CIRCUIT_FAILURE_THRESHOLD) {
-    circuitState = "OPEN";
-    circuitOpenedAt = Date.now();
+const orgCircuitBreakers = new Map<string, OrgCircuitBreaker>();
+
+// Global circuit breaker — trips on platform-wide Bedrock outages
+let globalCircuit: OrgCircuitBreaker = {
+  state: "CLOSED",
+  consecutiveFailures: 0,
+  openedAt: null,
+  halfOpenProbeInFlight: false,
+};
+
+function getOrgCircuit(orgId: string): OrgCircuitBreaker {
+  let cb = orgCircuitBreakers.get(orgId);
+  if (!cb) {
+    cb = { state: "CLOSED", consecutiveFailures: 0, openedAt: null, halfOpenProbeInFlight: false };
+    orgCircuitBreakers.set(orgId, cb);
+  }
+  return cb;
+}
+
+function recordCircuitSuccess(cb: OrgCircuitBreaker, label: string): void {
+  if (cb.state !== "CLOSED") {
+    logger.info({ previousState: cb.state, label }, "Bedrock circuit breaker: closing after successful probe");
+  }
+  cb.state = "CLOSED";
+  cb.consecutiveFailures = 0;
+  cb.openedAt = null;
+  cb.halfOpenProbeInFlight = false;
+}
+
+function recordCircuitFailure(cb: OrgCircuitBreaker, threshold: number, label: string): void {
+  cb.consecutiveFailures++;
+  cb.halfOpenProbeInFlight = false;
+  if (cb.state === "CLOSED" && cb.consecutiveFailures >= threshold) {
+    cb.state = "OPEN";
+    cb.openedAt = Date.now();
     logger.error(
-      { consecutiveFailures, resetMs: CIRCUIT_RESET_MS },
+      { consecutiveFailures: cb.consecutiveFailures, resetMs: CIRCUIT_RESET_MS, label },
       "Bedrock circuit breaker OPENED — AI analysis will fast-fail until Bedrock recovers",
     );
-  } else if (circuitState === "HALF_OPEN") {
-    // Probe failed → re-open
-    circuitState = "OPEN";
-    circuitOpenedAt = Date.now();
-    logger.warn("Bedrock circuit breaker: probe failed, re-opening circuit");
+  } else if (cb.state === "HALF_OPEN") {
+    cb.state = "OPEN";
+    cb.openedAt = Date.now();
+    logger.warn({ label }, "Bedrock circuit breaker: probe failed, re-opening circuit");
   }
 }
 
 /**
  * Get circuit breaker decision AND atomically claim the probe slot if applicable.
- * This prevents the race where multiple callers see HALF_OPEN before any sets the flag.
  * Safe in Node.js single-threaded model: no await between check and set.
  */
-function getCircuitDecision(): "allow" | "reject" | "probe" {
-  if (circuitState === "CLOSED") return "allow";
-  if (circuitState === "HALF_OPEN") {
-    if (halfOpenProbeInFlight) return "reject";
-    // Atomically claim the probe slot
-    halfOpenProbeInFlight = true;
+function getCircuitDecisionFor(cb: OrgCircuitBreaker): "allow" | "reject" | "probe" {
+  if (cb.state === "CLOSED") return "allow";
+  if (cb.state === "HALF_OPEN") {
+    if (cb.halfOpenProbeInFlight) return "reject";
+    cb.halfOpenProbeInFlight = true;
     return "probe";
   }
   // OPEN — check if reset window has passed
-  if (circuitOpenedAt && Date.now() - circuitOpenedAt >= CIRCUIT_RESET_MS) {
-    circuitState = "HALF_OPEN";
-    // Atomically claim the probe slot on transition
-    halfOpenProbeInFlight = true;
+  if (cb.openedAt && Date.now() - cb.openedAt >= CIRCUIT_RESET_MS) {
+    cb.state = "HALF_OPEN";
+    cb.halfOpenProbeInFlight = true;
     return "probe";
   }
   return "reject";
 }
 
 /** Expose circuit state for health checks and monitoring. */
-export function getBedrockCircuitState(): {
+export function getBedrockCircuitState(orgId?: string): {
   state: CircuitState;
   consecutiveFailures: number;
   openedAt: number | null;
+  global: { state: CircuitState; consecutiveFailures: number; openedAt: number | null };
 } {
-  return { state: circuitState, consecutiveFailures, openedAt: circuitOpenedAt };
+  const orgCb = orgId ? getOrgCircuit(orgId) : globalCircuit;
+  return {
+    state: orgCb.state,
+    consecutiveFailures: orgCb.consecutiveFailures,
+    openedAt: orgCb.openedAt,
+    global: { state: globalCircuit.state, consecutiveFailures: globalCircuit.consecutiveFailures, openedAt: globalCircuit.openedAt },
+  };
 }
 
 /**
  * Wrap a Bedrock call with both rate limiting and circuit breaker protection.
- * Replaces direct use of withBedrockRateLimit in the processing pipeline.
+ *
+ * Checks the per-org circuit breaker first, then the global breaker.
+ * On success, both the per-org and global breakers record success.
+ * On failure, only the calling org's breaker and the global breaker are affected.
  */
 export async function withBedrockProtection<T>(orgId: string, fn: () => Promise<T>): Promise<T> {
-  const decision = getCircuitDecision();
+  // Check per-org circuit breaker first
+  const orgCb = getOrgCircuit(orgId);
+  const orgDecision = getCircuitDecisionFor(orgCb);
 
-  if (decision === "reject") {
-    const openedSecondsAgo = circuitOpenedAt ? Math.round((Date.now() - circuitOpenedAt) / 1000) : 0;
+  if (orgDecision === "reject") {
+    const openedSecondsAgo = orgCb.openedAt ? Math.round((Date.now() - orgCb.openedAt) / 1000) : 0;
     throw new Error(
-      `Bedrock circuit breaker is OPEN (opened ${openedSecondsAgo}s ago, resets after ${CIRCUIT_RESET_MS / 1000}s). AI analysis temporarily unavailable.`,
+      `Bedrock circuit breaker is OPEN for this organization (opened ${openedSecondsAgo}s ago, resets after ${CIRCUIT_RESET_MS / 1000}s). AI analysis temporarily unavailable.`,
     );
   }
 
-  if (decision === "probe") {
-    // halfOpenProbeInFlight already set atomically in getCircuitDecision()
-    logger.info({ orgId }, "Bedrock circuit breaker: allowing probe request (HALF_OPEN)");
+  // Check global circuit breaker (platform-wide outage detection)
+  const globalDecision = getCircuitDecisionFor(globalCircuit);
+
+  if (globalDecision === "reject") {
+    // Undo per-org probe claim if we're rejecting globally
+    if (orgDecision === "probe") orgCb.halfOpenProbeInFlight = false;
+    const openedSecondsAgo = globalCircuit.openedAt ? Math.round((Date.now() - globalCircuit.openedAt) / 1000) : 0;
+    throw new Error(
+      `Bedrock circuit breaker is OPEN globally (opened ${openedSecondsAgo}s ago, resets after ${CIRCUIT_RESET_MS / 1000}s). AI analysis temporarily unavailable.`,
+    );
+  }
+
+  if (orgDecision === "probe" || globalDecision === "probe") {
+    logger.info({ orgId, orgProbe: orgDecision === "probe", globalProbe: globalDecision === "probe" }, "Bedrock circuit breaker: allowing probe request (HALF_OPEN)");
   }
 
   if (!acquireBedrockSlot(orgId)) {
-    if (decision === "probe") halfOpenProbeInFlight = false;
+    if (orgDecision === "probe") orgCb.halfOpenProbeInFlight = false;
+    if (globalDecision === "probe") globalCircuit.halfOpenProbeInFlight = false;
     throw new Error("Bedrock rate limit exceeded for organization. Please try again shortly.");
   }
 
   try {
     const result = await fn();
-    recordBedrockSuccess();
+    recordCircuitSuccess(orgCb, `org:${orgId}`);
+    recordCircuitSuccess(globalCircuit, "global");
     return result;
   } catch (err) {
-    recordBedrockFailure();
+    recordCircuitFailure(orgCb, CIRCUIT_FAILURE_THRESHOLD, `org:${orgId}`);
+    recordCircuitFailure(globalCircuit, GLOBAL_CIRCUIT_FAILURE_THRESHOLD, "global");
     throw err;
   } finally {
     releaseBedrockSlot(orgId);
   }
 }
+
+// Clean up stale per-org circuit breakers every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  orgCircuitBreakers.forEach((cb, orgId) => {
+    // Remove CLOSED breakers that haven't had activity (no failures tracked)
+    if (cb.state === "CLOSED" && cb.consecutiveFailures === 0) {
+      orgCircuitBreakers.delete(orgId);
+    }
+    // Auto-transition stale OPEN breakers to HALF_OPEN so they don't block forever
+    // if no requests arrive to trigger the transition
+    if (cb.state === "OPEN" && cb.openedAt && now - cb.openedAt >= CIRCUIT_RESET_MS * 3) {
+      cb.state = "HALF_OPEN";
+    }
+  });
+}, 5 * 60_000).unref();
 
 // Clean up stale RPM timestamps every 2 minutes
 setInterval(() => {

@@ -43,7 +43,7 @@ import { encryptMfaSecret, decryptMfaSecret } from "../services/phi-encryption";
 import { logger } from "../services/logger";
 import { sendEmail } from "../services/email";
 import { asyncHandler } from "../middleware/error-handler";
-import { ephemeralIncrement, ephemeralDel, ephemeralGet } from "../services/redis";
+import { ephemeralIncrement, ephemeralDel, ephemeralGet, ephemeralSet } from "../services/redis";
 
 // Rate limit MFA verification attempts.
 //
@@ -769,21 +769,34 @@ export function registerMfaRoutes(app: Express): void {
   // ==================== EMAIL OTP (viewer/manager fallback) ====================
   // For clinical staff without smartphones — send a 6-digit OTP via email
 
-  // In-memory email OTP store (userId → { code, expiresAt, attempts })
-  // TODO: In multi-instance deployments, replace with Redis ephemeral store
-  // (see server/services/redis.ts ephemeralSet/Get/Del) to ensure OTP created
-  // on instance A can be verified on instance B. Low priority: 10-minute TTL,
-  // low volume, and same-session affinity usually routes to the same instance.
-  const emailOtpStore = new Map<string, { codeHash: string; expiresAt: number; attempts: number }>();
-  setInterval(
-    () => {
-      const now = Date.now();
-      for (const [k, v] of Array.from(emailOtpStore)) {
-        if (v.expiresAt < now) emailOtpStore.delete(k);
+  // Email OTP store: Redis-backed (multi-instance safe) with in-memory fallback.
+  // Uses the ephemeral API from redis.ts — TTL-based auto-expiry, no manual cleanup needed.
+  const EMAIL_OTP_PREFIX = "email-otp";
+  const EMAIL_OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+  interface EmailOtpEntry { codeHash: string; expiresAt: number; attempts: number }
+
+  async function getOtpEntry(userId: string): Promise<EmailOtpEntry | null> {
+    const raw = await ephemeralGet(EMAIL_OTP_PREFIX, userId);
+    if (!raw) return null;
+    try {
+      const entry = JSON.parse(raw) as EmailOtpEntry;
+      if (entry.expiresAt < Date.now()) {
+        await ephemeralDel(EMAIL_OTP_PREFIX, userId);
+        return null;
       }
-    },
-    5 * 60 * 1000,
-  ).unref();
+      return entry;
+    } catch { return null; }
+  }
+
+  async function setOtpEntry(userId: string, entry: EmailOtpEntry): Promise<void> {
+    const ttl = Math.max(1000, entry.expiresAt - Date.now());
+    await ephemeralSet(EMAIL_OTP_PREFIX, userId, JSON.stringify(entry), ttl);
+  }
+
+  async function deleteOtpEntry(userId: string): Promise<void> {
+    await ephemeralDel(EMAIL_OTP_PREFIX, userId);
+  }
 
   app.post("/api/auth/mfa/email-otp/send", asyncHandler(async (req, res) => {
       const { userId } = req.body;
@@ -798,14 +811,14 @@ export function registerMfaRoutes(app: Express): void {
       }
 
       // Rate limit: don't allow resend within 60 seconds
-      const existing = emailOtpStore.get(userId);
+      const existing = await getOtpEntry(userId);
       if (existing && existing.expiresAt - 9 * 60 * 1000 > Date.now()) {
         return res.status(429).json({ message: "OTP recently sent. Please wait before requesting another." });
       }
 
       const otp = String(Math.floor(100000 + Math.random() * 900000)); // 6 digits
       const codeHash = createHash("sha256").update(otp).digest("hex");
-      emailOtpStore.set(userId, { codeHash, expiresAt: Date.now() + 10 * 60 * 1000, attempts: 0 });
+      await setOtpEntry(userId, { codeHash, expiresAt: Date.now() + EMAIL_OTP_TTL_MS, attempts: 0 });
 
       // Get user email (username may be email)
       const userEmail = user.username.includes("@") ? user.username : null;
@@ -841,19 +854,22 @@ export function registerMfaRoutes(app: Express): void {
       // sessions. See the MFA_RATE_PREFIX comment at the top of the file.
       if (await isMfaLocked(userId)) return res.status(429).json({ message: "Too many MFA attempts. Try again later." });
 
-      const stored = emailOtpStore.get(userId);
+      const stored = await getOtpEntry(userId);
       if (!stored) return res.status(400).json({ message: "No OTP found. Request a new one." });
       if (stored.expiresAt < Date.now()) {
-        emailOtpStore.delete(userId);
+        await deleteOtpEntry(userId);
         return res.status(400).json({ message: "OTP has expired. Request a new one." });
       }
 
       stored.attempts++;
       if (stored.attempts > 5) {
-        emailOtpStore.delete(userId);
+        await deleteOtpEntry(userId);
         await recordMfaAttempt(userId);
         return res.status(429).json({ message: "Too many OTP attempts." });
       }
+
+      // Update attempts count in store
+      await setOtpEntry(userId, stored);
 
       const inputHash = createHash("sha256").update(String(otp).trim()).digest("hex");
       if (inputHash !== stored.codeHash) {
@@ -861,7 +877,7 @@ export function registerMfaRoutes(app: Express): void {
         return res.status(401).json({ message: "Invalid OTP." });
       }
 
-      emailOtpStore.delete(userId);
+      await deleteOtpEntry(userId);
       await clearMfaAttempts(userId);
 
       const user = await storage.getUser(userId);

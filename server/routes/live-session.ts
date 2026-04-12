@@ -695,6 +695,76 @@ export function registerLiveSessionRoutes(app: Express): void {
   }));
 
   /**
+   * POST /api/live-sessions/:id/revoke-consent — Patient revokes recording consent mid-session.
+   * HIPAA §164.508 requires patients to be able to revoke consent at any time.
+   * This immediately stops recording, closes the AssemblyAI connection, marks consent
+   * as revoked with a timestamp, and preserves the audit trail showing that consent
+   * was originally obtained and then revoked.
+   */
+  app.post("/api/live-sessions/:id/revoke-consent", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+    const orgId = req.orgId!;
+    const user = req.user!;
+    const { id } = req.params;
+
+    const session = await storage.getLiveSession(orgId, id);
+    if (!session) {
+      res.status(404).json({ message: "Session not found" });
+      return;
+    }
+
+    if (session.status === "completed") {
+      res.status(400).json({ message: "Session already completed — consent cannot be revoked retroactively" });
+      return;
+    }
+
+    if (session.consentRevokedAt) {
+      res.status(400).json({ message: "Consent has already been revoked for this session" });
+      return;
+    }
+
+    // Stop recording immediately — close the AssemblyAI real-time connection
+    const rtSession = activeSessions.get(id);
+    if (rtSession) {
+      try {
+        await rtSession.close();
+      } catch { /* best effort */ }
+      activeSessions.delete(id);
+    }
+
+    // Clean up all in-memory buffers for this session
+    await cleanupSession(id);
+
+    // Mark consent as revoked in the database
+    const consentRevokedAt = new Date().toISOString();
+    const updated = await storage.updateLiveSession(orgId, id, {
+      status: "completed" as any,
+      consentRevokedAt,
+      consentRevokedBy: user.id,
+    });
+
+    // HIPAA audit event — tamper-evident record of consent revocation
+    logPhiAccess({
+      ...auditContext(req),
+      event: "clinical_consent_revoked",
+      resourceType: "live_session",
+      resourceId: id,
+      detail: `Patient consent revoked by ${user.name || user.username || user.id}. ` +
+              `Original consent: ${session.consentMethod} at ${session.consentCapturedAt}. ` +
+              `Session duration before revocation: ${Math.round((Date.now() - new Date(session.startedAt || consentRevokedAt).getTime()) / 1000)}s`,
+    });
+
+    logger.info(
+      { sessionId: id, orgId, revokedBy: user.id },
+      "Patient consent revoked — live session stopped and marked",
+    );
+
+    res.json({
+      ...updated,
+      message: "Consent revoked. Recording has been stopped. The session transcript up to this point is preserved for the audit trail.",
+    });
+  }));
+
+  /**
    * POST /api/live-sessions/:id/stop — End the session and finalize.
    * Creates a Call record from the accumulated transcript and generates the final clinical note.
    * Also creates sentiment analysis and tracks usage for billing.

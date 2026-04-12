@@ -693,7 +693,7 @@ export function registerAdminRoutes(app: Express): void {
       const db = getDatabase();
       if (!db) return res.json([]);
 
-      const { baaRecords } = await import("../db/schema");
+      const { businessAssociateAgreements: baaRecords } = await import("../db/schema");
       const { eq, desc } = await import("drizzle-orm");
       const rows = await db
         .select()
@@ -704,8 +704,8 @@ export function registerAdminRoutes(app: Express): void {
       const now = Date.now();
       const enriched = rows.map((r) => ({
         ...r,
-        isExpiringSoon: r.expiryDate ? new Date(r.expiryDate).getTime() - now < 60 * 24 * 60 * 60 * 1000 : false,
-        isExpired: r.expiryDate ? new Date(r.expiryDate).getTime() < now : false,
+        isExpiringSoon: r.expiresAt ? new Date(r.expiresAt).getTime() - now < 60 * 24 * 60 * 60 * 1000 : false,
+        isExpired: r.expiresAt ? new Date(r.expiresAt).getTime() < now : false,
       }));
 
       res.json(enriched);
@@ -717,10 +717,10 @@ export function registerAdminRoutes(app: Express): void {
       const db = getDatabase();
       if (!db) return res.status(503).json({ message: "Database not available" });
 
-      const { baaRecords } = await import("../db/schema");
+      const { businessAssociateAgreements: baaRecords } = await import("../db/schema");
       const { randomUUID } = await import("crypto");
 
-      const { vendorName, vendorType, signedDate, expiryDate, renewalDate, signatoryName, signatoryTitle, notes, documentUrl, phiCategories } = req.body;
+      const { vendorName, vendorType, signedDate, expiryDate, signedBy, vendorSignatory, description, contactName, contactEmail, notes, documentUrl, phiCategories, renewalReminderDays } = req.body;
       if (!vendorName || !vendorType) {
         return res.status(400).json({ message: "vendorName and vendorType are required" });
       }
@@ -732,12 +732,15 @@ export function registerAdminRoutes(app: Express): void {
           orgId: req.orgId!,
           vendorName,
           vendorType,
-          signedDate: signedDate ? new Date(signedDate) : null,
-          expiryDate: expiryDate ? new Date(expiryDate) : null,
-          renewalDate: renewalDate ? new Date(renewalDate) : null,
+          description: description || null,
+          contactName: contactName || null,
+          contactEmail: contactEmail || null,
+          signedAt: signedDate ? new Date(signedDate) : null,
+          expiresAt: expiryDate ? new Date(expiryDate) : null,
+          renewalReminderDays: renewalReminderDays ?? 30,
           status: "active",
-          signatoryName: signatoryName || null,
-          signatoryTitle: signatoryTitle || null,
+          signedBy: signedBy || null,
+          vendorSignatory: vendorSignatory || null,
           notes: notes || null,
           documentUrl: documentUrl || null,
           phiCategories: phiCategories || [],
@@ -761,26 +764,31 @@ export function registerAdminRoutes(app: Express): void {
       const db = getDatabase();
       if (!db) return res.status(503).json({ message: "Database not available" });
 
-      const { baaRecords } = await import("../db/schema");
+      const { businessAssociateAgreements: baaRecords } = await import("../db/schema");
       const { eq, and } = await import("drizzle-orm");
 
       const updateFields: Record<string, unknown> = {};
-      const allowedFields = [
-        "vendorName", "vendorType", "signedDate", "expiryDate", "renewalDate",
-        "status", "signatoryName", "signatoryTitle", "notes", "documentUrl", "phiCategories",
-      ];
-      for (const field of allowedFields) {
-        if (req.body[field] !== undefined) {
-          if (["signedDate", "expiryDate", "renewalDate"].includes(field) && req.body[field]) {
-            updateFields[field] = new Date(req.body[field]);
+      // Map request body fields to actual DB column names
+      const fieldMap: Record<string, string> = {
+        vendorName: "vendorName", vendorType: "vendorType", description: "description",
+        contactName: "contactName", contactEmail: "contactEmail", status: "status",
+        signedBy: "signedBy", vendorSignatory: "vendorSignatory",
+        notes: "notes", documentUrl: "documentUrl", phiCategories: "phiCategories",
+        renewalReminderDays: "renewalReminderDays",
+        // Accept legacy field names from existing clients
+        signedDate: "signedAt", expiryDate: "expiresAt",
+      };
+      const dateFields = new Set(["signedAt", "expiresAt"]);
+      for (const [bodyKey, dbKey] of Object.entries(fieldMap)) {
+        if (req.body[bodyKey] !== undefined) {
+          if (dateFields.has(dbKey) && req.body[bodyKey]) {
+            updateFields[dbKey] = new Date(req.body[bodyKey]);
           } else {
-            updateFields[field] = req.body[field];
+            updateFields[dbKey] = req.body[bodyKey];
           }
         }
       }
       updateFields.updatedAt = new Date();
-      updateFields.lastReviewedAt = new Date();
-      updateFields.lastReviewedBy = req.user?.name || req.user?.username;
 
       const rows = await db
         .update(baaRecords)
@@ -806,7 +814,7 @@ export function registerAdminRoutes(app: Express): void {
       const db = getDatabase();
       if (!db) return res.status(503).json({ message: "Database not available" });
 
-      const { baaRecords } = await import("../db/schema");
+      const { businessAssociateAgreements: baaRecords } = await import("../db/schema");
       const { eq, and } = await import("drizzle-orm");
 
       const rows = await db
