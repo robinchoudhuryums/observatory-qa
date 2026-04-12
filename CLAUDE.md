@@ -319,7 +319,7 @@ server/utils/                # Shared server utilities
   lru-cache.ts               #   TTL-aware LRU cache utility (replaces FIFO Map pattern in 3+ locations)
 
 server/scheduled/            # Wall-clock scheduled background tasks
-  index.ts                   #   Barrel exports + runAllDailyTasks() orchestrator (single listOrganizations call, per-task error isolation)
+  index.ts                   #   Barrel exports + runAllDailyTasks() orchestrator (single listOrganizations call, per-task error isolation + per-task timeouts)
   scheduler.ts               #   scheduleDaily(utcHour, fn) and scheduleWeekly(dayOfWeek, utcHour, fn) — setTimeout chains, no drift
   retention.ts               #   Data retention purge (per-org retentionDays)
   trial-downgrade.ts         #   Trial subscription auto-downgrade to free
@@ -1516,7 +1516,7 @@ Server serves both API and static frontend from the same process.
 - **Audit log timestamp is application-set**: `persistAuditEntry()` explicitly sets `createdAt` to the application-level timestamp used for hash computation (not PostgreSQL's `defaultNow()`). This ensures `verifyAuditChain()` can recompute matching hashes. Pre-existing entries may have mismatched timestamps
 - **FHIR export decrypts nested cosignature NPI**: `decryptClinicalNotePhi()` decrypts both top-level PHI fields and nested `cosignature.cosignedNpi`. The cosigner NPI is included in the FHIR Practitioner resource as an additional identifier with type "Cosigner NPI"
 - **EHR prefill surfaces lookup failures**: The prefill endpoint returns `ehrLookupFailed: true` and `ehrLookupError` when EHR patient data retrieval fails, instead of silently returning empty allergies/medications. Frontend should display a warning banner when this flag is present
-- **Daily task orchestrator is error-isolated**: Each task in `runAllDailyTasks()` is wrapped in its own try-catch. A failure in one task (e.g., audit chain verification) does not prevent other tasks (e.g., retention purge, quota alerts) from running
+- **Daily task orchestrator is error- and timeout-isolated**: Each task in `runAllDailyTasks()` is wrapped in its own try-catch AND a `Promise.race` timeout (10 min default, 30 min for retention). A task that throws OR hangs does not prevent other tasks from running. Timeouts reject with `ScheduledTaskTimeoutError` so logs distinguish them from thrown errors. Note: JavaScript can't cancel promises, so a hung task's work continues in the background — only the orchestrator moves on
 - **Breach notification is idempotent**: `sendBreachNotificationEmails()` checks `notificationStatus` before sending. If individuals have already been notified, it returns 0 and logs a warning. This prevents duplicate HIPAA notifications on retry or accidental re-invocation
 - **Registration blocks reserved org slugs**: Slugs like "api", "admin", "auth", "sso", "webhook" and 12 other system names are rejected during registration to prevent route collisions
 - **Invitation acceptance is rate-limited**: `POST /api/invitations/accept` has a 10-per-15-min rate limit per IP to prevent token brute-force
@@ -1632,7 +1632,6 @@ Full audit of 108K LOC across 360 files with priority-ordered ratings and fixes.
 
 #### Remaining issues identified (not yet fixed)
 **P1 (High):**
-- Super-admin N+1 queries (300+ DB queries per request for 100 orgs)
 - `checkAndAwardBadges` loads ALL org calls into memory for badge checks
 - Analytics routes load unbounded datasets (OOM risk for large orgs)
 
@@ -1686,6 +1685,16 @@ Full audit of 108K LOC across 360 files with priority-ordered ratings and fixes.
 - **Bedrock empty-content metric**: The thrown error is logged at warn level but not counted in a metric. Ops would benefit from a per-model counter of empty-content responses for content-filter debugging.
 - **OAuth multi-domain support**: Orgs with multiple Google Workspace domains could be supported by adding `settings.allowedEmailDomains: string[]` and checking membership. Not in scope.
 - **OAuth admin approval queue**: A stricter posture would queue auto-provisioned users as "pending" until an admin approves. Not in scope.
+
+#### ✅ Completed & committed: 2 top-10 fixes (F-14 scheduled task timeouts, super-admin N+1 queries)
+- **#3 F-14 (High) — Daily task orchestrator has no per-task timeout** (`server/scheduled/index.ts`): `runAllDailyTasks()` ran tasks sequentially with only try/catch isolation. A hung `runRetention()` or `audit-chain-verify` (DB deadlock, S3 rate-limit hang, unresponsive EHR) silently blocked every downstream task (quota alerts, trial downgrade, weekly digest) for that day. Fix: new `withTaskTimeout()` helper wraps each task in `Promise.race` with a distinct `ScheduledTaskTimeoutError` class. Retention gets 30 min, others get 10 min. Added duration logging on completion. Documented that JavaScript can't cancel promises — a hung task's work continues in background but the orchestrator moves on so downstream tasks still run.
+- **#5 (High) — Super-admin N+1 queries**: `/api/super-admin/stats`, `/organizations`, and `/usage` looped over orgs with `Promise.all` per-org (3 queries each for `countUsersByOrg` + `countCallsByOrg` + `getSubscription`). For 100 orgs that's 300+ DB queries per dashboard request, making the super-admin panel unusable at scale. Fix: new `IStorage.getOrgsStatsBulk(orgIds)` method. Postgres implementation uses 3 aggregate queries total (`GROUP BY` on users, `GROUP BY` on calls, `inArray` on subscriptions). MemStorage implementation scans in-memory Maps. CloudStorage falls back to parallel per-org queries. `/stats` and `/organizations` now do 3 queries total regardless of org count. `/usage` reduced from 3 queries/org to 1 query/org + 3 platform-wide aggregates (the per-org `getOrgUsageSummary` call returns richer data not covered by the bulk method). Response JSON shape unchanged.
+
+#### Follow-on items (from the 2-fix batch)
+- **PostgreSQL IN-limit safety**: `inArray` with >32,767 org IDs would fail. Use the existing `chunkedInArray` helper if a super-admin ever has that many orgs. Not required at current scale.
+- **Scheduled task timeout env override**: Timeout values are constants. Exposing them via `SCHEDULED_TASK_TIMEOUT_MS` would let ops tune them without code changes.
+- **`getOrgUsageSummary` bulk variant**: `/usage` is still O(N) for the richer per-org aggregate. Adding a bulk variant would further speed up the usage dashboard.
+- **Scheduled task duration metrics**: New `durationMs` log lines could feed Prometheus histograms for daily task observability.
 
 #### ✅ Completed & committed: Strategic features from broad-scan audit (Stage 3 suggestions)
 - **Plan-aware sidebar navigation** (`client/src/components/layout/sidebar.tsx`) — `meetsPlan()` helper + `PLAN_LEVEL` map. Free/Starter tiers hide Channels and Engagement sections; Calibration gated to Professional+; Insurance Letters gated to clinical plans. First-load effect applies plan-specific collapse defaults, respecting explicit user overrides persisted in localStorage. Users can still reach these pages by URL if they have role access — the sidebar gate is UX-only.
