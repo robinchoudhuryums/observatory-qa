@@ -475,7 +475,7 @@ app.use("/api/super-admin", distributedRateLimit(60 * 1000, 30) as any);
       host: "0.0.0.0",
       reusePort: true,
     },
-    () => {
+    async () => {
       log(`serving on port ${port}`);
 
       // WebSocket: real-time call processing notifications
