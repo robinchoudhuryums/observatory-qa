@@ -103,11 +103,11 @@ const clinicalNav: NavItem[] = [
 /** Admin-only links. */
 const adminNav: NavItem[] = [
   { name: "Administration", href: "/admin", icon: RiShieldLine },
-  { name: "Prompt Templates", href: "/prompt-templates", icon: RiEqualizerLine },
-  { name: "Settings", href: "/settings", icon: RiPaletteLine },
-  { name: "A/B Testing", href: "/ab-testing", icon: RiFlaskLine },
-  { name: "Spend Tracking", href: "/spend-tracking", icon: RiMoneyDollarCircleLine, minPlan: "starter" },
-  { name: "Audit Logs", href: "/audit-logs", icon: RiFileList3Line },
+  { name: "Prompt Templates", href: "/admin/templates", icon: RiEqualizerLine },
+  { name: "Settings", href: "/admin/settings", icon: RiPaletteLine },
+  { name: "A/B Testing", href: "/admin/ab-testing", icon: RiFlaskLine },
+  { name: "Spend Tracking", href: "/admin/spend-tracking", icon: RiMoneyDollarCircleLine, minPlan: "starter" },
+  { name: "Audit Logs", href: "/admin/audit-logs", icon: RiFileList3Line },
   { name: "User Feedback", href: "/admin/feedback", icon: RiMessage2Line },
 ];
 
