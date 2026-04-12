@@ -916,7 +916,7 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
 | GET | `/api/clinical/notes/:callId` | authenticated | Get clinical note (PHI decrypted) |
 | POST | `/api/clinical/notes/:callId/attest` | manager+ | Provider attestation of note |
 | POST | `/api/clinical/notes/:callId/consent` | authenticated | Record patient consent for recording |
-| PATCH | `/api/clinical/notes/:callId` | authenticated | Edit note fields (requires re-attestation) |
+| PATCH | `/api/clinical/notes/:callId` | authenticated | Edit note fields (requires `version` for conflict detection; attested notes also require re-attestation) |
 | GET | `/api/clinical/provider-preferences` | authenticated | Get provider style preferences |
 | PATCH | `/api/clinical/provider-preferences` | authenticated | Update note formatting preferences |
 | GET | `/api/clinical/metrics` | authenticated | Clinical dashboard metrics (completeness, accuracy, attestation rates) |
@@ -1518,6 +1518,8 @@ Server serves both API and static frontend from the same process.
 - **WebSocket `broadcastCallUpdate()` requires `orgId`**: The `orgId` parameter is mandatory (not optional). All callers in calls.ts, admin.ts, and ab-testing.ts already pass it
 - **Quota/plan middleware rejects missing `orgId`**: `enforceQuota()`, `enforceUserQuota()`, `requirePlanFeature()`, and `requireActiveSubscription()` return 403 if `req.orgId` is missing — they do NOT silently allow requests without org context
 - **Billing gates fail closed on DB errors**: `enforceQuota()`, `enforceUserQuota()`, `requirePlanFeature()`, and `requireActiveSubscription()` return 503 (not next()) when the database is unreachable. This is intentional — failing open would allow free accounts to access paid features during outages
+- **Billing grace period fails closed on missing data**: `requireActiveSubscription()` defaults `inGracePeriod` to `false` when `pastDueAt` is null (e.g., old subscription records without the field). Past-due accounts with no timestamp are denied write access rather than granted indefinite free access
+- **Billing checkout/portal uses `APP_BASE_URL`**: Stripe redirect URLs use `process.env.APP_BASE_URL` with fallback to `req.protocol + req.get("host")`. Set `APP_BASE_URL` in production to prevent Host header injection in Stripe redirects
 - **WAF uses recursive URL decoding**: `scanRequest()` in `waf.ts` decodes URLs up to 3 times to catch double/triple-encoded payloads (e.g., `%252e%252e` → `%2e%2e` → `..`). The loop exits early when decoding produces no change
 - **Prompt injection detection strips zero-width Unicode**: `normalizeForDetection()` in `ai-guardrails.ts` strips zero-width spaces (U+200B), zero-width joiners (U+200D), soft hyphens (U+00AD), and other invisible characters before pattern matching. This prevents attackers from splitting keywords with invisible chars
 - **Audit log timestamp is application-set**: `persistAuditEntry()` explicitly sets `createdAt` to the application-level timestamp used for hash computation (not PostgreSQL's `defaultNow()`). This ensures `verifyAuditChain()` can recompute matching hashes. Pre-existing entries may have mismatched timestamps
@@ -1641,13 +1643,13 @@ Full audit of 108K LOC across 360 files with priority-ordered ratings and fixes.
 #### Remaining issues identified (not yet fixed)
 **P1 (High):**
 - `checkAndAwardBadges` loads ALL org calls into memory for badge checks
-- Analytics routes load unbounded datasets (OOM risk for large orgs)
 
-**P1 (Client):**
-- `AudioRecorder` cleanup stale closure doesn't revoke blob URL on unmount
+**P1 (Resolved):**
+- ~~Analytics routes load unbounded datasets~~ — Fixed: revenue endpoints use `getCallMapForRevenues()` instead of `getAllCalls()`; proactive-alerts query limits added (20/employee, 5000 total, 200 active employees). `checkAndAwardBadges` is the remaining unbounded query.
+- ~~`AudioRecorder` cleanup stale closure~~ — Fixed: unmount cleanup properly revokes blob URL
 
 **P2 (Medium):**
-- ~375 `as any` casts across 68 server files (the 82 in pg-storage.ts have been refactored away via typed mappers)
+- ~379 `as any` casts across 68 server files (the 82 in pg-storage.ts have been refactored away via typed mappers)
 - 250 ESLint `no-unused-vars` warnings
 - ~105 remaining catch blocks across 29 route files for asyncHandler Phase 2
 - Duplicate URL validation utilities (`url-validation.ts` + `url-validator.ts`)
@@ -1906,6 +1908,7 @@ Cross-repository evaluation: identified patterns from the single-tenant UMS Know
 - **Amendment workflow tests** — 11 tests in `tests/clinical-amendments.test.ts` covering schema validation (amendment/addendum types), amendment persistence with attestation clearing, addendum persistence preserving attestation, multi-amendment chains, optimistic locking version tracking, non-PHI snapshot validation, and cross-org isolation
 - **Addendum conflict detection** — addendum endpoint now checks `req.body.version` against current version (409 conflict if mismatch); increments version on addendum to prevent concurrent overwrites
 - **Cosignature version tracking** — cosignature endpoint increments note version, ensuring downstream conflict detection catches concurrent edits
+- **Clinical note edits always require `version`**: `PATCH /api/clinical/notes/:callId` requires `req.body.version` matching the current note version for ALL edits (not just attested notes). This prevents concurrent edits from silently overwriting each other. If version is missing → 400 `OBS-CLINICAL-VERSION-REQUIRED`; if mismatched → 409 `OBS-CLINICAL-CONFLICT`. The GET endpoint returns the current `version` in the clinical note object.
 
 #### ✅ Completed & committed: RAG Feature improvements
 - **Chunker O(n^2) fix** — replaced greedy regex `[\s\S]*[.!?]\s+` in `findNaturalBreak()` with `lastIndexOf()` calls (O(n) per chunk instead of O(n^2)); enforced minimum step size of 40 chars to prevent infinite micro-chunks when overlap ≈ chunk size
@@ -2139,6 +2142,20 @@ See earlier sections in this file for full details of prior work on this branch.
 
 **Bedrock reliability:**
 - **generateText retry** — `bedrock.ts`: 2 retries with exponential backoff for transient failures (429, 5xx, timeout, and missing-content responses marked `isBedrockEmptyContent`). Empty-content case previously returned `""` which callers treated as success; now throws and retries. All callers benefit automatically
+
+### Branch: `claude/broad-scan-feature-X5Op5`
+
+#### ✅ Completed & committed: 5 broad-scan findings (F-05, F-01, F-02, F-12, F-06)
+- **F-05 (High) — Revenue endpoint OOM** (`server/routes/revenue.ts`): Five revenue endpoints (forecast, trend, by-employee, payer-mix) called `storage.getAllCalls(orgId)` loading ALL calls into memory to build date maps. Fix: new `getCallMapForRevenues()` helper loads only calls referenced by revenue records, batched in groups of 50.
+- **F-01 (High) — Billing grace period fail-open** (`server/routes/billing.ts:191`): `requireActiveSubscription()` defaulted `inGracePeriod` to `true` when `pastDueAt` was null (old subscription records), granting indefinite free access to past-due accounts. Fix: changed default to `false` (fail-closed).
+- **F-02 (High) — Host header injection in Stripe redirects** (`server/routes/billing.ts:452,494`): Checkout and portal redirect URLs used `req.protocol + req.get("host")` which is attacker-controlled. Fix: use `process.env.APP_BASE_URL` with host header fallback.
+- **F-12 (High) — Proactive alerts unbounded queries** (`server/services/proactive-alerts.ts`): `getManagerReviewQueue()` loaded all calls per employee without limit; `generateWeeklyDigest()` loaded all completed calls. Fix: added `limit: 20` per employee, `limit: 5000` for digest, capped active employees at 200.
+- **F-06 (Medium) — Clinical note concurrent edit data loss** (`server/routes/clinical.ts:305-325`): Optimistic locking only applied to attested notes. Unattested note edits had no version checking, causing silent overwrites on concurrent edits. Fix: version field now required for ALL clinical note edits. **Breaking API change**: frontend must send `version` in PATCH body.
+
+#### Follow-on items
+- Frontend clinical note edit components must be updated to always pass `version` in PATCH body
+- Revenue endpoints would benefit from SQL-level date range filtering on `listCallRevenues`
+- `checkAndAwardBadges` in gamification.ts still loads all org calls unbounded
 
 ## Future Plans / Roadmap
 See `HEALTHCARE_EXPANSION_PLAN.md` for the full 4-phase healthcare expansion roadmap.
