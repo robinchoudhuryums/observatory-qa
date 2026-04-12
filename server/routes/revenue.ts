@@ -232,7 +232,9 @@ export function registerRevenueRoutes(app: Express) {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-      const revenues = await storage.listCallRevenues(orgId);
+      // Limit to last 180 days — forecast uses current month + 90-day history + pending pipeline
+      const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
+      const revenues = await storage.listCallRevenues(orgId, { startDate: sixMonthsAgo });
       const callMap = await getCallMapForRevenues(orgId, revenues);
       const callDateMap = new Map<string, string>();
       for (const [id, call] of callMap) {
@@ -619,7 +621,9 @@ export function registerRevenueRoutes(app: Express) {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-      const revenues = await storage.listCallRevenues(orgId);
+      // Limit to last 120 days — trend shows 12 weeks (84 days) with buffer
+      const startDate = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString();
+      const revenues = await storage.listCallRevenues(orgId, { startDate });
       const callMap = await getCallMapForRevenues(orgId, revenues);
       const callDateMap = new Map<string, string>();
       for (const [id, call] of callMap) {

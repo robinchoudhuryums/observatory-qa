@@ -4,20 +4,7 @@
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-
-/**
- * Since ROLE_HIERARCHY is not exported from auth.ts, we replicate the logic
- * here and verify it matches the documented behavior. We also test the exported
- * functions that rely on it (requireRole, isSuperAdmin).
- */
-
-// Mirror of ROLE_HIERARCHY from server/auth.ts
-const ROLE_HIERARCHY: Record<string, number> = {
-  super_admin: 4,
-  admin: 3,
-  manager: 2,
-  viewer: 1,
-};
+import { ROLE_HIERARCHY } from "../server/auth.js";
 
 describe("Role Hierarchy", () => {
   it("super_admin has the highest level", () => {
