@@ -1206,13 +1206,13 @@ export function reconcileConfidence(
     reconciled = true;
   }
 
-  // Upgrade: LLM says PARTIAL but retrieval is strong → model may be conservative
-  if (llmLevel === "partial" && rScore >= 0.42) {
-    const topScore = retrievalConfidence.score / 0.65; // approximate topScore from effective
-    if (topScore >= 0.50) {
-      finalLevel = "high";
-      reconciled = true;
-    }
+  // Upgrade: LLM says PARTIAL but retrieval is strong → model may be conservative.
+  // Use effective score directly (threshold 0.50) — it already blends top + avg scores.
+  // Previous code tried to back-derive topScore via score/0.65, which is mathematically
+  // invalid because effective = topScore*0.65 + avgScore*0.35 (two unknowns).
+  if (llmLevel === "partial" && rScore >= 0.50) {
+    finalLevel = "high";
+    reconciled = true;
   }
 
   return {

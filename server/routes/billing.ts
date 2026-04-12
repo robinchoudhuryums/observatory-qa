@@ -188,7 +188,7 @@ export function requireActiveSubscription() {
         const gracePeriodMs = DUNNING_GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000;
         const pastDueAt = sub.pastDueAt ? new Date(sub.pastDueAt) : null;
         const graceExpiry = pastDueAt ? new Date(pastDueAt.getTime() + gracePeriodMs) : null;
-        const inGracePeriod = graceExpiry ? Date.now() < graceExpiry.getTime() : true; // fail open if no timestamp
+        const inGracePeriod = graceExpiry ? Date.now() < graceExpiry.getTime() : false; // fail closed if no timestamp — missing pastDueAt means we can't verify grace period
 
         if (inGracePeriod) {
           const daysLeft = graceExpiry
@@ -449,7 +449,7 @@ export function registerBillingRoutes(app: Express): void {
         });
       }
 
-      const baseUrl = `${req.protocol}://${req.get("host")}`;
+      const baseUrl = process.env.APP_BASE_URL || `${req.protocol}://${req.get("host")}`;
       const seatPriceId = getSeatPriceId(tier as PlanTier) ?? undefined;
       const overagePriceId = getOveragePriceId(tier as PlanTier) ?? undefined;
       const trialDays =
@@ -491,7 +491,7 @@ export function registerBillingRoutes(app: Express): void {
         return res.status(400).json({ message: "No Stripe customer found — subscribe first" });
       }
 
-      const baseUrl = `${req.protocol}://${req.get("host")}`;
+      const baseUrl = process.env.APP_BASE_URL || `${req.protocol}://${req.get("host")}`;
       const portalUrl = await createPortalSession(stripe, sub.stripeCustomerId, `${baseUrl}/settings?tab=billing`);
 
       res.json({ url: portalUrl });

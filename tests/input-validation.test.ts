@@ -6,11 +6,14 @@
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { INDUSTRY_TYPES } from "../shared/schema/org.js";
+import { USER_ROLES } from "../shared/schema/billing.js";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SLUG_REGEX = /^[a-z0-9-]+$/;
-const VALID_INDUSTRIES = ["general", "dental", "medical", "behavioral_health", "veterinary"];
-const VALID_ROLES = ["viewer", "manager", "admin"];
+// Derived from production constants — tests break if production enum changes
+const VALID_INDUSTRIES = INDUSTRY_TYPES.map((t) => t.value);
+const VALID_ROLES = USER_ROLES.map((r) => r.value);
 
 describe("Input Validation", () => {
   describe("Email format validation", () => {
@@ -101,7 +104,7 @@ describe("Input Validation", () => {
     });
 
     it("rejects invalid industry types", () => {
-      const invalid = ["healthcare", "SQL_INJECTION", "unknown", ""];
+      const invalid = ["nonexistent_industry", "SQL_INJECTION", "unknown_type", ""];
       for (const industry of invalid) {
         assert.equal(VALID_INDUSTRIES.includes(industry), false, `Should reject: ${industry}`);
       }

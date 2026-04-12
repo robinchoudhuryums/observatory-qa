@@ -1,12 +1,33 @@
 import type { Express } from "express";
 import { z } from "zod";
 import { storage } from "../storage";
+import type { Call, CallRevenue } from "@shared/schema";
 import { requireAuth, requireRole, injectOrgContext } from "../auth";
 import { logger } from "../services/logger";
 import { validateUUIDParam } from "./helpers";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { asyncHandler } from "../middleware/error-handler";
+
+/**
+ * Build a callId→Call map for only the calls referenced by given revenues.
+ * This avoids loading ALL calls in the org (which causes OOM for large orgs).
+ * Uses concurrent lookups capped at 50 at a time to bound memory and DB load.
+ */
+async function getCallMapForRevenues(orgId: string, revenues: CallRevenue[]): Promise<Map<string, Call>> {
+  const uniqueCallIds = [...new Set(revenues.map((r) => r.callId))];
+  const callMap = new Map<string, Call>();
+  // Process in batches of 50 to avoid overwhelming the DB connection pool
+  const BATCH = 50;
+  for (let i = 0; i < uniqueCallIds.length; i += BATCH) {
+    const batch = uniqueCallIds.slice(i, i + BATCH);
+    const results = await Promise.all(batch.map((id) => storage.getCall(orgId, id)));
+    for (let j = 0; j < batch.length; j++) {
+      if (results[j]) callMap.set(batch[j], results[j]!);
+    }
+  }
+  return callMap;
+}
 
 const updateRevenueSchema = z.object({
   estimatedRevenue: z.number().min(0).optional(),
@@ -162,10 +183,9 @@ export function registerRevenueRoutes(app: Express) {
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
       const revenues = await storage.listCallRevenues(orgId);
-      const calls = await storage.getAllCalls(orgId);
+      const callMap = await getCallMapForRevenues(orgId, revenues);
       const employees = await storage.getAllEmployees(orgId);
 
-      const callMap = new Map(calls.map((c) => [c.id, c]));
       const employeeMap = new Map(employees.map((e) => [e.id, e]));
 
       const byEmployee: Record<
@@ -212,9 +232,14 @@ export function registerRevenueRoutes(app: Express) {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-      const revenues = await storage.listCallRevenues(orgId);
-      const calls = await storage.getAllCalls(orgId);
-      const callDateMap = new Map(calls.map((c) => [c.id, c.uploadedAt]));
+      // Limit to last 180 days — forecast uses current month + 90-day history + pending pipeline
+      const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
+      const revenues = await storage.listCallRevenues(orgId, { startDate: sixMonthsAgo });
+      const callMap = await getCallMapForRevenues(orgId, revenues);
+      const callDateMap = new Map<string, string>();
+      for (const [id, call] of callMap) {
+        if (call.uploadedAt) callDateMap.set(id, call.uploadedAt);
+      }
 
       // Current month data
       const now = new Date();
@@ -361,9 +386,8 @@ export function registerRevenueRoutes(app: Express) {
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
       const revenues = await storage.listCallRevenues(orgId);
-      const calls = await storage.getAllCalls(orgId);
+      const callMap = await getCallMapForRevenues(orgId, revenues);
       const employees = await storage.getAllEmployees(orgId);
-      const callMap = new Map(calls.map((c) => [c.id, c]));
       const employeeMap = new Map(employees.map((e) => [e.id, e]));
 
       // Overall payer mix
@@ -597,9 +621,14 @@ export function registerRevenueRoutes(app: Express) {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-      const revenues = await storage.listCallRevenues(orgId);
-      const calls = await storage.getAllCalls(orgId);
-      const callDateMap = new Map(calls.map((c) => [c.id, c.uploadedAt]));
+      // Limit to last 120 days — trend shows 12 weeks (84 days) with buffer
+      const startDate = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString();
+      const revenues = await storage.listCallRevenues(orgId, { startDate });
+      const callMap = await getCallMapForRevenues(orgId, revenues);
+      const callDateMap = new Map<string, string>();
+      for (const [id, call] of callMap) {
+        if (call.uploadedAt) callDateMap.set(id, call.uploadedAt);
+      }
 
       // Build weekly buckets for the last 12 weeks (Monday-aligned)
       const now = new Date();

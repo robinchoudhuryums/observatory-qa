@@ -645,9 +645,11 @@ P.getCallRevenue = async function(orgId: string, callId: string): Promise<CallRe
     return rows[0] ? mapCallRevenueRow(rows[0]) : undefined;
   }
 
-P.listCallRevenues = async function(orgId: string, filters?: { conversionStatus?: string }): Promise<CallRevenue[]> {
+P.listCallRevenues = async function(orgId: string, filters?: { conversionStatus?: string; startDate?: string; endDate?: string }): Promise<CallRevenue[]> {
     const conditions = [eq(tables.callRevenues.orgId, orgId)];
     if (filters?.conversionStatus) conditions.push(eq(tables.callRevenues.conversionStatus, filters.conversionStatus));
+    if (filters?.startDate) conditions.push(gte(tables.callRevenues.createdAt, new Date(filters.startDate)));
+    if (filters?.endDate) conditions.push(lte(tables.callRevenues.createdAt, new Date(filters.endDate)));
     const rows = await db(this)
       .select()
       .from(tables.callRevenues)

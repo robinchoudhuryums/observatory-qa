@@ -52,12 +52,16 @@ export async function onCallAnalysisComplete(orgId: string, callId: string, empl
  */
 export async function getManagerReviewQueue(orgId: string): Promise<AgentPriority[]> {
   const employees = await storage.getAllEmployees(orgId);
-  const activeEmployees = employees.filter((e: Employee) => e.status === "Active");
+  // Cap active employees to prevent excessive DB queries for very large orgs.
+  // The review queue ranks employees, so limiting to 200 is sufficient for prioritization.
+  const activeEmployees = employees.filter((e: Employee) => e.status === "Active").slice(0, 200);
 
   const priorities: AgentPriority[] = [];
 
   for (const emp of activeEmployees) {
-    const calls = await storage.getCallSummaries(orgId, { employee: emp.id, status: "completed" });
+    // Limit to 20 most recent calls per employee — we only use the top 10 scored,
+    // so 20 gives headroom for calls with missing scores. Avoids loading unbounded data.
+    const calls = await storage.getCallSummaries(orgId, { employee: emp.id, status: "completed", limit: 20 });
     const scored = calls
       .filter((c) => c.analysis?.performanceScore != null)
       .sort((a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime());
@@ -113,7 +117,10 @@ export async function generateWeeklyDigest(orgId: string): Promise<WeeklyDigest>
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-  const allCalls = await storage.getCallSummaries(orgId, { status: "completed" });
+  // Cap at 5000 to prevent OOM on large orgs. getCallSummaries returns most recent first,
+  // so we get a superset of this week's calls. Date filtering is done client-side since
+  // the storage interface doesn't support date range filters.
+  const allCalls = await storage.getCallSummaries(orgId, { status: "completed", limit: 5000 });
   const thisWeek = allCalls.filter((c) => c.uploadedAt && new Date(c.uploadedAt) >= weekAgo);
   const scored = thisWeek.filter((c) => c.analysis?.performanceScore != null);
 

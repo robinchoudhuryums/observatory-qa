@@ -80,11 +80,12 @@ npx vite build         # Frontend-only build (quick verification)
 - **Unit tests**: Node.js built-in `test` module via `tsx` — `npm run test`
 - **E2E tests**: Playwright (Chromium) — `npm run test:e2e` or `npm run test:e2e:ui`
 - **Location**: `tests/` (unit), `tests/e2e/` (E2E)
-- **Unit test files** (78 files, 1563 tests):
+- **Unit test files** (80 files, 1568 tests):
   - `tests/schema.test.ts` — Zod schema validation (orgId on all entities, organization schemas)
   - `tests/ai-provider.test.ts` — AI provider utilities (parseJsonResponse, buildAnalysisPrompt, smartTruncate)
   - `tests/routes.test.ts` — API route handler tests
   - `tests/auth-routes.test.ts` — Auth route handler tests
+  - `tests/auto-calibration.test.ts` — Auto-calibration drift detection
   - `tests/multitenant.test.ts` — Cross-org data isolation verification
   - `tests/rbac.test.ts` — Role-based access control
   - `tests/pipeline.test.ts` — Audio processing pipeline
@@ -122,6 +123,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/sso.test.ts` — SAML SSO
   - `tests/validation.test.ts` — Input validation
   - `tests/load-simulation.test.ts` — Load simulation (5 orgs × 200 calls, concurrent operations, data isolation)
+  - `tests/login-ambiguity.test.ts` — Multi-org login ambiguity (OBS-AUTH-008)
   - `tests/admin-routes.test.ts` — Admin route handler tests
   - `tests/cross-org-isolation.test.ts` — Deep cross-org data isolation (user, coaching, prompt template, analysis, API key)
   - `tests/calls-routes.test.ts` — Call route handler tests
@@ -152,7 +154,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/confidence-filter.test.ts` — Confidence as first-class filter (dashboard metrics, data quality breakdown, boundary values, MemStorage, 8 tests)
   - `tests/call-clustering.test.ts` — Call clustering (TF-IDF, cosine similarity, agglomerative clustering, trend detection, 15 tests)
   - `tests/bedrock-batch.test.ts` — Bedrock batch inference (shouldUseBatchMode, isBatchAvailable, org settings validation, 15 tests)
-  - `tests/billing-webhooks.test.ts` — Stripe webhook lifecycle (overage pricing, metered item sync, subscription state transitions, idempotency, grace period, 38 tests)
+  - `tests/billing-webhooks.test.ts` — Stripe webhook lifecycle (overage pricing, metered item sync, subscription state transitions, idempotency, grace period, webhook signature verification, 43 tests)
   - `tests/billing-webhook-integration.test.ts` — Billing webhook integration against MemStorage (subscription lifecycle, metered item tracking, payment failure/recovery, re-subscription, 14 tests)
   - `tests/prompt-injection-pipeline.test.ts` — Transcript injection detection + output guardrails + orphan recovery (16 tests)
   - `tests/remaining-adaptations.test.ts` — Performance snapshots, SSRF validation, scheduled reports (21 tests)
@@ -338,9 +340,9 @@ server/services/ehr/         # EHR integration adapters (11 files)
   open-dental.ts             #   Open Dental adapter (bidirectional: patient lookup, note push, treatment plans with procedure-level fees, appointment creation)
   eaglesoft.ts               #   Eaglesoft/Patterson eDex adapter (bidirectional with eDex v2+)
   dentrix.ts                 #   Dentrix Ascend / G7 adapter (bidirectional)
-  fhir-r4.ts                 #   Generic FHIR R4-compliant server adapter (bidirectional)
+  fhir-r4.ts                 #   Generic FHIR R4-compliant server adapter (bidirectional, classifyEhrError for typed error handling)
   mock.ts                    #   Development/demo adapter (returns fixture data)
-  request.ts                 #   Shared HTTP request utilities for EHR adapters
+  request.ts                 #   Shared HTTP request utilities for EHR adapters (includes SSRF URL validation via validateUrl)
   secrets-manager.ts         #   AWS Secrets Manager credential resolution (falls back to PHI-encrypted apiKey)
   health-monitor.ts          #   Periodic EHR connection health checks (runs in worker process every 15 min)
   appointment-matcher.ts     #   Call-to-appointment matching logic
@@ -532,7 +534,7 @@ These modules are imported by the most consumers. Changes here have the widest b
 |--------|-------------|----------------|-------|
 | `server/storage/index.ts` | `storage`, `initPostgresStorage`, `objectStorage`, `IStorage`, `normalizeAnalysis` | 56 | 44 route files, 9 services, 2 db files, auth.ts, index.ts. Workers access via dynamic `require()`. Scheduled tasks receive storage as a parameter, not via singleton import |
 | `shared/schema.ts` (barrel) | Types, Zod schemas, `PLAN_DEFINITIONS`, `CALL_CATEGORIES` | 50+ | Routes, services, storage, client pages. Workers get types indirectly via queue job interfaces |
-| `server/auth.ts` | `requireAuth`, `injectOrgContext`, `requireOrgContext`, `requireRole`, `getTeamScopedEmployeeIds`, `sessionMiddleware`, `resolveUserOrgId` | 36 | All authenticated route files + websocket. Applied per-route (not globally in index.ts) |
+| `server/auth.ts` | `requireAuth`, `injectOrgContext`, `requireOrgContext`, `requireRole`, `getTeamScopedEmployeeIds`, `sessionMiddleware`, `resolveUserOrgId`, `ROLE_HIERARCHY` | 36 | All authenticated route files + websocket + tests. Applied per-route (not globally in index.ts) |
 | `server/services/audit-log.ts` | `logPhiAccess`, `auditContext`, `queryAuditLogs`, `exportAuditLogs`, `verifyAuditChain` | 35 | 32 route files + auth.ts + incident-response.ts + retention.worker.ts |
 | `server/services/call-processing.ts` | `processAudioFile`, `continueAfterTranscription`, `invalidateRefDocCache`, `cleanupFile`, `computeConfidence`, `autoAssignEmployee`, `mapClinicalNote` | 2 | routes/calls.ts, routes/assemblyai-webhook.ts. Low consumer count but highest internal complexity (14+ deps) |
 | `server/services/phi-encryption.ts` | `encryptField`, `decryptField`, `decryptClinicalNotePhi`, `isPhiEncryptionEnabled`, `encryptMfaSecret`, `decryptMfaSecret` | 12 | Clinical routes (3), calls, mfa, ehr, live-session, pg-storage, call-processing, ehr-note-push worker, ehr/health-monitor, ehr/appointment-matcher |
@@ -916,7 +918,7 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
 | GET | `/api/clinical/notes/:callId` | authenticated | Get clinical note (PHI decrypted) |
 | POST | `/api/clinical/notes/:callId/attest` | manager+ | Provider attestation of note |
 | POST | `/api/clinical/notes/:callId/consent` | authenticated | Record patient consent for recording |
-| PATCH | `/api/clinical/notes/:callId` | authenticated | Edit note fields (requires re-attestation) |
+| PATCH | `/api/clinical/notes/:callId` | authenticated | Edit note fields (requires `version` for conflict detection; attested notes also require re-attestation) |
 | GET | `/api/clinical/provider-preferences` | authenticated | Get provider style preferences |
 | PATCH | `/api/clinical/provider-preferences` | authenticated | Update note formatting preferences |
 | GET | `/api/clinical/metrics` | authenticated | Clinical dashboard metrics (completeness, accuracy, attestation rates) |
@@ -1518,6 +1520,8 @@ Server serves both API and static frontend from the same process.
 - **WebSocket `broadcastCallUpdate()` requires `orgId`**: The `orgId` parameter is mandatory (not optional). All callers in calls.ts, admin.ts, and ab-testing.ts already pass it
 - **Quota/plan middleware rejects missing `orgId`**: `enforceQuota()`, `enforceUserQuota()`, `requirePlanFeature()`, and `requireActiveSubscription()` return 403 if `req.orgId` is missing — they do NOT silently allow requests without org context
 - **Billing gates fail closed on DB errors**: `enforceQuota()`, `enforceUserQuota()`, `requirePlanFeature()`, and `requireActiveSubscription()` return 503 (not next()) when the database is unreachable. This is intentional — failing open would allow free accounts to access paid features during outages
+- **Billing grace period fails closed on missing data**: `requireActiveSubscription()` defaults `inGracePeriod` to `false` when `pastDueAt` is null (e.g., old subscription records without the field). Past-due accounts with no timestamp are denied write access rather than granted indefinite free access
+- **Billing checkout/portal uses `APP_BASE_URL`**: Stripe redirect URLs use `process.env.APP_BASE_URL` with fallback to `req.protocol + req.get("host")`. Set `APP_BASE_URL` in production to prevent Host header injection in Stripe redirects
 - **WAF uses recursive URL decoding**: `scanRequest()` in `waf.ts` decodes URLs up to 3 times to catch double/triple-encoded payloads (e.g., `%252e%252e` → `%2e%2e` → `..`). The loop exits early when decoding produces no change
 - **Prompt injection detection strips zero-width Unicode**: `normalizeForDetection()` in `ai-guardrails.ts` strips zero-width spaces (U+200B), zero-width joiners (U+200D), soft hyphens (U+00AD), and other invisible characters before pattern matching. This prevents attackers from splitting keywords with invisible chars
 - **Audit log timestamp is application-set**: `persistAuditEntry()` explicitly sets `createdAt` to the application-level timestamp used for hash computation (not PostgreSQL's `defaultNow()`). This ensures `verifyAuditChain()` can recompute matching hashes. Pre-existing entries may have mismatched timestamps
@@ -1639,15 +1643,13 @@ Full audit of 108K LOC across 360 files with priority-ordered ratings and fixes.
 - **Net: -284 lines** of boilerplate eliminated, 62 catch blocks removed
 
 #### Remaining issues identified (not yet fixed)
-**P1 (High):**
-- `checkAndAwardBadges` loads ALL org calls into memory for badge checks
-- Analytics routes load unbounded datasets (OOM risk for large orgs)
-
-**P1 (Client):**
-- `AudioRecorder` cleanup stale closure doesn't revoke blob URL on unmount
+**P1 (Resolved):**
+- ~~Analytics routes load unbounded datasets~~ — Fixed: revenue endpoints use `getCallMapForRevenues()` instead of `getAllCalls()`; proactive-alerts query limits added (20/employee, 5000 total, 200 active employees).
+- ~~`checkAndAwardBadges` loads ALL org calls~~ — Fixed: now passes `employee` filter + `limit: 200` to `getCallSummaries()`. Gamification effectiveness endpoint (`/api/gamification/effectiveness`) still loads unbounded calls.
+- ~~`AudioRecorder` cleanup stale closure~~ — Fixed: unmount cleanup properly revokes blob URL
 
 **P2 (Medium):**
-- ~375 `as any` casts across 68 server files (the 82 in pg-storage.ts have been refactored away via typed mappers)
+- ~379 `as any` casts across 68 server files (the 82 in pg-storage.ts have been refactored away via typed mappers)
 - 250 ESLint `no-unused-vars` warnings
 - ~105 remaining catch blocks across 29 route files for asyncHandler Phase 2
 - Duplicate URL validation utilities (`url-validation.ts` + `url-validator.ts`)
@@ -1906,6 +1908,7 @@ Cross-repository evaluation: identified patterns from the single-tenant UMS Know
 - **Amendment workflow tests** — 11 tests in `tests/clinical-amendments.test.ts` covering schema validation (amendment/addendum types), amendment persistence with attestation clearing, addendum persistence preserving attestation, multi-amendment chains, optimistic locking version tracking, non-PHI snapshot validation, and cross-org isolation
 - **Addendum conflict detection** — addendum endpoint now checks `req.body.version` against current version (409 conflict if mismatch); increments version on addendum to prevent concurrent overwrites
 - **Cosignature version tracking** — cosignature endpoint increments note version, ensuring downstream conflict detection catches concurrent edits
+- **Clinical note edits always require `version`**: `PATCH /api/clinical/notes/:callId` requires `req.body.version` matching the current note version for ALL edits (not just attested notes). This prevents concurrent edits from silently overwriting each other. If version is missing → 400 `OBS-CLINICAL-VERSION-REQUIRED`; if mismatched → 409 `OBS-CLINICAL-CONFLICT`. The GET endpoint returns the current `version` in the clinical note object.
 
 #### ✅ Completed & committed: RAG Feature improvements
 - **Chunker O(n^2) fix** — replaced greedy regex `[\s\S]*[.!?]\s+` in `findNaturalBreak()` with `lastIndexOf()` calls (O(n) per chunk instead of O(n^2)); enforced minimum step size of 40 chars to prevent infinite micro-chunks when overlap ≈ chunk size
@@ -2140,6 +2143,32 @@ See earlier sections in this file for full details of prior work on this branch.
 **Bedrock reliability:**
 - **generateText retry** — `bedrock.ts`: 2 retries with exponential backoff for transient failures (429, 5xx, timeout, and missing-content responses marked `isBedrockEmptyContent`). Empty-content case previously returned `""` which callers treated as success; now throws and retries. All callers benefit automatically
 
+### Branch: `claude/broad-scan-feature-X5Op5`
+
+#### ✅ Completed & committed: 5 broad-scan findings (F-05, F-01, F-02, F-12, F-06)
+- **F-05 (High) — Revenue endpoint OOM** (`server/routes/revenue.ts`): Five revenue endpoints (forecast, trend, by-employee, payer-mix) called `storage.getAllCalls(orgId)` loading ALL calls into memory to build date maps. Fix: new `getCallMapForRevenues()` helper loads only calls referenced by revenue records, batched in groups of 50.
+- **F-01 (High) — Billing grace period fail-open** (`server/routes/billing.ts:191`): `requireActiveSubscription()` defaulted `inGracePeriod` to `true` when `pastDueAt` was null (old subscription records), granting indefinite free access to past-due accounts. Fix: changed default to `false` (fail-closed).
+- **F-02 (High) — Host header injection in Stripe redirects** (`server/routes/billing.ts:452,494`): Checkout and portal redirect URLs used `req.protocol + req.get("host")` which is attacker-controlled. Fix: use `process.env.APP_BASE_URL` with host header fallback.
+- **F-12 (High) — Proactive alerts unbounded queries** (`server/services/proactive-alerts.ts`): `getManagerReviewQueue()` loaded all calls per employee without limit; `generateWeeklyDigest()` loaded all completed calls. Fix: added `limit: 20` per employee, `limit: 5000` for digest, capped active employees at 200.
+- **F-06 (Medium) — Clinical note concurrent edit data loss** (`server/routes/clinical.ts:305-325`): Optimistic locking only applied to attested notes. Unattested note edits had no version checking, causing silent overwrites on concurrent edits. Fix: version field now required for ALL clinical note edits. **Breaking API change**: frontend must send `version` in PATCH body.
+
+#### ✅ Completed & committed: 6 follow-on fixes (#1, #3, #4, #6, #7, #8)
+- **#1 — Clinical note version UI** (`client/src/pages/clinical-notes.tsx`): saveMutation now sends `version: cn?.version ?? 0` in PATCH body; onError handles 409 conflicts by refreshing data and exiting edit mode.
+- **#3 — EHR SSRF validation** (`server/services/ehr/request.ts`): Added `validateUrl()` check before every outbound EHR request, blocking private IPs, cloud metadata endpoints, and non-HTTP protocols.
+- **#4 — RAG confidence math** (`server/services/rag.ts:1209-1216`): Removed invalid `topScore = score / 0.65` back-derivation. Uses effective score directly with threshold 0.50 for PARTIAL→HIGH upgrades.
+- **#6 — Gamification badges OOM** (`server/routes/gamification.ts:26-28`): `checkAndAwardBadges` now passes `employee` filter + `limit: 200` to `getCallSummaries()` instead of loading all org calls.
+- **#7 — Calibration stddev** (`server/routes/calibration.ts:17`): `computeStdDev` changed from population variance (`/n`) to sample variance (`/(n-1)`) with Bessel's correction, consistent with `computeICC`.
+- **#8 — FHIR R4 error masking** (`server/services/ehr/fhir-r4.ts`): `getPatient` and `getPatientTreatmentPlans` now use `classifyEhrError` — return null/[] only for not_found; throw with logging for auth/network/server errors.
+
+#### ✅ Completed & committed: 3 additional fixes (#5, #9, #10)
+- **#5 — Revenue date filtering** (`server/storage/types.ts`, `server/db/pg-storage-features.ts`, `server/storage/memory.ts`, `server/routes/revenue.ts`): `listCallRevenues` now accepts optional `startDate`/`endDate` filters with SQL-level gte/lte. Forecast uses 180-day window, trend uses 120-day window.
+- **#9 — Webhook signature tests** (`tests/billing-webhooks.test.ts`): 5 new tests using real Stripe SDK `constructEvent` + `generateTestHeaderString`. Covers valid signature, invalid signature, wrong secret, tampered payload, missing secret.
+- **#10 — Tautological test fix** (`server/auth.ts`, `tests/auth-routes.test.ts`, `tests/input-validation.test.ts`): Exported `ROLE_HIERARCHY` from auth.ts. Tests now import `ROLE_HIERARCHY`, `INDUSTRY_TYPES`, `USER_ROLES` from production code. Fixed stale "healthcare" assertion.
+
+#### Follow-on items
+- Gamification effectiveness endpoint (`/api/gamification/effectiveness`) still loads unbounded calls
+- Eaglesoft and Dentrix adapters have the same silent error masking — should get the same `classifyEhrError` treatment
+
 ## Future Plans / Roadmap
 See `HEALTHCARE_EXPANSION_PLAN.md` for the full 4-phase healthcare expansion roadmap.
 
@@ -2169,7 +2198,7 @@ Patterns adapted from the ums-knowledge-reference RAG tool for Observatory QA's 
 | Priority | Feature | Status | Notes |
 |----------|---------|--------|-------|
 | HIGH | **Adaptive query-type weights** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — Queries classified as `template_lookup` (40/60 S/K), `compliance_question` (55/45), `coaching_question` (75/25), `general` (70/30). `classifyQueryType()` and `getAdaptiveWeights()` in rag.ts. Weights auto-applied in `searchRelevantChunks()` |
-| HIGH | **Confidence score reconciliation** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — `reconcileConfidence()` cross-checks LLM-stated confidence (`[CONFIDENCE: HIGH/PARTIAL/LOW]` tag) against retrieval effective score. Downgrades overconfident LLM when retrieval < 0.30, upgrades conservative LLM when retrieval ≥ 0.42. Enhanced `computeConfidence()`: 65/35 top/avg blending (was 60/40), single-result 15% penalty |
+| HIGH | **Confidence score reconciliation** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — `reconcileConfidence()` cross-checks LLM-stated confidence (`[CONFIDENCE: HIGH/PARTIAL/LOW]` tag) against retrieval effective score. Downgrades overconfident LLM when retrieval < 0.30, upgrades conservative LLM when effective score ≥ 0.50. Enhanced `computeConfidence()`: 65/35 top/avg blending (was 60/40), single-result 15% penalty |
 | HIGH | **RAG trace observability** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — Enhanced `RagTrace` interface: `queryType`, `semanticWeight`, `keywordWeight`, `retrievedChunkIds[]`, `retrievalScores[]`, `confidenceReconciled`, `inputTokens`, `outputTokens`. Per-query debugging now shows which chunks were used and why |
 | MEDIUM | **Domain synonym expansion** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — 5 industry synonym maps (dental: 13 groups, medical: 16, behavioral health: 13, veterinary: 8, general: 10). Bidirectional lookup. `expandQueryWithSynonyms()` boosts BM25 recall on abbreviations (e.g., "cpap" ↔ "c-pap", "crown" ↔ "cap"). Only single-token synonyms appended to avoid noise |
 | MEDIUM | **Table-aware chunking** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — Tables (pipe/tab-delimited) detected and preserved as single chunks. Tables >3x chunk size fall back to normal splitting. `preserveTables` option (default: true). Tables extracted before sliding window, then non-table segments chunked normally |

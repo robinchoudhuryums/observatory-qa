@@ -508,7 +508,7 @@ export interface IStorage {
   // Call revenue operations (org-scoped)
   createCallRevenue(orgId: string, revenue: InsertCallRevenue): Promise<CallRevenue>;
   getCallRevenue(orgId: string, callId: string): Promise<CallRevenue | undefined>;
-  listCallRevenues(orgId: string, filters?: { conversionStatus?: string }): Promise<CallRevenue[]>;
+  listCallRevenues(orgId: string, filters?: { conversionStatus?: string; startDate?: string; endDate?: string }): Promise<CallRevenue[]>;
   updateCallRevenue(orgId: string, callId: string, updates: Partial<CallRevenue>): Promise<CallRevenue | undefined>;
   getRevenueMetrics(
     orgId: string,

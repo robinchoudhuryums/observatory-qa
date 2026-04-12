@@ -575,7 +575,7 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
 
 // HIPAA: Role-based access control middleware
 // Roles hierarchy: super_admin > admin > manager > viewer
-const ROLE_HIERARCHY: Record<string, number> = {
+export const ROLE_HIERARCHY: Record<string, number> = {
   super_admin: 4,
   admin: 3,
   manager: 2,

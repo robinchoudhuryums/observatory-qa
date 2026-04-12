@@ -964,7 +964,7 @@ export class CloudStorage implements IStorage {
   async getCallRevenue(_orgId: string, _callId: string): Promise<CallRevenue | undefined> {
     return undefined;
   }
-  async listCallRevenues(_orgId: string): Promise<CallRevenue[]> {
+  async listCallRevenues(_orgId: string, _filters?: { conversionStatus?: string; startDate?: string; endDate?: string }): Promise<CallRevenue[]> {
     return [];
   }
   async updateCallRevenue(

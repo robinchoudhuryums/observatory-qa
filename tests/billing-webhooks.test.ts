@@ -9,11 +9,13 @@
  */
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
+import Stripe from "stripe";
 import {
   getPriceId,
   getSeatPriceId,
   getOveragePriceId,
   isStripeConfigured,
+  constructWebhookEvent,
 } from "../server/services/stripe.js";
 import { PLAN_DEFINITIONS, type PlanTier } from "../shared/schema.js";
 
@@ -450,5 +452,148 @@ describe("Grace period calculation", () => {
     const now = new Date("2026-04-10T00:00:00Z"); // 9 days in
     const daysOverdue = (now.getTime() - pastDueAt.getTime()) / (24 * 60 * 60 * 1000);
     assert.ok(daysOverdue > GRACE_DAYS, "9 days > 7 day grace");
+  });
+});
+
+// ============================================================================
+// Stripe Webhook Signature Verification
+// ============================================================================
+
+describe("Webhook signature verification", () => {
+  const TEST_WEBHOOK_SECRET = "whsec_test_signature_verification_secret";
+  const TEST_STRIPE_KEY = "sk_test_fake_key_for_webhook_tests";
+
+  function makeTestPayload(eventType: string, data: Record<string, unknown> = {}): string {
+    return JSON.stringify({
+      id: `evt_test_${Date.now()}`,
+      object: "event",
+      type: eventType,
+      data: { object: data },
+      created: Math.floor(Date.now() / 1000),
+      livemode: false,
+      api_version: "2025-02-24.acacia",
+    });
+  }
+
+  it("accepts a correctly signed webhook payload", () => {
+    const stripe = new Stripe(TEST_STRIPE_KEY);
+    const payload = makeTestPayload("checkout.session.completed", { id: "cs_test_123" });
+    const payloadBuffer = Buffer.from(payload, "utf-8");
+
+    // Generate a valid signature using Stripe's test utility
+    const signature = Stripe.webhooks.generateTestHeaderString({
+      payload,
+      secret: TEST_WEBHOOK_SECRET,
+    });
+
+    // Set the webhook secret so constructWebhookEvent can use it
+    const original = process.env.STRIPE_WEBHOOK_SECRET;
+    process.env.STRIPE_WEBHOOK_SECRET = TEST_WEBHOOK_SECRET;
+    try {
+      const event = constructWebhookEvent(stripe, payloadBuffer, signature);
+      assert.strictEqual(event.type, "checkout.session.completed");
+      assert.ok(event.id.startsWith("evt_test_"));
+    } finally {
+      if (original !== undefined) process.env.STRIPE_WEBHOOK_SECRET = original;
+      else delete process.env.STRIPE_WEBHOOK_SECRET;
+    }
+  });
+
+  it("rejects a payload with an invalid signature", () => {
+    const stripe = new Stripe(TEST_STRIPE_KEY);
+    const payload = makeTestPayload("customer.subscription.updated");
+    const payloadBuffer = Buffer.from(payload, "utf-8");
+
+    const original = process.env.STRIPE_WEBHOOK_SECRET;
+    process.env.STRIPE_WEBHOOK_SECRET = TEST_WEBHOOK_SECRET;
+    try {
+      assert.throws(
+        () => constructWebhookEvent(stripe, payloadBuffer, "t=123,v1=badsignature"),
+        (err: any) => {
+          // Stripe SDK throws a StripeSignatureVerificationError
+          return err.message.includes("signature") || err.type === "StripeSignatureVerificationError";
+        },
+        "Should reject invalid webhook signature",
+      );
+    } finally {
+      if (original !== undefined) process.env.STRIPE_WEBHOOK_SECRET = original;
+      else delete process.env.STRIPE_WEBHOOK_SECRET;
+    }
+  });
+
+  it("rejects a payload signed with a different secret", () => {
+    const stripe = new Stripe(TEST_STRIPE_KEY);
+    const payload = makeTestPayload("invoice.payment_failed");
+    const payloadBuffer = Buffer.from(payload, "utf-8");
+
+    // Sign with a DIFFERENT secret than what the server expects
+    const wrongSecret = "whsec_wrong_secret_should_not_match";
+    const signature = Stripe.webhooks.generateTestHeaderString({
+      payload,
+      secret: wrongSecret,
+    });
+
+    const original = process.env.STRIPE_WEBHOOK_SECRET;
+    process.env.STRIPE_WEBHOOK_SECRET = TEST_WEBHOOK_SECRET;
+    try {
+      assert.throws(
+        () => constructWebhookEvent(stripe, payloadBuffer, signature),
+        (err: any) => {
+          return err.message.includes("signature") || err.type === "StripeSignatureVerificationError";
+        },
+        "Should reject signature from wrong secret",
+      );
+    } finally {
+      if (original !== undefined) process.env.STRIPE_WEBHOOK_SECRET = original;
+      else delete process.env.STRIPE_WEBHOOK_SECRET;
+    }
+  });
+
+  it("rejects a tampered payload (body modified after signing)", () => {
+    const stripe = new Stripe(TEST_STRIPE_KEY);
+    const originalPayload = makeTestPayload("customer.subscription.deleted", { id: "sub_123" });
+
+    // Sign the original payload
+    const signature = Stripe.webhooks.generateTestHeaderString({
+      payload: originalPayload,
+      secret: TEST_WEBHOOK_SECRET,
+    });
+
+    // Tamper with the payload AFTER signing
+    const tamperedPayload = originalPayload.replace("sub_123", "sub_hacked");
+    const tamperedBuffer = Buffer.from(tamperedPayload, "utf-8");
+
+    const original = process.env.STRIPE_WEBHOOK_SECRET;
+    process.env.STRIPE_WEBHOOK_SECRET = TEST_WEBHOOK_SECRET;
+    try {
+      assert.throws(
+        () => constructWebhookEvent(stripe, tamperedBuffer, signature),
+        (err: any) => {
+          return err.message.includes("signature") || err.type === "StripeSignatureVerificationError";
+        },
+        "Should reject tampered payload",
+      );
+    } finally {
+      if (original !== undefined) process.env.STRIPE_WEBHOOK_SECRET = original;
+      else delete process.env.STRIPE_WEBHOOK_SECRET;
+    }
+  });
+
+  it("throws when STRIPE_WEBHOOK_SECRET is not configured", () => {
+    const stripe = new Stripe(TEST_STRIPE_KEY);
+    const payload = Buffer.from(makeTestPayload("test.event"), "utf-8");
+
+    const original = process.env.STRIPE_WEBHOOK_SECRET;
+    delete process.env.STRIPE_WEBHOOK_SECRET;
+    try {
+      assert.throws(
+        () => constructWebhookEvent(stripe, payload, "t=123,v1=sig"),
+        (err: any) => err.message.includes("STRIPE_WEBHOOK_SECRET not configured"),
+        "Should throw when webhook secret is missing",
+      );
+    } finally {
+      if (original !== undefined) process.env.STRIPE_WEBHOOK_SECRET = original;
+      else delete process.env.STRIPE_WEBHOOK_SECRET;
+    }
   });
 });
