@@ -1,7 +1,9 @@
 Do not make any changes to any files during the audit phase.
 
-Read CLAUDE.md (especially Common Gotchas and Key Design Decisions),
-README, and the roadmap carefully before doing anything else.
+Read CLAUDE.md (especially Common Gotchas, Key Design Decisions, and
+the Cycle Workflow Config section at the end — particularly the Invariant
+Library and Subsystems list), README, and the roadmap carefully before
+doing anything else.
 
 This audit runs in three stages within this session. Complete each stage fully before starting the next.
 
@@ -28,19 +30,20 @@ DO NOT flag code for "simplification" or "cleanup" unless the current
 code is actively wrong or creates a maintenance trap. Working code
 that could be written differently is not a finding.
 
-After the broad pass, provide ratings out of 10 with reasoning:
-- Overall
-- Architecture & Code Quality (incl. test coverage)
-- Storage/DB Integrity
-- Security & HIPAA
-- Call Analysis
-- RAG
-- Clinical Documentation
-- EHR Integration
-- Integrations
-- UI/UX
-- Operational Integrity
+After the broad pass, provide ratings out of 10 with reasoning.
+Use the Health Dimensions defined in CLAUDE.md under "## Cycle Workflow Config" → "### Health Dimensions":
+- Architecture & Code Quality
+- Storage & Data Integrity
+- Security & HIPAA Compliance
+- Call Analysis Accuracy
+- RAG Quality
+- Clinical Documentation Safety
+- EHR Integration Reliability
+- Coaching & Analytics Correctness
+- Billing Integrity
 - Operational Readiness
+- UI/UX & Accessibility
+- Scalability & Performance
 - Business Viability
 
 For each rating include:

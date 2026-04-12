@@ -19,7 +19,8 @@ Flag any fixes that introduced tradeoffs or new failure modes — cases where th
 
 Invariant growth — answer this:
 - "What invariants does this cycle establish that the next Verification Pass should probe?"
-  List any rules that must now hold as a result of this cycle's changes. These become candidates for the invariant library. Format each as: [proposed ID] | [one-sentence rule] | [which subsystem/seam it guards] | [how to verify: code read, test, or assertion]
+  Cross-reference the existing Invariant Library in CLAUDE.md under "## Cycle Workflow Config" → "### Invariant Library". For each new rule that must now hold, propose an addition in the same format: INV-XX | [one-sentence rule] | Subsystem: [name]
+  Also flag any existing invariants that this cycle's changes may have weakened or invalidated.
 
 Honest impact summary — answer each directly:
 - What actually changed for a user of this application right now?

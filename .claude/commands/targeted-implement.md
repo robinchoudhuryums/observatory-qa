@@ -5,7 +5,8 @@ Usage (new session): Paste the ---TIER 2 HANDOFF BLOCK--- from the audit session
 
 ---
 
-Read CLAUDE.md (especially Common Gotchas) before starting.
+Read CLAUDE.md (especially Common Gotchas and the Invariant Library in
+"## Cycle Workflow Config") before starting.
 
 You are implementing the actions from the TIER 2 HANDOFF BLOCK above. Rules:
 
@@ -49,8 +50,7 @@ b) Did this action introduce a new failure mode, documented or not?
 Tally: [production fixes] − [new failure modes] = [net score]
 
 4. INVARIANT CHECK
-Check whether any changes could have violated invariants from the project's
-invariant library (listed in CLAUDE.md Common Gotchas). List any at risk:
+Check whether any changes could have violated invariants from the Invariant Library in CLAUDE.md under "## Cycle Workflow Config" → "### Invariant Library". For each INV-XX, check if any modified file could have broken that rule. List any at risk:
 - [invariant description] — [which change could affect it] — [risk: High/Med/Low]
 Or: "No invariants at risk."
 

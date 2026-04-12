@@ -12,7 +12,8 @@ You are implementing specific findings from a broad scan audit.
 
 Scope: $ARGUMENTS
 
-Read CLAUDE.md (especially Common Gotchas) before starting.
+Read CLAUDE.md (especially Common Gotchas and the Invariant Library in
+"## Cycle Workflow Config") before starting.
 
 Rules:
 - Implement ONLY the findings specified above — nothing else
@@ -44,7 +45,7 @@ b) Did this fix introduce a new failure mode, documented or not? YES (describe i
 Tally: [production fixes] − [new failure modes] = [net score]
 
 4. INVARIANT CHECK
-Check whether any changes could have violated invariants from the project's invariant library (listed in CLAUDE.md Common Gotchas or the cycle process tool). Flag any at risk.
+Check whether any changes could have violated invariants from the Invariant Library in CLAUDE.md under "## Cycle Workflow Config" → "### Invariant Library". For each INV-XX, check if any modified file could have broken that rule. Flag any at risk.
 
 5. SUMMARY
 Produce a BROAD SCAN IMPLEMENTATION SUMMARY:
