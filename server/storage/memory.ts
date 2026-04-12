@@ -215,6 +215,45 @@ export class MemStorage implements IStorage {
     };
   }
 
+  async getOrgsStatsBulk(
+    orgIds: string[],
+  ): Promise<
+    Map<
+      string,
+      { userCount: number; callCount: number; subscriptionStatus: string; planTier: string; billingInterval?: string }
+    >
+  > {
+    const result = new Map<
+      string,
+      { userCount: number; callCount: number; subscriptionStatus: string; planTier: string; billingInterval?: string }
+    >();
+    const idSet = new Set(orgIds);
+    for (const id of orgIds) {
+      result.set(id, { userCount: 0, callCount: 0, subscriptionStatus: "none", planTier: "free" });
+    }
+    for (const u of Array.from(this.users.values())) {
+      if (idSet.has(u.orgId)) {
+        const entry = result.get(u.orgId)!;
+        entry.userCount++;
+      }
+    }
+    for (const c of Array.from(this.calls.values())) {
+      if (idSet.has(c.orgId)) {
+        const entry = result.get(c.orgId)!;
+        entry.callCount++;
+      }
+    }
+    for (const sub of Array.from(this.subscriptions.values())) {
+      if (idSet.has(sub.orgId)) {
+        const entry = result.get(sub.orgId)!;
+        entry.subscriptionStatus = sub.status || "none";
+        entry.planTier = sub.planTier || "free";
+        entry.billingInterval = sub.billingInterval || undefined;
+      }
+    }
+    return result;
+  }
+
   // --- Call operations (org-scoped) ---
   async getCall(orgId: string, id: string): Promise<Call | undefined> {
     const call = this.calls.get(id);

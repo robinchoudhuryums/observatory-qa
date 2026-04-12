@@ -194,6 +194,40 @@ export class CloudStorage implements IStorage {
     };
   }
 
+  async getOrgsStatsBulk(
+    orgIds: string[],
+  ): Promise<
+    Map<
+      string,
+      { userCount: number; callCount: number; subscriptionStatus: string; planTier: string; billingInterval?: string }
+    >
+  > {
+    // CloudStorage is S3-backed JSON files with no native aggregates — fall back
+    // to per-org queries in parallel. This backend is rarely used at scale (S3
+    // JSON is mostly legacy); the Postgres backend provides the real N+1 fix.
+    const result = new Map<
+      string,
+      { userCount: number; callCount: number; subscriptionStatus: string; planTier: string; billingInterval?: string }
+    >();
+    await Promise.all(
+      orgIds.map(async (orgId) => {
+        const [userCount, callCount, subscription] = await Promise.all([
+          this.countUsersByOrg(orgId),
+          this.countCallsByOrg(orgId),
+          this.getSubscription(orgId),
+        ]);
+        result.set(orgId, {
+          userCount,
+          callCount,
+          subscriptionStatus: subscription?.status || "none",
+          planTier: subscription?.planTier || "free",
+          billingInterval: subscription?.billingInterval,
+        });
+      }),
+    );
+    return result;
+  }
+
   // --- Call Methods (org-scoped) ---
   async getCall(orgId: string, id: string): Promise<Call | undefined> {
     return this.client.downloadJson<Call>(`${this.orgPrefix(orgId)}/calls/${id}.json`);

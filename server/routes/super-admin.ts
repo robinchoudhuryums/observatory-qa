@@ -18,25 +18,21 @@ export function registerSuperAdminRoutes(app: Express): void {
   /**
    * GET /api/super-admin/stats
    * Platform-wide statistics: total orgs, users, calls, active subscriptions.
+   *
+   * Uses bulk storage aggregate (3 aggregate queries total) instead of the
+   * old per-org loop (3 queries × N orgs = 3N). See Top-10 #5 fix.
    */
   app.get("/api/super-admin/stats", requireAuth, requireSuperAdmin, asyncHandler(async (_req, res) => {
       const orgs = await storage.listOrganizations();
+      const stats = await storage.getOrgsStatsBulk(orgs.map((o) => o.id));
 
       let totalUsers = 0;
       let totalCalls = 0;
       let activeSubscriptions = 0;
-
-      for (const org of orgs) {
-        const [userCount, callCount, subscription] = await Promise.all([
-          storage.countUsersByOrg(org.id),
-          storage.countCallsByOrg(org.id),
-          storage.getSubscription(org.id),
-        ]);
-        totalUsers += userCount;
-        totalCalls += callCount;
-        if (subscription && subscription.status === "active") {
-          activeSubscriptions++;
-        }
+      for (const entry of Array.from(stats.values())) {
+        totalUsers += entry.userCount;
+        totalCalls += entry.callCount;
+        if (entry.subscriptionStatus === "active") activeSubscriptions++;
       }
 
       const orgsByStatus = {
@@ -59,37 +55,39 @@ export function registerSuperAdminRoutes(app: Express): void {
   /**
    * GET /api/super-admin/organizations
    * List all organizations with stats (user count, call count, subscription status).
+   *
+   * Uses bulk storage aggregate (3 aggregate queries total) instead of the
+   * old per-org Promise.all pattern (3 queries × N orgs = 3N). See Top-10 #5 fix.
    */
   app.get("/api/super-admin/organizations", requireAuth, requireSuperAdmin, asyncHandler(async (_req, res) => {
       const orgs = await storage.listOrganizations();
+      const stats = await storage.getOrgsStatsBulk(orgs.map((o) => o.id));
 
-      const orgsWithStats = await Promise.all(
-        orgs.map(async (org) => {
-          const [userCount, callCount, subscription] = await Promise.all([
-            storage.countUsersByOrg(org.id),
-            storage.countCallsByOrg(org.id),
-            storage.getSubscription(org.id),
-          ]);
-
-          return {
-            id: org.id,
-            name: org.name,
-            slug: org.slug,
-            status: org.status,
-            createdAt: org.createdAt,
-            settings: {
-              industryType: org.settings?.industryType,
-              retentionDays: org.settings?.retentionDays,
-            },
-            stats: {
-              userCount,
-              callCount,
-              subscriptionStatus: subscription?.status || "none",
-              planTier: subscription?.planTier || "free",
-            },
-          };
-        }),
-      );
+      const orgsWithStats = orgs.map((org) => {
+        const s = stats.get(org.id) || {
+          userCount: 0,
+          callCount: 0,
+          subscriptionStatus: "none",
+          planTier: "free",
+        };
+        return {
+          id: org.id,
+          name: org.name,
+          slug: org.slug,
+          status: org.status,
+          createdAt: org.createdAt,
+          settings: {
+            industryType: org.settings?.industryType,
+            retentionDays: org.settings?.retentionDays,
+          },
+          stats: {
+            userCount: s.userCount,
+            callCount: s.callCount,
+            subscriptionStatus: s.subscriptionStatus,
+            planTier: s.planTier,
+          },
+        };
+      });
 
       res.json(orgsWithStats);
     }));
@@ -288,14 +286,25 @@ export function registerSuperAdminRoutes(app: Express): void {
   app.get("/api/super-admin/usage", requireAuth, requireSuperAdmin, asyncHandler(async (_req, res) => {
       const orgs = await storage.listOrganizations();
 
+      // Bulk-fetch user/call/subscription stats to replace the per-org nested
+      // countUsersByOrg + getSubscription. getOrgUsageSummary is still per-org
+      // because it computes richer aggregates (completed count, total duration,
+      // cost estimate) that aren't covered by getOrgsStatsBulk. See Top-10 #5.
+      const bulkStats = await storage.getOrgsStatsBulk(orgs.map((o) => o.id));
+
       const orgsWithUsage = await Promise.all(
         orgs.map(async (org) => {
-          const [usageSummary, subscription] = await Promise.all([
-            storage.getOrgUsageSummary(org.id),
-            storage.getSubscription(org.id),
-          ]);
+          const usageSummary = await storage.getOrgUsageSummary(org.id);
+          const stat = bulkStats.get(org.id) || {
+            userCount: 0,
+            callCount: 0,
+            subscriptionStatus: "none",
+            planTier: "free",
+            billingInterval: undefined as string | undefined,
+          };
 
-          const plan = subscription ? PLAN_DEFINITIONS[subscription.planTier as keyof typeof PLAN_DEFINITIONS] : null;
+          const planTier = stat.planTier as keyof typeof PLAN_DEFINITIONS;
+          const plan = PLAN_DEFINITIONS[planTier] || null;
           const callLimit = plan?.limits?.callsPerMonth ?? 50;
           const overageCount = Math.max(0, usageSummary.totalCalls - callLimit);
 
@@ -304,11 +313,11 @@ export function registerSuperAdminRoutes(app: Express): void {
             orgName: org.name,
             orgSlug: org.slug,
             status: org.status,
-            planTier: subscription?.planTier || "free",
+            planTier: stat.planTier,
             callCount: usageSummary.totalCalls,
             completedCallCount: usageSummary.completedCalls,
             totalTranscriptionSeconds: usageSummary.totalDurationSeconds,
-            userCount: await storage.countUsersByOrg(org.id),
+            userCount: stat.userCount,
             employeeCount: usageSummary.employeeCount,
             estimatedStorageMb: Math.round((usageSummary.totalDurationSeconds * 0.5) / 1024), // rough estimate: 0.5 KB/s
             totalEstimatedCostUsd: Math.round(usageSummary.totalEstimatedCostUsd * 100) / 100,
@@ -317,13 +326,14 @@ export function registerSuperAdminRoutes(app: Express): void {
               limit: callLimit,
               overageCount,
             },
-            subscription: subscription
-              ? {
-                  status: subscription.status,
-                  planTier: subscription.planTier,
-                  billingInterval: subscription.billingInterval,
-                }
-              : null,
+            subscription:
+              stat.subscriptionStatus !== "none"
+                ? {
+                    status: stat.subscriptionStatus,
+                    planTier: stat.planTier,
+                    billingInterval: stat.billingInterval,
+                  }
+                : null,
           };
         }),
       );
