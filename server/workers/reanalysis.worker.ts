@@ -25,8 +25,9 @@ export function createReanalysisWorker(
       const assemblyAIService = getAssemblyAIService();
 
       if (!aiProvider.isAvailable) {
-        logger.warn({ orgId, jobId: job.id }, "Reanalysis worker: AI provider not available");
-        return { succeeded: 0, failed: 0, skipped: 0, reason: "AI provider unavailable" };
+        const msg = "Reanalysis worker: AI provider not available — job will be retried";
+        logger.error({ orgId, jobId: job.id }, msg);
+        throw new Error(msg);
       }
 
       let succeeded = 0;
@@ -72,11 +73,12 @@ export function createReanalysisWorker(
         );
 
         if (aiAnalysis.sub_scores) {
+          const ss = aiAnalysis.sub_scores;
           analysis.subScores = {
-            compliance: aiAnalysis.sub_scores.compliance ?? 0,
-            customerExperience: aiAnalysis.sub_scores.customer_experience ?? 0,
-            communication: aiAnalysis.sub_scores.communication ?? 0,
-            resolution: aiAnalysis.sub_scores.resolution ?? 0,
+            compliance: ss.compliance != null ? Number(ss.compliance) : undefined,
+            customerExperience: ss.customer_experience != null ? Number(ss.customer_experience) : undefined,
+            communication: ss.communication != null ? Number(ss.communication) : undefined,
+            resolution: ss.resolution != null ? Number(ss.resolution) : undefined,
           };
         }
         if (aiAnalysis.detected_agent_name) {

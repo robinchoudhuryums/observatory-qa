@@ -745,6 +745,7 @@ export function registerBillingRoutes(app: Express): void {
             const overageItem = findItemByKnownPriceId(items, [
               process.env.STRIPE_PRICE_STARTER_OVERAGE,
               process.env.STRIPE_PRICE_PROFESSIONAL_OVERAGE,
+              process.env.STRIPE_PRICE_ENTERPRISE_OVERAGE,
             ]);
 
             const priceId = flatItem?.price?.id;
@@ -809,6 +810,17 @@ export function registerBillingRoutes(app: Express): void {
           const tier = resolveTierFromPriceId(priceId);
           const interval = flatItem?.price?.recurring?.interval === "year" ? "yearly" : "monthly";
 
+          // Sync metered item IDs — these can change when the subscription is modified in Stripe
+          const updSeatsItem = findItemByKnownPriceId(subItems, [
+            process.env.STRIPE_PRICE_STARTER_SEATS,
+            process.env.STRIPE_PRICE_PROFESSIONAL_SEATS,
+          ]);
+          const updOverageItem = findItemByKnownPriceId(subItems, [
+            process.env.STRIPE_PRICE_STARTER_OVERAGE,
+            process.env.STRIPE_PRICE_PROFESSIONAL_OVERAGE,
+            process.env.STRIPE_PRICE_ENTERPRISE_OVERAGE,
+          ]);
+
           const statusMap: Record<string, string> = {
             active: "active",
             past_due: "past_due",
@@ -821,12 +833,14 @@ export function registerBillingRoutes(app: Express): void {
             planTier: tier,
             status: (statusMap[stripeSub.status] || stripeSub.status) as any,
             stripePriceId: priceId,
+            stripeSeatsItemId: updSeatsItem?.id || undefined,
+            stripeOverageItemId: updOverageItem?.id || undefined,
             billingInterval: interval as any,
             currentPeriodStart: new Date(stripeSub.current_period_start * 1000).toISOString(),
             currentPeriodEnd: new Date(stripeSub.current_period_end * 1000).toISOString(),
             cancelAtPeriodEnd: stripeSub.cancel_at_period_end || false,
           });
-          logger.info({ orgId, tier, status: stripeSub.status }, "Subscription updated");
+          logger.info({ orgId, tier, status: stripeSub.status, hasSeatMeter: !!updSeatsItem, hasOverageMeter: !!updOverageItem }, "Subscription updated");
           break;
         }
 
@@ -835,10 +849,17 @@ export function registerBillingRoutes(app: Express): void {
           const orgId = stripeSub.metadata?.orgId;
           if (!orgId) break;
 
+          // Preserve customer ID so the org can re-subscribe without creating a new customer.
+          // Clear metered item IDs since the subscription (and its items) no longer exist.
+          const existingSub = await storage.getSubscription(orgId);
           await storage.upsertSubscription(orgId, {
             orgId,
             planTier: "free",
             status: "canceled",
+            stripeCustomerId: existingSub?.stripeCustomerId || stripeSub.customer,
+            stripeSubscriptionId: undefined,
+            stripeSeatsItemId: undefined,
+            stripeOverageItemId: undefined,
             billingInterval: "monthly",
             cancelAtPeriodEnd: false,
           });
