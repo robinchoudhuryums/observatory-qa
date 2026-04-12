@@ -80,7 +80,7 @@ npx vite build         # Frontend-only build (quick verification)
 - **Unit tests**: Node.js built-in `test` module via `tsx` — `npm run test`
 - **E2E tests**: Playwright (Chromium) — `npm run test:e2e` or `npm run test:e2e:ui`
 - **Location**: `tests/` (unit), `tests/e2e/` (E2E)
-- **Unit test files** (80 files, 1568 tests):
+- **Unit test files** (82 files, 1623 tests):
   - `tests/schema.test.ts` — Zod schema validation (orgId on all entities, organization schemas)
   - `tests/ai-provider.test.ts` — AI provider utilities (parseJsonResponse, buildAnalysisPrompt, smartTruncate)
   - `tests/routes.test.ts` — API route handler tests
@@ -121,6 +121,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/clinical-amendments.test.ts` — Amendment/addendum workflow (schema, persistence, conflict detection, multi-chain, isolation)
   - `tests/lms-prereq-enforce.test.ts` — LMS prerequisites, enforceOrder, deadlines, passing scores
   - `tests/sso.test.ts` — SAML SSO
+  - `tests/mfa.test.ts` — MFA logic: TOTP generation/verification, backup codes, rate limiting, trusted device tokens, grace period (27 tests)
   - `tests/validation.test.ts` — Input validation
   - `tests/load-simulation.test.ts` — Load simulation (5 orgs × 200 calls, concurrent operations, data isolation)
   - `tests/login-ambiguity.test.ts` — Multi-org login ambiguity (OBS-AUTH-008)
@@ -145,6 +146,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/upload-errors.test.ts` — Upload error handling
   - `tests/upload-race-condition.test.ts` — Upload race condition prevention
   - `tests/validation-middleware.test.ts` — Validation middleware tests
+  - `tests/waf.test.ts` — WAF middleware: SQL injection, XSS, path traversal, suspicious user agents, anomaly scoring, IP blocking (28 tests)
   - `tests/webhook-retry.test.ts` — Webhook retry logic
   - `tests/audit-fixes.test.ts` — Audit fix verification (prompt injection, PHI redaction, LRU cache, RAG config, upload dedup, output guardrails)
   - `tests/schema-column-coverage.test.ts` — Schema sync column-level validation (Drizzle vs sync-schema DDL)
