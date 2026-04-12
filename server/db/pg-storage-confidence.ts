@@ -12,17 +12,40 @@
 import { sql, eq, and } from "drizzle-orm";
 import * as tables from "./schema";
 import type { DashboardMetrics, TopPerformer } from "@shared/schema";
+import type { PostgresStorage } from "./pg-storage";
+
+/** Shape returned by the confidence dashboard metrics raw SQL query. */
+interface ConfidenceMetricsRow {
+  call_count: number;
+  avg_sentiment: string | number;
+  avg_performance: string | number;
+  avg_confidence: string | number | null;
+  high_confidence: number;
+  medium_confidence: number;
+  low_confidence: number;
+  no_confidence: number;
+}
+
+/** Shape returned by the top performers query with confidence. */
+interface TopPerformerRow {
+  employeeId: string | null;
+  employeeName: string;
+  employeeRole: string | null;
+  avgScore: number | null;
+  totalCalls: number;
+  avgConfidence: number | null;
+}
 
 /**
  * Apply confidence metrics overrides to a PostgresStorage instance.
  * Call this after constructing the storage instance.
  */
-export function applyConfidenceMetricsMixin(storage: any): void {
+export function applyConfidenceMetricsMixin(storage: PostgresStorage & { getDashboardMetrics: (orgId: string) => Promise<DashboardMetrics>; getTopPerformers: (orgId: string, limit?: number) => Promise<TopPerformer[]> }): void {
   const originalGetDashboardMetrics = storage.getDashboardMetrics.bind(storage);
   const originalGetTopPerformers = storage.getTopPerformers.bind(storage);
 
   storage.getDashboardMetrics = async function (orgId: string): Promise<DashboardMetrics> {
-    const db = this.db;
+    const db = (this as unknown as PostgresStorage)["db"];
     const [row] = (await db.execute(sql`
       SELECT
         count(c.id)::int AS call_count,
@@ -37,14 +60,14 @@ export function applyConfidenceMetricsMixin(storage: any): void {
       LEFT JOIN sentiment_analyses s ON s.call_id = c.id
       LEFT JOIN call_analyses a ON a.call_id = c.id
       WHERE c.org_id = ${orgId}
-    `)) as any;
+    `)) as unknown as ConfidenceMetricsRow[];
 
-    const avgConf = parseFloat(row?.avg_confidence);
+    const avgConf = parseFloat(String(row?.avg_confidence ?? ""));
 
     return {
       totalCalls: row?.call_count || 0,
-      avgSentiment: Math.round((parseFloat(row?.avg_sentiment) || 0) * 100) / 100,
-      avgPerformanceScore: Math.round((parseFloat(row?.avg_performance) || 0) * 100) / 100,
+      avgSentiment: Math.round((parseFloat(String(row?.avg_sentiment ?? 0)) || 0) * 100) / 100,
+      avgPerformanceScore: Math.round((parseFloat(String(row?.avg_performance ?? 0)) || 0) * 100) / 100,
       avgConfidence: isNaN(avgConf) ? null : Math.round(avgConf * 100) / 100,
       dataQuality: {
         highConfidence: row?.high_confidence || 0,
@@ -56,7 +79,7 @@ export function applyConfidenceMetricsMixin(storage: any): void {
   };
 
   storage.getTopPerformers = async function (orgId: string, limit = 3): Promise<TopPerformer[]> {
-    const db = this.db;
+    const db = (this as unknown as PostgresStorage)["db"];
     const MIN_CALLS_FOR_RANKING = 5;
     const rows = await db
       .select({
@@ -76,7 +99,7 @@ export function applyConfidenceMetricsMixin(storage: any): void {
       .orderBy(sql`avg(cast(${tables.callAnalyses.performanceScore} as float)) desc`)
       .limit(limit);
 
-    return rows.map((r: any) => ({
+    return rows.map((r) => ({
       id: r.employeeId!,
       name: r.employeeName,
       role: r.employeeRole || undefined,

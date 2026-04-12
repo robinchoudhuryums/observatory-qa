@@ -104,9 +104,8 @@ type EffectivenessSnap = { preCoaching?: { avgScore?: number }; postCoaching?: {
 
 // Raw SQL execute result — Drizzle returns rows directly or wrapped in { rows: [...] }
 // depending on the driver. This helper normalizes both formats.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function rawRows(result: any): any[] {
-  return Array.isArray(result) ? result : (result?.rows ?? []);
+function rawRows<T = Record<string, unknown>>(result: unknown): T[] {
+  return (Array.isArray(result) ? result : ((result as { rows?: T[] })?.rows ?? [])) as T[];
 }
 
 // Row types inferred from Drizzle schema — used to type mapper function parameters
