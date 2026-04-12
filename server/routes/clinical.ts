@@ -302,18 +302,20 @@ export function registerClinicalRoutes(app: Express): void {
           return;
         }
 
-        // Optimistic locking: version is REQUIRED when editing attested notes
+        // Optimistic locking: version is ALWAYS required to prevent concurrent edit data loss.
+        // Without version checking, two users editing simultaneously would silently overwrite
+        // each other's changes (lost update). This applies to both attested and unattested notes.
         const currentVersion = analysis.clinicalNote.version || 0;
-        if (analysis.clinicalNote.providerAttested && req.body.version === undefined) {
+        if (req.body.version === undefined) {
           res.status(400).json({
             message:
-              "Version field is required when editing an attested note. Fetch the note first to get the current version.",
+              "Version field is required when editing a clinical note. Fetch the note first to get the current version.",
             code: "OBS-CLINICAL-VERSION-REQUIRED",
             currentVersion,
           });
           return;
         }
-        if (req.body.version !== undefined && req.body.version !== currentVersion) {
+        if (req.body.version !== currentVersion) {
           res.status(409).json({
             message: "Clinical note has been modified by another user. Please refresh and try again.",
             code: "OBS-CLINICAL-CONFLICT",
