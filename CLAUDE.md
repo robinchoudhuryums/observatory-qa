@@ -80,7 +80,7 @@ npx vite build         # Frontend-only build (quick verification)
 - **Unit tests**: Node.js built-in `test` module via `tsx` — `npm run test`
 - **E2E tests**: Playwright (Chromium) — `npm run test:e2e` or `npm run test:e2e:ui`
 - **Location**: `tests/` (unit), `tests/e2e/` (E2E)
-- **Unit test files** (76 files, 1517 tests):
+- **Unit test files** (77 files, 1531 tests):
   - `tests/schema.test.ts` — Zod schema validation (orgId on all entities, organization schemas)
   - `tests/ai-provider.test.ts` — AI provider utilities (parseJsonResponse, buildAnalysisPrompt, smartTruncate)
   - `tests/routes.test.ts` — API route handler tests
@@ -152,6 +152,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/call-clustering.test.ts` — Call clustering (TF-IDF, cosine similarity, agglomerative clustering, trend detection, 15 tests)
   - `tests/bedrock-batch.test.ts` — Bedrock batch inference (shouldUseBatchMode, isBatchAvailable, org settings validation, 15 tests)
   - `tests/billing-webhooks.test.ts` — Stripe webhook lifecycle (overage pricing, metered item sync, subscription state transitions, idempotency, grace period, 38 tests)
+  - `tests/billing-webhook-integration.test.ts` — Billing webhook integration against MemStorage (subscription lifecycle, metered item tracking, payment failure/recovery, re-subscription, 14 tests)
   - `tests/prompt-injection-pipeline.test.ts` — Transcript injection detection + output guardrails + orphan recovery (16 tests)
   - `tests/remaining-adaptations.test.ts` — Performance snapshots, SSRF validation, scheduled reports (21 tests)
   - `tests/rag-ums-adaptations.test.ts` — RAG improvements adapted from ums-knowledge-reference: adaptive query-type weights, confidence reconciliation, domain synonym expansion, table-aware chunking, page tracking, cross-org FAQ patterns, structured short-circuit, query reformulation, response styles (49 tests)
@@ -328,9 +329,10 @@ server/scheduled/            # Wall-clock scheduled background tasks
   weekly-digest.ts           #   Weekly performance/coaching digest to webhook
   audit-chain-verify.ts      #   Nightly HIPAA audit chain integrity verification
   coaching-tasks.ts          #   Coaching automation rules, effectiveness caching, follow-up reminders
+  post-processing-reconciliation.ts  #   Daily reconciliation: finds completed calls with missing usage records and re-tracks them
 
 server/services/ehr/         # EHR integration adapters (11 files)
-  types.ts                   #   IEhrAdapter interface, EhrPatient, EhrAppointment, EhrClinicalNote, EhrTreatmentPlan, EhrHealthStatus
+  types.ts                   #   IEhrAdapter interface, EhrPatient, EhrAppointment, EhrClinicalNote, EhrTreatmentPlan, EhrHealthStatus, EhrError class, classifyEhrError()
   index.ts                   #   EHR adapter factory (5 adapters: open_dental, eaglesoft, dentrix, fhir_r4, mock)
   open-dental.ts             #   Open Dental adapter (bidirectional: patient lookup, note push, treatment plans)
   eaglesoft.ts               #   Eaglesoft/Patterson eDex adapter (bidirectional with eDex v2+)
@@ -1732,6 +1734,19 @@ Full audit of 108K LOC across 360 files with priority-ordered ratings and fixes.
 #### ✅ Completed & committed: Billing lifecycle tests + email OTP Redis migration
 - **Stripe billing webhook tests** (`tests/billing-webhooks.test.ts`, 38 tests): Overage/seat price mapping (all tiers including enterprise), plan billing consistency (volume discount, calls/seats scaling), webhook event structure validation (tier resolution, metered item extraction, flat-rate vs metered identification), subscription lifecycle state transitions (checkout upsert, deletion preserves customer ID, update syncs metered items, additional seat calculation), webhook idempotency, and grace period calculation.
 - **Email OTP Redis migration** (`server/routes/mfa.ts`): Replaced in-memory `emailOtpStore` Map + cleanup interval with Redis-backed ephemeral API (`ephemeralSet`/`ephemeralGet`/`ephemeralDel` with JSON serialization). OTP entries auto-expire via Redis TTL (10 min). Multi-instance safe: OTP created on instance A verifiable on instance B. In-memory fallback preserved via ephemeral API. Resolves the TODO comment that was in the code.
+
+#### ✅ Completed & committed: Storage layer type safety improvements
+- **Confidence mixin typed** (`server/db/pg-storage-confidence.ts`): Replaced `storage: any` parameter with typed `PostgresStorage` intersection. Typed raw SQL result as `ConfidenceMetricsRow` interface (was `as any`). Removed `(r: any)` cast in map callback.
+- **rawRows generic** (`server/db/pg-storage.ts`): `rawRows()` helper now uses generic type parameter `rawRows<T>()` returning `T[]` instead of `any[]`. Callers can gradually annotate with expected row types.
+
+#### ✅ Completed & committed: Post-processing reconciliation + EHR error classification
+- **Post-processing reconciliation** (`server/scheduled/post-processing-reconciliation.ts`): New daily scheduled task finds completed calls (1-48h old) with no usage records and re-tracks transcription + AI analysis usage. Capped at 50 calls per org per run. Registered in daily task orchestrator. Addresses the F-06 gap where postProcessing() failures are intentionally swallowed (per F-44) but had no compensating mechanism.
+- **EHR error classification** (`server/services/ehr/types.ts`, `open-dental.ts`, `eaglesoft.ts`, `dentrix.ts`, `server/routes/ehr.ts`): New `EhrError` class with typed `errorType` (auth/not_found/network/server/timeout/unknown). `classifyEhrError()` parses HTTP status from error messages. Open Dental, Eaglesoft, and Dentrix adapters now throw `EhrError` for non-404 errors instead of silently returning null/[]. EHR route catches `EhrError` and returns 502/504 with `ehrErrorType` field for actionable frontend messages.
+
+#### Follow-on items
+- FHIR R4 and mock adapters not yet updated with classifyEhrError
+- Frontend should handle `ehrErrorType` field to show actionable error banners
+- Reconciliation job should be extended to re-run missed webhook notifications (currently only re-tracks usage)
 
 ### Branch: `claude/evaluate-qa-rag-integration-MrMze`
 
