@@ -75,6 +75,40 @@ const analyticsNav: NavItem[] = [
 const managementNav: NavItem[] = [
   { name: "Employees", href: "/employees", icon: RiUserAddLine },
   { name: "Coaching", href: "/coaching", icon: RiClipboardLine, requireRole: ["manager", "admin"] },
+  { name: "Calibration", href: "/calibration", icon: RiScales3Line, requireRole: ["manager", "admin"], minPlan: "professional" },
+];
+
+/** Items for the Channels section (Starter+). */
+const channelNav: NavItem[] = [
+  { name: "Email QA", href: "/emails", icon: RiMailLine, minPlan: "starter" },
+  { name: "Learning Center", href: "/learning", icon: RiGraduationCapLine, minPlan: "starter" },
+  { name: "Lead Tracking", href: "/marketing", icon: RiMegaphoneLine, minPlan: "starter" },
+];
+
+/** Items for the Engagement section (Starter+). */
+const engagementNav: NavItem[] = [
+  { name: "Leaderboard", href: "/gamification", icon: RiTrophyLine, minPlan: "starter" },
+  { name: "Revenue Tracking", href: "/revenue", icon: RiMoneyDollarCircleLine, minPlan: "starter" },
+];
+
+/** Items for the Clinical section (requires clinical docs plan). */
+const clinicalNav: NavItem[] = [
+  { name: "Clinical Dashboard", href: "/clinical", icon: RiStethoscopeLine },
+  { name: "Record Encounter", href: "/clinical/upload", icon: RiUploadLine },
+  { name: "Live Recording", href: "/clinical/live", icon: RiBroadcastLine },
+  { name: "Note Templates", href: "/clinical/templates", icon: RiBookOpenLine },
+  { name: "Insurance Letters", href: "/insurance-narratives", icon: RiFileShield2Line },
+];
+
+/** Admin-only links. */
+const adminNav: NavItem[] = [
+  { name: "Administration", href: "/admin", icon: RiShieldLine },
+  { name: "Prompt Templates", href: "/prompt-templates", icon: RiEqualizerLine },
+  { name: "Settings", href: "/settings", icon: RiPaletteLine },
+  { name: "A/B Testing", href: "/ab-testing", icon: RiFlaskLine },
+  { name: "Spend Tracking", href: "/spend-tracking", icon: RiMoneyDollarCircleLine, minPlan: "starter" },
+  { name: "Audit Logs", href: "/audit-logs", icon: RiFileList3Line },
+  { name: "User Feedback", href: "/admin/feedback", icon: RiMessage2Line },
 ];
 
 export default function Sidebar() {
@@ -229,24 +263,48 @@ export default function Sidebar() {
     navigate(`/reports?employee=${employeeId}`);
   };
 
-  /** Helper to build admin nav link */
-  const AdminLink = ({
-    href,
-    icon: Icon,
-    label,
-    testId,
-    badge,
-  }: {
-    href: string;
-    icon: any;
-    label: string;
-    testId: string;
-    badge?: { count: number; activeColor: string; inactiveColor: string };
-  }) => {
-    const isActive = location === href;
+  /**
+   * Render a single nav item with role + plan gating.
+   * - Items below the user's plan show a "PRO" upgrade badge and link to billing.
+   * - Items requiring a role the user doesn't have are hidden entirely.
+   */
+  const NavLink = ({ item, badge }: { item: NavItem; badge?: { count: number; activeColor: string; inactiveColor: string } }) => {
+    // Role gate — hide entirely if user doesn't have required role
+    if (item.requireRole && (!user?.role || !item.requireRole.includes(user.role))) return null;
+
+    const Icon = item.icon;
+    const testId = `nav-link-${item.name.toLowerCase().replace(/\s+/g, "-")}`;
+
+    // Plan gate — show upgrade badge if item requires a higher plan
+    if (item.minPlan && !meetsPlan(planTier, item.minPlan)) {
+      return (
+        <Link
+          href="/settings?tab=billing"
+          className="flex items-center space-x-3 py-2 pl-3 pr-3 rounded-lg font-medium transition-all duration-200 text-muted-foreground/60 hover:bg-muted/50 hover:text-muted-foreground"
+          data-testid={testId}
+          title={`Upgrade to ${item.minPlan} plan to unlock ${item.name}`}
+        >
+          <Icon className="w-5 h-5" />
+          <span>{item.name}</span>
+          <span
+            className="ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+            style={{
+              color: "hsl(var(--brand-from))",
+              borderColor: "hsla(var(--brand-from), 0.3)",
+              background: "hsla(var(--brand-from), 0.1)",
+              border: "1px solid",
+            }}
+          >
+            {item.minPlan === "professional" ? "PRO" : "STARTER"}
+          </span>
+        </Link>
+      );
+    }
+
+    const isActive = location === item.href || (item.href !== "/" && location.startsWith(item.href));
     return (
       <Link
-        href={href}
+        href={item.href}
         className={cn(
           "flex items-center space-x-3 py-2 rounded-lg font-medium transition-all duration-200",
           isActive
@@ -256,7 +314,7 @@ export default function Sidebar() {
         data-testid={testId}
       >
         <Icon className="w-5 h-5" />
-        <span>{label}</span>
+        <span>{item.name}</span>
         {badge && badge.count > 0 && (
           <span
             className={cn(
@@ -268,6 +326,41 @@ export default function Sidebar() {
           </span>
         )}
       </Link>
+    );
+  };
+
+  /** Render a collapsible section with nav items */
+  const NavSection = ({ title, items, defaultCollapsed }: { title: string; items: NavItem[]; defaultCollapsed?: boolean }) => {
+    // If no items are visible (all role-gated out), hide the section header
+    const visibleItems = items.filter((item) => !item.requireRole || (user?.role && item.requireRole.includes(user.role)));
+    if (visibleItems.length === 0) return null;
+
+    return (
+      <>
+        <div className="pt-4 pb-1.5 px-3">
+          <button
+            onClick={() => toggleSection(title)}
+            className="flex items-center justify-between w-full hover:text-foreground transition-colors cursor-pointer"
+            aria-expanded={!collapsedSections[title]}
+            aria-label={`Toggle ${title} section`}
+          >
+            <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">{title}</p>
+            <RiArrowDownSLine
+              className={cn(
+                "w-3.5 h-3.5 text-muted-foreground/70 transition-transform",
+                collapsedSections[title] && "-rotate-90",
+              )}
+            />
+          </button>
+        </div>
+        {!collapsedSections[title] && (
+          <div className="space-y-0.5">
+            {items.map((item) => (
+              <NavLink key={item.name} item={item} />
+            ))}
+          </div>
+        )}
+      </>
     );
   };
 
@@ -330,243 +423,26 @@ export default function Sidebar() {
 
         <nav className="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto">
           {/* Core navigation — always visible */}
-          {coreNav.map((item) => {
-            const Icon = item.icon;
-            const isActive = location === item.href || (item.href !== "/" && location.startsWith(item.href));
-            const showBadge = item.name === "Dashboard" && flaggedCount > 0;
-            return (
-              <Link
-                key={item.name}
-                href={item.href}
-                className={cn(
-                  "flex items-center space-x-3 py-2 rounded-lg font-medium transition-all duration-200",
-                  isActive
-                    ? "px-3 sidebar-active-link text-white"
-                    : "pl-3 pr-3 text-muted-foreground hover:bg-muted/50 hover:text-foreground hover:border-l-2 hover:border-primary/40 hover:pl-[10px]",
-                )}
-                data-testid={`nav-link-${item.name.toLowerCase().replace(/\s+/g, "-")}`}
-              >
-                <Icon className="w-5 h-5" />
-                <span>{item.name}</span>
-                {showBadge && (
-                  <span
-                    className={cn(
-                      "ml-auto flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-bold",
-                      isActive
-                        ? "bg-red-500 text-white"
-                        : "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300",
-                    )}
-                  >
-                    {flaggedCount}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
+          {coreNav.map((item) => (
+            <NavLink
+              key={item.name}
+              item={item}
+              badge={item.name === "Dashboard" && flaggedCount > 0 ? {
+                count: flaggedCount,
+                activeColor: "bg-red-500 text-white",
+                inactiveColor: "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300",
+              } : undefined}
+            />
+          ))}
 
-          {/* Analytics — collapsible */}
-          <div className="pt-4 pb-1.5 px-3">
-            <button
-              onClick={() => toggleSection("Analytics")}
-              className="flex items-center justify-between w-full hover:text-foreground transition-colors cursor-pointer"
-              aria-expanded={!collapsedSections["Analytics"]}
-              aria-label="Toggle Analytics section"
-            >
-              <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">Analytics</p>
-              <RiArrowDownSLine
-                className={cn(
-                  "w-3.5 h-3.5 text-muted-foreground/70 transition-transform",
-                  collapsedSections["Analytics"] && "-rotate-90",
-                )}
-              />
-            </button>
-          </div>
-          {!collapsedSections["Analytics"] && (
-            <div className="space-y-0.5">
-              {analyticsNav.map((item) => {
-                const Icon = item.icon;
-                const isActive = location === item.href || location.startsWith(item.href);
-                return (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    className={cn(
-                      "flex items-center space-x-3 py-2 rounded-lg font-medium transition-all duration-200",
-                      isActive
-                        ? "px-3 sidebar-active-link text-white"
-                        : "pl-3 pr-3 text-muted-foreground hover:bg-muted/50 hover:text-foreground hover:border-l-2 hover:border-primary/40 hover:pl-[10px]",
-                    )}
-                    data-testid={`nav-link-${item.name.toLowerCase().replace(/\s+/g, "-")}`}
-                  >
-                    <Icon className="w-5 h-5" />
-                    <span>{item.name}</span>
-                  </Link>
-                );
-              })}
-            </div>
-          )}
+          {/* Analytics, Management — always visible, individual items plan-gated */}
+          <NavSection title="Analytics" items={analyticsNav} />
+          <NavSection title="Management" items={managementNav} />
+          <NavSection title="Channels" items={channelNav} />
+          <NavSection title="Engagement" items={engagementNav} />
 
-          {/* Management — collapsible */}
-          <div className="pt-4 pb-1.5 px-3">
-            <button
-              onClick={() => toggleSection("Management")}
-              className="flex items-center justify-between w-full hover:text-foreground transition-colors cursor-pointer"
-              aria-expanded={!collapsedSections["Management"]}
-              aria-label="Toggle Management section"
-            >
-              <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">Management</p>
-              <RiArrowDownSLine
-                className={cn(
-                  "w-3.5 h-3.5 text-muted-foreground/70 transition-transform",
-                  collapsedSections["Management"] && "-rotate-90",
-                )}
-              />
-            </button>
-          </div>
-          {!collapsedSections["Management"] && (
-            <div className="space-y-0.5">
-              {managementNav.map((item) => {
-                if (item.requireRole && (!user?.role || !item.requireRole.includes(user.role))) return null;
-                const Icon = item.icon;
-                const isActive = location === item.href || location.startsWith(item.href);
-                return (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    className={cn(
-                      "flex items-center space-x-3 py-2 rounded-lg font-medium transition-all duration-200",
-                      isActive
-                        ? "px-3 sidebar-active-link text-white"
-                        : "pl-3 pr-3 text-muted-foreground hover:bg-muted/50 hover:text-foreground hover:border-l-2 hover:border-primary/40 hover:pl-[10px]",
-                    )}
-                    data-testid={`nav-link-${item.name.toLowerCase().replace(/\s+/g, "-")}`}
-                  >
-                    <Icon className="w-5 h-5" />
-                    <span>{item.name}</span>
-                  </Link>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Multi-Channel — Starter+ (Free tier hides the entire section) */}
-          {meetsPlan(planTier, "starter") && (
-            <>
-              <div className="pt-4 pb-1.5 px-3">
-                <button
-                  onClick={() => toggleSection("Channels")}
-                  className="flex items-center justify-between w-full hover:text-foreground transition-colors cursor-pointer"
-                  aria-expanded={!collapsedSections["Channels"]}
-                  aria-label="Toggle Channels section"
-                >
-                  <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">Channels</p>
-                  <RiArrowDownSLine
-                    className={cn(
-                      "w-3.5 h-3.5 text-muted-foreground/70 transition-transform",
-                      collapsedSections["Channels"] && "-rotate-90",
-                    )}
-                  />
-                </button>
-              </div>
-              {!collapsedSections["Channels"] && (
-                <div className="space-y-0.5">
-                  <AdminLink href="/emails" icon={RiMailLine} label="Email QA" testId="nav-link-emails" />
-                  <AdminLink
-                    href="/learning"
-                    icon={RiGraduationCapLine}
-                    label="Learning Center"
-                    testId="nav-link-learning"
-                  />
-                  <AdminLink href="/marketing" icon={RiMegaphoneLine} label="Lead Tracking" testId="nav-link-marketing" />
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Performance & Engagement — Starter+ (Free tier hides the entire section) */}
-          {meetsPlan(planTier, "starter") && (
-            <>
-              <div className="pt-4 pb-1.5 px-3">
-                <button
-                  onClick={() => toggleSection("Engagement")}
-                  className="flex items-center justify-between w-full hover:text-foreground transition-colors cursor-pointer"
-                  aria-expanded={!collapsedSections["Engagement"]}
-                  aria-label="Toggle Engagement section"
-                >
-                  <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">Engagement</p>
-                  <RiArrowDownSLine
-                    className={cn(
-                      "w-3.5 h-3.5 text-muted-foreground/70 transition-transform",
-                      collapsedSections["Engagement"] && "-rotate-90",
-                    )}
-                  />
-                </button>
-              </div>
-              {!collapsedSections["Engagement"] && (
-                <div className="space-y-0.5">
-                  <AdminLink href="/gamification" icon={RiTrophyLine} label="Leaderboard" testId="nav-link-gamification" />
-                  <AdminLink
-                    href="/revenue"
-                    icon={RiMoneyDollarCircleLine}
-                    label="Revenue Tracking"
-                    testId="nav-link-revenue"
-                  />
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Clinical Documentation links — only for plans with clinical docs */}
-          {hasClinicalDocs && (
-            <>
-              <div className="pt-4 pb-1.5 px-3">
-                <button
-                  onClick={() => toggleSection("Clinical")}
-                  className="flex items-center justify-between w-full hover:text-foreground transition-colors cursor-pointer"
-                  aria-expanded={!collapsedSections["Clinical"]}
-                  aria-label="Toggle Clinical section"
-                >
-                  <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">
-                    Clinical
-                  </p>
-                  <RiArrowDownSLine
-                    className={cn(
-                      "w-3.5 h-3.5 text-muted-foreground/70 transition-transform",
-                      collapsedSections["Clinical"] && "-rotate-90",
-                    )}
-                  />
-                </button>
-              </div>
-              {!collapsedSections["Clinical"] && (
-                <div className="space-y-0.5">
-                  <AdminLink
-                    href="/clinical"
-                    icon={RiStethoscopeLine}
-                    label="Clinical Dashboard"
-                    testId="nav-link-clinical"
-                  />
-                  <AdminLink
-                    href="/clinical/upload"
-                    icon={RiUploadLine}
-                    label="Record Encounter"
-                    testId="nav-link-clinical-upload"
-                  />
-                  <AdminLink
-                    href="/clinical/live"
-                    icon={RiBroadcastLine}
-                    label="Live Recording"
-                    testId="nav-link-clinical-live"
-                  />
-                  <AdminLink
-                    href="/clinical/templates"
-                    icon={RiBookOpenLine}
-                    label="Note Templates"
-                    testId="nav-link-clinical-templates"
-                  />
-                </div>
-              )}
-            </>
-          )}
+          {/* Clinical Documentation — only for plans with clinical docs */}
+          {hasClinicalDocs && <NavSection title="Clinical" items={clinicalNav} />}
 
           {/* Admin-only links — collapsible, collapsed by default */}
           {user?.role === "admin" && (
@@ -596,87 +472,17 @@ export default function Sidebar() {
               </div>
               {!collapsedSections["Admin"] && (
                 <div className="space-y-0.5">
-                  <AdminLink
-                    href="/admin"
-                    icon={RiShieldLine}
-                    label="Administration"
-                    testId="nav-link-admin"
-                    badge={{
-                      count: pendingRequestCount,
-                      activeColor: "bg-yellow-500 text-white",
-                      inactiveColor: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300",
-                    }}
-                  />
-                  <AdminLink
-                    href="/admin/templates"
-                    icon={RiEqualizerLine}
-                    label="Prompt Templates"
-                    testId="nav-link-templates"
-                  />
-                  <AdminLink href="/admin/settings" icon={RiPaletteLine} label="Settings" testId="nav-link-settings" />
-                  {isFree ? (
-                    <Link
-                      href="/admin/settings?tab=billing"
-                      className="flex items-center space-x-3 py-2 pl-3 pr-3 rounded-lg font-medium transition-all duration-200 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                      data-testid="nav-link-ab-testing"
-                    >
-                      <RiFlaskLine className="w-5 h-5" />
-                      <span>A/B Testing</span>
-                      <span
-                        className="ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-brand-from/10 text-brand-from border border-brand-from/20"
-                        style={{
-                          color: "hsl(var(--brand-from))",
-                          borderColor: "hsla(var(--brand-from), 0.3)",
-                          background: "hsla(var(--brand-from), 0.1)",
-                        }}
-                      >
-                        PRO
-                      </span>
-                    </Link>
-                  ) : (
-                    <AdminLink
-                      href="/admin/ab-testing"
-                      icon={RiFlaskLine}
-                      label="A/B Testing"
-                      testId="nav-link-ab-testing"
+                  {adminNav.map((item) => (
+                    <NavLink
+                      key={item.name}
+                      item={item}
+                      badge={item.name === "Administration" ? {
+                        count: pendingRequestCount,
+                        activeColor: "bg-yellow-500 text-white",
+                        inactiveColor: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300",
+                      } : undefined}
                     />
-                  )}
-                  {meetsPlan(planTier, "starter") && (
-                    <AdminLink
-                      href="/admin/spend-tracking"
-                      icon={RiMoneyDollarCircleLine}
-                      label="Spend Tracking"
-                      testId="nav-link-spend-tracking"
-                    />
-                  )}
-                  <AdminLink
-                    href="/admin/audit-logs"
-                    icon={RiFileList3Line}
-                    label="Audit Logs"
-                    testId="nav-link-audit-logs"
-                  />
-                  <AdminLink
-                    href="/admin/feedback"
-                    icon={RiMessage2Line}
-                    label="User Feedback"
-                    testId="nav-link-feedback"
-                  />
-                  {meetsPlan(planTier, "professional") && (
-                    <AdminLink
-                      href="/calibration"
-                      icon={RiScales3Line}
-                      label="Calibration"
-                      testId="nav-link-calibration"
-                    />
-                  )}
-                  {hasClinicalDocs && (
-                    <AdminLink
-                      href="/insurance-narratives"
-                      icon={RiFileShield2Line}
-                      label="Insurance Letters"
-                      testId="nav-link-insurance"
-                    />
-                  )}
+                  ))}
                 </div>
               )}
             </>
