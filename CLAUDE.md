@@ -80,11 +80,12 @@ npx vite build         # Frontend-only build (quick verification)
 - **Unit tests**: Node.js built-in `test` module via `tsx` — `npm run test`
 - **E2E tests**: Playwright (Chromium) — `npm run test:e2e` or `npm run test:e2e:ui`
 - **Location**: `tests/` (unit), `tests/e2e/` (E2E)
-- **Unit test files** (78 files, 1563 tests):
+- **Unit test files** (80 files, 1563 tests):
   - `tests/schema.test.ts` — Zod schema validation (orgId on all entities, organization schemas)
   - `tests/ai-provider.test.ts` — AI provider utilities (parseJsonResponse, buildAnalysisPrompt, smartTruncate)
   - `tests/routes.test.ts` — API route handler tests
   - `tests/auth-routes.test.ts` — Auth route handler tests
+  - `tests/auto-calibration.test.ts` — Auto-calibration drift detection
   - `tests/multitenant.test.ts` — Cross-org data isolation verification
   - `tests/rbac.test.ts` — Role-based access control
   - `tests/pipeline.test.ts` — Audio processing pipeline
@@ -122,6 +123,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/sso.test.ts` — SAML SSO
   - `tests/validation.test.ts` — Input validation
   - `tests/load-simulation.test.ts` — Load simulation (5 orgs × 200 calls, concurrent operations, data isolation)
+  - `tests/login-ambiguity.test.ts` — Multi-org login ambiguity (OBS-AUTH-008)
   - `tests/admin-routes.test.ts` — Admin route handler tests
   - `tests/cross-org-isolation.test.ts` — Deep cross-org data isolation (user, coaching, prompt template, analysis, API key)
   - `tests/calls-routes.test.ts` — Call route handler tests
@@ -338,9 +340,9 @@ server/services/ehr/         # EHR integration adapters (11 files)
   open-dental.ts             #   Open Dental adapter (bidirectional: patient lookup, note push, treatment plans with procedure-level fees, appointment creation)
   eaglesoft.ts               #   Eaglesoft/Patterson eDex adapter (bidirectional with eDex v2+)
   dentrix.ts                 #   Dentrix Ascend / G7 adapter (bidirectional)
-  fhir-r4.ts                 #   Generic FHIR R4-compliant server adapter (bidirectional)
+  fhir-r4.ts                 #   Generic FHIR R4-compliant server adapter (bidirectional, classifyEhrError for typed error handling)
   mock.ts                    #   Development/demo adapter (returns fixture data)
-  request.ts                 #   Shared HTTP request utilities for EHR adapters
+  request.ts                 #   Shared HTTP request utilities for EHR adapters (includes SSRF URL validation via validateUrl)
   secrets-manager.ts         #   AWS Secrets Manager credential resolution (falls back to PHI-encrypted apiKey)
   health-monitor.ts          #   Periodic EHR connection health checks (runs in worker process every 15 min)
   appointment-matcher.ts     #   Call-to-appointment matching logic
@@ -1641,11 +1643,9 @@ Full audit of 108K LOC across 360 files with priority-ordered ratings and fixes.
 - **Net: -284 lines** of boilerplate eliminated, 62 catch blocks removed
 
 #### Remaining issues identified (not yet fixed)
-**P1 (High):**
-- `checkAndAwardBadges` loads ALL org calls into memory for badge checks
-
 **P1 (Resolved):**
-- ~~Analytics routes load unbounded datasets~~ — Fixed: revenue endpoints use `getCallMapForRevenues()` instead of `getAllCalls()`; proactive-alerts query limits added (20/employee, 5000 total, 200 active employees). `checkAndAwardBadges` is the remaining unbounded query.
+- ~~Analytics routes load unbounded datasets~~ — Fixed: revenue endpoints use `getCallMapForRevenues()` instead of `getAllCalls()`; proactive-alerts query limits added (20/employee, 5000 total, 200 active employees).
+- ~~`checkAndAwardBadges` loads ALL org calls~~ — Fixed: now passes `employee` filter + `limit: 200` to `getCallSummaries()`. Gamification effectiveness endpoint (`/api/gamification/effectiveness`) still loads unbounded calls.
 - ~~`AudioRecorder` cleanup stale closure~~ — Fixed: unmount cleanup properly revokes blob URL
 
 **P2 (Medium):**
@@ -2152,10 +2152,18 @@ See earlier sections in this file for full details of prior work on this branch.
 - **F-12 (High) — Proactive alerts unbounded queries** (`server/services/proactive-alerts.ts`): `getManagerReviewQueue()` loaded all calls per employee without limit; `generateWeeklyDigest()` loaded all completed calls. Fix: added `limit: 20` per employee, `limit: 5000` for digest, capped active employees at 200.
 - **F-06 (Medium) — Clinical note concurrent edit data loss** (`server/routes/clinical.ts:305-325`): Optimistic locking only applied to attested notes. Unattested note edits had no version checking, causing silent overwrites on concurrent edits. Fix: version field now required for ALL clinical note edits. **Breaking API change**: frontend must send `version` in PATCH body.
 
+#### ✅ Completed & committed: 6 follow-on fixes (#1, #3, #4, #6, #7, #8)
+- **#1 — Clinical note version UI** (`client/src/pages/clinical-notes.tsx`): saveMutation now sends `version: cn?.version ?? 0` in PATCH body; onError handles 409 conflicts by refreshing data and exiting edit mode.
+- **#3 — EHR SSRF validation** (`server/services/ehr/request.ts`): Added `validateUrl()` check before every outbound EHR request, blocking private IPs, cloud metadata endpoints, and non-HTTP protocols.
+- **#4 — RAG confidence math** (`server/services/rag.ts:1209-1216`): Removed invalid `topScore = score / 0.65` back-derivation. Uses effective score directly with threshold 0.50 for PARTIAL→HIGH upgrades.
+- **#6 — Gamification badges OOM** (`server/routes/gamification.ts:26-28`): `checkAndAwardBadges` now passes `employee` filter + `limit: 200` to `getCallSummaries()` instead of loading all org calls.
+- **#7 — Calibration stddev** (`server/routes/calibration.ts:17`): `computeStdDev` changed from population variance (`/n`) to sample variance (`/(n-1)`) with Bessel's correction, consistent with `computeICC`.
+- **#8 — FHIR R4 error masking** (`server/services/ehr/fhir-r4.ts`): `getPatient` and `getPatientTreatmentPlans` now use `classifyEhrError` — return null/[] only for not_found; throw with logging for auth/network/server errors.
+
 #### Follow-on items
-- Frontend clinical note edit components must be updated to always pass `version` in PATCH body
 - Revenue endpoints would benefit from SQL-level date range filtering on `listCallRevenues`
-- `checkAndAwardBadges` in gamification.ts still loads all org calls unbounded
+- Gamification effectiveness endpoint (`/api/gamification/effectiveness`) still loads unbounded calls
+- Eaglesoft and Dentrix adapters have the same silent error masking — should get the same `classifyEhrError` treatment
 
 ## Future Plans / Roadmap
 See `HEALTHCARE_EXPANSION_PLAN.md` for the full 4-phase healthcare expansion roadmap.
@@ -2186,7 +2194,7 @@ Patterns adapted from the ums-knowledge-reference RAG tool for Observatory QA's 
 | Priority | Feature | Status | Notes |
 |----------|---------|--------|-------|
 | HIGH | **Adaptive query-type weights** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — Queries classified as `template_lookup` (40/60 S/K), `compliance_question` (55/45), `coaching_question` (75/25), `general` (70/30). `classifyQueryType()` and `getAdaptiveWeights()` in rag.ts. Weights auto-applied in `searchRelevantChunks()` |
-| HIGH | **Confidence score reconciliation** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — `reconcileConfidence()` cross-checks LLM-stated confidence (`[CONFIDENCE: HIGH/PARTIAL/LOW]` tag) against retrieval effective score. Downgrades overconfident LLM when retrieval < 0.30, upgrades conservative LLM when retrieval ≥ 0.42. Enhanced `computeConfidence()`: 65/35 top/avg blending (was 60/40), single-result 15% penalty |
+| HIGH | **Confidence score reconciliation** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — `reconcileConfidence()` cross-checks LLM-stated confidence (`[CONFIDENCE: HIGH/PARTIAL/LOW]` tag) against retrieval effective score. Downgrades overconfident LLM when retrieval < 0.30, upgrades conservative LLM when effective score ≥ 0.50. Enhanced `computeConfidence()`: 65/35 top/avg blending (was 60/40), single-result 15% penalty |
 | HIGH | **RAG trace observability** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — Enhanced `RagTrace` interface: `queryType`, `semanticWeight`, `keywordWeight`, `retrievedChunkIds[]`, `retrievalScores[]`, `confidenceReconciled`, `inputTokens`, `outputTokens`. Per-query debugging now shows which chunks were used and why |
 | MEDIUM | **Domain synonym expansion** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — 5 industry synonym maps (dental: 13 groups, medical: 16, behavioral health: 13, veterinary: 8, general: 10). Bidirectional lookup. `expandQueryWithSynonyms()` boosts BM25 recall on abbreviations (e.g., "cpap" ↔ "c-pap", "crown" ↔ "cap"). Only single-token synonyms appended to avoid noise |
 | MEDIUM | **Table-aware chunking** | ✅ Done | `claude/evaluate-qa-rag-integration-MrMze` — Tables (pipe/tab-delimited) detected and preserved as single chunks. Tables >3x chunk size fall back to normal splitting. `preserveTables` option (default: true). Tables extracted before sliding window, then non-table segments chunked normally |
