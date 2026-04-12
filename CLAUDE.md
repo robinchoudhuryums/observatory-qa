@@ -80,7 +80,7 @@ npx vite build         # Frontend-only build (quick verification)
 - **Unit tests**: Node.js built-in `test` module via `tsx` — `npm run test`
 - **E2E tests**: Playwright (Chromium) — `npm run test:e2e` or `npm run test:e2e:ui`
 - **Location**: `tests/` (unit), `tests/e2e/` (E2E)
-- **Unit test files** (80 files, 1563 tests):
+- **Unit test files** (80 files, 1568 tests):
   - `tests/schema.test.ts` — Zod schema validation (orgId on all entities, organization schemas)
   - `tests/ai-provider.test.ts` — AI provider utilities (parseJsonResponse, buildAnalysisPrompt, smartTruncate)
   - `tests/routes.test.ts` — API route handler tests
@@ -154,7 +154,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/confidence-filter.test.ts` — Confidence as first-class filter (dashboard metrics, data quality breakdown, boundary values, MemStorage, 8 tests)
   - `tests/call-clustering.test.ts` — Call clustering (TF-IDF, cosine similarity, agglomerative clustering, trend detection, 15 tests)
   - `tests/bedrock-batch.test.ts` — Bedrock batch inference (shouldUseBatchMode, isBatchAvailable, org settings validation, 15 tests)
-  - `tests/billing-webhooks.test.ts` — Stripe webhook lifecycle (overage pricing, metered item sync, subscription state transitions, idempotency, grace period, 38 tests)
+  - `tests/billing-webhooks.test.ts` — Stripe webhook lifecycle (overage pricing, metered item sync, subscription state transitions, idempotency, grace period, webhook signature verification, 43 tests)
   - `tests/billing-webhook-integration.test.ts` — Billing webhook integration against MemStorage (subscription lifecycle, metered item tracking, payment failure/recovery, re-subscription, 14 tests)
   - `tests/prompt-injection-pipeline.test.ts` — Transcript injection detection + output guardrails + orphan recovery (16 tests)
   - `tests/remaining-adaptations.test.ts` — Performance snapshots, SSRF validation, scheduled reports (21 tests)
@@ -534,7 +534,7 @@ These modules are imported by the most consumers. Changes here have the widest b
 |--------|-------------|----------------|-------|
 | `server/storage/index.ts` | `storage`, `initPostgresStorage`, `objectStorage`, `IStorage`, `normalizeAnalysis` | 56 | 44 route files, 9 services, 2 db files, auth.ts, index.ts. Workers access via dynamic `require()`. Scheduled tasks receive storage as a parameter, not via singleton import |
 | `shared/schema.ts` (barrel) | Types, Zod schemas, `PLAN_DEFINITIONS`, `CALL_CATEGORIES` | 50+ | Routes, services, storage, client pages. Workers get types indirectly via queue job interfaces |
-| `server/auth.ts` | `requireAuth`, `injectOrgContext`, `requireOrgContext`, `requireRole`, `getTeamScopedEmployeeIds`, `sessionMiddleware`, `resolveUserOrgId` | 36 | All authenticated route files + websocket. Applied per-route (not globally in index.ts) |
+| `server/auth.ts` | `requireAuth`, `injectOrgContext`, `requireOrgContext`, `requireRole`, `getTeamScopedEmployeeIds`, `sessionMiddleware`, `resolveUserOrgId`, `ROLE_HIERARCHY` | 36 | All authenticated route files + websocket + tests. Applied per-route (not globally in index.ts) |
 | `server/services/audit-log.ts` | `logPhiAccess`, `auditContext`, `queryAuditLogs`, `exportAuditLogs`, `verifyAuditChain` | 35 | 32 route files + auth.ts + incident-response.ts + retention.worker.ts |
 | `server/services/call-processing.ts` | `processAudioFile`, `continueAfterTranscription`, `invalidateRefDocCache`, `cleanupFile`, `computeConfidence`, `autoAssignEmployee`, `mapClinicalNote` | 2 | routes/calls.ts, routes/assemblyai-webhook.ts. Low consumer count but highest internal complexity (14+ deps) |
 | `server/services/phi-encryption.ts` | `encryptField`, `decryptField`, `decryptClinicalNotePhi`, `isPhiEncryptionEnabled`, `encryptMfaSecret`, `decryptMfaSecret` | 12 | Clinical routes (3), calls, mfa, ehr, live-session, pg-storage, call-processing, ehr-note-push worker, ehr/health-monitor, ehr/appointment-matcher |
@@ -2160,8 +2160,12 @@ See earlier sections in this file for full details of prior work on this branch.
 - **#7 — Calibration stddev** (`server/routes/calibration.ts:17`): `computeStdDev` changed from population variance (`/n`) to sample variance (`/(n-1)`) with Bessel's correction, consistent with `computeICC`.
 - **#8 — FHIR R4 error masking** (`server/services/ehr/fhir-r4.ts`): `getPatient` and `getPatientTreatmentPlans` now use `classifyEhrError` — return null/[] only for not_found; throw with logging for auth/network/server errors.
 
+#### ✅ Completed & committed: 3 additional fixes (#5, #9, #10)
+- **#5 — Revenue date filtering** (`server/storage/types.ts`, `server/db/pg-storage-features.ts`, `server/storage/memory.ts`, `server/routes/revenue.ts`): `listCallRevenues` now accepts optional `startDate`/`endDate` filters with SQL-level gte/lte. Forecast uses 180-day window, trend uses 120-day window.
+- **#9 — Webhook signature tests** (`tests/billing-webhooks.test.ts`): 5 new tests using real Stripe SDK `constructEvent` + `generateTestHeaderString`. Covers valid signature, invalid signature, wrong secret, tampered payload, missing secret.
+- **#10 — Tautological test fix** (`server/auth.ts`, `tests/auth-routes.test.ts`, `tests/input-validation.test.ts`): Exported `ROLE_HIERARCHY` from auth.ts. Tests now import `ROLE_HIERARCHY`, `INDUSTRY_TYPES`, `USER_ROLES` from production code. Fixed stale "healthcare" assertion.
+
 #### Follow-on items
-- Revenue endpoints would benefit from SQL-level date range filtering on `listCallRevenues`
 - Gamification effectiveness endpoint (`/api/gamification/effectiveness`) still loads unbounded calls
 - Eaglesoft and Dentrix adapters have the same silent error masking — should get the same `classifyEhrError` treatment
 
