@@ -254,7 +254,7 @@ server/routes/               # Modular API route files (44 route files)
   admin-security.routes.ts   #   Extracted: audit logs, WAF, incidents, breach reports, GDPR, vocab, MFA recovery
 
 server/services/             # Business logic & integrations (46 files)
-  ai-factory.ts              #   AI provider setup (Bedrock, per-org model config, circuit breaker)
+  ai-factory.ts              #   AI provider setup (Bedrock, per-org model config, per-org circuit breaker with global fallback)
   ai-provider.ts             #   AI analysis interface, prompt building, JSON parsing, clinical note generation
   ai-prompts.ts              #   System/user prompt construction for Bedrock Converse API
   ai-types.ts                #   AI response type definitions, flag validation schemas
@@ -532,7 +532,7 @@ These modules are imported by the most consumers. Changes here have the widest b
 | `server/services/audit-log.ts` | `logPhiAccess`, `auditContext`, `queryAuditLogs`, `exportAuditLogs`, `verifyAuditChain` | 35 | 32 route files + auth.ts + incident-response.ts + retention.worker.ts |
 | `server/services/call-processing.ts` | `processAudioFile`, `continueAfterTranscription`, `invalidateRefDocCache`, `cleanupFile`, `computeConfidence`, `autoAssignEmployee`, `mapClinicalNote` | 2 | routes/calls.ts, routes/assemblyai-webhook.ts. Low consumer count but highest internal complexity (14+ deps) |
 | `server/services/phi-encryption.ts` | `encryptField`, `decryptField`, `decryptClinicalNotePhi`, `isPhiEncryptionEnabled`, `encryptMfaSecret`, `decryptMfaSecret` | 12 | Clinical routes (3), calls, mfa, ehr, live-session, pg-storage, call-processing, ehr-note-push worker, ehr/health-monitor, ehr/appointment-matcher |
-| `server/services/ai-factory.ts` | `aiProvider`, `getOrgAIProvider`, `getBedrockCircuitState`, `withBedrockProtection`, `acquireBedrockSlot`, `releaseBedrockSlot` | 11 | call-processing, coaching-engine, clinical, call-insights, reports, insurance-narratives, lms, health, admin, live-session, emails |
+| `server/services/ai-factory.ts` | `aiProvider`, `getOrgAIProvider`, `getBedrockCircuitState`, `withBedrockProtection`, `acquireBedrockSlot`, `releaseBedrockSlot` | 11 | call-processing, coaching-engine, clinical, call-insights, reports, insurance-narratives, lms, health, admin, live-session, emails. Circuit breaker is per-org (threshold 5) with global fallback (threshold 15) |
 | `server/services/logger.ts` | `logger` | All | Every server file |
 
 ### Key Inter-Module Dependencies
@@ -1182,6 +1182,7 @@ AWS_SECRET_ACCESS_KEY
 AWS_REGION                      # Default: us-east-1
 AWS_SESSION_TOKEN               # Optional, for IAM roles/STS
 BEDROCK_MODEL                   # Default: us.anthropic.claude-sonnet-4-6
+BEDROCK_GLOBAL_CIRCUIT_THRESHOLD # Global circuit breaker threshold (default: 15 consecutive failures across all orgs)
 
 # ─── Billing ─────────────────────────────────────────────────────────
 STRIPE_SECRET_KEY               # Stripe API secret
@@ -1193,6 +1194,7 @@ STRIPE_PRICE_PROFESSIONAL_YEARLY  # Price ID for Professional yearly ($1908)
 STRIPE_PRICE_ENTERPRISE_MONTHLY # Price ID for Enterprise monthly ($999)
 STRIPE_PRICE_ENTERPRISE_YEARLY  # Price ID for Enterprise yearly ($9588)
 STRIPE_PRICE_CLINICAL_ADDON_MONTHLY # Price ID for Clinical Documentation add-on ($49/mo, Starter only)
+STRIPE_PRICE_ENTERPRISE_OVERAGE # Price ID for Enterprise per-call overage ($0.15/call over 5000/mo)
 
 # ─── Google OAuth ────────────────────────────────────────────────────
 GOOGLE_CLIENT_ID                # OAuth client ID
@@ -1524,8 +1526,9 @@ Server serves both API and static frontend from the same process.
 - **Stripe webhook events are deduplicated atomically**: The billing webhook handler tracks processed event IDs via `ephemeralSetNx` from `redis.ts` (Redis `SET NX PX`, 24h TTL, in-memory fallback). Single atomic call — no TOCTOU window between check and set. Multi-instance safe when Redis is configured
 - **Google OAuth auto-provisioning requires Workspace `hd` claim**: `server/routes/oauth.ts` auto-provisions users when their Google email matches an org's `settings.emailDomain`, but ONLY when (1) `profile.emails[0].verified === true` and (2) `profile._json.hd === emailDomain`. The `hd` claim is Google Workspace's hosted-domain identifier — it's only set when the account is managed by that tenant. Consumer Gmail accounts have no `hd` and are rejected. This prevents domain-squatting account takeover. Orgs with multiple Workspace domains mapped to one Observatory org must use invitation-based onboarding for the secondary domains. Existing-user login path is unchanged — only new-user auto-provisioning is gated.
 - **MFA rate limiting is keyed by userId, not sessionId**: `isMfaLocked`/`recordMfaAttempt`/`clearMfaAttempts` in `routes/mfa.ts` rate-limit MFA verification attempts (TOTP, backup codes, WebAuthn, email OTP) by the target `userId` from the request body. Keyed by userId so attackers can't rotate session cookies to get a fresh rate-limit window — the userId is by definition the target they're attacking. Backed by Redis `INCR` + `PEXPIRE` via `ephemeralIncrement` from `redis.ts` (in-memory counter fallback). Multi-instance safe when Redis is configured. 5 attempts per 15-minute window; the window does NOT reset on each attempt (attackers can't slide the window indefinitely).
-- **Reanalysis worker processes in streaming chunks**: The bulk reanalysis worker fetches and processes calls in 200-call chunks, discarding each chunk before fetching the next, to prevent OOM on large orgs. Progress reporting is approximate for the "all calls" path
-- **AI response validation**: `parseJsonResponse()` in `ai-types.ts` extracts JSON using a **balanced-brace walker** with string-literal awareness (not a greedy regex), so AI responses that contain `{example}`-style placeholders in a preamble before the real JSON block parse correctly. Tries markdown code fences, then full-text parse, then each balanced `{...}` candidate in source order until one parses. Clamps `performanceScore` to 0-10, sentiment scores to 0-1, sub-scores to 0-10, and validates all field types. Missing fields get safe defaults (5.0 for scores, "neutral" for sentiment). `normalizeAnalysis()` in `storage/types.ts` also clamps on read
+- **Reanalysis worker processes in streaming chunks**: The bulk reanalysis worker fetches and processes calls in 200-call chunks, discarding each chunk before fetching the next, to prevent OOM on large orgs. Progress reporting is approximate for the "all calls" path. **When the AI provider is unavailable, the worker throws** (not silently returns success) so BullMQ marks the job as failed and retries. After max retries, the job moves to the dead letter queue for admin review
+- **Circuit breaker is per-org with global fallback**: `withBedrockProtection()` in `ai-factory.ts` checks two circuit breakers: (1) per-org breaker (5 consecutive failures opens, 60s reset) and (2) global breaker (15 consecutive failures opens). One org's rate limits or Bedrock errors only affect that org's circuit. Platform-wide outages trip the global breaker. `getBedrockCircuitState(orgId?)` returns both per-org and global state. Per-org breakers auto-cleaned every 5 min when idle. Env: `BEDROCK_CIRCUIT_THRESHOLD` (per-org, default 5), `BEDROCK_GLOBAL_CIRCUIT_THRESHOLD` (global, default 15), `BEDROCK_CIRCUIT_RESET_MS` (reset window, default 60000)
+- **AI response validation**: `parseJsonResponse()` in `ai-types.ts` extracts JSON using a **balanced-brace walker** with string-literal awareness (not a greedy regex), so AI responses that contain `{example}`-style placeholders in a preamble before the real JSON block parse correctly. Tries markdown code fences, then full-text parse, then each balanced `{...}` candidate in source order until one parses. Clamps `performanceScore` to 0-10, sentiment scores to 0-1, sub-scores to 0-10, and validates all field types. Missing fields get safe defaults (5.0 for scores, "neutral" for sentiment). **Sub-score fields** (`compliance`, `customerExperience`, `communication`, `resolution`) are set to `undefined` (not 0) when the AI omits them — this prevents false 0/10 scores from appearing in the UI. `normalizeAnalysis()` in `storage/types.ts` also clamps on read
 - **Empty transcript handling**: If transcript text is <10 characters, the pipeline saves the call with `empty_transcript` flag, low confidence, and skips AI analysis entirely — prevents generating junk analysis from silence/noise
 - **Employee auto-assignment safety**: Only considers active employees. If multiple employees match the detected name, prefers exact full-name match; skips assignment if ambiguous (logs the ambiguity)
 - **speakerRoleMap schema change**: Changed from `z.object({ agentSpeaker: z.string() })` to `z.record(z.string(), z.string())` to support proper speaker label → role mapping (e.g., `{ A: "agent", B: "customer" }`). Old `{ agentSpeaker: "A" }` format was a logic error — the property name was always the literal string "agentSpeaker" instead of using the value as a key
@@ -1708,6 +1711,22 @@ Full audit of 108K LOC across 360 files with priority-ordered ratings and fixes.
 - Add client UI for clinical-scribe continuous-mode opt-in toggle on `clinical-live.tsx` setup step
 - Add client UI for coaching-to-LMS "Generate Training Module" button on each coaching session card
 - Add `updateLearningProgress` to the `IStorage` interface (currently feature-detected via `(storage as any)`)
+
+### Branch: `claude/broad-scan-feature-UXVES`
+
+#### ✅ Completed & committed: 5 broad-scan findings (F-03, F-23, F-05, F-09, F-24) + 5 pre-existing TS fixes
+- **F-03 (High) — Per-org circuit breaker** (`server/services/ai-factory.ts`): The Bedrock circuit breaker was global — one org's rate limits disabled AI for all tenants. Fix: each org now has its own circuit breaker state (`orgCircuitBreakers` Map). A global circuit breaker (threshold 15, vs per-org threshold 5) catches platform-wide Bedrock outages. Stale per-org breakers auto-cleaned every 5 min. New env var: `BEDROCK_GLOBAL_CIRCUIT_THRESHOLD`.
+- **F-23 (High) — Enterprise overage billing** (`server/services/stripe.ts`, `server/routes/billing.ts`): `getOveragePriceId()` didn't map Enterprise tier, so enterprise customers exceeding 5,000 calls/month were never billed overage. Fix: added `enterprise` to overage price map and `STRIPE_PRICE_ENTERPRISE_OVERAGE` to `findItemByKnownPriceId()` lookups in checkout handler.
+- **F-05 (High) — Zero sub-scores from missing AI data** (`server/services/call-processing.ts`, `server/workers/reanalysis.worker.ts`): Sub-score fields used `?? 0` when AI omitted them, making missing data indistinguishable from a genuine 0/10 score. Fix: sub-score fields now use `undefined` when AI omits them. `applyScoreCalibration()` preserves undefined for missing fields rather than calibrating zeros.
+- **F-09 (High) — Reanalysis worker silent completion** (`server/workers/reanalysis.worker.ts`): When AI provider was unavailable, the worker returned a success result with `{ succeeded: 0 }`. BullMQ marked the job as completed. Fix: throws an error so BullMQ marks the job as failed and retries; after max retries, moves to DLQ.
+- **F-24 (High) — Stripe webhook metered item sync** (`server/routes/billing.ts`): `customer.subscription.updated` didn't extract metered item IDs; `customer.subscription.deleted` lost `stripeCustomerId`. Fix: updated handler extracts `stripeSeatsItemId`/`stripeOverageItemId` from subscription items; deleted handler preserves customer ID and explicitly clears stale metered items.
+- **Pre-existing TS fixes** (`server/index.ts`, `server/routes/admin.ts`): `server.listen` callback was non-async but used `await import()`. BAA routes in admin.ts imported removed `baaRecords` export — updated to use `businessAssociateAgreements` with correct column names (`expiresAt`, `signedAt`, `signedBy`).
+
+#### Follow-on items
+- Per-org circuit state should be exposed in admin health dashboard for operational visibility
+- Frontend chart components should be audited to confirm they handle undefined sub-scores gracefully (show "N/A" instead of 0)
+- `customer.subscription.updated` handler should also handle enterprise seat pricing if custom seat prices are introduced
+- Admin.ts BAA routes duplicate `baa.ts` registered routes — consider removing the dead admin.ts copy
 
 ### Branch: `claude/evaluate-qa-rag-integration-MrMze`
 
