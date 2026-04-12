@@ -140,7 +140,12 @@ export default function ClinicalNotesPage() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest("PATCH", `/api/clinical/notes/${callId}`, editFields);
+      // Include version for optimistic locking — prevents concurrent edit data loss.
+      // The server requires version on ALL edits (not just attested notes).
+      await apiRequest("PATCH", `/api/clinical/notes/${callId}`, {
+        ...editFields,
+        version: cn?.version ?? 0,
+      });
     },
     onSuccess: () => {
       toast({ title: "Note updated", description: "Clinical note saved. Re-attestation required." });
@@ -148,8 +153,16 @@ export default function ClinicalNotesPage() {
       setEditFields({});
       queryClient.invalidateQueries({ queryKey: ["/api/calls", callId] });
     },
-    onError: (err) => {
-      toast({ title: "Save failed", description: err.message, variant: "destructive" });
+    onError: (err: any) => {
+      const isConflict = err.message?.includes("modified by another user") || err.status === 409;
+      if (isConflict) {
+        toast({ title: "Edit conflict", description: "This note was modified by another user. Refreshing to get latest version.", variant: "destructive" });
+        queryClient.invalidateQueries({ queryKey: ["/api/calls", callId] });
+        setEditing(false);
+        setEditFields({});
+      } else {
+        toast({ title: "Save failed", description: err.message, variant: "destructive" });
+      }
     },
   });
 

@@ -10,11 +10,13 @@ import { asyncHandler } from "../middleware/error-handler";
 
 // ==================== STATISTICAL HELPERS ====================
 
-/** Compute standard deviation of scores */
+/** Compute standard deviation of scores (sample std dev with Bessel's correction) */
 function computeStdDev(scores: number[]): number {
   if (scores.length < 2) return 0;
   const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
-  const variance = scores.reduce((sum, s) => sum + Math.pow(s - mean, 2), 0) / scores.length;
+  // Use (n-1) denominator (Bessel's correction) for unbiased sample variance,
+  // consistent with computeICC() which also uses (k-1).
+  const variance = scores.reduce((sum, s) => sum + Math.pow(s - mean, 2), 0) / (scores.length - 1);
   return Math.round(Math.sqrt(variance) * 100) / 100;
 }
 

@@ -33,7 +33,9 @@ import type {
   EhrAppointmentCreate,
   EhrTreatmentPlanUpdate,
 } from "./types.js";
+import { classifyEhrError } from "./types.js";
 import { ehrRequest } from "./request.js";
+import { logger } from "../logger.js";
 
 /** FHIR R4 resource base type */
 interface FhirResource {
@@ -183,8 +185,11 @@ export class FhirR4Adapter implements IEhrAdapter {
     try {
       const patient = await this.request<FhirPatient>(config, "GET", `/Patient/${ehrPatientId}`);
       return this.mapPatient(patient);
-    } catch {
-      return null;
+    } catch (err) {
+      const ehrErr = classifyEhrError(err, "FHIR R4");
+      if (ehrErr.errorType === "not_found") return null;
+      logger.error({ err: ehrErr, ehrPatientId, errorType: ehrErr.errorType }, `FHIR R4 getPatient failed: ${ehrErr.errorType}`);
+      throw ehrErr;
     }
   }
 
@@ -311,8 +316,11 @@ export class FhirR4Adapter implements IEhrAdapter {
       return (bundle.entry || [])
         .filter((e) => e.resource?.resourceType === "CarePlan")
         .map((e) => this.mapCarePlan(e.resource as FhirCarePlan, patientId));
-    } catch {
-      return [];
+    } catch (err) {
+      const ehrErr = classifyEhrError(err, "FHIR R4");
+      if (ehrErr.errorType === "not_found") return [];
+      logger.error({ err: ehrErr, patientId, errorType: ehrErr.errorType }, `FHIR R4 getPatientTreatmentPlans failed: ${ehrErr.errorType}`);
+      throw ehrErr;
     }
   }
 

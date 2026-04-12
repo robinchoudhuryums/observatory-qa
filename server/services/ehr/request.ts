@@ -9,6 +9,7 @@
  */
 
 import { logger } from "../logger.js";
+import { validateUrl } from "../../utils/url-validation.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000; // 30 seconds
 const DEFAULT_RETRIES = 2;
@@ -41,6 +42,13 @@ export async function ehrRequest<T>(opts: EhrRequestOptions): Promise<T> {
     retries = DEFAULT_RETRIES,
     systemLabel = "EHR",
   } = opts;
+
+  // SSRF prevention: validate URL before making any outbound request.
+  // EHR base URLs come from org admin settings and could target internal services.
+  const urlCheck = validateUrl(url);
+  if (!urlCheck.valid) {
+    throw new Error(`${systemLabel}: URL blocked by SSRF validation — ${urlCheck.reason}`);
+  }
 
   let lastError: Error | null = null;
 

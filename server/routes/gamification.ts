@@ -23,9 +23,10 @@ const POINT_VALUES = {
  */
 export async function checkAndAwardBadges(orgId: string, employeeId: string): Promise<void> {
   try {
-    // Use getCallSummaries which includes analysis data, avoiding N+1 queries
-    const allCalls = await storage.getCallSummaries(orgId, { status: "completed" });
-    const employeeCalls = allCalls.filter((c) => c.employeeId === employeeId);
+    // Filter by employee at the query level to avoid loading ALL org calls.
+    // Limit to 200 — we only need counts (for milestones) and last 20 (for performance badges).
+    // For milestone checks like "hundred_calls", 200 is sufficient to determine 100+ exist.
+    const employeeCalls = await storage.getCallSummaries(orgId, { employee: employeeId, status: "completed", limit: 200 });
     const existingBadges = await storage.getEmployeeBadges(orgId, employeeId);
     const hasBadge = (id: string) => existingBadges.some((b) => b.badgeId === id);
 
