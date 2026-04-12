@@ -547,25 +547,39 @@ export async function searchRelevantChunks(
     return [];
   }
 
-  // Compute dynamic average document length from candidates
-  const avgDocLen =
-    candidates.rows.length > 0
-      ? Math.round(
-          (candidates.rows as any[]).reduce((sum: number, r: any) => sum + tokenize(r.text).length, 0) /
-            candidates.rows.length,
-        )
-      : 500;
+  // Compute dynamic average document length and document frequencies from candidates.
+  // Using the candidate set as the "corpus" for IDF gives local term importance —
+  // common terms within the retrieved window get lower weight, rare terms get higher.
+  // This is a pragmatic approximation that avoids querying the full corpus on every search.
+  const candidateRows = candidates.rows as any[];
+  const candidateTokenSets: Set<string>[] = [];
+  let totalTokens = 0;
+  for (const row of candidateRows) {
+    const tokens = tokenize(row.text);
+    candidateTokenSets.push(new Set(tokens));
+    totalTokens += tokens.length;
+  }
+  const avgDocLen = candidateRows.length > 0 ? Math.round(totalTokens / candidateRows.length) : 500;
+  const corpusSize = candidateRows.length;
+
+  // Build document frequency map: how many candidate chunks contain each term
+  const documentFrequencies = new Map<string, number>();
+  for (const tokenSet of candidateTokenSets) {
+    tokenSet.forEach((term) => {
+      documentFrequencies.set(term, (documentFrequencies.get(term) || 0) + 1);
+    });
+  }
 
   // Expand query with industry synonyms for BM25 (not for embedding — embedding
   // handles semantic similarity; this handles lexical gaps like "cpap" vs "c-pap")
   const expandedQuery = expandQueryWithSynonyms(queryText);
 
-  // Apply BM25-style keyword boosting with dynamic avgDocLen
-  const results: RetrievedChunk[] = (candidates.rows as any[]).map((row) => {
+  // Apply BM25 keyword scoring with IDF from candidate corpus
+  const results: RetrievedChunk[] = candidateRows.map((row) => {
     // Clamp semantic score to [0,1] — pgvector cosine can return negatives
     const rawSemantic = parseFloat(row.semantic_score) || 0;
     const semanticScore = Math.max(0, Math.min(1, rawSemantic));
-    const kwScore = Math.max(0, bm25Score(expandedQuery, row.text, { avgDocLen }));
+    const kwScore = Math.max(0, bm25Score(expandedQuery, row.text, { avgDocLen, corpusSize, documentFrequencies }));
     // Normalize by weight sum so custom configs (e.g., 0.5+0.5 or 0.6+0.6) produce [0,1] scores
     const weightSum = semanticWeight + keywordWeight || 1;
     const combinedScore = (semanticWeight * semanticScore + keywordWeight * kwScore) / weightSum;

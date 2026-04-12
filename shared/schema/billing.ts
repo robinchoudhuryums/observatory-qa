@@ -439,6 +439,10 @@ export const insertLiveSessionSchema = z.object({
   consentCapturedBy: z.string().optional(),
   /** Associated call ID (created on session end for permanent storage) */
   callId: z.string().optional(),
+  /** Timestamp when patient revoked consent (ISO). HIPAA §164.508 right to revoke. */
+  consentRevokedAt: z.string().optional(),
+  /** User ID of the provider who processed the revocation */
+  consentRevokedBy: z.string().optional(),
 });
 
 export const liveSessionSchema = insertLiveSessionSchema.extend({
