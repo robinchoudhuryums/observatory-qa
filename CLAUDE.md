@@ -482,7 +482,7 @@ Reference documents uploaded by orgs are processed through:
 2. **Chunking** (`chunker.ts`) — sliding window with overlap (400 tokens, 80 token overlap), natural break detection (paragraph > sentence > line via `lastIndexOf`), section header tracking (markdown, ALL CAPS, numbered "1.2.3", colon-suffixed), **table preservation** (pipe/tab-delimited tables kept as single chunks), **page number tracking** (via form feed markers). Configurable `charsPerToken` ratio: 3.5 for medical/dental (clinical codes are dense), 4.0 for general text. Minimum step of 40 chars prevents micro-chunks
 3. **Embedding** (`embeddings.ts`) — Amazon Titan Embed V2 via Bedrock (1024 dimensions, raw REST + SigV4). **Two-tier cache**: in-memory LRU (200 entries) + Redis shared cache (1-hour TTL) for multi-instance cost reduction
 4. **Storage** — chunks + embeddings stored in `document_chunks` table (pgvector)
-5. **Retrieval** (`rag.ts`) — hybrid search: pgvector cosine similarity (HNSW index) + BM25 keyword boosting with log-linear normalization. **Adaptive query-type weights**: queries classified as `template_lookup` (40/60 semantic/keyword), `compliance_question` (55/45), `coaching_question` (75/25), or `general` (70/30). **Domain synonym expansion** per industry vertical (dental, medical, behavioral health, veterinary) for improved BM25 recall on abbreviations. Minimum relevance score threshold (0.3) filters low-quality chunks
+5. **Retrieval** (`rag.ts`) — hybrid search: pgvector cosine similarity (HNSW index) + BM25 keyword boosting with IDF from candidate corpus and log-linear normalization. **Adaptive query-type weights**: queries classified as `template_lookup` (40/60 semantic/keyword), `compliance_question` (55/45), `coaching_question` (75/25), or `general` (70/30). **Domain synonym expansion** per industry vertical (dental, medical, behavioral health, veterinary) for improved BM25 recall on abbreviations. Minimum relevance score threshold (0.3) filters low-quality chunks
 6. **Injection** — relevant chunks formatted with XML `<knowledge_source>` tags (prompt injection defense) and injected into the AI analysis prompt
 7. **Confidence reconciliation** — retrieval scores reconciled with LLM-stated confidence tags: downgrades overconfident LLM responses when retrieval is weak, upgrades conservative responses when retrieval is strong (`reconcileConfidence()`)
 8. **Observability** (`rag-trace.ts`) — per-query traces with timing breakdown (embedding/retrieval/rerank), per-chunk IDs and scores, query type classification, weight tracking, confidence reconciliation status
@@ -1055,6 +1055,7 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
 | POST | `/api/live-sessions/:id/draft-note` | authenticated | Draft clinical note during session |
 | PATCH | `/api/live-sessions/:id/pause` | authenticated | Pause session |
 | PATCH | `/api/live-sessions/:id/stop` | authenticated | Stop session |
+| POST | `/api/live-sessions/:id/revoke-consent` | authenticated | Revoke patient consent mid-session. Immediately stops recording, closes AssemblyAI connection, marks session with revocation metadata, logs HIPAA audit event. HIPAA §164.508 right to revoke |
 
 ### LMS — Learning Management System (org-scoped)
 | Method | Path | Role | Description |
@@ -1673,7 +1674,7 @@ Full audit of 108K LOC across 360 files with priority-ordered ratings and fixes.
 - **F-18 — backup.sh mktemp race window** (`deploy/ec2/backup.sh`) — `mktemp -d` created the PHI backup directory with default umask (0022 → 0755) before the subsequent `chmod 700`, leaving a brief window where the directory was world-readable. Fix: added `umask 077` at the top of the script so every file and directory created is owner-only from the moment of creation. The existing `chmod 700` is kept as defense-in-depth.
 
 #### Follow-on items (from the 3-fix batch)
-- **Consent revocation workflow**: Only capture is addressed. HIPAA §164.508 also requires patients to be able to revoke consent. Not implemented.
+- **Consent revocation workflow**: ✅ Implemented — `POST /api/live-sessions/:id/revoke-consent` stops recording, marks session with revocation metadata, logs HIPAA audit event.
 - **CloudStorage live session consent fields**: PostgresStorage mapper was updated. If any deployment uses CloudStorage backend for live sessions, that implementation may need to be updated to handle the new fields. MemStorage passes through via spread.
 
 #### ✅ Completed & committed: 3 High-priority fixes from top-10 follow-on list (F-38, F-05, F-09)
@@ -1687,7 +1688,7 @@ Full audit of 108K LOC across 360 files with priority-ordered ratings and fixes.
 - **F-36 (High) — Google OAuth auto-provisioning domain verification** (`server/routes/oauth.ts`): Auto-provisioning trusted any Google account whose email domain matched `org.settings.emailDomain`, with no verification that the account was managed by that domain's Google Workspace tenant. Consumer Gmail accounts and cross-Workspace accounts could claim membership — domain-squatting account takeover. Fix: added two checks to the auto-provisioning path: (1) reject if `profile.emails[0].verified === false`, (2) require `profile._json.hd === emailDomain` (Workspace hosted-domain claim must match). Existing-user login path is unchanged — only new-user auto-provisioning is gated. Admins can still invite users manually without the `hd` check.
 
 #### Follow-on items (from the 3 top-10 fixes)
-- **Consent revocation workflow**: Previous batch also noted this; still applies. HIPAA §164.508 requires the ability to revoke consent mid-session.
+- **Consent revocation workflow**: ✅ Implemented in `claude/broad-scan-feature-UXVES`.
 - **Bedrock empty-content metric**: The thrown error is logged at warn level but not counted in a metric. Ops would benefit from a per-model counter of empty-content responses for content-filter debugging.
 - **OAuth multi-domain support**: Orgs with multiple Google Workspace domains could be supported by adding `settings.allowedEmailDomains: string[]` and checking membership. Not in scope.
 - **OAuth admin approval queue**: A stricter posture would queue auto-provisioned users as "pending" until an admin approves. Not in scope.
@@ -1747,6 +1748,15 @@ Full audit of 108K LOC across 360 files with priority-ordered ratings and fixes.
 - FHIR R4 and mock adapters not yet updated with classifyEhrError
 - Frontend should handle `ehrErrorType` field to show actionable error banners
 - Reconciliation job should be extended to re-run missed webhook notifications (currently only re-tracks usage)
+
+#### ✅ Completed & committed: Consent revocation + BM25 IDF
+- **Consent revocation** (`shared/schema/billing.ts`, `server/db/sync-schema.ts`, `server/routes/live-session.ts`): HIPAA §164.508 right to revoke consent mid-session. New `consentRevokedAt`/`consentRevokedBy` fields on LiveSession. New `POST /api/live-sessions/:id/revoke-consent` endpoint: immediately stops recording (closes AssemblyAI connection), cleans up session buffers, marks consent as revoked, logs tamper-evident `clinical_consent_revoked` audit event with original consent method and session duration.
+- **BM25 IDF in RAG production** (`server/services/rag.ts`): `searchRelevantChunks()` now computes document frequencies from the pgvector candidate set and passes `corpusSize` + `documentFrequencies` to `bm25Score()`. Previously IDF defaulted to 1.0 (all terms weighted equally). Now common terms like "patient" get lower BM25 weight while rare domain terms get higher weight. Uses local IDF (candidate window as corpus) — pragmatic approximation that avoids querying the full corpus.
+
+#### Follow-on items
+- Frontend: add "Revoke Consent" button to clinical-live.tsx session controls
+- Revoked sessions should be visually marked in the UI and excluded from clinical metrics
+- Full-corpus IDF could be computed at index time and cached per-org for even better precision
 
 ### Branch: `claude/evaluate-qa-rag-integration-MrMze`
 
