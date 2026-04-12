@@ -80,7 +80,7 @@ npx vite build         # Frontend-only build (quick verification)
 - **Unit tests**: Node.js built-in `test` module via `tsx` — `npm run test`
 - **E2E tests**: Playwright (Chromium) — `npm run test:e2e` or `npm run test:e2e:ui`
 - **Location**: `tests/` (unit), `tests/e2e/` (E2E)
-- **Unit test files** (77 files, 1531 tests):
+- **Unit test files** (78 files, 1563 tests):
   - `tests/schema.test.ts` — Zod schema validation (orgId on all entities, organization schemas)
   - `tests/ai-provider.test.ts` — AI provider utilities (parseJsonResponse, buildAnalysisPrompt, smartTruncate)
   - `tests/routes.test.ts` — API route handler tests
@@ -105,6 +105,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/coaching-engine.test.ts` — Coaching recommendation engine
   - `tests/calibration-improvements.test.ts` — Calibration improvements (blind mode, IRR metrics, certification)
   - `tests/ehr.test.ts` — EHR integration adapters
+  - `tests/ehr-open-dental.test.ts` — Open Dental EHR adapter (error classification, patient/allergy/medication parsing, appointment procedure parsing, treatment plan fees, status mapping, duration patterns, 32 tests)
   - `tests/error-codes.test.ts` — Error code system
   - `tests/ab-testing-improvements.test.ts` — A/B testing improvements (t-test, batch, segments, recommendations)
   - `tests/spend-tracking-improvements.test.ts` — Spend tracking improvements (forecasting, anomalies, budget, departments)
@@ -334,7 +335,7 @@ server/scheduled/            # Wall-clock scheduled background tasks
 server/services/ehr/         # EHR integration adapters (11 files)
   types.ts                   #   IEhrAdapter interface, EhrPatient, EhrAppointment, EhrClinicalNote, EhrTreatmentPlan, EhrHealthStatus, EhrError class, classifyEhrError()
   index.ts                   #   EHR adapter factory (5 adapters: open_dental, eaglesoft, dentrix, fhir_r4, mock)
-  open-dental.ts             #   Open Dental adapter (bidirectional: patient lookup, note push, treatment plans)
+  open-dental.ts             #   Open Dental adapter (bidirectional: patient lookup, note push, treatment plans with procedure-level fees, appointment creation)
   eaglesoft.ts               #   Eaglesoft/Patterson eDex adapter (bidirectional with eDex v2+)
   dentrix.ts                 #   Dentrix Ascend / G7 adapter (bidirectional)
   fhir-r4.ts                 #   Generic FHIR R4-compliant server adapter (bidirectional)
