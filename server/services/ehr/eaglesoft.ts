@@ -28,7 +28,9 @@ import type {
   EhrAppointmentCreate,
   EhrTreatmentPlanUpdate,
 } from "./types.js";
+import { classifyEhrError } from "./types.js";
 import { ehrRequest } from "./request.js";
+import { logger } from "../logger.js";
 
 export class EaglesoftAdapter implements IEhrAdapter {
   readonly system = "eaglesoft" as const;
@@ -88,8 +90,11 @@ export class EaglesoftAdapter implements IEhrAdapter {
     try {
       const patient = await this.request<EaglesoftPatient>(config, "GET", `/patients/${ehrPatientId}`);
       return this.mapPatient(patient);
-    } catch {
-      return null;
+    } catch (err) {
+      const ehrErr = classifyEhrError(err, "Eaglesoft");
+      if (ehrErr.errorType === "not_found") return null;
+      logger.error({ err: ehrErr, ehrPatientId, errorType: ehrErr.errorType }, `Eaglesoft getPatient failed: ${ehrErr.errorType}`);
+      throw ehrErr;
     }
   }
 
@@ -274,8 +279,11 @@ export class EaglesoftAdapter implements IEhrAdapter {
         totalPatient: plan.totalPatient || 0,
         createdAt: plan.createdDate || new Date().toISOString(),
       }));
-    } catch {
-      return [];
+    } catch (err) {
+      const ehrErr = classifyEhrError(err, "Eaglesoft");
+      if (ehrErr.errorType === "not_found") return [];
+      logger.error({ err: ehrErr, patientId, errorType: ehrErr.errorType }, `Eaglesoft getPatientTreatmentPlans failed: ${ehrErr.errorType}`);
+      throw ehrErr;
     }
   }
 

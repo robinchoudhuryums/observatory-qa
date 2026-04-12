@@ -27,7 +27,9 @@ import type {
   EhrTreatmentPlan,
   EhrSyncResult,
 } from "./types.js";
+import { classifyEhrError } from "./types.js";
 import { ehrRequest } from "./request.js";
+import { logger } from "../logger.js";
 
 export class OpenDentalAdapter implements IEhrAdapter {
   readonly system = "open_dental" as const;
@@ -82,8 +84,11 @@ export class OpenDentalAdapter implements IEhrAdapter {
     try {
       const patient = await this.request<OpenDentalPatient>(config, "GET", `/patients/${ehrPatientId}`);
       return this.mapPatient(patient);
-    } catch {
-      return null;
+    } catch (err) {
+      const ehrErr = classifyEhrError(err, "Open Dental");
+      if (ehrErr.errorType === "not_found") return null;
+      logger.error({ err: ehrErr, ehrPatientId, errorType: ehrErr.errorType }, `Open Dental getPatient failed: ${ehrErr.errorType}`);
+      throw ehrErr;
     }
   }
 
@@ -152,8 +157,11 @@ export class OpenDentalAdapter implements IEhrAdapter {
         totalPatient: 0,
         createdAt: plan.DateTP || new Date().toISOString(),
       }));
-    } catch {
-      return [];
+    } catch (err) {
+      const ehrErr = classifyEhrError(err, "Open Dental");
+      if (ehrErr.errorType === "not_found") return [];
+      logger.error({ err: ehrErr, patientId, errorType: ehrErr.errorType }, `Open Dental getPatientTreatmentPlans failed: ${ehrErr.errorType}`);
+      throw ehrErr;
     }
   }
 

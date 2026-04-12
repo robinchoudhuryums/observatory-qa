@@ -29,7 +29,9 @@ import type {
   EhrAppointmentCreate,
   EhrTreatmentPlanUpdate,
 } from "./types.js";
+import { classifyEhrError } from "./types.js";
 import { ehrRequest } from "./request.js";
+import { logger } from "../logger.js";
 
 export class DentrixAdapter implements IEhrAdapter {
   readonly system = "dentrix" as const;
@@ -98,8 +100,11 @@ export class DentrixAdapter implements IEhrAdapter {
     try {
       const patient = await this.request<DentrixPatient>(config, "GET", `/v1/patients/${ehrPatientId}`);
       return this.mapPatient(patient);
-    } catch {
-      return null;
+    } catch (err) {
+      const ehrErr = classifyEhrError(err, "Dentrix");
+      if (ehrErr.errorType === "not_found") return null;
+      logger.error({ err: ehrErr, ehrPatientId, errorType: ehrErr.errorType }, `Dentrix getPatient failed: ${ehrErr.errorType}`);
+      throw ehrErr;
     }
   }
 
@@ -212,8 +217,11 @@ export class DentrixAdapter implements IEhrAdapter {
 
       const plans = response.treatmentPlans || response.data || [];
       return plans.map((plan) => this.mapTreatmentPlan(plan, patientId));
-    } catch {
-      return [];
+    } catch (err) {
+      const ehrErr = classifyEhrError(err, "Dentrix");
+      if (ehrErr.errorType === "not_found") return [];
+      logger.error({ err: ehrErr, patientId, errorType: ehrErr.errorType }, `Dentrix getPatientTreatmentPlans failed: ${ehrErr.errorType}`);
+      throw ehrErr;
     }
   }
 

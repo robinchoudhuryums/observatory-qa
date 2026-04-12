@@ -79,6 +79,57 @@ export interface EhrTreatmentPlan {
   createdAt: string;
 }
 
+/**
+ * Typed EHR error — replaces bare catch blocks that swallow auth/network
+ * errors as "not found". Routes and consumers can distinguish between
+ * recoverable (not_found) and non-recoverable (auth, network, server) failures.
+ */
+export type EhrErrorType = "auth" | "not_found" | "network" | "server" | "timeout" | "unknown";
+
+export class EhrError extends Error {
+  readonly errorType: EhrErrorType;
+  readonly system: string;
+  readonly statusCode?: number;
+
+  constructor(errorType: EhrErrorType, system: string, message: string, statusCode?: number) {
+    super(message);
+    this.name = "EhrError";
+    this.errorType = errorType;
+    this.system = system;
+    this.statusCode = statusCode;
+  }
+}
+
+/**
+ * Classify an error thrown by ehrRequest() into a typed EhrErrorType.
+ * Parses the status code from the error message format "API error NNN: ...".
+ */
+export function classifyEhrError(err: unknown, system: string): EhrError {
+  const message = err instanceof Error ? err.message : String(err);
+
+  // Parse HTTP status code from ehrRequest error format: "System API error NNN: ..."
+  const statusMatch = message.match(/API error (\d{3})/);
+  const statusCode = statusMatch ? parseInt(statusMatch[1], 10) : undefined;
+
+  if (statusCode === 401 || statusCode === 403) {
+    return new EhrError("auth", system, `EHR authentication failed: ${message}`, statusCode);
+  }
+  if (statusCode === 404) {
+    return new EhrError("not_found", system, message, statusCode);
+  }
+  if (statusCode && statusCode >= 500) {
+    return new EhrError("server", system, `EHR server error: ${message}`, statusCode);
+  }
+  if (message.includes("timed out")) {
+    return new EhrError("timeout", system, `EHR request timed out: ${message}`);
+  }
+  if (err instanceof TypeError || message.includes("fetch failed") || message.includes("ECONNREFUSED")) {
+    return new EhrError("network", system, `EHR connection failed: ${message}`);
+  }
+
+  return new EhrError("unknown", system, message, statusCode);
+}
+
 export interface EhrConnectionConfig {
   /** EHR system type */
   system: "open_dental" | "eaglesoft" | "dentrix" | "fhir_r4" | "mock";

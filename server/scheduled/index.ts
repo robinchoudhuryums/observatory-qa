@@ -12,6 +12,7 @@ export { runQuotaAlerts } from "./quota-alerts";
 export { runWeeklyDigest } from "./weekly-digest";
 export { runAuditChainVerify } from "./audit-chain-verify";
 export { runCoachingScheduledTasks } from "./coaching-tasks";
+export { runPostProcessingReconciliation } from "./post-processing-reconciliation";
 export { scheduleDaily, scheduleWeekly } from "./scheduler";
 
 // Re-import for orchestrator use
@@ -21,6 +22,7 @@ import { runQuotaAlerts } from "./quota-alerts";
 import { runWeeklyDigest } from "./weekly-digest";
 import { runAuditChainVerify } from "./audit-chain-verify";
 import { runCoachingScheduledTasks } from "./coaching-tasks";
+import { runPostProcessingReconciliation } from "./post-processing-reconciliation";
 
 interface DailyTaskOptions {
   queuesReady: boolean;
@@ -92,6 +94,7 @@ export async function runAllDailyTasks(storage: IStorage, opts: DailyTaskOptions
     { name: "quota-alerts", timeoutMs: DEFAULT_TASK_TIMEOUT_MS, fn: () => runQuotaAlerts(storage, orgs) },
     { name: "audit-chain-verify", timeoutMs: DEFAULT_TASK_TIMEOUT_MS, fn: () => runAuditChainVerify(storage, orgs) },
     { name: "coaching-tasks", timeoutMs: DEFAULT_TASK_TIMEOUT_MS, fn: () => runCoachingScheduledTasks(storage, orgs) },
+    { name: "post-processing-reconciliation", timeoutMs: DEFAULT_TASK_TIMEOUT_MS, fn: () => runPostProcessingReconciliation(storage, orgs) },
   ];
 
   for (const task of tasks) {
