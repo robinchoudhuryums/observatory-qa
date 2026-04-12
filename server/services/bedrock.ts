@@ -149,13 +149,30 @@ export class BedrockProvider implements AIAnalysisProvider {
         const result = await this.client.send(command, { abortSignal: controller.signal });
 
         this.logTokenUsage(result, "generateText");
-        return result.output?.message?.content?.[0]?.text || "";
+        // F-06: Bedrock can return a successful response with no text content
+        // (content filter blocks, empty response structure, or API shape changes).
+        // Previously this returned "" which callers (coaching engine, call insights,
+        // reports, emails) treated as a valid empty output — coaching plans appeared
+        // "generated" with no content. Throw explicitly; marked retryable since a
+        // transient blip in the response pipeline may recover on the next attempt.
+        const text = result.output?.message?.content?.[0]?.text;
+        if (!text || text.length === 0) {
+          logger.warn(
+            { model: this.model, stopReason: result.stopReason },
+            "Bedrock generateText returned empty content — treating as retryable failure",
+          );
+          const emptyErr = new Error("Bedrock returned empty response content");
+          (emptyErr as any).isBedrockEmptyContent = true;
+          throw emptyErr;
+        }
+        return text;
       } catch (err: any) {
         lastErr = err;
         clearTimeout(timeout);
         const statusCode = err?.$metadata?.httpStatusCode;
         const isRetryable = statusCode === 429 || (statusCode >= 500 && statusCode < 600)
-          || err?.name === "AbortError" || err?.name === "TimeoutError";
+          || err?.name === "AbortError" || err?.name === "TimeoutError"
+          || err?.isBedrockEmptyContent === true;
 
         if (isRetryable && attempt < MAX_RETRIES) {
           const delay = BASE_DELAY_MS * Math.pow(2, attempt);

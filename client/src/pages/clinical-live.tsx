@@ -52,6 +52,10 @@ export default function ClinicalLivePage() {
   const [noteFormat, setNoteFormat] = useState("soap");
   const [encounterType, setEncounterType] = useState("clinical_encounter");
   const [consentConfirmed, setConsentConfirmed] = useState(false);
+  // F-12 follow-on: structured consent metadata. Required by the server
+  // (POST /api/live-sessions returns 400 OBS-CLINICAL-CONSENT-METHOD-REQUIRED
+  // if consentMethod is missing). Must be one of "verbal" | "written" | "electronic".
+  const [consentMethod, setConsentMethod] = useState<"" | "verbal" | "written" | "electronic">("");
 
   // Recording state
   const [session, setSession] = useState<LiveSession | null>(null);
@@ -229,6 +233,7 @@ export default function ClinicalLivePage() {
         noteFormat,
         encounterType,
         consentObtained: true,
+        consentMethod, // F-12: structured consent metadata required by server
       });
       return res.json() as Promise<LiveSession & { transcriptionConnected?: boolean }>;
     },
@@ -390,11 +395,30 @@ export default function ClinicalLivePage() {
 
             <div className="flex items-start gap-3 p-4 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30">
               <RiErrorWarningLine className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
-              <div className="space-y-2">
+              <div className="space-y-3 flex-1">
                 <p className="text-sm font-medium">Patient Consent Required</p>
                 <p className="text-sm text-muted-foreground">
-                  You must obtain verbal or written consent from the patient before recording this encounter.
+                  You must obtain consent from the patient before recording this encounter. HIPAA §164.508
+                  requires documented consent with the method of capture recorded in the audit trail.
                 </p>
+                <div className="space-y-1.5">
+                  <Label htmlFor="consent-method" className="text-sm font-medium">
+                    How was consent captured?
+                  </Label>
+                  <Select
+                    value={consentMethod}
+                    onValueChange={(v) => setConsentMethod(v as "verbal" | "written" | "electronic")}
+                  >
+                    <SelectTrigger id="consent-method" aria-label="Consent capture method">
+                      <SelectValue placeholder="Select consent method..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="verbal">Verbal (confirmed aloud by patient)</SelectItem>
+                      <SelectItem value="written">Written (signed form on file)</SelectItem>
+                      <SelectItem value="electronic">Electronic (e-consent or portal acknowledgment)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="flex items-center gap-2">
                   <Checkbox id="consent" checked={consentConfirmed} onCheckedChange={(v) => setConsentConfirmed(!!v)} />
                   <Label htmlFor="consent" className="text-sm">
@@ -407,7 +431,7 @@ export default function ClinicalLivePage() {
             <Button
               size="lg"
               className="w-full"
-              disabled={!consentConfirmed || startMutation.isPending}
+              disabled={!consentConfirmed || !consentMethod || startMutation.isPending}
               onClick={() => startMutation.mutate()}
             >
               <RiMicLine className="w-5 h-5 mr-2" />
@@ -616,6 +640,7 @@ export default function ClinicalLivePage() {
                 setDraftNote(null);
                 setElapsed(0);
                 setConsentConfirmed(false);
+                setConsentMethod("");
                 setMicError(null);
                 setTranscriptionConnected(true);
                 setAudioUploadFailed(false);
