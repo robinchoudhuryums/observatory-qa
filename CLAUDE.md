@@ -2390,3 +2390,83 @@ Longer-term improvements identified during codebase audits. Work on these increm
 | LOW | **Onboarding wizard step validation** | 1 day | Medium — prevents incomplete setup | Users can proceed through steps without completing required fields. Sprint 3+ |
 | LOW | **File upload dropzone maxSize** | 0.5 days | Low | `react-dropzone` has no `maxSize` in config; validation only in callback. Sprint 3+ |
 | LOW | **Large page decomposition** | 2 days | Low | `clinical-notes.tsx` (1.2K), `reports.tsx` (1.2K) could be split into sub-components. Sprint 3+ |
+
+## Cycle Workflow Config
+
+### Test Command
+```
+npx tsx --test tests/*.test.ts
+```
+
+### Health Dimensions
+Architecture & Code Quality, Storage & Data Integrity, Security & HIPAA Compliance, Call Analysis Accuracy, RAG Quality, Clinical Documentation Safety, EHR Integration Reliability, Coaching & Analytics Correctness, Billing Integrity, Operational Readiness, UI/UX & Accessibility, Scalability & Performance, Business Viability
+
+### Subsystems
+```
+Core Platform & Infrastructure:
+  server/index.ts, server/vite.ts, server/utils.ts, server/logger.ts, server/types.d.ts, server/middleware/correlation-id.ts, server/middleware/tracing.ts, server/middleware/error-handler.ts, server/middleware/validate.ts, server/middleware/waf.ts, server/services/websocket.ts, server/services/queue.ts, server/services/redis.ts, server/services/logger.ts, server/services/sentry.ts, server/services/telemetry.ts, server/services/dashboard-cache.ts, server/services/error-codes.ts, server/services/aws-credentials.ts, server/services/s3.ts, server/utils/helpers.ts, server/utils/lru-cache.ts, server/utils/request-metrics.ts, server/routes/index.ts, server/routes/helpers.ts, server/routes/health.ts
+
+Storage Layer & Database:
+  server/storage/types.ts, server/storage/index.ts, server/storage/memory.ts, server/storage/cloud.ts, server/db/index.ts, server/db/schema.ts, server/db/pg-storage.ts, server/db/pg-storage-features.ts, server/db/pg-storage-confidence.ts, server/db/sync-schema.ts, server/db/migrate.ts, server/db/migrate-audit-chain.ts, shared/schema/org.ts, shared/schema/calls.ts, shared/schema/billing.ts, shared/schema/features.ts
+
+Auth, Security & HIPAA:
+  server/auth.ts, server/services/phi-encryption.ts, server/services/org-encryption.ts, server/services/audit-log.ts, server/services/incident-response.ts, server/utils/phi-redactor.ts, server/utils/url-validation.ts, server/utils/url-validator.ts, server/utils/ai-guardrails.ts, server/routes/auth.ts, server/routes/mfa.ts, server/routes/sso.ts, server/routes/scim.ts, server/routes/oauth.ts, server/routes/password-reset.ts, server/routes/api-keys.ts, server/routes/registration.ts, server/routes/access.ts, server/routes/baa.ts, server/routes/admin-security.routes.ts, server/scheduled/audit-chain-verify.ts
+
+Call Analysis Pipeline:
+  server/services/call-processing.ts, server/services/assemblyai.ts, server/services/assemblyai-realtime.ts, server/services/ai-factory.ts, server/services/ai-provider.ts, server/services/ai-prompts.ts, server/services/ai-types.ts, server/services/bedrock.ts, server/services/bedrock-batch.ts, server/services/auto-calibration.ts, server/services/cost-estimation.ts, server/services/scoring-calibration.ts, server/services/call-clustering.ts, server/routes/calls.ts, server/routes/call-insights.ts, server/routes/ab-testing.ts, server/routes/assemblyai-webhook.ts
+
+RAG Knowledge Base:
+  server/services/rag.ts, server/services/chunker.ts, server/services/embeddings.ts, server/services/embedding-provider.ts, server/services/rag-worker.ts, server/services/rag-trace.ts, server/services/faq-analytics.ts
+
+Clinical Documentation:
+  server/routes/clinical.ts, server/routes/clinical-compliance.routes.ts, server/routes/clinical-analytics.routes.ts, server/routes/live-session.ts, server/routes/insurance-narratives.ts, server/routes/patient-journey.ts, server/services/clinical-templates.ts, server/services/clinical-validation.ts, server/services/clinical-extraction.ts, server/services/style-learning.ts, server/services/fhir.ts
+
+EHR Integration:
+  server/services/ehr/index.ts, server/services/ehr/types.ts, server/services/ehr/request.ts, server/services/ehr/secrets-manager.ts, server/services/ehr/health-monitor.ts, server/services/ehr/appointment-matcher.ts, server/services/ehr/open-dental.ts, server/services/ehr/eaglesoft.ts, server/services/ehr/dentrix.ts, server/services/ehr/fhir-r4.ts, server/services/ehr/mock.ts, server/routes/ehr.ts, server/workers/ehr-note-push.worker.ts
+
+Coaching, Gamification & LMS:
+  server/routes/coaching.ts, server/routes/calibration.ts, server/routes/gamification.ts, server/routes/lms.ts, server/services/coaching-engine.ts, server/services/proactive-alerts.ts, server/services/performance-snapshots.ts, server/services/scheduled-reports.ts, server/scheduled/coaching-tasks.ts
+
+Billing & Revenue:
+  server/routes/billing.ts, server/routes/spend-tracking.ts, server/routes/revenue.ts, server/services/stripe.ts, server/scheduled/trial-downgrade.ts, server/scheduled/quota-alerts.ts
+
+Admin & Platform Operations:
+  server/routes/admin.ts, server/routes/super-admin.ts, server/routes/dashboard.ts, server/routes/insights.ts, server/routes/reports.ts, server/routes/export.ts, server/routes/employees.ts, server/routes/feedback.ts, server/routes/onboarding.ts, server/routes/marketing.ts, server/routes/benchmarks.ts, server/routes/emails.ts, server/services/email.ts, server/services/notifications.ts, server/services/telephony-ingestion.ts
+
+Workers & Scheduled Tasks:
+  server/workers/index.ts, server/workers/retention.worker.ts, server/workers/reanalysis.worker.ts, server/workers/indexing.worker.ts, server/workers/usage.worker.ts, server/scheduled/index.ts, server/scheduled/scheduler.ts, server/scheduled/retention.ts, server/scheduled/weekly-digest.ts, server/scheduled/post-processing-reconciliation.ts
+
+Frontend (UI/UX):
+  client/src/App.tsx, client/src/main.tsx, client/src/pages/, client/src/components/, client/src/hooks/, client/src/lib/
+```
+
+### Invariant Library
+```
+INV-01 | API list endpoints return raw T[] arrays, never wrapper objects | Subsystem: Storage Layer & Database
+INV-02 | Every storage method takes orgId as first parameter | Subsystem: Storage Layer & Database
+INV-03 | Billing middlewares return 403 when orgId is missing | Subsystem: Billing & Revenue
+INV-04 | Billing gates return 503 (not next()) on DB errors | Subsystem: Billing & Revenue
+INV-05 | Grace period defaults to false when pastDueAt is null | Subsystem: Billing & Revenue
+INV-06 | Stripe redirects use APP_BASE_URL (not raw Host header) | Subsystem: Billing & Revenue
+INV-07 | Clinical note PATCH requires version for ALL edits | Subsystem: Clinical Documentation
+INV-08 | PHI encryption throws in production without key | Subsystem: Auth, Security & HIPAA
+INV-09 | Every PHI decryption logs a HIPAA audit event | Subsystem: Auth, Security & HIPAA
+INV-10 | Schema changes go in both schema.ts and sync-schema.ts | Subsystem: Storage Layer & Database
+INV-11 | getCallByAssemblyAiId is intentionally cross-org | Subsystem: Call Analysis Pipeline
+INV-12 | Auth rate limit keys include orgId for tenant isolation | Subsystem: Core Platform & Infrastructure
+INV-13 | postProcessing errors never mark calls as failed | Subsystem: Call Analysis Pipeline
+INV-14 | syncSchema runs on dedicated client, destroyed after | Subsystem: Storage Layer & Database
+INV-15 | EHR requests pass through validateUrl for SSRF prevention | Subsystem: EHR Integration
+INV-16 | calibration computeStdDev uses /(n-1) Bessel correction | Subsystem: Coaching, Gamification & LMS
+INV-17 | Webhook signature uses real constructEvent in production | Subsystem: Billing & Revenue
+INV-18 | Tests import ROLE_HIERARCHY from auth.ts (not redefined) | Subsystem: Auth, Security & HIPAA
+INV-19 | React hooks called before early returns in transcript-viewer | Subsystem: Frontend (UI/UX)
+INV-20 | broadcastCallUpdate requires orgId parameter | Subsystem: Core Platform & Infrastructure
+INV-21 | searchCalls uses plainto_tsquery for queries >= 2 chars | Subsystem: Storage Layer & Database
+INV-22 | EHR adapters use classifyEhrError for typed error handling | Subsystem: EHR Integration
+INV-23 | getTeamScopedEmployeeIds returns null for unrestricted | Subsystem: Auth, Security & HIPAA
+```
+
+### Policy Configuration
+- Policy threshold: 5/10
+- Consecutive cycles before trigger: 2

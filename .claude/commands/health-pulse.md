@@ -15,7 +15,8 @@ For each dimension, provide:
 - One sentence of reasoning
 - Flag any dimension where confidence is Low and a proper audit session is overdue
 
-Dimensions: Overall, Architecture & Code Quality (incl. test coverage), Storage/DB Integrity, Security & HIPAA, Call Analysis, RAG, Clinical Documentation, EHR Integration, Integrations, UI/UX, Operational Integrity, Operational Readiness, Business Viability
+Use the dimensions defined in CLAUDE.md under "## Cycle Workflow Config" → "### Health Dimensions":
+Architecture & Code Quality, Storage & Data Integrity, Security & HIPAA Compliance, Call Analysis Accuracy, RAG Quality, Clinical Documentation Safety, EHR Integration Reliability, Coaching & Analytics Correctness, Billing Integrity, Operational Readiness, UI/UX & Accessibility, Scalability & Performance, Business Viability
 
 AXIS B — HORIZONTAL (Bug-Shape Posture — lightweight scan):
 For each category below, provide a quick directional score (1–10) and one sentence of evidence based on what you can observe from CLAUDE.md, recent commits, and code structure. These are lower-confidence than synthesis scores — flag that explicitly.

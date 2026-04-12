@@ -3,48 +3,31 @@ If $ARGUMENTS is empty or missing, respond with exactly this and stop:
 Usage: /targeted-audit <subsystem-name>
 
 Available subsystems:
-- Core Architecture & Data Pipeline
-- Storage Layer / Database
-- Security & HIPAA Compliance
+- Core Platform & Infrastructure
+- Storage Layer & Database
+- Auth, Security & HIPAA
 - Call Analysis Pipeline
-- RAG System
-- Clinical Documentation / Medical Scribe
+- RAG Knowledge Base
+- Clinical Documentation
 - EHR Integration
-- Integrations & External Services
-- UI/UX & Frontend
-- Billing / Business Plan
+- Coaching, Gamification & LMS
+- Billing & Revenue
+- Admin & Platform Operations
+- Workers & Scheduled Tasks
+- Frontend (UI/UX)
 
-Example: /targeted-audit Security & HIPAA Compliance
+Example: /targeted-audit Auth, Security & HIPAA
 
 ---
 
 Read CLAUDE.md (especially Common Gotchas and Key Design Decisions)
 before starting. Do not make any changes to any files during this session.
 
-SUBSYSTEM FILE REFERENCE:
-Core Architecture & Data Pipeline:
-  server/index.ts, server/routes/index.ts, server/middleware/, server/services/websocket.ts, server/services/queue.ts, server/services/redis.ts, server/services/logger.ts, server/scheduled/, server/scheduled/scheduler.ts, server/scheduled/weekly-digest.ts, server/workers/
-Storage Layer / Database:
-  server/storage/types.ts, server/storage/index.ts, server/storage/memory.ts, server/storage/cloud.ts, server/db/index.ts, server/db/schema.ts, server/db/pg-storage.ts, server/db/pg-storage-features.ts, server/db/pg-storage-confidence.ts, server/db/sync-schema.ts, server/db/migrate.ts, shared/schema/org.ts, shared/schema/calls.ts
-Security & HIPAA Compliance:
-  server/auth.ts, server/services/phi-encryption.ts, server/services/org-encryption.ts, server/services/audit-log.ts, server/services/incident-response.ts, server/middleware/waf.ts, server/routes/mfa.ts, server/routes/sso.ts, server/routes/scim.ts, server/routes/oauth.ts, server/routes/admin-security.routes.ts, server/utils/phi-redactor.ts, server/utils/ai-guardrails.ts
-Call Analysis Pipeline:
-  server/services/call-processing.ts, server/services/assemblyai.ts, server/services/assemblyai-realtime.ts, server/services/ai-factory.ts, server/services/ai-provider.ts, server/services/ai-prompts.ts, server/services/ai-types.ts, server/services/bedrock.ts, server/services/bedrock-batch.ts, server/services/auto-calibration.ts, server/services/cost-estimation.ts
-RAG System:
-  server/services/rag.ts, server/services/chunker.ts, server/services/embeddings.ts, server/services/embedding-provider.ts, server/services/rag-worker.ts, server/services/rag-trace.ts, server/services/faq-analytics.ts
-Clinical Documentation / Medical Scribe:
-  server/routes/clinical.ts, server/routes/clinical-compliance.routes.ts, server/routes/clinical-analytics.routes.ts, server/services/clinical-templates.ts, server/services/clinical-validation.ts, server/services/clinical-extraction.ts, server/services/style-learning.ts, server/services/fhir.ts
-EHR Integration:
-  server/services/ehr/, server/routes/ehr.ts, server/workers/ehr-note-push.worker.ts
-Integrations & External Services:
-  server/services/stripe.ts, server/services/email.ts, server/services/notifications.ts, server/services/telephony-ingestion.ts, server/services/sentry.ts, server/routes/assemblyai-webhook.ts, server/routes/emails.ts
-UI/UX & Frontend:
-  client/src/App.tsx, client/src/pages/, client/src/components/, client/src/hooks/, client/src/lib/
-Billing / Business Plan:
-  server/routes/billing.ts, server/services/stripe.ts, shared/schema/billing.ts, shared/schema/features.ts
-
 This session's scope: $ARGUMENTS
-Use the file reference above to identify relevant files.
+
+Look up the file list for this subsystem in CLAUDE.md under "## Cycle Workflow Config" → "### Subsystems". Read every file listed for the target subsystem.
+
+Also check the Invariant Library in CLAUDE.md under "### Invariant Library" for invariants tagged to this subsystem — verify each one as part of the audit.
 
 [OPTIONAL: PASTE ANY FOLLOW-ON ITEMS FROM A PRIOR SESSION THAT FLAGGED THIS SUBSYSTEM]
 
