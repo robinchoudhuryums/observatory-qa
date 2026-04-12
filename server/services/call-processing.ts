@@ -831,16 +831,28 @@ export async function continueAfterTranscription(
       logger.debug({ err, orgId }, "Failed to invalidate dashboard cache (non-blocking)");
     });
 
-    // Non-blocking: notifications, coaching, usage tracking
-    await postProcessing(
-      orgId,
-      callId,
-      analysis,
-      aiAnalysis,
-      assignedEmployeeId,
-      resolvedOriginalName || callId,
-      transcriptResponse,
-    );
+    // Post-processing: notifications, coaching recommendations, usage tracking.
+    // CRITICAL: the main pipeline transaction has already committed successfully
+    // at this point. Any failure here must NOT mark the call as failed or trigger
+    // a retry — doing so would corrupt a completed call and cause duplicate
+    // transcripts/analyses on re-processing. See F-44 in broad-scan audit.
+    // Errors are logged but swallowed so the call stays in "completed" state.
+    try {
+      await postProcessing(
+        orgId,
+        callId,
+        analysis,
+        aiAnalysis,
+        assignedEmployeeId,
+        resolvedOriginalName || callId,
+        transcriptResponse,
+      );
+    } catch (postErr) {
+      logger.error(
+        { callId, orgId, err: postErr },
+        "Post-processing failed after successful call commit — call remains in completed state",
+      );
+    }
   } catch (error) {
     logger.error({ callId, err: error }, "Critical error during post-transcription processing");
     await storage.updateCall(orgId, callId, { status: "failed" });

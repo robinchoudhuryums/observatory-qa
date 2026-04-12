@@ -1,13 +1,17 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import { ObservatoryLogo } from "@/components/observatory-logo";
 import { cn, safeStorage } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient, getQueryFn } from "@/lib/queryClient";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { CallWithDetails, Employee, AccessRequest, AuthUser } from "@shared/schema";
+import type { CallWithDetails, Employee, AccessRequest, AuthUser, PlanTier } from "@shared/schema";
 import { useAppName, useOrganization } from "@/hooks/use-organization";
 import { useSubscription } from "@/hooks/use-subscription";
+
+// Plan hierarchy — higher number = more features included
+const PLAN_LEVEL: Record<PlanTier, number> = { free: 0, starter: 1, professional: 2, enterprise: 3 };
+const meetsPlan = (userPlan: PlanTier, minPlan: PlanTier) => PLAN_LEVEL[userPlan] >= PLAN_LEVEL[minPlan];
 import {
   RiBarChartBoxLine,
   RiUploadLine,
@@ -45,7 +49,14 @@ import {
   RiArrowDownSLine,
 } from "@remixicon/react";
 
-type NavItem = { name: string; href: string; icon: any; requireRole?: string[] };
+type NavItem = {
+  name: string;
+  href: string;
+  icon: any;
+  requireRole?: string[];
+  /** Minimum plan tier required. Items below this plan are hidden entirely for admins; non-admins see upsell "PRO" badge if they'd otherwise have role access. */
+  minPlan?: PlanTier;
+};
 
 const coreNav: NavItem[] = [
   { name: "Dashboard", href: "/", icon: RiBarChartBoxLine },
@@ -80,6 +91,8 @@ export default function Sidebar() {
       return { Admin: true };
     }
   });
+  // Tracks whether the plan-aware collapse defaults have been applied (runs once when plan loads)
+  const planCollapseAppliedRef = useRef(false);
 
   // Initialize Clinical section as collapsed for non-clinical orgs
   const { data: orgData } = useOrganization();
@@ -129,7 +142,42 @@ export default function Sidebar() {
     }
   }, []);
 
-  const { hasClinicalDocs, isFree } = useSubscription();
+  const { hasClinicalDocs, isFree, planTier } = useSubscription();
+
+  // Plan-aware sidebar collapse defaults: Free/Starter users see a more focused set.
+  // Runs once when the plan first loads; respects any explicit user overrides already persisted.
+  useEffect(() => {
+    if (!planTier || planCollapseAppliedRef.current) return;
+    planCollapseAppliedRef.current = true;
+    try {
+      const saved = safeStorage.getItem("sidebar-collapsed");
+      const userOverrides = saved ? JSON.parse(saved) : {};
+      // Free-tier: hide everything except Dashboard/Core. Starter: hide engagement/channels
+      // by default. Professional+: show all (Admin still collapsed by default for noise).
+      const planDefaults: Record<string, boolean> = {};
+      if (planTier === "free") {
+        planDefaults.Analytics = false; // keep analytics visible
+        planDefaults.Management = false;
+        planDefaults.Channels = true; // collapse — marketing/LMS/email are Pro-ish
+        planDefaults.Engagement = true;
+      } else if (planTier === "starter") {
+        planDefaults.Analytics = false;
+        planDefaults.Management = false;
+        planDefaults.Channels = true;
+        planDefaults.Engagement = true;
+      }
+      // Only apply defaults for sections the user hasn't explicitly toggled
+      setCollapsedSections((prev) => {
+        const merged = { ...prev };
+        for (const [section, collapsed] of Object.entries(planDefaults)) {
+          if (!(section in userOverrides)) merged[section] = collapsed;
+        }
+        return merged;
+      });
+    } catch {
+      // ignore — fall through to defaults
+    }
+  }, [planTier]);
 
   const appName = useAppName();
   const logoUrl = orgData?.settings?.branding?.logoUrl;
@@ -401,63 +449,71 @@ export default function Sidebar() {
             </div>
           )}
 
-          {/* Multi-Channel */}
-          <div className="pt-4 pb-1.5 px-3">
-            <button
-              onClick={() => toggleSection("Channels")}
-              className="flex items-center justify-between w-full hover:text-foreground transition-colors cursor-pointer"
-              aria-expanded={!collapsedSections["Channels"]}
-              aria-label="Toggle Channels section"
-            >
-              <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">Channels</p>
-              <RiArrowDownSLine
-                className={cn(
-                  "w-3.5 h-3.5 text-muted-foreground/70 transition-transform",
-                  collapsedSections["Channels"] && "-rotate-90",
-                )}
-              />
-            </button>
-          </div>
-          {!collapsedSections["Channels"] && (
-            <div className="space-y-0.5">
-              <AdminLink href="/emails" icon={RiMailLine} label="Email QA" testId="nav-link-emails" />
-              <AdminLink
-                href="/learning"
-                icon={RiGraduationCapLine}
-                label="Learning Center"
-                testId="nav-link-learning"
-              />
-              <AdminLink href="/marketing" icon={RiMegaphoneLine} label="Lead Tracking" testId="nav-link-marketing" />
-            </div>
+          {/* Multi-Channel — Starter+ (Free tier hides the entire section) */}
+          {meetsPlan(planTier, "starter") && (
+            <>
+              <div className="pt-4 pb-1.5 px-3">
+                <button
+                  onClick={() => toggleSection("Channels")}
+                  className="flex items-center justify-between w-full hover:text-foreground transition-colors cursor-pointer"
+                  aria-expanded={!collapsedSections["Channels"]}
+                  aria-label="Toggle Channels section"
+                >
+                  <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">Channels</p>
+                  <RiArrowDownSLine
+                    className={cn(
+                      "w-3.5 h-3.5 text-muted-foreground/70 transition-transform",
+                      collapsedSections["Channels"] && "-rotate-90",
+                    )}
+                  />
+                </button>
+              </div>
+              {!collapsedSections["Channels"] && (
+                <div className="space-y-0.5">
+                  <AdminLink href="/emails" icon={RiMailLine} label="Email QA" testId="nav-link-emails" />
+                  <AdminLink
+                    href="/learning"
+                    icon={RiGraduationCapLine}
+                    label="Learning Center"
+                    testId="nav-link-learning"
+                  />
+                  <AdminLink href="/marketing" icon={RiMegaphoneLine} label="Lead Tracking" testId="nav-link-marketing" />
+                </div>
+              )}
+            </>
           )}
 
-          {/* Performance & Engagement */}
-          <div className="pt-4 pb-1.5 px-3">
-            <button
-              onClick={() => toggleSection("Engagement")}
-              className="flex items-center justify-between w-full hover:text-foreground transition-colors cursor-pointer"
-              aria-expanded={!collapsedSections["Engagement"]}
-              aria-label="Toggle Engagement section"
-            >
-              <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">Engagement</p>
-              <RiArrowDownSLine
-                className={cn(
-                  "w-3.5 h-3.5 text-muted-foreground/70 transition-transform",
-                  collapsedSections["Engagement"] && "-rotate-90",
-                )}
-              />
-            </button>
-          </div>
-          {!collapsedSections["Engagement"] && (
-            <div className="space-y-0.5">
-              <AdminLink href="/gamification" icon={RiTrophyLine} label="Leaderboard" testId="nav-link-gamification" />
-              <AdminLink
-                href="/revenue"
-                icon={RiMoneyDollarCircleLine}
-                label="Revenue Tracking"
-                testId="nav-link-revenue"
-              />
-            </div>
+          {/* Performance & Engagement — Starter+ (Free tier hides the entire section) */}
+          {meetsPlan(planTier, "starter") && (
+            <>
+              <div className="pt-4 pb-1.5 px-3">
+                <button
+                  onClick={() => toggleSection("Engagement")}
+                  className="flex items-center justify-between w-full hover:text-foreground transition-colors cursor-pointer"
+                  aria-expanded={!collapsedSections["Engagement"]}
+                  aria-label="Toggle Engagement section"
+                >
+                  <p className="text-[10px] uppercase font-semibold text-muted-foreground/70 tracking-widest">Engagement</p>
+                  <RiArrowDownSLine
+                    className={cn(
+                      "w-3.5 h-3.5 text-muted-foreground/70 transition-transform",
+                      collapsedSections["Engagement"] && "-rotate-90",
+                    )}
+                  />
+                </button>
+              </div>
+              {!collapsedSections["Engagement"] && (
+                <div className="space-y-0.5">
+                  <AdminLink href="/gamification" icon={RiTrophyLine} label="Leaderboard" testId="nav-link-gamification" />
+                  <AdminLink
+                    href="/revenue"
+                    icon={RiMoneyDollarCircleLine}
+                    label="Revenue Tracking"
+                    testId="nav-link-revenue"
+                  />
+                </div>
+              )}
+            </>
           )}
 
           {/* Clinical Documentation links — only for plans with clinical docs */}
@@ -585,12 +641,14 @@ export default function Sidebar() {
                       testId="nav-link-ab-testing"
                     />
                   )}
-                  <AdminLink
-                    href="/admin/spend-tracking"
-                    icon={RiMoneyDollarCircleLine}
-                    label="Spend Tracking"
-                    testId="nav-link-spend-tracking"
-                  />
+                  {meetsPlan(planTier, "starter") && (
+                    <AdminLink
+                      href="/admin/spend-tracking"
+                      icon={RiMoneyDollarCircleLine}
+                      label="Spend Tracking"
+                      testId="nav-link-spend-tracking"
+                    />
+                  )}
                   <AdminLink
                     href="/admin/audit-logs"
                     icon={RiFileList3Line}
@@ -603,18 +661,22 @@ export default function Sidebar() {
                     label="User Feedback"
                     testId="nav-link-feedback"
                   />
-                  <AdminLink
-                    href="/calibration"
-                    icon={RiScales3Line}
-                    label="Calibration"
-                    testId="nav-link-calibration"
-                  />
-                  <AdminLink
-                    href="/insurance-narratives"
-                    icon={RiFileShield2Line}
-                    label="Insurance Letters"
-                    testId="nav-link-insurance"
-                  />
+                  {meetsPlan(planTier, "professional") && (
+                    <AdminLink
+                      href="/calibration"
+                      icon={RiScales3Line}
+                      label="Calibration"
+                      testId="nav-link-calibration"
+                    />
+                  )}
+                  {hasClinicalDocs && (
+                    <AdminLink
+                      href="/insurance-narratives"
+                      icon={RiFileShield2Line}
+                      label="Insurance Letters"
+                      testId="nav-link-insurance"
+                    />
+                  )}
                 </div>
               )}
             </>

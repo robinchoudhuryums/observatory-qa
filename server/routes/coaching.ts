@@ -22,6 +22,9 @@ import { logPhiAccess, auditContext } from "../services/audit-log";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import { parsePagination, paginateArray } from "./helpers";
 import { asyncHandler, AppError } from "../middleware/error-handler";
+import { aiProvider } from "../services/ai-factory";
+import { withRetry } from "../utils/helpers";
+import type { InsertLearningModule } from "@shared/schema";
 
 export function registerCoachingRoutes(app: Express): void {
   // ==================== COACHING ROUTES ====================
@@ -555,6 +558,175 @@ export function registerCoachingRoutes(app: Express): void {
       await calculateAndCacheEffectiveness(req.orgId!, req.params.id);
       const updated = await storage.getCoachingSession(req.orgId!, req.params.id);
       res.json({ effectivenessSnapshot: (updated as any)?.effectivenessSnapshot || null });
+    }),
+  );
+
+  /**
+   * POST /api/coaching/:id/generate-lms-module — Auto-generate a focused LMS module from a coaching session.
+   *
+   * Uses the coaching session's category, notes, and linked call analysis to build a training module
+   * tailored to the specific weakness being addressed. Closes the coaching → training → measurement loop:
+   *   coaching session → this endpoint → learning module → assign → completion feeds coaching effectiveness.
+   *
+   * Body params (all optional):
+   *   assignToEmployee: boolean — if true, the generated module is auto-assigned to the coached employee
+   *   generateQuiz: boolean — include a short knowledge-check quiz
+   *   difficulty: "beginner" | "intermediate" | "advanced"
+   */
+  app.post(
+    "/api/coaching/:id/generate-lms-module",
+    requireAuth,
+    injectOrgContext,
+    requireRole("manager", "admin"),
+    asyncHandler(async (req, res) => {
+      const orgId = req.orgId!;
+      const sessionId = req.params.id;
+
+      const session = await storage.getCoachingSession(orgId, sessionId);
+      if (!session) throw new AppError(404, "Coaching session not found");
+
+      const employee = await storage.getEmployee(orgId, session.employeeId);
+      if (!employee) throw new AppError(404, "Employee not found");
+
+      if (!aiProvider.isAvailable || !aiProvider.generateText) {
+        return res.status(503).json(
+          errorResponse(ERROR_CODES.INTERNAL_ERROR, "AI provider not available for module generation"),
+        );
+      }
+
+      const { assignToEmployee = false, generateQuiz = true, difficulty = "intermediate" } = req.body || {};
+
+      // Pull the linked call (if any) to give the AI real context
+      let callContext = "";
+      if (session.callId) {
+        const call = await storage.getCall(orgId, session.callId);
+        const analysis = await storage.getCallAnalysis(orgId, session.callId);
+        if (call && analysis) {
+          const summary = (analysis as any).summary || "";
+          const feedback = (analysis as any).feedback || {};
+          const score = (analysis as any).performanceScore || "N/A";
+          callContext = `\n\nREFERENCE CALL CONTEXT (for the AI — do NOT include identifying details in the module):
+- Category: ${call.callCategory || "general"}
+- Performance Score: ${score}/10
+- Brief Summary: ${String(summary).slice(0, 500)}
+- Suggested Improvements: ${Array.isArray(feedback.suggestions) ? feedback.suggestions.slice(0, 5).join("; ") : ""}`;
+        }
+      }
+
+      const quizInstruction = generateQuiz
+        ? `\n5. A "quizQuestions" array with 3-5 multiple-choice questions. Each: {"question":"...","options":["A","B","C","D"],"correctIndex":0,"explanation":"Why this is correct"}`
+        : "";
+
+      // The prompt intentionally requests a GENERIC module (not PHI-laden), because
+      // the module will be shown to multiple employees, not just the coached one.
+      const prompt = `You are creating a short, focused training module from a coaching session.
+The goal is to close a specific performance gap identified by a coach. Output a short (3-6 minute read)
+module that any agent could use — do NOT reference the specific employee or any PHI.
+
+COACHING SESSION:
+- Category: ${session.category}
+- Title: ${session.title}
+${session.notes ? `- Coach Notes: ${String(session.notes).slice(0, 2000)}` : ""}
+${(session as any).actionPlan ? `- Action Plan: ${String((session as any).actionPlan).slice(0, 2000)}` : ""}
+${callContext}
+
+Create a training module with:
+1. A clear, engaging title (e.g., "Handling Compliance Disclosures Confidently")
+2. A brief 1-2 sentence description
+3. Well-organized Markdown content with clear headings, key takeaways, and practical examples
+4. An "estimatedMinutes" field (integer, reading time)${quizInstruction}
+
+Respond with ONLY valid JSON (no markdown fences):
+{"title":"...","description":"...","content":"...markdown...","estimatedMinutes":5${generateQuiz ? ',"quizQuestions":[...]' : ""}}`;
+
+      const response = await withRetry(() => aiProvider.generateText!(prompt), {
+        retries: 2,
+        baseDelay: 2000,
+        label: "coaching-to-lms module generation",
+      });
+
+      // Parse AI response — uses the same safe extraction pattern as lms.ts
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        logger.warn({ orgId, sessionId }, "Coaching-to-LMS: AI response was not parseable");
+        return res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "AI response was not parseable"));
+      }
+
+      let generated: any;
+      try {
+        generated = JSON.parse(jsonMatch[0]);
+      } catch (err) {
+        logger.warn({ orgId, sessionId, err }, "Coaching-to-LMS: JSON parse failed");
+        return res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "AI response was malformed"));
+      }
+
+      const moduleInput: InsertLearningModule = {
+        orgId,
+        title: String(generated.title || `Training: ${session.title}`).slice(0, 500),
+        description: String(
+          generated.description || `Auto-generated from coaching session "${session.title}"`,
+        ).slice(0, 5000),
+        contentType: "ai_generated",
+        category: session.category || "coaching",
+        content: String(generated.content || "").slice(0, 500000),
+        quizQuestions: Array.isArray(generated.quizQuestions)
+          ? generated.quizQuestions.slice(0, 20).map((q: any) => ({
+              question: String(q.question || "").slice(0, 1000),
+              options: Array.isArray(q.options)
+                ? q.options.slice(0, 10).map((o: any) => String(o).slice(0, 500))
+                : [],
+              correctIndex: typeof q.correctIndex === "number" ? q.correctIndex : 0,
+              explanation: q.explanation ? String(q.explanation).slice(0, 1000) : undefined,
+            }))
+          : undefined,
+        estimatedMinutes: typeof generated.estimatedMinutes === "number" ? generated.estimatedMinutes : 5,
+        difficulty: ["beginner", "intermediate", "advanced"].includes(difficulty) ? difficulty : "intermediate",
+        tags: [session.category || "coaching", "ai_generated", "coaching_derived"],
+        isPublished: false, // draft by default — manager reviews before publishing
+        createdBy: (req.user as any)?.name || (req.user as any)?.username || "system",
+      };
+
+      const module = await storage.createLearningModule(orgId, moduleInput);
+
+      // Link the module back to the coaching session for effectiveness tracking
+      try {
+        const existing = ((session as any).linkedLearningModuleIds as string[] | undefined) || [];
+        await storage.updateCoachingSession(orgId, sessionId, {
+          linkedLearningModuleIds: [...existing, module.id],
+        } as any);
+      } catch (err) {
+        // Non-fatal: linking is best-effort; module creation already succeeded
+        logger.debug({ err, orgId, sessionId }, "Coaching-to-LMS: failed to link module back to session");
+      }
+
+      // Optionally auto-assign to the coached employee
+      let assigned = false;
+      if (assignToEmployee && employee.id && (storage as any).updateLearningProgress) {
+        try {
+          await (storage as any).updateLearningProgress(orgId, employee.id, module.id, {
+            status: "not_started",
+            assignedAt: new Date().toISOString(),
+            assignedBy: (req.user as any)?.id,
+          });
+          assigned = true;
+        } catch (err) {
+          logger.debug({ err, orgId, sessionId, employeeId: employee.id }, "Auto-assign to employee failed");
+        }
+      }
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "coaching_lms_module_generated",
+        resourceType: "coaching_session",
+        resourceId: sessionId,
+        detail: `Generated LMS module ${module.id} from coaching session${assigned ? " (auto-assigned)" : ""}`,
+      });
+
+      res.status(201).json({
+        module,
+        assigned,
+        linkedToSession: sessionId,
+      });
     }),
   );
 }

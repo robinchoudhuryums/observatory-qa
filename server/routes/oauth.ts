@@ -42,9 +42,21 @@ export async function setupGoogleOAuth(): Promise<boolean> {
         { clientID, clientSecret, callbackURL },
         async (_accessToken, _refreshToken, profile, done) => {
           try {
-            const email = profile.emails?.[0]?.value;
+            const emailEntry = profile.emails?.[0];
+            const email = emailEntry?.value;
             if (!email) {
               return done(null, false, { message: "No email associated with Google account" });
+            }
+
+            // F-36: require Google to have verified the email. Consumer Gmail
+            // accounts and unverified aliases should not be trusted as identity.
+            // `email_verified` is a standard OIDC claim surfaced by passport-google-oauth20.
+            const emailVerified = (emailEntry as any).verified;
+            if (emailVerified === false) {
+              logger.warn({ email }, "Google OAuth: rejecting unverified email");
+              return done(null, false, {
+                message: "Google account email is not verified. Use a verified email address.",
+              });
             }
 
             // Look up user by username (email) — no org context yet, search globally
@@ -69,6 +81,26 @@ export async function setupGoogleOAuth(): Promise<boolean> {
             const matchingOrg = orgs.find((o) => o.settings?.emailDomain && o.settings.emailDomain === emailDomain);
 
             if (matchingOrg) {
+              // F-36: Domain-based auto-provisioning must verify the Google account
+              // belongs to a Google Workspace (Cloud Identity) tenant with the exact
+              // `hd` (hosted domain) claim matching the org's emailDomain. Without
+              // this check, any Google consumer account with the right email string
+              // could claim membership in the org (domain-squatting / typo-squatting
+              // attack). The `hd` claim is only set for Workspace accounts — consumer
+              // Gmail users have no `hd`.
+              const hostedDomain = (profile as any)._json?.hd;
+              if (!hostedDomain || hostedDomain !== emailDomain) {
+                logger.warn(
+                  { email, hostedDomain, expectedDomain: emailDomain },
+                  "Google OAuth: rejecting auto-provisioning — hd claim missing or mismatched",
+                );
+                return done(null, false, {
+                  message:
+                    "Auto-provisioning requires a Google Workspace account managed by your organization's domain. " +
+                    "Contact your admin for an invitation.",
+                });
+              }
+
               // Auto-provision user for matching org domain
               const { randomBytes } = await import("crypto");
               const newUser = await storage.createUser({
@@ -80,8 +112,8 @@ export async function setupGoogleOAuth(): Promise<boolean> {
               });
 
               logger.info(
-                { userId: newUser.id, email, orgId: matchingOrg.id },
-                "Auto-provisioned user via Google OAuth",
+                { userId: newUser.id, email, orgId: matchingOrg.id, hostedDomain },
+                "Auto-provisioned user via Google OAuth (Workspace domain verified)",
               );
 
               // Sync seat count to Stripe (fire-and-forget)

@@ -303,6 +303,36 @@ export async function ephemeralGet(prefix: string, key: string): Promise<string 
   return null;
 }
 
+/**
+ * Atomically set a value with TTL only if the key doesn't already exist.
+ * Returns true if the value was set (first writer), false if a value already
+ * existed (loser of race). Use for idempotency guards where two concurrent
+ * writers must agree on a single winner — e.g. Stripe webhook dedup, locks.
+ *
+ * In-memory fallback implements the same check-and-set atomically within
+ * the single-threaded event loop.
+ */
+export async function ephemeralSetNx(
+  prefix: string,
+  key: string,
+  value: string,
+  ttlMs: number,
+): Promise<boolean> {
+  const fullKey = `${prefix}:${key}`;
+  if (redisClient?.status === "ready") {
+    // ioredis: SET key value PX ttl NX -> "OK" on success, null if not set
+    const result = await redisClient.set(fullKey, value, "PX", ttlMs, "NX");
+    return result === "OK";
+  }
+  // In-memory fallback: Node's single-threaded event loop makes this atomic
+  // because no other async tick can run between the get and set below.
+  const now = Date.now();
+  const existing = memFallback.get(fullKey);
+  if (existing && existing.expiresAt > now) return false;
+  memFallback.set(fullKey, { value, expiresAt: now + ttlMs });
+  return true;
+}
+
 /** Delete a value. */
 export async function ephemeralDel(prefix: string, key: string): Promise<void> {
   const fullKey = `${prefix}:${key}`;
@@ -311,6 +341,43 @@ export async function ephemeralDel(prefix: string, key: string): Promise<void> {
   } else {
     memFallback.delete(fullKey);
   }
+}
+
+/**
+ * Atomically increment a counter with TTL. Used for rate limiting where we
+ * need "5 attempts per 15 minutes" semantics: INCR on Redis is atomic, and
+ * on the first increment we also set the TTL via EXPIRE.
+ *
+ * Returns the post-increment count. When Redis is unavailable, falls back to
+ * an in-memory counter that is single-instance only (documented limitation).
+ *
+ * Example:
+ *   const count = await ephemeralIncrement("mfa-attempts", userId, 15*60*1000);
+ *   if (count > 5) { return 429; }
+ */
+export async function ephemeralIncrement(prefix: string, key: string, ttlMs: number): Promise<number> {
+  const fullKey = `${prefix}:${key}`;
+  if (redisClient?.status === "ready") {
+    // Atomic INCR. If this is the first increment (result === 1), also set TTL.
+    const count = await redisClient.incr(fullKey);
+    if (count === 1) {
+      await redisClient.pexpire(fullKey, ttlMs);
+    }
+    return count;
+  }
+  // In-memory fallback: Node's single-threaded event loop guarantees atomicity
+  // between the read and write below. Single-instance only.
+  const now = Date.now();
+  const existing = memFallback.get(fullKey);
+  if (!existing || existing.expiresAt <= now) {
+    memFallback.set(fullKey, { value: "1", expiresAt: now + ttlMs });
+    return 1;
+  }
+  const nextCount = parseInt(existing.value, 10) + 1;
+  // Keep the original expiry — don't reset the window on each increment,
+  // otherwise an attacker could maintain the window indefinitely.
+  memFallback.set(fullKey, { value: String(nextCount), expiresAt: existing.expiresAt });
+  return nextCount;
 }
 
 /**

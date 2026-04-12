@@ -455,6 +455,69 @@ export class PostgresStorage {
     return result as { pending: number; processing: number; completed: number; failed: number };
   }
 
+  async getOrgsStatsBulk(
+    orgIds: string[],
+  ): Promise<
+    Map<
+      string,
+      { userCount: number; callCount: number; subscriptionStatus: string; planTier: string; billingInterval?: string }
+    >
+  > {
+    // Empty input → empty output (avoid sending IN () to Postgres).
+    const result = new Map<
+      string,
+      { userCount: number; callCount: number; subscriptionStatus: string; planTier: string; billingInterval?: string }
+    >();
+    if (orgIds.length === 0) return result;
+    // Initialize every requested org with zero counts so orgs with no users/calls
+    // still appear in the output.
+    for (const id of orgIds) {
+      result.set(id, { userCount: 0, callCount: 0, subscriptionStatus: "none", planTier: "free" });
+    }
+
+    // 3 aggregate queries instead of 3N individual queries.
+    // Each uses a single GROUP BY so the DB does the per-org rollup in one pass.
+    const [userCounts, callCounts, subs] = await Promise.all([
+      this.db
+        .select({ orgId: tables.users.orgId, count: sql<number>`count(*)::int` })
+        .from(tables.users)
+        .where(inArray(tables.users.orgId, orgIds))
+        .groupBy(tables.users.orgId),
+      this.db
+        .select({ orgId: tables.calls.orgId, count: sql<number>`count(*)::int` })
+        .from(tables.calls)
+        .where(inArray(tables.calls.orgId, orgIds))
+        .groupBy(tables.calls.orgId),
+      this.db
+        .select({
+          orgId: tables.subscriptions.orgId,
+          status: tables.subscriptions.status,
+          planTier: tables.subscriptions.planTier,
+          billingInterval: tables.subscriptions.billingInterval,
+        })
+        .from(tables.subscriptions)
+        .where(inArray(tables.subscriptions.orgId, orgIds)),
+    ]);
+
+    for (const row of userCounts) {
+      const entry = result.get(row.orgId);
+      if (entry) entry.userCount = row.count;
+    }
+    for (const row of callCounts) {
+      const entry = result.get(row.orgId);
+      if (entry) entry.callCount = row.count;
+    }
+    for (const row of subs) {
+      const entry = result.get(row.orgId);
+      if (entry) {
+        entry.subscriptionStatus = row.status || "none";
+        entry.planTier = row.planTier || "free";
+        entry.billingInterval = row.billingInterval || undefined;
+      }
+    }
+    return result;
+  }
+
   // --- Call operations ---
   async getCall(orgId: string, id: string): Promise<Call | undefined> {
     const rows = await this.db

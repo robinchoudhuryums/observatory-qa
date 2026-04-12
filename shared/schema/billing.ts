@@ -412,6 +412,10 @@ export type UsageRecord = z.infer<typeof usageRecordSchema>;
 export const LIVE_SESSION_STATUSES = ["active", "paused", "completed", "failed"] as const;
 export type LiveSessionStatus = (typeof LIVE_SESSION_STATUSES)[number];
 
+/** How patient recording consent was captured. HIPAA §164.508 documentation. */
+export const CONSENT_METHODS = ["verbal", "written", "electronic"] as const;
+export type ConsentMethod = (typeof CONSENT_METHODS)[number];
+
 export const insertLiveSessionSchema = z.object({
   orgId: z.string(),
   createdBy: z.string(),
@@ -425,8 +429,14 @@ export const insertLiveSessionSchema = z.object({
   draftClinicalNote: clinicalNoteSchema.optional(),
   /** Duration in seconds of accumulated audio */
   durationSeconds: z.number().optional(),
-  /** Patient consent for recording */
+  /** Patient consent for recording (boolean kept for backward compat) */
   consentObtained: z.boolean().optional(),
+  /** How consent was captured — required when consentObtained is true */
+  consentMethod: z.enum(CONSENT_METHODS).optional(),
+  /** Timestamp when consent was captured (ISO). Defaults to session start. */
+  consentCapturedAt: z.string().optional(),
+  /** User ID of the provider who captured the consent */
+  consentCapturedBy: z.string().optional(),
   /** Associated call ID (created on session end for permanent storage) */
   callId: z.string().optional(),
 });

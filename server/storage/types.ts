@@ -252,6 +252,26 @@ export interface IStorage {
   countCallsByOrgAndStatus(
     orgId: string,
   ): Promise<{ pending: number; processing: number; completed: number; failed: number }>;
+  /**
+   * Bulk stats fetch for multiple orgs in a single call. Used by super-admin
+   * dashboards to avoid N+1 queries. Returns a Map keyed by orgId.
+   * Postgres backend uses 3 aggregate queries (users GROUP BY, calls GROUP BY,
+   * subscriptions IN) instead of 3N individual queries.
+   */
+  getOrgsStatsBulk(
+    orgIds: string[],
+  ): Promise<
+    Map<
+      string,
+      {
+        userCount: number;
+        callCount: number;
+        subscriptionStatus: string;
+        planTier: string;
+        billingInterval?: string;
+      }
+    >
+  >;
 
   // Call operations (org-scoped)
   getCall(orgId: string, id: string): Promise<Call | undefined>;

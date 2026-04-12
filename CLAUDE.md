@@ -207,7 +207,7 @@ server/
   types.d.ts                 # Express type augmentations
   logger.ts                  # (Legacy) Logger — prefer server/services/logger.ts
 
-server/routes/               # Modular API route files (38 route files)
+server/routes/               # Modular API route files (44 route files)
   index.ts                   #   Route registration orchestrator
   auth.ts                    #   Login/logout/me (trusted-device cookie check, grace period logic)
   registration.ts            #   Self-service org + user registration (supports industryType)
@@ -221,7 +221,7 @@ server/routes/               # Modular API route files (38 route files)
   employees.ts               #   Employee CRUD, CSV import
   dashboard.ts               #   Metrics, sentiment distribution, top performers
   reports.ts                 #   Summary/filtered reports, agent profiles
-  coaching.ts                #   Coaching session CRUD
+  coaching.ts                #   Coaching session CRUD, AI coaching plan generation, automation rules, templates, self-assessment, LMS module generation bridge
   admin.ts                   #   User management, prompt templates, org settings
   access.ts                  #   Access request flow
   api-keys.ts                #   API key CRUD + middleware
@@ -238,10 +238,10 @@ server/routes/               # Modular API route files (38 route files)
   gamification.ts            #   Gamification: leaderboard, badges, employee profiles, points
   insurance-narratives.ts    #   Insurance narrative drafting: prior auth, appeals, medical necessity
   revenue.ts                 #   Revenue tracking: per-call dollar values, conversion status, metrics
-  calibration.ts             #   Calibration sessions: multi-evaluator QA alignment, variance tracking
+  calibration.ts             #   Calibration sessions: multi-evaluator QA alignment, variance tracking, IRR analytics, evaluator certification, multi-session QA audit packet export
   call-insights.ts           #   Call-level insights and trend analysis
   emails.ts                  #   Email management: templates, send history, email analytics
-  live-session.ts            #   Real-time live call session support (AssemblyAI real-time)
+  live-session.ts            #   Real-time live clinical session (AssemblyAI real-time), manual draft notes, opt-in continuous clinical-scribe auto-drafting
   lms.ts                     #   Learning Management System: courses, lessons, AI-generated training
   marketing.ts               #   Lead tracking (renamed from marketing): call source attribution, campaign ROI
   benchmarks.ts              #   QA benchmarking: anonymized cross-org performance percentiles by industry
@@ -319,7 +319,7 @@ server/utils/                # Shared server utilities
   lru-cache.ts               #   TTL-aware LRU cache utility (replaces FIFO Map pattern in 3+ locations)
 
 server/scheduled/            # Wall-clock scheduled background tasks
-  index.ts                   #   Barrel exports + runAllDailyTasks() orchestrator (single listOrganizations call, per-task error isolation)
+  index.ts                   #   Barrel exports + runAllDailyTasks() orchestrator (single listOrganizations call, per-task error isolation + per-task timeouts)
   scheduler.ts               #   scheduleDaily(utcHour, fn) and scheduleWeekly(dayOfWeek, utcHour, fn) — setTimeout chains, no drift
   retention.ts               #   Data retention purge (per-org retentionDays)
   trial-downgrade.ts         #   Trial subscription auto-downgrade to free
@@ -427,7 +427,7 @@ Every data entity has an `orgId` field. All storage methods take `orgId` as the 
 - `Transcript` — id, orgId, callId, text, confidence, words[]
 - `SentimentAnalysis` — id, orgId, callId, overallSentiment, overallScore, segments[]
 - `CallAnalysis` — id, orgId, callId, performanceScore, subScores, summary, topics, feedback, flags, clinicalNote (optional)
-- `ClinicalNote` — embedded in CallAnalysis: format (SOAP/DAP/BIRP/HPI/procedure), specialty, subjective, objective, assessment, plan, HPI, ROS, differentialDiagnoses, icd10Codes, cptCodes, cdtCodes, toothNumbers, periodontalFindings, treatmentPhases, providerAttested, attestedBy, editHistory, consentObtained, documentationCompleteness (0-10), clinicalAccuracy (0-10), `amendments[]` — array of post-attestation amendment snapshots (reason, changedBy, timestamp, fieldsChanged), `cosignature` — supervising provider co-signature (signedBy, signedAt, providerName, credentials), `cosignatureRequired` — boolean flag, `structuredData` — extracted vitals (BP, HR, RR, temp, O2sat, pain, weight), medications[], allergies[], `qualityScoreBreakdown` — icd10Specificity, requiredElementsPresent, planDiagnosisAlignment, overallQuality (all 0-10)
+- `ClinicalNote` — embedded in CallAnalysis: format (SOAP/DAP/BIRP/HPI/procedure), specialty, subjective, objective, assessment, plan, HPI, ROS, differentialDiagnoses, icd10Codes, cptCodes, cdtCodes, toothNumbers, periodontalFindings, treatmentPhases, providerAttested, attestedBy, editHistory, consentObtained, documentationCompleteness (0-10), clinicalAccuracy (0-10), `amendments[]` — array of post-attestation amendment snapshots (reason, changedBy, timestamp, fieldsChanged), `cosignature` — supervising provider co-signature (cosignedBy, cosignedById, cosignedNpi, cosignedAt, role, acknowledgedAddendaCount), `cosignatureRequired` — boolean flag, `structuredData` — extracted vitals (BP, HR, RR, temp, O2sat, pain, weight), medications[], allergies[], `qualityScoreBreakdown` — icd10Specificity, requiredElementsPresent, planDiagnosisAlignment, overallQuality (all 0-10)
 - `ABTest` — id, orgId, fileName, baselineModel, testModel, transcriptText, baselineAnalysis, testAnalysis, baselineLatencyMs, testLatencyMs, status, createdBy, `batchId` (text, groups tests in a batch upload)
 - `UsageRecord` — id, orgId, callId, type (transcription/ai_analysis/ab-test), services (assemblyai/bedrock cost breakdown), totalEstimatedCost
 - `AccessRequest` — id, orgId, name, email, requestedRole, status
@@ -526,7 +526,7 @@ These modules are imported by the most consumers. Changes here have the widest b
 
 | Module | Key Exports | Consumer Count | Notes |
 |--------|-------------|----------------|-------|
-| `server/storage/index.ts` | `storage`, `initPostgresStorage`, `objectStorage`, `IStorage`, `normalizeAnalysis` | 56 | 38 route files, 9 services, 2 db files, auth.ts, index.ts. Workers access via dynamic `require()`. Scheduled tasks receive storage as a parameter, not via singleton import |
+| `server/storage/index.ts` | `storage`, `initPostgresStorage`, `objectStorage`, `IStorage`, `normalizeAnalysis` | 56 | 44 route files, 9 services, 2 db files, auth.ts, index.ts. Workers access via dynamic `require()`. Scheduled tasks receive storage as a parameter, not via singleton import |
 | `shared/schema.ts` (barrel) | Types, Zod schemas, `PLAN_DEFINITIONS`, `CALL_CATEGORIES` | 50+ | Routes, services, storage, client pages. Workers get types indirectly via queue job interfaces |
 | `server/auth.ts` | `requireAuth`, `injectOrgContext`, `requireOrgContext`, `requireRole`, `getTeamScopedEmployeeIds`, `sessionMiddleware`, `resolveUserOrgId` | 36 | All authenticated route files + websocket. Applied per-route (not globally in index.ts) |
 | `server/services/audit-log.ts` | `logPhiAccess`, `auditContext`, `queryAuditLogs`, `exportAuditLogs`, `verifyAuditChain` | 35 | 32 route files + auth.ts + incident-response.ts + retention.worker.ts |
@@ -613,7 +613,7 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
         │    └─ storage.updateCall(status: "completed", employeeId, tags)
         ├─ broadcastCallUpdate("completed") ← WEBSOCKET BROADCAST
         ├─ invalidateDashboardCache()
-        └─ postProcessing() (non-blocking, all with withRetry)
+        └─ postProcessing() (wrapped in try/catch — errors logged but NEVER mark the call as failed or trigger retries; individual steps use withRetry)
              ├─ notifyFlaggedCall() [services/notifications.ts]
              ├─ onCallAnalysisComplete() [services/proactive-alerts.ts] → coaching recommendations
              ├─ recordActivity() [routes/gamification.ts] → gamification points (conditional)
@@ -829,9 +829,28 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
 | GET | `/api/coaching` | manager+ | List coaching sessions |
+| GET | `/api/coaching/my` | authenticated | Get caller's own coaching sessions (auto-resolved by email/name) |
 | GET | `/api/coaching/employee/:id` | authenticated | Coaching for employee |
 | POST | `/api/coaching` | manager+ | Create coaching session |
 | PATCH | `/api/coaching/:id` | manager+ | Update coaching session |
+| POST | `/api/coaching/:id/generate-plan` | manager+ | AI-generate structured coaching action plan from call history |
+| POST | `/api/coaching/:id/generate-lms-module` | manager+ | Auto-generate an LMS module from the coaching session (body: `assignToEmployee?`, `generateQuiz?`, `difficulty?`) |
+| POST | `/api/coaching/:id/self-assess` | authenticated | Employee self-assessment of a coaching session |
+| GET | `/api/coaching/:id/self-assessment` | authenticated | Read self-assessment |
+| GET | `/api/coaching/:id/effectiveness` | authenticated | Compute pre/post coaching effectiveness |
+| POST | `/api/coaching/:id/effectiveness/snapshot` | manager+ | Cache effectiveness snapshot |
+| GET | `/api/coaching/templates` | authenticated | List coaching templates |
+| POST | `/api/coaching/templates` | manager+ | Create coaching template |
+| PATCH | `/api/coaching/templates/:id` | manager+ | Update coaching template |
+| DELETE | `/api/coaching/templates/:id` | manager+ | Delete coaching template |
+| GET | `/api/coaching/automation-rules` | admin | List automation rules |
+| POST | `/api/coaching/automation-rules` | admin | Create automation rule |
+| PATCH | `/api/coaching/automation-rules/:id` | admin | Update automation rule |
+| DELETE | `/api/coaching/automation-rules/:id` | admin | Delete automation rule |
+| POST | `/api/coaching/automation-rules/run` | admin | Run automation rules now |
+| GET | `/api/coaching/digest` | manager+ | Preview weekly coaching digest |
+| POST | `/api/coaching/digest/send` | admin | Send weekly coaching digest |
+| GET | `/api/coaching/overdue` | manager+ | List overdue coaching sessions |
 
 ### Admin & Configuration (org-scoped)
 | Method | Path | Role | Description |
@@ -904,7 +923,7 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
 | GET | `/api/clinical/notes/:callId/amendments` | authenticated | List amendment history |
 | POST | `/api/clinical/notes/:callId/addendum` | manager+ | Add addendum to attested note |
 | GET | `/api/clinical/notes/:callId/fhir` | authenticated | Export note as FHIR R4 Bundle (requires attestation) |
-| POST | `/api/clinical/notes/:callId/cosign` | manager+ | Co-sign/supervising provider attestation |
+| POST | `/api/clinical/notes/:callId/cosign` | manager+ | Co-sign/supervising provider attestation. Body supports optional `acknowledgedAddenda: true` — required when post-attestation addenda exist (409 `OBS-CLINICAL-COSIGN-ADDENDA` otherwise). `acknowledgedAddendaCount` is captured in the cosignature record and audit log for compliance trail |
 | GET | `/api/clinical/analytics/population` | admin | Population-level clinical analytics |
 | GET | `/api/clinical/notes/:callId/prefill-suggestions` | authenticated | EHR-prefilled note suggestions |
 | GET | `/api/clinical/templates/my` | authenticated | List provider's custom templates |
@@ -1022,11 +1041,12 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
 | GET | `/api/calibration/analytics` | manager+ | Variance trends, IRR metrics (Krippendorff's alpha, ICC), evaluator certification |
 | GET | `/api/calibration/suggest-calls` | manager+ | Automated call selection for calibration (borderline, flagged, recent) |
 | GET | `/api/calibration/certifications` | manager+ | Evaluator certification status with consistency scores and trends |
+| GET | `/api/calibration/audit-packet` | manager+ | Multi-session QA audit packet with org-wide Krippendorff α, ICC, evaluator certification summary, and per-session breakdowns (query: `startDate`, `endDate`, `format=json\|csv`; default window 90 days) |
 
 ### Live Sessions (org-scoped, requires Clinical Documentation plan)
 | Method | Path | Role | Description |
 |--------|------|------|-------------|
-| POST | `/api/live-sessions` | authenticated | Start real-time clinical session (AssemblyAI streaming) |
+| POST | `/api/live-sessions` | manager+ | Start real-time clinical session (AssemblyAI streaming). **Required**: `consentObtained: true` and `consentMethod` ("verbal" \| "written" \| "electronic") — returns 400 `OBS-CLINICAL-CONSENT-METHOD-REQUIRED` otherwise. Consent is persisted with `consentCapturedAt` + `consentCapturedBy` and a HIPAA `clinical_consent_obtained` audit event. Body also supports `continuousDraftMode: true` to enable server-side auto-drafting of the clinical note every 3 new final segments or 20s elapsed (whichever first). WebSocket `draft_note` events carry `autoDrafted: true` when generated automatically |
 | GET | `/api/live-sessions/:id` | authenticated | Get session status + transcript |
 | GET | `/api/live-sessions/:id/audio` | authenticated | Stream live audio |
 | POST | `/api/live-sessions/:id/draft-note` | authenticated | Draft clinical note during session |
@@ -1266,7 +1286,7 @@ TRUST_PROXY                     # Set to "0" to disable trust proxy in productio
 | `reference_documents` | index on `(org_id, category)` | RAG source documents. Versioning: `version`, `previous_version_id`. Indexing: `indexing_status`, `indexing_error`. Sources: `source_type` (upload/url), `source_url`. Analytics: `retrieval_count` |
 | `document_chunks` | index on `org_id`, `document_id` | pgvector(1024) embeddings |
 | `usage_events` | index on `(org_id, event_type)`, `created_at` | Billing metering |
-| `password_reset_tokens` | unique on `token` | Expirable reset tokens |
+| `password_reset_tokens` | unique on `token_hash`, index on `user_id`, `org_id` | Expirable reset tokens (1h TTL). SHA-256 hashed. `org_id` column for RLS tenant isolation; pre-auth store/consume wrap queries in a transaction with `set_config('app.bypass_rls', 'true', true)`. RLS-protected (`org_isolation` policy). |
 | `audit_logs` | index on `(org_id, event_type)`, `created_at` | Tamper-evident with `integrity_hash`, `prev_hash`, `sequence_num` |
 | `ab_tests` | index on `org_id` | Dual-model comparison results, latency, cost |
 | `usage_records` | index on `(org_id, type)`, `timestamp` | Per-call cost tracking (AssemblyAI + Bedrock spend) |
@@ -1278,7 +1298,7 @@ TRUST_PROXY                     # Set to "0" to disable trust proxy in productio
 | `calibration_sessions` | index on `(org_id, status)` | Multi-evaluator QA alignment sessions |
 | `calibration_evaluations` | unique on `(session_id, evaluator_id)` | Individual evaluator scores, cascade delete with session |
 | `provider_templates` | index on `(org_id, user_id)`, `(org_id, specialty)` | Per-provider custom clinical note templates. JSONB sections, defaultCodes, tags |
-| `mfa_recovery_requests` | index on `(org_id, status)`, `user_id` | Emergency MFA bypass: user requests → email-verified → admin approves → time-limited use token (15 min). Cascade delete with user/org. |
+| `mfa_recovery_requests` | index on `(org_id, status)`, `user_id` | Emergency MFA bypass: user requests → email-verified → admin approves → time-limited use token (15 min). Cascade delete with user/org. RLS-protected (`org_isolation` policy). |
 | `security_incidents` | index on `(org_id, phase)` | HIPAA breach tracking: severity, phase lifecycle, timeline, action items, breach notification deadline. RLS-protected |
 | `breach_reports` | index on `(org_id, notification_status)` | HIPAA §164.408: affected individuals count, PHI types, 60-day notification deadline, notification status tracking, corrective actions |
 | `business_associate_agreements` | index on `(org_id, status)`, `(expires_at)` | HIPAA §164.502(e): vendor BAA tracking with expiry dates, renewal reminders, PHI categories, signatory info. RLS-protected |
@@ -1286,7 +1306,7 @@ TRUST_PROXY                     # Set to "0" to disable trust proxy in productio
 Requires pgvector extension: `CREATE EXTENSION IF NOT EXISTS vector;`
 
 ### Auto Schema Sync (server/db/sync-schema.ts)
-On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add missing columns using `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`. This eliminates the need for `drizzle-kit push` (a devDependency) in production and prevents cascading 500 errors from missing tables/columns after deploys.
+On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add missing columns using `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`. This eliminates the need for `drizzle-kit push` (a devDependency) in production and prevents cascading 500 errors from missing tables/columns after deploys. Runs on a **dedicated pg client** acquired via `getPool().connect()` and destroyed with `client.release(true)` when sync completes — this isolates the `app.bypass_rls` session setting from the pool so RLS is actually enforced on normal requests.
 
 ## HIPAA Compliance
 
@@ -1496,14 +1516,16 @@ Server serves both API and static frontend from the same process.
 - **Audit log timestamp is application-set**: `persistAuditEntry()` explicitly sets `createdAt` to the application-level timestamp used for hash computation (not PostgreSQL's `defaultNow()`). This ensures `verifyAuditChain()` can recompute matching hashes. Pre-existing entries may have mismatched timestamps
 - **FHIR export decrypts nested cosignature NPI**: `decryptClinicalNotePhi()` decrypts both top-level PHI fields and nested `cosignature.cosignedNpi`. The cosigner NPI is included in the FHIR Practitioner resource as an additional identifier with type "Cosigner NPI"
 - **EHR prefill surfaces lookup failures**: The prefill endpoint returns `ehrLookupFailed: true` and `ehrLookupError` when EHR patient data retrieval fails, instead of silently returning empty allergies/medications. Frontend should display a warning banner when this flag is present
-- **Daily task orchestrator is error-isolated**: Each task in `runAllDailyTasks()` is wrapped in its own try-catch. A failure in one task (e.g., audit chain verification) does not prevent other tasks (e.g., retention purge, quota alerts) from running
+- **Daily task orchestrator is error- and timeout-isolated**: Each task in `runAllDailyTasks()` is wrapped in its own try-catch AND a `Promise.race` timeout (10 min default, 30 min for retention). A task that throws OR hangs does not prevent other tasks from running. Timeouts reject with `ScheduledTaskTimeoutError` so logs distinguish them from thrown errors. Note: JavaScript can't cancel promises, so a hung task's work continues in the background — only the orchestrator moves on
 - **Breach notification is idempotent**: `sendBreachNotificationEmails()` checks `notificationStatus` before sending. If individuals have already been notified, it returns 0 and logs a warning. This prevents duplicate HIPAA notifications on retry or accidental re-invocation
 - **Registration blocks reserved org slugs**: Slugs like "api", "admin", "auth", "sso", "webhook" and 12 other system names are rejected during registration to prevent route collisions
 - **Invitation acceptance is rate-limited**: `POST /api/invitations/accept` has a 10-per-15-min rate limit per IP to prevent token brute-force
 - **Account lockout is Redis-backed**: Login attempt tracking uses `ephemeralSet`/`ephemeralGet`/`ephemeralDel` from `redis.ts` (Redis with in-memory fallback). Records auto-expire via TTL — no manual eviction or cleanup interval needed. Lockout state persists across server restarts and works across multiple instances when Redis is configured
-- **Stripe webhook events are deduplicated**: The billing webhook handler tracks processed event IDs via `ephemeralGet`/`ephemeralSet` from `redis.ts` (Redis with in-memory fallback, 24h TTL). Duplicate event deliveries from Stripe are skipped before any state mutations. Multi-instance safe when Redis is configured
+- **Stripe webhook events are deduplicated atomically**: The billing webhook handler tracks processed event IDs via `ephemeralSetNx` from `redis.ts` (Redis `SET NX PX`, 24h TTL, in-memory fallback). Single atomic call — no TOCTOU window between check and set. Multi-instance safe when Redis is configured
+- **Google OAuth auto-provisioning requires Workspace `hd` claim**: `server/routes/oauth.ts` auto-provisions users when their Google email matches an org's `settings.emailDomain`, but ONLY when (1) `profile.emails[0].verified === true` and (2) `profile._json.hd === emailDomain`. The `hd` claim is Google Workspace's hosted-domain identifier — it's only set when the account is managed by that tenant. Consumer Gmail accounts have no `hd` and are rejected. This prevents domain-squatting account takeover. Orgs with multiple Workspace domains mapped to one Observatory org must use invitation-based onboarding for the secondary domains. Existing-user login path is unchanged — only new-user auto-provisioning is gated.
+- **MFA rate limiting is keyed by userId, not sessionId**: `isMfaLocked`/`recordMfaAttempt`/`clearMfaAttempts` in `routes/mfa.ts` rate-limit MFA verification attempts (TOTP, backup codes, WebAuthn, email OTP) by the target `userId` from the request body. Keyed by userId so attackers can't rotate session cookies to get a fresh rate-limit window — the userId is by definition the target they're attacking. Backed by Redis `INCR` + `PEXPIRE` via `ephemeralIncrement` from `redis.ts` (in-memory counter fallback). Multi-instance safe when Redis is configured. 5 attempts per 15-minute window; the window does NOT reset on each attempt (attackers can't slide the window indefinitely).
 - **Reanalysis worker processes in streaming chunks**: The bulk reanalysis worker fetches and processes calls in 200-call chunks, discarding each chunk before fetching the next, to prevent OOM on large orgs. Progress reporting is approximate for the "all calls" path
-- **AI response validation**: `parseJsonResponse()` in `ai-provider.ts` clamps `performanceScore` to 0-10, sentiment scores to 0-1, sub-scores to 0-10, and validates all field types. Missing fields get safe defaults (5.0 for scores, "neutral" for sentiment). `normalizeAnalysis()` in `storage/types.ts` also clamps on read
+- **AI response validation**: `parseJsonResponse()` in `ai-types.ts` extracts JSON using a **balanced-brace walker** with string-literal awareness (not a greedy regex), so AI responses that contain `{example}`-style placeholders in a preamble before the real JSON block parse correctly. Tries markdown code fences, then full-text parse, then each balanced `{...}` candidate in source order until one parses. Clamps `performanceScore` to 0-10, sentiment scores to 0-1, sub-scores to 0-10, and validates all field types. Missing fields get safe defaults (5.0 for scores, "neutral" for sentiment). `normalizeAnalysis()` in `storage/types.ts` also clamps on read
 - **Empty transcript handling**: If transcript text is <10 characters, the pipeline saves the call with `empty_transcript` flag, low confidence, and skips AI analysis entirely — prevents generating junk analysis from silence/noise
 - **Employee auto-assignment safety**: Only considers active employees. If multiple employees match the detected name, prefers exact full-name match; skips assignment if ambiguous (logs the ambiguity)
 - **speakerRoleMap schema change**: Changed from `z.object({ agentSpeaker: z.string() })` to `z.record(z.string(), z.string())` to support proper speaker label → role mapping (e.g., `{ A: "agent", B: "customer" }`). Old `{ agentSpeaker: "A" }` format was a logic error — the property name was always the literal string "agentSpeaker" instead of using the value as a key
@@ -1512,7 +1534,7 @@ Server serves both API and static frontend from the same process.
 - **Prerequisite order in paths** — `enforceOrder` field on `LearningPath` signals that modules must be completed sequentially (index N requires index N-1 completed); combined with per-module `prerequisiteModuleIds` for flexible gating
 - **`toDisplayString()` handles nested objects**: Checks arrays first (before object path), then `text`, `name`, `task`, `label`, `value`, `description`, `message` keys for wrapped strings, caps JSON fallback at 500 chars
 - **Duplicate upload returns 409**: `POST /api/calls/upload` returns `409 { duplicate: true, existingCallId }` when file hash matches an existing call. Frontend should handle this status code and show the user a link to the existing call instead of a generic error
-- **RLS bypass required for schema-sync**: `syncSchema()` sets `app.bypass_rls = 'true'` at the session level before creating tables/policies, since RLS would otherwise block DDL operations. All pgvector and super-admin cross-org queries must use `withBypassRls()`
+- **RLS bypass scoped to a dedicated connection in schema-sync**: `syncSchema()` acquires a dedicated pg client via `getPool().connect()`, builds a drizzle instance bound to that client, sets `app.bypass_rls='true'` on it (session-level), runs all DDL, and destroys the client with `client.release(true)` in a finally block. This prevents the bypass from leaking back to the pool and silently disabling RLS on subsequent requests. Runtime RLS enforcement now actually works for all policies, including the auth-adjacent tables added in F-01. All pgvector and super-admin cross-org queries still use `withBypassRls()` (transaction-local)
 - **Org status gate adds latency**: `injectOrgContext` now does an async org status lookup on every authenticated request. For high-traffic deployments, consider a short-lived org status cache (TTL ~30s is already used in some implementations)
 - **GDPR purge is irreversible**: `deleteOrgData()` deletes employees, calls, and users but preserves the org record (status=deleted) for audit trail. The session is destroyed immediately after purge. Backups should be the recovery path
 - **AssemblyAI webhook verification**: `POST /api/webhooks/assemblyai` checks `X-Assembly-Webhook-Token` header against `ASSEMBLYAI_WEBHOOK_SECRET` (falls back to `SESSION_SECRET`). Register this endpoint as the webhook URL in your AssemblyAI account
@@ -1610,7 +1632,6 @@ Full audit of 108K LOC across 360 files with priority-ordered ratings and fixes.
 
 #### Remaining issues identified (not yet fixed)
 **P1 (High):**
-- Super-admin N+1 queries (300+ DB queries per request for 100 orgs)
 - `checkAndAwardBadges` loads ALL org calls into memory for badge checks
 - Analytics routes load unbounded datasets (OOM risk for large orgs)
 
@@ -1618,14 +1639,75 @@ Full audit of 108K LOC across 360 files with priority-ordered ratings and fixes.
 - `AudioRecorder` cleanup stale closure doesn't revoke blob URL on unmount
 
 **P2 (Medium):**
-- ~380 `as any` casts across 68 server files (82 in pg-storage.ts alone)
-- 290 ESLint `no-unused-vars` warnings
-- ~330 remaining catch blocks across 26 route files for asyncHandler Phase 2
+- ~375 `as any` casts across 68 server files (the 82 in pg-storage.ts have been refactored away via typed mappers)
+- 250 ESLint `no-unused-vars` warnings
+- ~105 remaining catch blocks across 29 route files for asyncHandler Phase 2
 - Duplicate URL validation utilities (`url-validation.ts` + `url-validator.ts`)
-- Live session Maps have no hard cap (7 unbounded Maps)
-- `request-metrics.ts` unbounded key growth (each UUID creates a new key)
+- Live session Maps have no hard cap (11 unbounded Maps — added 4 for continuous clinical-scribe mode; all cleared on session cleanup)
+- `request-metrics.ts` key growth bounded by Express `req.route?.path` normalization but falls back to `req.path` (raw URL with IDs) when no route match
 - Missing `htmlFor`/`id` pairing on multiple form labels (a11y)
 - `useIsMobile` returns false on first render causing layout shift on mobile
+
+### Branch: `claude/broad-scan-feature-0YtPG`
+
+#### ✅ Completed & committed: 5 P0/P1 fixes from broad-scan audit (F-44, F-11, F-13, F-03, F-01)
+- **F-44 (High) — Post-commit error path data corruption** (`server/services/call-processing.ts`): `postProcessing()` was awaited inside the main try block, so notification/coaching/usage-tracking failures would mark the successfully-committed call as "failed" AND enqueue a retry, producing duplicate transcripts/analyses on re-processing. Fix: wrapped `postProcessing()` in its own try/catch that logs errors but keeps the call in "completed" state.
+- **F-11 (High) — Cosign bypass via addenda** (`server/routes/clinical-compliance.routes.ts`, `shared/schema/calls.ts`): Cosign route filtered amendments by `type === "amendment"`, missing post-attestation addenda. A cosigner could unknowingly sign a note with unreviewed post-attestation content. Fix: returns 409 `OBS-CLINICAL-COSIGN-ADDENDA` when post-attestation addenda exist unless `acknowledgedAddenda: true` is in the request body; `acknowledgedAddendaCount` captured in the cosignature record and audit event. Schema gained optional `acknowledgedAddendaCount` field.
+- **F-13 (High) — Stripe webhook dedup TOCTOU** (`server/services/redis.ts`, `server/routes/billing.ts`): `ephemeralGet` → check → `ephemeralSet` created a window where concurrent Stripe redeliveries could both pass the dedup check. Fix: added `ephemeralSetNx(prefix, key, value, ttlMs)` atomic primitive using Redis `SET NX PX`. In-memory fallback uses Node event-loop serialization. Billing webhook replaced check-then-set with single atomic call.
+- **F-03 (Critical) — S3 retention audit trail** (`server/workers/retention.worker.ts`): S3 deletion failures had no tamper-evident audit trail — compliance officers could not prove retention attempts. Fix: per-failure `logPhiAccess` audit entry with specific object key and error message (`s3_audio_delete_failed` event); summary `s3_audio_purge_partial_failure` event on any partial failure; setup-failure `s3_audio_purge_setup_failed` event when listObjects itself fails. Slack alert now includes sample of failed keys. Retention worker naturally retries failed keys on the next scheduled run via the mtime scan.
+- **F-01 (Critical) — Missing RLS on auth-adjacent tables** (`server/db/schema.ts`, `server/db/sync-schema.ts`, `server/routes/password-reset.ts`): `password_reset_tokens` and `mfa_recovery_requests` lacked RLS policies. `password_reset_tokens` additionally lacked an `org_id` column. Fix: added `addRlsPolicy()` calls for both tables; added `org_id TEXT REFERENCES organizations(id) ON DELETE CASCADE` column to `password_reset_tokens` via idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`; backfill UPDATE from users table on every startup (no-op after first run); Drizzle schema updated with nullable `orgId`. `storeResetToken`/`validateAndConsumeToken` now wrap DB ops in a transaction with local `set_config('app.bypass_rls', 'true', true)` since password reset is pre-auth and has no org context.
+
+#### Follow-on items surfaced during F-01 implementation
+- **Auto-retry visibility**: Retention worker auto-retries failed S3 keys on the next scheduled run, but there's no metric for "age of oldest unsuccessfully-deleted S3 key".
+- **`ephemeralSetNx` adoption elsewhere**: Other read-then-write patterns (OIDC state, upload dedup) could benefit from the same atomic primitive.
+
+#### ✅ Completed & committed: 3 HIPAA-critical fixes from top-10 follow-on list
+- **Session-level RLS bypass leak** (`server/db/sync-schema.ts`, `server/db/index.ts`) — `syncSchema` previously set `app.bypass_rls='true'` on a pooled drizzle connection at the session level, and that setting leaked back to the pool and silently disabled RLS on subsequent requests. Fix: `syncSchema` now acquires a dedicated pg client via `getPool().connect()`, builds a drizzle instance bound to that client, runs all DDL on it, and destroys the client with `client.release(true)` in a finally block. Every RLS policy in the codebase (including F-01's new ones for `password_reset_tokens` and `mfa_recovery_requests`) is now actually runtime-enforced. `getPool()` export added to `db/index.ts`.
+- **F-12 — Live-session consent hard-coded** (`server/routes/live-session.ts`, `shared/schema/billing.ts`, `server/db/schema.ts`, `server/db/sync-schema.ts`, `server/db/pg-storage-features.ts`) — `POST /api/live-sessions` accepted a boolean `consentObtained` with no metadata, violating HIPAA §164.508's documented-consent requirement. Fix: added `CONSENT_METHODS = ["verbal", "written", "electronic"]` enum. The route now requires `consentMethod` in the request (returns 400 `OBS-CLINICAL-CONSENT-METHOD-REQUIRED` if missing), persists structured metadata (`consentMethod`, `consentCapturedAt`, `consentCapturedBy`) on the `live_sessions` row, and logs a `clinical_consent_obtained` HIPAA audit event with the provider and method. Schema columns added via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`. **Breaking change**: client UI must send `consentMethod`.
+- **F-18 — backup.sh mktemp race window** (`deploy/ec2/backup.sh`) — `mktemp -d` created the PHI backup directory with default umask (0022 → 0755) before the subsequent `chmod 700`, leaving a brief window where the directory was world-readable. Fix: added `umask 077` at the top of the script so every file and directory created is owner-only from the moment of creation. The existing `chmod 700` is kept as defense-in-depth.
+
+#### Follow-on items (from the 3-fix batch)
+- **Consent revocation workflow**: Only capture is addressed. HIPAA §164.508 also requires patients to be able to revoke consent. Not implemented.
+- **CloudStorage live session consent fields**: PostgresStorage mapper was updated. If any deployment uses CloudStorage backend for live sessions, that implementation may need to be updated to handle the new fields. MemStorage passes through via spread.
+
+#### ✅ Completed & committed: 3 High-priority fixes from top-10 follow-on list (F-38, F-05, F-09)
+- **F-38 (High) — clinical-live audio error swallowing** (`client/src/pages/clinical-live.tsx`): The audio chunk POST used `.catch(() => {})` so network failures during a live clinical recording were invisible to the provider. Clinicians would believe they were recording while audio was being lost, leading to incomplete clinical notes. Fix: added `audioUploadFailed` state + `audioUploadFailCountRef`. The .then/.catch now tracks consecutive failures; after 3 in a row, a persistent red banner with `role="alert"` appears telling the clinician audio is being lost and to pause/resume or restart. Any successful upload resets the counter and clears the banner. "New Recording" reset also clears.
+- **F-05 (High) — Greedy JSON regex in `parseJsonResponse`** (`server/services/ai-types.ts`): `/\{[\s\S]*\}/` matched from the first `{` to the LAST `}`, so an AI response wrapping JSON in explanation text with braces (e.g. `"Here's the pattern {example}: {...real JSON...}"`) captured both together and failed `JSON.parse`. Calls were marked failed with a confusing error. Fix: new `extractBalancedJsonObjects` walker finds ALL top-level balanced `{...}` substrings with string-literal awareness (handles nested braces, escaped quotes, braces inside strings). `parseJsonResponse` tries (1) markdown code fences, (2) full trimmed text, (3) each balanced candidate in source order until one parses successfully — skips past `{example}`-style placeholders. Preserves `AI_NO_JSON` vs `AI_MALFORMED_JSON` error code distinction.
+- **F-09 (High) — MFA rate limit keyed only by sessionId** (`server/services/redis.ts`, `server/routes/mfa.ts`): `isMfaLocked`/`recordMfaAttempt`/`clearMfaAttempts` were keyed by `req.sessionID`, which meant (1) an attacker could clear their session cookie between attempts to get a fresh ID (unlimited retries), and (2) multi-instance deployments without sticky sessions had per-instance state (5 attempts × N instances per user). Fix: new `ephemeralIncrement(prefix, key, ttlMs)` in `redis.ts` using atomic Redis `INCR` + `PEXPIRE` (in-memory counter fallback). Rate limit now keyed by `userId` (from request body — attackers cannot rotate it). All 4 MFA verify endpoints (TOTP, backup codes, WebAuthn, email OTP) updated. Removed the module-local `setInterval` pruning (handled by Redis TTL or memFallback auto-eviction).
+
+#### ✅ Completed & committed: 3 top-10 fixes (consent UI, Bedrock empty response, Google OAuth hd claim)
+- **Consent method picker UI** (`client/src/pages/clinical-live.tsx`): Follow-on from F-12. The server-side F-12 fix required clients to send `consentMethod` in `POST /api/live-sessions` or the server returns 400 `OBS-CLINICAL-CONSENT-METHOD-REQUIRED`. Without a UI picker, clinical live recording was silently broken for every clinical customer. Fix: added `consentMethod` state + a `Select` dropdown with 3 options (verbal / written / electronic) each with a descriptive label. The Start Recording button is disabled until BOTH `consentConfirmed` checkbox AND `consentMethod` are set. Mutation body now includes `consentMethod`. "New Recording" reset clears the method too.
+- **F-06 (High) — Bedrock `generateText` empty string ambiguity** (`server/services/bedrock.ts`): The function returned `""` when `result.output.message.content[0].text` was missing (content filter blocks, API shape changes, transient blips). Callers (coaching engine, call insights, reports, emails, insurance narratives) treated empty as success, producing silently-empty coaching plans and narrative drafts. Fix: explicit check for missing/empty text content; throws a marked error (`isBedrockEmptyContent: true`) that the existing retry loop recognizes as retryable. After `MAX_RETRIES`, callers get a clear `"Bedrock returned empty response content"` error instead of an empty string. Transient cases now get 2 retries automatically.
+- **F-36 (High) — Google OAuth auto-provisioning domain verification** (`server/routes/oauth.ts`): Auto-provisioning trusted any Google account whose email domain matched `org.settings.emailDomain`, with no verification that the account was managed by that domain's Google Workspace tenant. Consumer Gmail accounts and cross-Workspace accounts could claim membership — domain-squatting account takeover. Fix: added two checks to the auto-provisioning path: (1) reject if `profile.emails[0].verified === false`, (2) require `profile._json.hd === emailDomain` (Workspace hosted-domain claim must match). Existing-user login path is unchanged — only new-user auto-provisioning is gated. Admins can still invite users manually without the `hd` check.
+
+#### Follow-on items (from the 3 top-10 fixes)
+- **Consent revocation workflow**: Previous batch also noted this; still applies. HIPAA §164.508 requires the ability to revoke consent mid-session.
+- **Bedrock empty-content metric**: The thrown error is logged at warn level but not counted in a metric. Ops would benefit from a per-model counter of empty-content responses for content-filter debugging.
+- **OAuth multi-domain support**: Orgs with multiple Google Workspace domains could be supported by adding `settings.allowedEmailDomains: string[]` and checking membership. Not in scope.
+- **OAuth admin approval queue**: A stricter posture would queue auto-provisioned users as "pending" until an admin approves. Not in scope.
+
+#### ✅ Completed & committed: 2 top-10 fixes (F-14 scheduled task timeouts, super-admin N+1 queries)
+- **#3 F-14 (High) — Daily task orchestrator has no per-task timeout** (`server/scheduled/index.ts`): `runAllDailyTasks()` ran tasks sequentially with only try/catch isolation. A hung `runRetention()` or `audit-chain-verify` (DB deadlock, S3 rate-limit hang, unresponsive EHR) silently blocked every downstream task (quota alerts, trial downgrade, weekly digest) for that day. Fix: new `withTaskTimeout()` helper wraps each task in `Promise.race` with a distinct `ScheduledTaskTimeoutError` class. Retention gets 30 min, others get 10 min. Added duration logging on completion. Documented that JavaScript can't cancel promises — a hung task's work continues in background but the orchestrator moves on so downstream tasks still run.
+- **#5 (High) — Super-admin N+1 queries**: `/api/super-admin/stats`, `/organizations`, and `/usage` looped over orgs with `Promise.all` per-org (3 queries each for `countUsersByOrg` + `countCallsByOrg` + `getSubscription`). For 100 orgs that's 300+ DB queries per dashboard request, making the super-admin panel unusable at scale. Fix: new `IStorage.getOrgsStatsBulk(orgIds)` method. Postgres implementation uses 3 aggregate queries total (`GROUP BY` on users, `GROUP BY` on calls, `inArray` on subscriptions). MemStorage implementation scans in-memory Maps. CloudStorage falls back to parallel per-org queries. `/stats` and `/organizations` now do 3 queries total regardless of org count. `/usage` reduced from 3 queries/org to 1 query/org + 3 platform-wide aggregates (the per-org `getOrgUsageSummary` call returns richer data not covered by the bulk method). Response JSON shape unchanged.
+
+#### Follow-on items (from the 2-fix batch)
+- **PostgreSQL IN-limit safety**: `inArray` with >32,767 org IDs would fail. Use the existing `chunkedInArray` helper if a super-admin ever has that many orgs. Not required at current scale.
+- **Scheduled task timeout env override**: Timeout values are constants. Exposing them via `SCHEDULED_TASK_TIMEOUT_MS` would let ops tune them without code changes.
+- **`getOrgUsageSummary` bulk variant**: `/usage` is still O(N) for the richer per-org aggregate. Adding a bulk variant would further speed up the usage dashboard.
+- **Scheduled task duration metrics**: New `durationMs` log lines could feed Prometheus histograms for daily task observability.
+
+#### ✅ Completed & committed: Strategic features from broad-scan audit (Stage 3 suggestions)
+- **Plan-aware sidebar navigation** (`client/src/components/layout/sidebar.tsx`) — `meetsPlan()` helper + `PLAN_LEVEL` map. Free/Starter tiers hide Channels and Engagement sections; Calibration gated to Professional+; Insurance Letters gated to clinical plans. First-load effect applies plan-specific collapse defaults, respecting explicit user overrides persisted in localStorage. Users can still reach these pages by URL if they have role access — the sidebar gate is UX-only.
+- **QA audit packet export** (`server/routes/calibration.ts`) — `GET /api/calibration/audit-packet?startDate&endDate&format=json|csv` (manager+, default 90-day window). Aggregates all completed calibration sessions in the range, computes org-wide Krippendorff α / ICC, evaluator certification summary (certified/probationary/flagged/needs_calibration), and per-session breakdowns. HIPAA audit-logged via `calibration_audit_packet_generated` event.
+- **Coaching → LMS bridge** (`server/routes/coaching.ts`) — `POST /api/coaching/:id/generate-lms-module` (manager+). Uses the coaching session's category, notes, and linked call analysis to generate a focused, PHI-free LMS module via `aiProvider.generateText`. Optionally auto-assigns to the coached employee and links the module back to the session (via `linkedLearningModuleIds` — currently cast as `any` since the field isn't in the Zod schema). HIPAA audit event `coaching_lms_module_generated`.
+- **Clinical-scribe continuous mode** (`server/routes/live-session.ts`) — `POST /api/live-sessions` accepts `continuousDraftMode: true`. When enabled, the server auto-regenerates the draft clinical note every 3 new final segments or 20s elapsed (whichever first), bypassing the manual 15s cooldown. Extracted shared `generateDraftNoteForSession()` helper and `maybeTriggerAutoDraft()` trigger with in-flight guard. Added 4 new in-memory Maps (`sessionContinuousMode`, `sessionSegmentsSinceDraft`, `sessionLastAutoDraftAt`, `sessionAutoDraftInFlight`), all cleared in `cleanupSession()`. 5-second periodic timer scans continuous sessions for time-based triggers. Auto-drafts broadcast via `broadcastLiveTranscript` with `autoDrafted: true`.
+
+#### Follow-on items (not yet implemented)
+- Add `linkedLearningModuleIds` to the `CoachingSession` Zod schema + DB columns so the coaching→LMS back-link persists properly (currently via `as any` cast)
+- Add client UI for the Calibration audit packet download button on `/calibration`
+- Add client UI for clinical-scribe continuous-mode opt-in toggle on `clinical-live.tsx` setup step
+- Add client UI for coaching-to-LMS "Generate Training Module" button on each coaching session card
+- Add `updateLearningProgress` to the `IStorage` interface (currently feature-detected via `(storage as any)`)
 
 ### Branch: `claude/evaluate-qa-rag-integration-MrMze`
 
@@ -2006,7 +2088,7 @@ See earlier sections in this file for full details of prior work on this branch.
 - **SSO slug a11y** — `auth.tsx`: `aria-label` on organization slug input
 
 **Bedrock reliability:**
-- **generateText retry** — `bedrock.ts`: 2 retries with exponential backoff + jitter for transient failures (429, 5xx, timeout). All callers benefit automatically
+- **generateText retry** — `bedrock.ts`: 2 retries with exponential backoff for transient failures (429, 5xx, timeout, and missing-content responses marked `isBedrockEmptyContent`). Empty-content case previously returned `""` which callers treated as success; now throws and retries. All callers benefit automatically
 
 ## Future Plans / Roadmap
 See `HEALTHCARE_EXPANSION_PLAN.md` for the full 4-phase healthcare expansion roadmap.
@@ -2128,7 +2210,7 @@ Longer-term improvements identified during codebase audits. Work on these increm
 | Priority | Item | Effort | Impact | Notes |
 |----------|------|--------|--------|-------|
 | HIGH | **Storage layer type safety** | 5 days | High — eliminates ~200 `as any` casts | `pg-storage.ts` has 82 `as any` casts, mostly from untyped Drizzle query results. Fix: add generic return types to all IStorage methods; update mapAnalysis/mapUser/mapEmployee to use typed row objects. Eliminates the #1 source of type unsafety. Sprint 1 priority |
-| HIGH | **asyncHandler adoption Phase 2 (server routes)** | 2 days | Medium — eliminates ~330 remaining catch blocks | Phase 1 done: coaching (29→1), onboarding (28→13), mfa (21→2). Phase 2 targets by catch count: admin.ts (21), ehr.ts (20), billing.ts (20), clinical.ts (19), lms.ts (18), emails.ts (17), ab-testing.ts (16), live-session.ts (15), + 18 smaller files. Convert in batches of 4-5 via parallel agents. Sprint 2 |
+| HIGH | **asyncHandler adoption Phase 2 (server routes)** | 2 days | Medium — eliminates ~105 remaining catch blocks | Phase 1 done: coaching (29→1), onboarding (28→13), mfa (21→2). Remaining catch blocks span 29 route files. Convert in batches of 4-5 via parallel agents. Sprint 2 |
 | ✅ Done | **Call processing transaction wrapper** | — | — | `claude/audit-and-prioritize-GydTL` — added `withTransaction` to IStorage (PostgresStorage: real Drizzle tx; MemStorage/CloudStorage: no-op). Wrapped main pipeline, batch mode, empty transcript, and live session writes |
 | MEDIUM | **Consolidate URL validation utilities** | 0.5 days | Low — reduces confusion | `url-validation.ts` (used by 3 files) and `url-validator.ts` (used only by tests) have overlapping SSRF checks. Merge the best checks from both into `url-validation.ts`, update the 15 test imports in `remaining-adaptations.test.ts`, delete `url-validator.ts`. Sprint 2 |
 | MEDIUM | **Large file decomposition (remaining)** | 3 days | Medium — improves navigability | 14 files still >1000 LOC. Server: `memory.ts` (1.6K → split by domain), `sync-schema.ts` (1.5K → split by table group), `rag.ts` (1.3K → extract synonym/query modules), `call-processing.ts` (1.2K → extract pipeline steps). Client: `transcript-viewer.tsx` (1.3K → extract correction UI), `clinical-notes.tsx` (1.2K → extract print/amendment), `reports.tsx` (1.2K → extract chart sections). Sprint 2-3 |
@@ -2200,7 +2282,7 @@ Longer-term improvements identified during codebase audits. Work on these increm
 |----------|------|--------|--------|-------|
 | HIGH | **Move in-memory state to Redis** | 2 days | High — enables multi-instance | 3 remaining in-memory Maps lose state on restart/across instances: email OTP (mfa.ts), live sessions (live-session.ts), rateLimitMap (index.ts). OIDC state, loginAttempts, and Stripe webhook dedup are already migrated to Redis ephemeral API. Sprint 1-2 |
 | HIGH | **Pin CI actions to SHA** | 0.5 days | High — supply chain security | Main CI workflow uses floating tags (`@v4`). Nightly/PR-review correctly pin SHAs. Fix: pin all actions to SHA digests. Sprint 1 |
-| HIGH | **Backup script PHI safety** | 0.5 days | High — HIPAA compliance | `deploy/ec2/backup.sh` stores dumps in `/tmp` (world-readable) before S3 upload. Fix: use `mktemp -d` with 700 permissions, cleanup on exit trap. Sprint 1 |
+| ✅ Done | **Backup script PHI safety** | — | — | `claude/broad-scan-feature-0YtPG` — `deploy/ec2/backup.sh` now sets `umask 077` at script start so every file and directory is created owner-only. Closes the race window between `mktemp -d` and `chmod 700`. |
 | MEDIUM | **Dependency audit on PRs** | 0.5 days | Medium — vulnerability detection | Weekly-only check; critical vulns can ship for days. Fix: add `npm audit --audit-level=high` to PR review workflow. Sprint 2 |
 | MEDIUM | **Container image scanning** | 1 day | Medium — supply chain security | No SAST/DAST or container scanning. Fix: add Trivy scan on Docker build step. Sprint 2 |
 | MEDIUM | **Canary deployment** | 3 days | Medium — reduces deployment risk | All production traffic switches immediately. Fix: add health-check gated traffic shifting in deploy.sh (10% → 50% → 100% with rollback). Sprint 3 |

@@ -575,6 +575,9 @@ export const passwordResetTokens = pgTable(
   "password_reset_tokens",
   {
     id: text("id").primaryKey(),
+    // orgId enables RLS-based tenant isolation and cascade deletion when an org is purged.
+    // Nullable for backward compatibility with rows created before the column was added.
+    orgId: text("org_id").references(() => organizations.id, { onDelete: "cascade" }),
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -583,7 +586,11 @@ export const passwordResetTokens = pgTable(
     usedAt: timestamp("used_at"),
     createdAt: timestamp("created_at").defaultNow(),
   },
-  (t) => [index("password_reset_user_idx").on(t.userId), uniqueIndex("password_reset_token_hash_idx").on(t.tokenHash)],
+  (t) => [
+    index("password_reset_user_idx").on(t.userId),
+    index("password_reset_org_idx").on(t.orgId),
+    uniqueIndex("password_reset_token_hash_idx").on(t.tokenHash),
+  ],
 );
 
 // --- USAGE EVENTS (per-org metering for billing) ---
@@ -663,6 +670,10 @@ export const liveSessions = pgTable(
     draftClinicalNote: jsonb("draft_clinical_note"),
     durationSeconds: integer("duration_seconds").notNull().default(0),
     consentObtained: boolean("consent_obtained").notNull().default(false),
+    // HIPAA §164.508: structured consent metadata for audit trail. Added per F-12.
+    consentMethod: varchar("consent_method", { length: 20 }),
+    consentCapturedAt: timestamp("consent_captured_at"),
+    consentCapturedBy: text("consent_captured_by"),
     callId: text("call_id").references(() => calls.id),
     startedAt: timestamp("started_at").defaultNow(),
     endedAt: timestamp("ended_at"),

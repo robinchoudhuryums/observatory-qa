@@ -744,4 +744,243 @@ export function registerCalibrationRoutes(app: Express) {
         res.json(certifications);
       }),
   );
+
+  /**
+   * QA Audit Packet — comprehensive multi-session report for regulatory/compliance audits.
+   *
+   * Aggregates all completed calibration sessions in a date range (default: last 90 days),
+   * computes org-wide IRR metrics, evaluator certification summary, and consensus deviation trends.
+   * Output is a structured JSON document suitable for rendering as a PDF or attaching to audits.
+   *
+   * Query params:
+   *   startDate, endDate — ISO date strings (optional; default: last 90 days)
+   *   format — "json" (default) or "csv" for flat export
+   */
+  app.get(
+    "/api/calibration/audit-packet",
+    requireAuth,
+    requireRole("manager"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
+
+      const now = new Date();
+      const defaultStart = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+      const startDate = typeof req.query.startDate === "string" ? new Date(req.query.startDate) : defaultStart;
+      const endDate = typeof req.query.endDate === "string" ? new Date(req.query.endDate) : now;
+      const format = req.query.format === "csv" ? "csv" : "json";
+
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        return res.status(400).json({ message: "Invalid startDate or endDate" });
+      }
+      if (endDate < startDate) {
+        return res.status(400).json({ message: "endDate must be after startDate" });
+      }
+
+      const org = await storage.getOrganization(orgId);
+      const users = await storage.listUsersByOrg(orgId);
+      const userMap = new Map(users.map((u) => [u.id, u]));
+
+      const allSessions = await storage.listCalibrationSessions(orgId, { status: "completed" });
+      // Filter to date range
+      const sessionsInRange = allSessions.filter((s) => {
+        const ts = s.completedAt || s.createdAt;
+        if (!ts) return false;
+        const d = new Date(ts);
+        return d >= startDate && d <= endDate;
+      });
+
+      // Collect evaluations for every session in parallel for audit summary
+      const sessionDetails: Array<{
+        session: typeof sessionsInRange[number];
+        evaluations: CalibrationEvaluation[];
+        stdDev: number;
+        krippendorff: number | null;
+        icc: number | null;
+        meanScore: number;
+        aiScore: number | null;
+        consensusDeviation: number | null;
+      }> = [];
+
+      for (const session of sessionsInRange) {
+        const evaluations = await storage.getCalibrationEvaluations(orgId, session.id);
+        const scores = evaluations.map((e) => e.performanceScore);
+        const meanScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+        const analysis = await storage.getCallAnalysis(orgId, session.callId);
+        const aiScore = analysis?.performanceScore ? parseFloat(String(analysis.performanceScore)) : null;
+        const consensusDeviation =
+          session.targetScore !== undefined && session.targetScore !== null
+            ? Math.round(Math.abs(meanScore - session.targetScore) * 100) / 100
+            : null;
+        sessionDetails.push({
+          session,
+          evaluations,
+          stdDev: computeStdDev(scores),
+          krippendorff: computeKrippendorffAlpha(evaluations),
+          icc: computeICC(evaluations),
+          meanScore: Math.round(meanScore * 100) / 100,
+          aiScore,
+          consensusDeviation,
+        });
+      }
+
+      // Org-wide IRR: average of per-session Krippendorff alpha and ICC (ignoring nulls)
+      const alphas = sessionDetails.map((d) => d.krippendorff).filter((a): a is number => a !== null);
+      const iccs = sessionDetails.map((d) => d.icc).filter((a): a is number => a !== null);
+      const orgAlpha =
+        alphas.length > 0 ? Math.round((alphas.reduce((a, b) => a + b, 0) / alphas.length) * 1000) / 1000 : null;
+      const orgIcc =
+        iccs.length > 0 ? Math.round((iccs.reduce((a, b) => a + b, 0) / iccs.length) * 1000) / 1000 : null;
+
+      // Aggregate evaluator certification stats across all sessions in range
+      const evaluatorStats: Record<
+        string,
+        {
+          evaluatorId: string;
+          evaluatorName: string;
+          sessionsParticipated: number;
+          deviations: number[];
+        }
+      > = {};
+      for (const d of sessionDetails) {
+        const target = d.session.targetScore ?? d.meanScore;
+        for (const ev of d.evaluations) {
+          if (!evaluatorStats[ev.evaluatorId]) {
+            evaluatorStats[ev.evaluatorId] = {
+              evaluatorId: ev.evaluatorId,
+              evaluatorName: userMap.get(ev.evaluatorId)?.name || "Unknown",
+              sessionsParticipated: 0,
+              deviations: [],
+            };
+          }
+          const s = evaluatorStats[ev.evaluatorId]!;
+          s.sessionsParticipated++;
+          s.deviations.push(Math.abs(ev.performanceScore - target));
+        }
+      }
+      const evaluatorSummary = Object.values(evaluatorStats).map((s) => {
+        const avgDeviation = s.deviations.reduce((a, b) => a + b, 0) / (s.deviations.length || 1);
+        let certificationStatus: "certified" | "probationary" | "needs_calibration" | "flagged";
+        if (s.sessionsParticipated >= 5 && avgDeviation < 1.0) certificationStatus = "certified";
+        else if (s.sessionsParticipated >= 3 && avgDeviation < 2.0) certificationStatus = "probationary";
+        else if (s.sessionsParticipated >= 3 && avgDeviation >= 2.0) certificationStatus = "flagged";
+        else certificationStatus = "needs_calibration";
+        return {
+          evaluatorId: s.evaluatorId,
+          evaluatorName: s.evaluatorName,
+          sessionsParticipated: s.sessionsParticipated,
+          avgDeviation: Math.round(avgDeviation * 100) / 100,
+          certificationStatus,
+        };
+      });
+      evaluatorSummary.sort((a, b) => b.sessionsParticipated - a.sessionsParticipated);
+
+      const certifiedCount = evaluatorSummary.filter((e) => e.certificationStatus === "certified").length;
+      const flaggedCount = evaluatorSummary.filter((e) => e.certificationStatus === "flagged").length;
+
+      // Log packet generation to HIPAA audit trail — regulators want proof of QA activity
+      logPhiAccess({
+        ...auditContext(req),
+        event: "calibration_audit_packet_generated",
+        resourceType: "calibration_audit_packet",
+        detail: `Packet generated for ${sessionDetails.length} session(s) between ${startDate.toISOString().slice(0, 10)} and ${endDate.toISOString().slice(0, 10)}`,
+      });
+
+      const packet = {
+        packetId: `qa-audit-${orgId}-${Date.now()}`,
+        generatedAt: new Date().toISOString(),
+        generatedBy: req.user?.name || req.user?.username || "unknown",
+        organization: {
+          id: orgId,
+          name: org?.name || "Unknown",
+          slug: org?.slug || "",
+        },
+        period: {
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString(),
+        },
+        summary: {
+          totalCompletedSessions: sessionDetails.length,
+          totalEvaluators: evaluatorSummary.length,
+          certifiedEvaluators: certifiedCount,
+          flaggedEvaluators: flaggedCount,
+          orgKrippendorffAlpha: orgAlpha,
+          orgIcc: orgIcc,
+          alphaInterpretation:
+            orgAlpha === null
+              ? "Insufficient data"
+              : orgAlpha >= 0.8
+                ? "High agreement — QA process is well-calibrated"
+                : orgAlpha >= 0.67
+                  ? "Acceptable agreement — tentative conclusions can be drawn"
+                  : "Low agreement — QA process requires recalibration",
+        },
+        evaluators: evaluatorSummary,
+        sessions: sessionDetails.map((d) => ({
+          sessionId: d.session.id,
+          title: d.session.title,
+          callId: d.session.callId,
+          completedAt: d.session.completedAt || d.session.createdAt,
+          facilitator: userMap.get(d.session.facilitatorId)?.name || "Unknown",
+          aiScore: d.aiScore,
+          consensusScore: d.session.targetScore ?? null,
+          meanEvaluatorScore: d.meanScore,
+          standardDeviation: d.stdDev,
+          krippendorffAlpha: d.krippendorff,
+          icc: d.icc,
+          consensusDeviation: d.consensusDeviation,
+          evaluatorCount: d.evaluations.length,
+          blindMode: d.session.blindMode || false,
+        })),
+      };
+
+      if (format === "csv") {
+        // Flat CSV for import into Excel/audit tooling
+        const lines: string[] = [];
+        lines.push("QA CALIBRATION AUDIT PACKET");
+        lines.push(`Packet ID,${packet.packetId}`);
+        lines.push(`Generated,${packet.generatedAt}`);
+        lines.push(`Generated By,"${packet.generatedBy.replace(/"/g, '""')}"`);
+        lines.push(`Organization,"${packet.organization.name.replace(/"/g, '""')}"`);
+        lines.push(`Period Start,${packet.period.startDate}`);
+        lines.push(`Period End,${packet.period.endDate}`);
+        lines.push("");
+        lines.push("ORG-WIDE SUMMARY");
+        lines.push(`Total Completed Sessions,${packet.summary.totalCompletedSessions}`);
+        lines.push(`Total Evaluators,${packet.summary.totalEvaluators}`);
+        lines.push(`Certified Evaluators,${packet.summary.certifiedEvaluators}`);
+        lines.push(`Flagged Evaluators,${packet.summary.flaggedEvaluators}`);
+        lines.push(`Org Krippendorff Alpha,${orgAlpha !== null ? orgAlpha.toFixed(3) : "N/A"}`);
+        lines.push(`Org ICC,${orgIcc !== null ? orgIcc.toFixed(3) : "N/A"}`);
+        lines.push(`Interpretation,"${packet.summary.alphaInterpretation.replace(/"/g, '""')}"`);
+        lines.push("");
+        lines.push("EVALUATOR SUMMARY");
+        lines.push("Evaluator,Sessions,Avg Deviation,Certification Status");
+        for (const e of evaluatorSummary) {
+          lines.push(
+            `"${e.evaluatorName.replace(/"/g, '""')}",${e.sessionsParticipated},${e.avgDeviation.toFixed(2)},${e.certificationStatus}`,
+          );
+        }
+        lines.push("");
+        lines.push("SESSIONS");
+        lines.push(
+          "Session ID,Title,Completed,Facilitator,AI Score,Consensus Score,Mean,StdDev,Alpha,ICC,Evaluators,Blind",
+        );
+        for (const s of packet.sessions) {
+          const title = (s.title || "").replace(/"/g, '""');
+          const fac = (s.facilitator || "Unknown").replace(/"/g, '""');
+          lines.push(
+            `${s.sessionId},"${title}",${s.completedAt || ""},"${fac}",${s.aiScore ?? ""},${s.consensusScore ?? ""},${s.meanEvaluatorScore},${s.standardDeviation},${s.krippendorffAlpha ?? ""},${s.icc ?? ""},${s.evaluatorCount},${s.blindMode ? "Yes" : "No"}`,
+          );
+        }
+        const csv = lines.join("\n");
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="${packet.packetId}.csv"`);
+        return res.send(csv);
+      }
+
+      res.json(packet);
+    }),
+  );
 }

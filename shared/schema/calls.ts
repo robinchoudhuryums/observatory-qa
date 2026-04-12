@@ -262,6 +262,8 @@ export const clinicalNoteSchema = z.object({
         .optional(),
       cosignedAt: z.string(),
       role: z.string().optional(), // "attending", "supervisor", "supervising_dentist"
+      /** Number of post-attestation addenda the cosigner explicitly acknowledged at sign time (audit trail) */
+      acknowledgedAddendaCount: z.number().int().optional(),
     })
     .optional(),
   // Structured data extracted from note free text (vitals, medications, allergies)

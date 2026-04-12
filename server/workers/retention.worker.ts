@@ -49,6 +49,12 @@ export function createRetentionWorker(
       // HIPAA: Purge orphaned S3 audio files that may remain after DB call deletion.
       // Lists S3 objects in the org's prefix and deletes any with last-modified older
       // than retentionDays that no longer have a corresponding DB record.
+      //
+      // Retry semantics: on transient failures, the retention worker naturally retries
+      // failed keys on the next scheduled run (it re-scans all objects older than cutoff).
+      // For persistent failures, each failure writes an `s3_audio_delete_failed` audit
+      // entry with the specific key so compliance officers can prove the attempt and
+      // can manually remediate. See F-03 in broad-scan audit.
       try {
         const s3Bucket = process.env.S3_BUCKET;
         if (s3Bucket) {
@@ -59,6 +65,7 @@ export function createRetentionWorker(
           const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
           let s3Purged = 0;
           let s3Failed = 0;
+          const failedKeys: string[] = [];
           for (const obj of objects) {
             const updated = new Date(obj.updated);
             if (updated < cutoff) {
@@ -67,7 +74,20 @@ export function createRetentionWorker(
                 s3Purged++;
               } catch (delErr) {
                 s3Failed++;
+                failedKeys.push(obj.name);
                 logger.warn({ orgId, err: delErr, key: obj.name }, "Retention worker: S3 object delete failed");
+                // HIPAA: per-failure audit entry with the specific S3 key.
+                // Compliance auditors can query audit_logs for s3_audio_delete_failed
+                // to prove the retention attempt was made and trace specific keys
+                // that need manual remediation.
+                const errMsg = delErr instanceof Error ? delErr.message.slice(0, 200) : "unknown error";
+                logPhiAccess({
+                  event: "s3_audio_delete_failed",
+                  orgId,
+                  resourceType: "audio_file",
+                  resourceId: obj.name,
+                  detail: `S3 deletion failed for retention purge (retentionDays=${retentionDays}): ${errMsg}. Will auto-retry on next retention run.`,
+                });
               }
             }
           }
@@ -76,11 +96,20 @@ export function createRetentionWorker(
               { orgId, s3Purged, s3Failed, retentionDays },
               `Retention worker: ${s3Failed} S3 audio deletions failed — PHI may remain in storage`,
             );
+            // HIPAA: summary audit entry for failed batch — even though each failure
+            // already has its own entry, having a single queryable aggregate event
+            // simplifies compliance reporting.
+            logPhiAccess({
+              event: "s3_audio_purge_partial_failure",
+              orgId,
+              resourceType: "audio_files",
+              detail: `${s3Failed} of ${s3Failed + s3Purged} S3 audio deletions failed for retention purge (retentionDays=${retentionDays}). Failed keys logged in separate audit entries. Retry scheduled for next retention run.`,
+            });
             // Alert admins via webhook — orphaned PHI in S3 requires attention
             sendSlackNotification(
               {
                 channel: "alerts",
-                text: `:warning: *PHI Retention Alert*: ${s3Failed} S3 audio file(s) failed to delete for org \`${orgId}\`. ${s3Purged} succeeded. PHI audio may remain in storage past retention policy (${retentionDays} days). Manual cleanup required.`,
+                text: `:warning: *PHI Retention Alert*: ${s3Failed} S3 audio file(s) failed to delete for org \`${orgId}\`. ${s3Purged} succeeded. PHI audio may remain in storage past retention policy (${retentionDays} days). Failed keys (sample): ${failedKeys.slice(0, 5).join(", ")}${failedKeys.length > 5 ? " …" : ""}. Auto-retry on next retention run.`,
               },
               orgId,
             ).catch(() => {}); // Non-blocking — alert failure shouldn't crash retention
@@ -96,7 +125,17 @@ export function createRetentionWorker(
           }
         }
       } catch (s3Err) {
+        // HIPAA: the top-level try/catch only fires on setup failures (e.g.,
+        // S3 client init or listObjects failed). Log a single audit entry so
+        // compliance can see that the retention scan was attempted.
+        const errMsg = s3Err instanceof Error ? s3Err.message.slice(0, 200) : "unknown error";
         logger.warn({ orgId, err: s3Err }, "Retention worker: S3 audio purge failed (non-fatal)");
+        logPhiAccess({
+          event: "s3_audio_purge_setup_failed",
+          orgId,
+          resourceType: "audio_files",
+          detail: `S3 retention scan could not start (retentionDays=${retentionDays}): ${errMsg}. Retry scheduled for next retention run.`,
+        });
       }
 
       // HIPAA: Purge only very old audit logs (7+ years) — never delete with PHI

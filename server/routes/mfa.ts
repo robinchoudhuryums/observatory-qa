@@ -43,43 +43,50 @@ import { encryptMfaSecret, decryptMfaSecret } from "../services/phi-encryption";
 import { logger } from "../services/logger";
 import { sendEmail } from "../services/email";
 import { asyncHandler } from "../middleware/error-handler";
+import { ephemeralIncrement, ephemeralDel, ephemeralGet } from "../services/redis";
 
-// Rate limit MFA verification attempts (per session)
-const mfaAttempts = new Map<string, { count: number; lastAttempt: number }>();
+// Rate limit MFA verification attempts.
+//
+// F-09: Keyed by userId (NOT sessionId). An attacker knows the target userId
+// (it's sent in the request body), so they cannot rotate it between attempts.
+// Previously keyed by sessionId, which could be bypassed by clearing the
+// session cookie between attempts and was also per-instance in multi-instance
+// deployments (no sticky sessions = 5 attempts per instance per user).
+//
+// Backed by Redis via ephemeralIncrement so state is shared across instances.
+// Falls back to in-memory counter on single-instance deployments.
+const MFA_RATE_PREFIX = "mfa-attempts";
 const MFA_MAX_ATTEMPTS = 5;
 const MFA_LOCKOUT_MS = 15 * 60 * 1000;
 
-function isMfaLocked(sessionId: string): boolean {
-  const record = mfaAttempts.get(sessionId);
-  if (!record || record.count < MFA_MAX_ATTEMPTS) return false;
-  if (Date.now() - record.lastAttempt > MFA_LOCKOUT_MS) {
-    mfaAttempts.delete(sessionId);
-    return false;
-  }
-  return true;
+/**
+ * Check whether the given userId has exceeded the MFA rate limit window.
+ * Reads (doesn't increment) the current counter.
+ */
+async function isMfaLocked(userId: string): Promise<boolean> {
+  const raw = await ephemeralGet(MFA_RATE_PREFIX, userId);
+  if (!raw) return false;
+  const count = parseInt(raw, 10);
+  return Number.isFinite(count) && count >= MFA_MAX_ATTEMPTS;
 }
 
-function recordMfaAttempt(sessionId: string): void {
-  const record = mfaAttempts.get(sessionId) || { count: 0, lastAttempt: 0 };
-  record.count++;
-  record.lastAttempt = Date.now();
-  mfaAttempts.set(sessionId, record);
+/**
+ * Record a failed MFA attempt for this userId. Returns the post-increment count.
+ * First increment sets the TTL window; subsequent increments reuse the existing
+ * window (no sliding reset, so attackers can't maintain the window indefinitely).
+ */
+async function recordMfaAttempt(userId: string): Promise<number> {
+  return ephemeralIncrement(MFA_RATE_PREFIX, userId, MFA_LOCKOUT_MS);
 }
 
-function clearMfaAttempts(sessionId: string): void {
-  mfaAttempts.delete(sessionId);
+/** Clear the attempt counter after a successful MFA verification. */
+async function clearMfaAttempts(userId: string): Promise<void> {
+  await ephemeralDel(MFA_RATE_PREFIX, userId);
 }
 
-// Prune stale MFA attempt records every 5 minutes
-setInterval(
-  () => {
-    const now = Date.now();
-    for (const [key, record] of Array.from(mfaAttempts)) {
-      if (now - record.lastAttempt > MFA_LOCKOUT_MS * 2) mfaAttempts.delete(key);
-    }
-  },
-  5 * 60 * 1000,
-).unref();
+// Note: stale MFA attempt records are auto-expired via Redis PEXPIRE (when
+// Redis is configured) or via the memFallback's 60-second cleanup interval
+// in redis.ts. No per-module pruning needed.
 
 /**
  * Generate N random backup codes (8-char alphanumeric).
@@ -197,9 +204,10 @@ export function registerMfaRoutes(app: Express): void {
         return res.status(400).json({ message: "userId and code are required" });
       }
 
-      // Use session ID only — never fall back to spoofable req.ip for rate limiting
-      const sessionId = req.sessionID || "no-session";
-      if (isMfaLocked(sessionId)) {
+      // F-09: rate limit by userId (not sessionId) so attackers can't rotate
+      // sessions. userId is sent in the request body and known to the attacker
+      // by definition, so it cannot be rotated between attempts.
+      if (await isMfaLocked(userId)) {
         return res.status(429).json({ message: "Too many MFA attempts. Try again later." });
       }
 
@@ -212,7 +220,7 @@ export function registerMfaRoutes(app: Express): void {
       const isValid = (await verifyOtp({ token: code.trim(), secret })).valid;
 
       if (!isValid) {
-        recordMfaAttempt(sessionId);
+        await recordMfaAttempt(userId);
         logPhiAccess({
           userId: user.id,
           username: user.username,
@@ -224,7 +232,7 @@ export function registerMfaRoutes(app: Express): void {
         return res.status(401).json({ message: "Invalid MFA code" });
       }
 
-      clearMfaAttempts(sessionId);
+      await clearMfaAttempts(userId);
 
       // Complete login — create session
       const org = await storage.getOrganization(user.orgId);
@@ -297,9 +305,10 @@ export function registerMfaRoutes(app: Express): void {
         return res.status(400).json({ message: "userId and backupCode are required" });
       }
 
-      // Use session ID only — never fall back to spoofable req.ip for rate limiting
-      const sessionId = req.sessionID || "no-session";
-      if (isMfaLocked(sessionId)) {
+      // F-09: rate limit by userId (not sessionId) so attackers can't rotate
+      // sessions. userId is sent in the request body and known to the attacker
+      // by definition, so it cannot be rotated between attempts.
+      if (await isMfaLocked(userId)) {
         return res.status(429).json({ message: "Too many MFA attempts. Try again later." });
       }
 
@@ -313,7 +322,7 @@ export function registerMfaRoutes(app: Express): void {
       const codeIndex = backupCodes.indexOf(hashedInput);
 
       if (codeIndex === -1) {
-        recordMfaAttempt(sessionId);
+        await recordMfaAttempt(userId);
         logPhiAccess({
           userId: user.id,
           username: user.username,
@@ -330,7 +339,7 @@ export function registerMfaRoutes(app: Express): void {
       remainingCodes.splice(codeIndex, 1);
       await storage.updateUser(user.orgId, user.id, { mfaBackupCodes: remainingCodes } as any);
 
-      clearMfaAttempts(sessionId);
+      await clearMfaAttempts(userId);
 
       // Complete login
       const org = await storage.getOrganization(user.orgId);
@@ -579,9 +588,9 @@ export function registerMfaRoutes(app: Express): void {
       };
       if (!userId || !response) return res.status(400).json({ message: "userId and response are required" });
 
-      // Use session ID only — never fall back to spoofable req.ip for rate limiting
-      const sessionId = req.sessionID || "no-session";
-      if (isMfaLocked(sessionId)) return res.status(429).json({ message: "Too many MFA attempts. Try again later." });
+      // F-09: rate limit by userId (not sessionId) so attackers can't rotate
+      // sessions. See the MFA_RATE_PREFIX comment at the top of the file.
+      if (await isMfaLocked(userId)) return res.status(429).json({ message: "Too many MFA attempts. Try again later." });
 
       const expectedChallenge = (req.session as any).webauthnChallenge;
       if (!expectedChallenge) return res.status(400).json({ message: "No authentication challenge found." });
@@ -593,7 +602,7 @@ export function registerMfaRoutes(app: Express): void {
       const credentialId = response.id;
       const storedCredential = credentials.find((c) => c.credentialId === credentialId);
       if (!storedCredential) {
-        recordMfaAttempt(sessionId);
+        await recordMfaAttempt(userId);
         return res.status(400).json({ message: "Credential not registered for this user" });
       }
 
@@ -615,18 +624,18 @@ export function registerMfaRoutes(app: Express): void {
           },
         });
       } catch (err) {
-        recordMfaAttempt(sessionId);
+        await recordMfaAttempt(userId);
         logger.warn({ err }, "WebAuthn authentication verification failed");
         return res.status(401).json({ message: "WebAuthn verification failed" });
       }
 
       if (!verification.verified) {
-        recordMfaAttempt(sessionId);
+        await recordMfaAttempt(userId);
         return res.status(401).json({ message: "WebAuthn authentication not verified" });
       }
 
       delete (req.session as any).webauthnChallenge;
-      clearMfaAttempts(sessionId);
+      await clearMfaAttempts(userId);
 
       // Update counter
       storedCredential.counter = verification.authenticationInfo.newCounter;
@@ -828,9 +837,9 @@ export function registerMfaRoutes(app: Express): void {
       const { userId, otp } = req.body;
       if (!userId || !otp) return res.status(400).json({ message: "userId and otp are required" });
 
-      // Use session ID only — never fall back to spoofable req.ip for rate limiting
-      const sessionId = req.sessionID || "no-session";
-      if (isMfaLocked(sessionId)) return res.status(429).json({ message: "Too many MFA attempts. Try again later." });
+      // F-09: rate limit by userId (not sessionId) so attackers can't rotate
+      // sessions. See the MFA_RATE_PREFIX comment at the top of the file.
+      if (await isMfaLocked(userId)) return res.status(429).json({ message: "Too many MFA attempts. Try again later." });
 
       const stored = emailOtpStore.get(userId);
       if (!stored) return res.status(400).json({ message: "No OTP found. Request a new one." });
@@ -842,18 +851,18 @@ export function registerMfaRoutes(app: Express): void {
       stored.attempts++;
       if (stored.attempts > 5) {
         emailOtpStore.delete(userId);
-        recordMfaAttempt(sessionId);
+        await recordMfaAttempt(userId);
         return res.status(429).json({ message: "Too many OTP attempts." });
       }
 
       const inputHash = createHash("sha256").update(String(otp).trim()).digest("hex");
       if (inputHash !== stored.codeHash) {
-        recordMfaAttempt(sessionId);
+        await recordMfaAttempt(userId);
         return res.status(401).json({ message: "Invalid OTP." });
       }
 
       emailOtpStore.delete(userId);
-      clearMfaAttempts(sessionId);
+      await clearMfaAttempts(userId);
 
       const user = await storage.getUser(userId);
       if (!user) return res.status(400).json({ message: "User not found" });
