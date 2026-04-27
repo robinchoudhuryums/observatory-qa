@@ -17,11 +17,7 @@ import { storage } from "../storage";
 import { logger } from "./logger";
 import type { CallSummary } from "@shared/schema";
 import { getDatabase } from "../db/index";
-import {
-  upsertSnapshot,
-  listRecentSnapshots,
-  type PerformanceSnapshotRow,
-} from "../storage/snapshots";
+import { upsertSnapshot, listRecentSnapshots, type PerformanceSnapshotRow } from "../storage/snapshots";
 
 export type SnapshotLevel = "employee" | "team" | "company";
 
@@ -75,6 +71,12 @@ function getStoreKey(orgId: string, level: SnapshotLevel, targetId: string): str
   return `${orgId}:${level}:${targetId}`;
 }
 
+/** Convert a Date or ISO string from a DB row into an ISO string. */
+function toIso(value: Date | string | null | undefined): string {
+  if (!value) return "";
+  return value instanceof Date ? value.toISOString() : String(value);
+}
+
 /** Convert a DB row into the JSON-friendly PerformanceSnapshot shape. */
 function rowToSnapshot(row: PerformanceSnapshotRow): PerformanceSnapshot {
   return {
@@ -83,12 +85,12 @@ function rowToSnapshot(row: PerformanceSnapshotRow): PerformanceSnapshot {
     level: row.level as SnapshotLevel,
     targetId: row.targetId,
     targetName: row.targetName,
-    periodStart: row.periodStart instanceof Date ? row.periodStart.toISOString() : String(row.periodStart),
-    periodEnd: row.periodEnd instanceof Date ? row.periodEnd.toISOString() : String(row.periodEnd),
+    periodStart: toIso(row.periodStart),
+    periodEnd: toIso(row.periodEnd),
     metrics: row.metrics as PerformanceMetrics,
     aiSummary: row.aiSummary,
     priorSnapshotIds: (row.priorSnapshotIds as string[]) || [],
-    generatedAt: row.generatedAt instanceof Date ? row.generatedAt.toISOString() : String(row.generatedAt),
+    generatedAt: toIso(row.generatedAt),
   };
 }
 
@@ -150,19 +152,14 @@ export async function getSnapshots(
       const rows = await listRecentSnapshots(db, orgId, level, targetId, limit);
       return rows.map(rowToSnapshot);
     } catch (err) {
-      logger.error(
-        { err, orgId, level, targetId },
-        "Snapshot DB read failed — falling back to in-memory store",
-      );
+      logger.error({ err, orgId, level, targetId }, "Snapshot DB read failed — falling back to in-memory store");
       // Fall through to in-memory store
     }
   }
 
   const key = getStoreKey(orgId, level, targetId);
   const all = snapshotStore.get(key) || [];
-  return all
-    .sort((a, b) => new Date(b.periodEnd).getTime() - new Date(a.periodEnd).getTime())
-    .slice(0, limit);
+  return all.sort((a, b) => new Date(b.periodEnd).getTime() - new Date(a.periodEnd).getTime()).slice(0, limit);
 }
 
 /**
@@ -171,7 +168,8 @@ export async function getSnapshots(
 export function aggregateMetrics(calls: CallSummary[]): PerformanceMetrics {
   const scores: number[] = [];
   const sentimentCounts = { positive: 0, neutral: 0, negative: 0 };
-  let flaggedCount = 0, exceptionalCount = 0;
+  let flaggedCount = 0;
+  let exceptionalCount = 0;
   const subScoreSums = { compliance: 0, customerExperience: 0, communication: 0, resolution: 0 };
   let subScoreCount = 0;
   const allStrengths: string[] = [];
@@ -206,22 +204,25 @@ export function aggregateMetrics(calls: CallSummary[]): PerformanceMetrics {
       for (const item of feedback.strengths) allStrengths.push(typeof item === "string" ? item : item?.text || "");
     }
     if (feedback?.suggestions) {
-      for (const item of feedback.suggestions) allSuggestions.push(typeof item === "string" ? item : item?.text || "");
+      for (const item of feedback.suggestions) {
+        allSuggestions.push(typeof item === "string" ? item : item?.text || "");
+      }
     }
   }
 
   const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
+  const round2 = (n: number): number => Math.round(n * 100) / 100;
 
   return {
     totalCalls: calls.length,
-    avgScore: avgScore !== null ? Math.round(avgScore * 100) / 100 : null,
-    highScore: scores.length > 0 ? Math.round(Math.max(...scores) * 100) / 100 : null,
-    lowScore: scores.length > 0 ? Math.round(Math.min(...scores) * 100) / 100 : null,
+    avgScore: avgScore !== null ? round2(avgScore) : null,
+    highScore: scores.length > 0 ? round2(Math.max(...scores)) : null,
+    lowScore: scores.length > 0 ? round2(Math.min(...scores)) : null,
     subScores: {
-      compliance: subScoreCount > 0 ? Math.round((subScoreSums.compliance / subScoreCount) * 100) / 100 : null,
-      customerExperience: subScoreCount > 0 ? Math.round((subScoreSums.customerExperience / subScoreCount) * 100) / 100 : null,
-      communication: subScoreCount > 0 ? Math.round((subScoreSums.communication / subScoreCount) * 100) / 100 : null,
-      resolution: subScoreCount > 0 ? Math.round((subScoreSums.resolution / subScoreCount) * 100) / 100 : null,
+      compliance: subScoreCount > 0 ? round2(subScoreSums.compliance / subScoreCount) : null,
+      customerExperience: subScoreCount > 0 ? round2(subScoreSums.customerExperience / subScoreCount) : null,
+      communication: subScoreCount > 0 ? round2(subScoreSums.communication / subScoreCount) : null,
+      resolution: subScoreCount > 0 ? round2(subScoreSums.resolution / subScoreCount) : null,
     },
     sentimentBreakdown: sentimentCounts,
     topStrengths: countFrequency(allStrengths),
@@ -260,24 +261,32 @@ export function buildSnapshotSummaryPrompt(params: {
   if (priorSnapshots.length > 0) {
     priorContext = "\n\nPRIOR PERFORMANCE SNAPSHOTS (for trajectory context):\n";
     for (const snap of priorSnapshots.slice(0, 3)) {
+      const subs = snap.metrics.subScores;
       priorContext += `- Period: ${snap.periodStart.slice(0, 10)} to ${snap.periodEnd.slice(0, 10)}\n`;
       priorContext += `  Avg Score: ${snap.metrics.avgScore}, Calls: ${snap.metrics.totalCalls}\n`;
-      priorContext += `  Sub-scores: Compliance=${snap.metrics.subScores.compliance}, CX=${snap.metrics.subScores.customerExperience}, Communication=${snap.metrics.subScores.communication}, Resolution=${snap.metrics.subScores.resolution}\n`;
+      priorContext += `  Sub-scores: Compliance=${subs.compliance}, CX=${subs.customerExperience}, `;
+      priorContext += `Communication=${subs.communication}, Resolution=${subs.resolution}\n`;
       if (snap.aiSummary) priorContext += `  Prior Summary: ${snap.aiSummary.slice(0, 200)}...\n`;
     }
   }
 
-  return `You are a performance analyst writing a ${periodLabel} summary for ${level === "employee" ? "an agent" : level === "team" ? "a team" : "the company"} named "${targetName}".
+  const subjectNoun = level === "employee" ? "an agent" : level === "team" ? "a team" : "the company";
+  const subs = metrics.subScores;
+  const sb = metrics.sentimentBreakdown;
+  const strengths = metrics.topStrengths.map((s) => s.text).join(", ") || "none";
+  const improvements = metrics.topSuggestions.map((s) => s.text).join(", ") || "none";
+
+  return `You are a performance analyst writing a ${periodLabel} summary for ${subjectNoun} named "${targetName}".
 
 CURRENT PERIOD METRICS:
 - Total Calls: ${metrics.totalCalls}
 - Average Score: ${metrics.avgScore}/10
 - Score Range: ${metrics.lowScore} to ${metrics.highScore}
-- Sub-scores: Compliance=${metrics.subScores.compliance}, Customer Experience=${metrics.subScores.customerExperience}, Communication=${metrics.subScores.communication}, Resolution=${metrics.subScores.resolution}
-- Sentiment: ${metrics.sentimentBreakdown.positive} positive, ${metrics.sentimentBreakdown.neutral} neutral, ${metrics.sentimentBreakdown.negative} negative
+- Sub-scores: Compliance=${subs.compliance}, Customer Experience=${subs.customerExperience}, Communication=${subs.communication}, Resolution=${subs.resolution}
+- Sentiment: ${sb.positive} positive, ${sb.neutral} neutral, ${sb.negative} negative
 - Flagged Calls: ${metrics.flaggedCallCount}, Exceptional Calls: ${metrics.exceptionalCallCount}
-- Top Strengths: ${metrics.topStrengths.map((s) => s.text).join(", ") || "none"}
-- Areas for Improvement: ${metrics.topSuggestions.map((s) => s.text).join(", ") || "none"}
+- Top Strengths: ${strengths}
+- Areas for Improvement: ${improvements}
 ${priorContext}
 Write a 3-4 paragraph professional summary that:
 1. Highlights key performance trends (improving, stable, declining) by comparing to prior periods if available
