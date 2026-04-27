@@ -20,6 +20,7 @@ import type { AIAnalysisProvider, CallAnalysis } from "./ai-provider";
 import { buildSystemPrompt, buildUserMessage, parseJsonResponse } from "./ai-provider";
 import { getAwsCredentials, type AwsCredentials } from "./aws-credentials";
 import { logger } from "./logger";
+import { redactTextForCategory } from "./phi-policy";
 
 const DEFAULT_MODEL = "us.anthropic.claude-sonnet-4-6";
 const BEDROCK_TIMEOUT_MS = 120_000; // 2 minutes — long transcripts may need >60s
@@ -202,9 +203,17 @@ export class BedrockProvider implements AIAnalysisProvider {
       throw new Error("Bedrock provider not configured — no AWS credentials available");
     }
 
+    // PHI redaction policy: redact transcript before it enters the user message
+    // for non-clinical categories. Clinical categories (clinical_encounter,
+    // telemedicine, dental_*) preserve PHI because the AI's job is to draft
+    // SOAP/DAP/BIRP notes that require patient details. See phi-policy.ts.
+    // Defense-in-depth on top of the AWS Bedrock BAA — minimizes PHI in
+    // Bedrock's prompt cache and CloudTrail.
+    const safeTranscript = redactTextForCategory(transcriptText, callCategory);
+
     // Split prompt into cacheable system prompt + dynamic user message
     const systemPrompt = buildSystemPrompt(callCategory, promptTemplate);
-    const userMessage = buildUserMessage(transcriptText, callCategory, {
+    const userMessage = buildUserMessage(safeTranscript, callCategory, {
       transcriptConfidence: options?.transcriptConfidence,
     });
 
