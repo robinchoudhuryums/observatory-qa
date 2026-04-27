@@ -64,6 +64,14 @@ export interface ScheduledReport {
 const reportStore = new Map<string, ScheduledReport[]>();
 
 /**
+ * Helper: convert a Date or ISO string from the DB row into an ISO string.
+ */
+function toIso(value: Date | string | null | undefined): string {
+  if (!value) return "";
+  return value instanceof Date ? value.toISOString() : String(value);
+}
+
+/**
  * Compute the period covered by a report type as of the given timestamp.
  *
  * Periods are aligned so re-runs land on the same boundaries — the
@@ -178,28 +186,20 @@ export async function generateReport(
       // is preserved on conflict).
       report.id = persisted.id;
     } catch (err) {
-      logger.error(
-        { err, orgId, reportType },
-        "Scheduled report DB upsert failed — falling back to in-memory store",
-      );
+      logger.error({ err, orgId, reportType }, "Scheduled report DB upsert failed — falling back to in-memory store");
       saveReportInMemory(report);
     }
   } else {
     saveReportInMemory(report);
   }
 
-  logger.info(
-    { orgId, reportId: report.id, type: reportType, calls: periodCalls.length },
-    "Generated scheduled report",
-  );
+  logger.info({ orgId, reportId: report.id, type: reportType, calls: periodCalls.length }, "Generated scheduled report");
   return report;
 }
 
 function saveReportInMemory(report: ScheduledReport): void {
   const existing = reportStore.get(report.orgId) || [];
-  const filtered = existing.filter(
-    (r) => !(r.type === report.type && r.periodStart === report.periodStart),
-  );
+  const filtered = existing.filter((r) => !(r.type === report.type && r.periodStart === report.periodStart));
   filtered.push(report);
   if (filtered.length > 20) filtered.splice(0, filtered.length - 20);
   reportStore.set(report.orgId, filtered);
@@ -217,8 +217,8 @@ function rowToReport(row: ScheduledReportRow): ScheduledReport {
       parsed.id = row.id;
       parsed.orgId = row.orgId;
       parsed.type = row.reportType;
-      parsed.periodStart = row.periodStart instanceof Date ? row.periodStart.toISOString() : String(row.periodStart);
-      parsed.periodEnd = row.periodEnd instanceof Date ? row.periodEnd.toISOString() : String(row.periodEnd);
+      parsed.periodStart = toIso(row.periodStart);
+      parsed.periodEnd = toIso(row.periodEnd);
       return parsed;
     } catch (err) {
       logger.warn({ err, reportId: row.id }, "Could not parse inline_csv — returning shell");
@@ -229,8 +229,8 @@ function rowToReport(row: ScheduledReportRow): ScheduledReport {
     id: row.id,
     orgId: row.orgId,
     type: row.reportType,
-    periodStart: row.periodStart instanceof Date ? row.periodStart.toISOString() : String(row.periodStart),
-    periodEnd: row.periodEnd instanceof Date ? row.periodEnd.toISOString() : String(row.periodEnd),
+    periodStart: toIso(row.periodStart),
+    periodEnd: toIso(row.periodEnd),
     metrics: {
       totalCalls: 0,
       avgScore: null,
@@ -245,7 +245,7 @@ function rowToReport(row: ScheduledReportRow): ScheduledReport {
     },
     topPerformers: [],
     bottomPerformers: [],
-    generatedAt: row.generatedAt instanceof Date ? row.generatedAt.toISOString() : String(row.generatedAt ?? row.createdAt),
+    generatedAt: toIso(row.generatedAt ?? row.createdAt),
   };
 }
 
@@ -309,10 +309,7 @@ export async function runScheduledReportsTick(): Promise<{
       generated++;
     } catch (err) {
       failed++;
-      logger.error(
-        { err, orgId: cfg.orgId, reportType: cfg.reportType },
-        "Scheduled report generation failed",
-      );
+      logger.error({ err, orgId: cfg.orgId, reportType: cfg.reportType }, "Scheduled report generation failed");
     }
   }
 
@@ -358,10 +355,7 @@ export async function catchUpReports(orgId: string): Promise<{ generated: number
         });
         generated++;
       } catch (err) {
-        logger.error(
-          { err, orgId, reportType: cfg.reportType, periodStart },
-          "Catch-up report generation failed",
-        );
+        logger.error({ err, orgId, reportType: cfg.reportType, periodStart }, "Catch-up report generation failed");
       }
     }
   }
@@ -373,6 +367,13 @@ export async function catchUpReports(orgId: string): Promise<{ generated: number
 // ---------------------------------------------------------------------------
 // Email delivery (Tier 0.5 closeout)
 // ---------------------------------------------------------------------------
+
+/** Inline style for the report email <pre> wrapper. Split for line-width hygiene. */
+const REPORT_PRE_STYLE = [
+  "font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+  "font-size: 14px",
+  "white-space: pre-wrap",
+].join("; ");
 
 /**
  * HIPAA-safe email body for a scheduled report. Sends only aggregate
@@ -388,10 +389,8 @@ function buildReportEmail(row: ScheduledReportRow): { subject: string; text: str
     // Fall through to placeholder rendering
   }
 
-  const periodEndStr = (row.periodEnd instanceof Date ? row.periodEnd : new Date(row.periodEnd))
-    .toISOString().slice(0, 10);
-  const periodStartStr = (row.periodStart instanceof Date ? row.periodStart : new Date(row.periodStart))
-    .toISOString().slice(0, 10);
+  const periodEndStr = toIso(row.periodEnd).slice(0, 10);
+  const periodStartStr = toIso(row.periodStart).slice(0, 10);
 
   // CRLF safe — `sendEmail` strips header-injectable chars from `to` and
   // `subject` defensively, but the report_type is org-supplied (config row)
@@ -440,7 +439,7 @@ function buildReportEmail(row: ScheduledReportRow): { subject: string; text: str
   lines.push("— Observatory QA");
 
   const text = lines.join("\n");
-  const html = `<pre style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; white-space: pre-wrap;">${escapeHtmlBasic(text)}</pre>`;
+  const html = `<pre style="${REPORT_PRE_STYLE}">${escapeHtmlBasic(text)}</pre>`;
 
   return { subject, text, html };
 }
@@ -490,10 +489,7 @@ export async function deliverPendingReports(): Promise<{ pending: number; sent: 
           if (ok) anySucceeded = true;
         } catch (sendErr) {
           // sendEmail itself doesn't throw, but be defensive.
-          logger.warn(
-            { err: sendErr, reportId: row.id, to },
-            "Per-recipient send failed",
-          );
+          logger.warn({ err: sendErr, reportId: row.id, to }, "Per-recipient send failed");
         }
       }
       if (anySucceeded) {
@@ -505,17 +501,11 @@ export async function deliverPendingReports(): Promise<{ pending: number; sent: 
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      logger.error(
-        { err, reportId: row.id, orgId: row.orgId },
-        "Report delivery failed",
-      );
+      logger.error({ err, reportId: row.id, orgId: row.orgId }, "Report delivery failed");
       try {
         await markReportFailed(db, row.orgId, row.id, message.slice(0, 500));
       } catch (markErr) {
-        logger.error(
-          { err: markErr, reportId: row.id },
-          "Failed to mark report as failed",
-        );
+        logger.error({ err: markErr, reportId: row.id }, "Failed to mark report as failed");
       }
       failed++;
     }
