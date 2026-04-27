@@ -8,11 +8,20 @@
  *
  * The AI prompt includes recent prior snapshots so the model can identify
  * improvements, regressions, and coaching effectiveness over time.
+ *
+ * Tier 0.2: persistence backed by server/storage/snapshots.ts (PostgreSQL).
+ * In-memory fallback retained for dev mode (no DATABASE_URL) and unit tests.
  */
 import { randomUUID } from "crypto";
 import { storage } from "../storage";
 import { logger } from "./logger";
 import type { CallSummary } from "@shared/schema";
+import { getDatabase } from "../db/index";
+import {
+  upsertSnapshot,
+  listRecentSnapshots,
+  type PerformanceSnapshotRow,
+} from "../storage/snapshots";
 
 export type SnapshotLevel = "employee" | "team" | "company";
 
@@ -48,21 +57,107 @@ export interface PerformanceSnapshot {
   generatedAt: string;
 }
 
-// In-memory store (production should persist to DB)
+// ---------------------------------------------------------------------------
+// Persistence layer
+// ---------------------------------------------------------------------------
+//
+// PRIMARY: PostgreSQL via server/storage/snapshots.ts (Tier 0.2 of the
+// CallAnalyzer adaptation plan). Survives restarts, supports cross-process
+// access for SaaS multi-instance deployments.
+//
+// FALLBACK: in-memory Map. Only used when getDatabase() returns null
+// (dev mode without DATABASE_URL or test environments using MemStorage).
+// Reset on every process restart — same caveat as the pre-Tier-0.2 behavior.
+
 const snapshotStore = new Map<string, PerformanceSnapshot[]>();
 
 function getStoreKey(orgId: string, level: SnapshotLevel, targetId: string): string {
   return `${orgId}:${level}:${targetId}`;
 }
 
-export function saveSnapshot(snapshot: PerformanceSnapshot): void {
-  const key = getStoreKey(snapshot.orgId, snapshot.level, snapshot.targetId);
-  const existing = snapshotStore.get(key) || [];
-  existing.push(snapshot);
-  snapshotStore.set(key, existing);
+/** Convert a DB row into the JSON-friendly PerformanceSnapshot shape. */
+function rowToSnapshot(row: PerformanceSnapshotRow): PerformanceSnapshot {
+  return {
+    id: row.id,
+    orgId: row.orgId,
+    level: row.level as SnapshotLevel,
+    targetId: row.targetId,
+    targetName: row.targetName,
+    periodStart: row.periodStart instanceof Date ? row.periodStart.toISOString() : String(row.periodStart),
+    periodEnd: row.periodEnd instanceof Date ? row.periodEnd.toISOString() : String(row.periodEnd),
+    metrics: row.metrics as PerformanceMetrics,
+    aiSummary: row.aiSummary,
+    priorSnapshotIds: (row.priorSnapshotIds as string[]) || [],
+    generatedAt: row.generatedAt instanceof Date ? row.generatedAt.toISOString() : String(row.generatedAt),
+  };
 }
 
-export function getSnapshots(orgId: string, level: SnapshotLevel, targetId: string, limit = 10): PerformanceSnapshot[] {
+/**
+ * Persist a snapshot. PostgreSQL when available; in-memory fallback otherwise.
+ * Idempotent: re-saving for the same (orgId, level, targetId, periodStart,
+ * periodEnd) updates the existing row instead of duplicating.
+ */
+export async function saveSnapshot(snapshot: PerformanceSnapshot): Promise<void> {
+  const db = getDatabase();
+  if (db) {
+    try {
+      await upsertSnapshot(db, {
+        id: snapshot.id,
+        orgId: snapshot.orgId,
+        level: snapshot.level,
+        targetId: snapshot.targetId,
+        targetName: snapshot.targetName,
+        periodStart: new Date(snapshot.periodStart),
+        periodEnd: new Date(snapshot.periodEnd),
+        metrics: snapshot.metrics,
+        aiSummary: snapshot.aiSummary,
+        priorSnapshotIds: snapshot.priorSnapshotIds,
+        generatedAt: new Date(snapshot.generatedAt),
+      });
+      return;
+    } catch (err) {
+      logger.error(
+        { err, snapshotId: snapshot.id, orgId: snapshot.orgId },
+        "Snapshot DB upsert failed — falling back to in-memory store",
+      );
+      // Fall through to in-memory store so the snapshot isn't lost
+    }
+  }
+
+  const key = getStoreKey(snapshot.orgId, snapshot.level, snapshot.targetId);
+  const existing = snapshotStore.get(key) || [];
+  // Replace any prior entry for the same period (idempotent semantics)
+  const filtered = existing.filter(
+    (s) => !(s.periodStart === snapshot.periodStart && s.periodEnd === snapshot.periodEnd),
+  );
+  filtered.push(snapshot);
+  snapshotStore.set(key, filtered);
+}
+
+/**
+ * Fetch the most recent snapshots for a target. PostgreSQL when available;
+ * in-memory fallback otherwise. Always sorted by periodEnd DESC.
+ */
+export async function getSnapshots(
+  orgId: string,
+  level: SnapshotLevel,
+  targetId: string,
+  limit = 10,
+): Promise<PerformanceSnapshot[]> {
+  const db = getDatabase();
+  if (db) {
+    try {
+      const rows = await listRecentSnapshots(db, orgId, level, targetId, limit);
+      return rows.map(rowToSnapshot);
+    } catch (err) {
+      logger.error(
+        { err, orgId, level, targetId },
+        "Snapshot DB read failed — falling back to in-memory store",
+      );
+      // Fall through to in-memory store
+    }
+  }
+
   const key = getStoreKey(orgId, level, targetId);
   const all = snapshotStore.get(key) || [];
   return all
@@ -210,7 +305,7 @@ export async function generateEmployeeSnapshot(
 
   const employee = await storage.getEmployee(orgId, employeeId);
   const metrics = aggregateMetrics(periodCalls);
-  const priorSnapshots = getSnapshots(orgId, "employee", employeeId, 3);
+  const priorSnapshots = await getSnapshots(orgId, "employee", employeeId, 3);
 
   const snapshot: PerformanceSnapshot = {
     id: randomUUID(),
@@ -226,7 +321,7 @@ export async function generateEmployeeSnapshot(
     generatedAt: new Date().toISOString(),
   };
 
-  saveSnapshot(snapshot);
+  await saveSnapshot(snapshot);
   logger.info({ orgId, employeeId, snapshotId: snapshot.id }, "Generated employee performance snapshot");
   return snapshot;
 }
@@ -247,7 +342,7 @@ export async function generateCompanySnapshot(
 
   const org = await storage.getOrganization(orgId);
   const metrics = aggregateMetrics(periodCalls);
-  const priorSnapshots = getSnapshots(orgId, "company", orgId, 3);
+  const priorSnapshots = await getSnapshots(orgId, "company", orgId, 3);
 
   const snapshot: PerformanceSnapshot = {
     id: randomUUID(),
@@ -263,7 +358,7 @@ export async function generateCompanySnapshot(
     generatedAt: new Date().toISOString(),
   };
 
-  saveSnapshot(snapshot);
+  await saveSnapshot(snapshot);
   logger.info({ orgId, snapshotId: snapshot.id }, "Generated company performance snapshot");
   return snapshot;
 }
