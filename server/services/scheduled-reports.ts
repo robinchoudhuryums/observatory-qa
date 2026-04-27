@@ -5,19 +5,18 @@
  * `reportStore: Map` with PostgreSQL persistence via
  * server/storage/scheduled-reports.ts.
  *
+ * Tier 0.5 closeout: deliverPendingReports() now actually delivers via email.
+ *
  * What's now real:
  *   - generateReport(orgId, type) persists to DB (idempotent per period)
  *   - getReports(orgId) reads from DB
- *   - runScheduledReportsTick() — call hourly to generate due reports for
- *     all orgs with enabled configs
+ *   - runScheduledReportsTick() — hourly: generate due reports for all
+ *     orgs with enabled configs
  *   - catchUpReports(orgId) — boot-time backfill of missed periods
+ *   - deliverPendingReports() — sends generated reports to recipients via
+ *     server/services/email.ts (SES / SMTP / console fallback)
  *
  * Still scaffold (follow-ups):
- *   - Email delivery — listPendingDelivery() returns "generated" rows; a
- *     separate function should iterate and call server/services/email.ts.
- *     Marked as TODO in deliverPendingReports() below.
- *   - Scheduler integration — runScheduledReportsTick() needs to be
- *     registered with the project's hourly scheduler (server/scheduled/).
  *   - PDF/CSV artifact format — for v1, the report content is JSON-
  *     stringified into the inlineCsv column. Tier 1.4 will swap this for
  *     real CSV/PDF artifacts in S3 referenced by artifactKey.
@@ -28,6 +27,7 @@ import { randomUUID } from "crypto";
 import { storage } from "../storage";
 import { logger } from "./logger";
 import { aggregateMetrics, type PerformanceMetrics } from "./performance-snapshots";
+import { sendEmail } from "./email";
 import { getDatabase } from "../db/index";
 import {
   upsertReport,
@@ -370,25 +370,95 @@ export async function catchUpReports(orgId: string): Promise<{ generated: number
   return { generated, skipped };
 }
 
+// ---------------------------------------------------------------------------
+// Email delivery (Tier 0.5 closeout)
+// ---------------------------------------------------------------------------
+
+/**
+ * HIPAA-safe email body for a scheduled report. Sends only aggregate
+ * metrics + employee names — never call content, transcripts, or patient
+ * data. Employees of the org are not patients, so their names + scores
+ * are not PHI.
+ */
+function buildReportEmail(row: ScheduledReportRow): { subject: string; text: string; html: string } {
+  let report: ScheduledReport | null = null;
+  try {
+    if (row.inlineCsv) report = JSON.parse(row.inlineCsv) as ScheduledReport;
+  } catch {
+    // Fall through to placeholder rendering
+  }
+
+  const periodEndStr = (row.periodEnd instanceof Date ? row.periodEnd : new Date(row.periodEnd))
+    .toISOString().slice(0, 10);
+  const periodStartStr = (row.periodStart instanceof Date ? row.periodStart : new Date(row.periodStart))
+    .toISOString().slice(0, 10);
+
+  // CRLF safe — `sendEmail` strips header-injectable chars from `to` and
+  // `subject` defensively, but the report_type is org-supplied (config row)
+  // so we still sanitize here.
+  const safeReportType = String(row.reportType).replace(/[\r\n]/g, " ").slice(0, 80);
+  const subject = `[Observatory QA] ${safeReportType} — ${periodEndStr}`;
+
+  if (!report) {
+    const text = [
+      `Scheduled report ${safeReportType} for ${periodStartStr} to ${periodEndStr}.`,
+      "",
+      "Report content unavailable. Please log in to Observatory QA to view.",
+      "",
+      "— Observatory QA",
+    ].join("\n");
+    return { subject, text, html: `<pre>${escapeHtmlBasic(text)}</pre>` };
+  }
+
+  const m = report.metrics;
+  const top = report.topPerformers || [];
+  const bottom = report.bottomPerformers || [];
+
+  const lines: string[] = [
+    `${safeReportType} for ${periodStartStr} to ${periodEndStr}`,
+    "",
+    `Total calls: ${m.totalCalls}`,
+    `Average score: ${m.avgScore ?? "n/a"}/10`,
+    `Score range: ${m.lowScore ?? "n/a"} to ${m.highScore ?? "n/a"}`,
+    `Sentiment: +${m.sentimentBreakdown.positive} / ~${m.sentimentBreakdown.neutral} / -${m.sentimentBreakdown.negative}`,
+    `Flagged calls: ${m.flaggedCallCount}, Exceptional: ${m.exceptionalCallCount}`,
+    "",
+  ];
+
+  if (top.length > 0) {
+    lines.push("Top performers:");
+    for (const p of top) lines.push(`  - ${p.name}: ${p.avgScore}/10 (${p.callCount} calls)`);
+    lines.push("");
+  }
+
+  if (bottom.length > 0) {
+    lines.push("Areas to watch:");
+    for (const p of bottom) lines.push(`  - ${p.name}: ${p.avgScore}/10 (${p.callCount} calls)`);
+    lines.push("");
+  }
+
+  lines.push("— Observatory QA");
+
+  const text = lines.join("\n");
+  const html = `<pre style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; white-space: pre-wrap;">${escapeHtmlBasic(text)}</pre>`;
+
+  return { subject, text, html };
+}
+
+function escapeHtmlBasic(str: string): string {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 /**
  * Deliver pending reports via email.
  *
- * SCAFFOLD — the email integration itself isn't wired here yet. The
- * project's email service is at server/services/email.ts; the wire-up
- * looks like:
+ * Walks every report row with status="generated", builds an email body
+ * from the persisted JSON in `inline_csv`, and sends to each recipient.
+ * Marks the report `sent` on success or `failed` with an error message
+ * on failure. HIPAA-safe: only aggregate metrics + employee names,
+ * never call content or PHI.
  *
- *   import { sendEmail } from "./email";
- *   for (const row of pending) {
- *     try {
- *       await sendEmail({ to: row.recipientEmails, subject: ..., ... });
- *       await markReportSent(db, row.orgId, row.id);
- *     } catch (err) {
- *       await markReportFailed(db, row.orgId, row.id, err.message);
- *     }
- *   }
- *
- * Returns the count of pending reports for now so the scheduler can log
- * the delivery backlog even before wire-up completes.
+ * Returns counts so the scheduler can log delivery throughput.
  */
 export async function deliverPendingReports(): Promise<{ pending: number; sent: number; failed: number }> {
   const db = getDatabase();
@@ -397,18 +467,62 @@ export async function deliverPendingReports(): Promise<{ pending: number; sent: 
   const pending = await listPendingDelivery(db);
   if (pending.length === 0) return { pending: 0, sent: 0, failed: 0 };
 
-  logger.warn(
-    { backlog: pending.length },
-    "deliverPendingReports has reports ready to send but email integration is not yet wired — see TODO in scheduled-reports.ts",
-  );
+  let sent = 0;
+  let failed = 0;
 
-  // Wire-up follow-up: replace this no-op with a real email send loop.
-  // Keeping these references here so the linter doesn't strip the unused
-  // imports — they'll be live as soon as the email integration lands.
-  void markReportSent;
-  void markReportFailed;
+  for (const row of pending) {
+    const recipients = (row.recipientEmails as string[]) || [];
+    if (recipients.length === 0) {
+      // Config issue, not a delivery failure — skip without status change.
+      logger.warn(
+        { reportId: row.id, orgId: row.orgId, reportType: row.reportType },
+        "Pending report has no recipients — skipping",
+      );
+      continue;
+    }
 
-  return { pending: pending.length, sent: 0, failed: 0 };
+    try {
+      const { subject, text, html } = buildReportEmail(row);
+      let anySucceeded = false;
+      for (const to of recipients) {
+        try {
+          const ok = await sendEmail({ to, subject, text, html });
+          if (ok) anySucceeded = true;
+        } catch (sendErr) {
+          // sendEmail itself doesn't throw, but be defensive.
+          logger.warn(
+            { err: sendErr, reportId: row.id, to },
+            "Per-recipient send failed",
+          );
+        }
+      }
+      if (anySucceeded) {
+        await markReportSent(db, row.orgId, row.id);
+        sent++;
+      } else {
+        await markReportFailed(db, row.orgId, row.id, "All email deliveries failed");
+        failed++;
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error(
+        { err, reportId: row.id, orgId: row.orgId },
+        "Report delivery failed",
+      );
+      try {
+        await markReportFailed(db, row.orgId, row.id, message.slice(0, 500));
+      } catch (markErr) {
+        logger.error(
+          { err: markErr, reportId: row.id },
+          "Failed to mark report as failed",
+        );
+      }
+      failed++;
+    }
+  }
+
+  logger.info({ pending: pending.length, sent, failed }, "deliverPendingReports complete");
+  return { pending: pending.length, sent, failed };
 }
 
 // Keep type re-exports for downstream consumers
