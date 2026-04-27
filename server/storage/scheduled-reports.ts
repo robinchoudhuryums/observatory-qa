@@ -10,7 +10,6 @@
  * definition. Long-term cleanup: wire references into server/db/schema.ts.
  */
 import { sql, eq, and, desc, asc } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import {
   scheduledReports,
   scheduledReportConfigs,
@@ -19,11 +18,12 @@ import {
   type ScheduledReportConfigRow,
   type InsertScheduledReportConfig,
 } from "@shared/schema";
+import type { Database } from "../db/index";
 import { logger } from "../services/logger";
 
 let ddlEnsured = false;
 
-export async function ensureScheduledReportTables(db: NodePgDatabase): Promise<void> {
+export async function ensureScheduledReportTables(db: Database): Promise<void> {
   if (ddlEnsured) return;
 
   await db.execute(sql`
@@ -91,7 +91,7 @@ export async function ensureScheduledReportTables(db: NodePgDatabase): Promise<v
  * to safely catch up after restarts without producing duplicate reports.
  */
 export async function upsertReport(
-  db: NodePgDatabase,
+  db: Database,
   report: InsertScheduledReport,
 ): Promise<ScheduledReportRow> {
   await ensureScheduledReportTables(db);
@@ -117,7 +117,7 @@ export async function upsertReport(
  * Mark a report as sent (post-email-send). Captures sentAt timestamp.
  */
 export async function markReportSent(
-  db: NodePgDatabase,
+  db: Database,
   orgId: string,
   reportId: string,
 ): Promise<void> {
@@ -132,7 +132,7 @@ export async function markReportSent(
  * Mark a report as failed with an operator-readable error message.
  */
 export async function markReportFailed(
-  db: NodePgDatabase,
+  db: Database,
   orgId: string,
   reportId: string,
   errorMessage: string,
@@ -149,7 +149,7 @@ export async function markReportFailed(
  * Used by the catch-up logic to skip already-generated periods.
  */
 export async function reportExists(
-  db: NodePgDatabase,
+  db: Database,
   orgId: string,
   reportType: string,
   periodStart: Date,
@@ -173,7 +173,7 @@ export async function reportExists(
  * List recent reports for UI listing. Org-scoped.
  */
 export async function listReports(
-  db: NodePgDatabase,
+  db: Database,
   orgId: string,
   options: { reportType?: string; limit?: number } = {},
 ): Promise<ScheduledReportRow[]> {
@@ -195,7 +195,7 @@ export async function listReports(
  * Used by the email-send tick.
  */
 export async function listPendingDelivery(
-  db: NodePgDatabase,
+  db: Database,
   limit = 50,
 ): Promise<ScheduledReportRow[]> {
   await ensureScheduledReportTables(db);
@@ -210,7 +210,7 @@ export async function listPendingDelivery(
 /**
  * Delete all reports + configs for an org. Used by org deletion / GDPR purge.
  */
-export async function deleteScheduledReportsByOrg(db: NodePgDatabase, orgId: string): Promise<void> {
+export async function deleteScheduledReportsByOrg(db: Database, orgId: string): Promise<void> {
   await ensureScheduledReportTables(db);
   await db.delete(scheduledReports).where(eq(scheduledReports.orgId, orgId));
   await db.delete(scheduledReportConfigs).where(eq(scheduledReportConfigs.orgId, orgId));
@@ -225,7 +225,7 @@ export async function deleteScheduledReportsByOrg(db: NodePgDatabase, orgId: str
  * updates the recipient list / schedule / enabled flag.
  */
 export async function upsertReportConfig(
-  db: NodePgDatabase,
+  db: Database,
   config: InsertScheduledReportConfig,
 ): Promise<ScheduledReportConfigRow> {
   await ensureScheduledReportTables(db);
@@ -248,7 +248,7 @@ export async function upsertReportConfig(
 /**
  * List all enabled configs across all orgs — driven by the scheduler tick.
  */
-export async function listEnabledConfigs(db: NodePgDatabase): Promise<ScheduledReportConfigRow[]> {
+export async function listEnabledConfigs(db: Database): Promise<ScheduledReportConfigRow[]> {
   await ensureScheduledReportTables(db);
   return db.select().from(scheduledReportConfigs).where(eq(scheduledReportConfigs.enabled, true));
 }
@@ -257,7 +257,7 @@ export async function listEnabledConfigs(db: NodePgDatabase): Promise<ScheduledR
  * List configs for a specific org (admin UI).
  */
 export async function listOrgConfigs(
-  db: NodePgDatabase,
+  db: Database,
   orgId: string,
 ): Promise<ScheduledReportConfigRow[]> {
   await ensureScheduledReportTables(db);
