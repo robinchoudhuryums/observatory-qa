@@ -30,7 +30,6 @@ import { randomUUID } from "crypto";
 import type { Express, Request } from "express";
 import { requireAuth, injectOrgContext } from "../auth";
 import { storage } from "../storage";
-import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { getDatabase } from "../db/index";
 import { asyncHandler } from "../middleware/error-handler";
@@ -111,15 +110,12 @@ export function registerCallTagRoutes(app: Express) {
 
       const { tag } = req.body;
       if (!tag || typeof tag !== "string" || tag.length > MAX_TAG_LEN) {
-        return res
-          .status(400)
-          .json({ message: `Tag is required (max ${MAX_TAG_LEN} characters)` });
+        return res.status(400).json({ message: `Tag is required (max ${MAX_TAG_LEN} characters)` });
       }
       const normalized = tag.trim().toLowerCase();
       if (normalized.length === 0 || !TAG_PATTERN.test(normalized)) {
         return res.status(400).json({
-          message:
-            "Tags must contain only letters, numbers, spaces, dots, underscores, hyphens, and slashes",
+          message: "Tags must contain only letters, numbers, spaces, dots, underscores, hyphens, and slashes",
         });
       }
 
@@ -178,9 +174,7 @@ export function registerCallTagRoutes(app: Express) {
       const me = authorIdentity(req);
       const isAuthor = existing.createdBy === me;
       if (!isAuthor && !isManagerOrAdmin(req)) {
-        return res
-          .status(403)
-          .json({ message: "Only the tag's author or a manager can delete this tag" });
+        return res.status(403).json({ message: "Only the tag's author or a manager can delete this tag" });
       }
 
       await deleteTag(db, orgId, tagId);
@@ -207,7 +201,10 @@ export function registerCallTagRoutes(app: Express) {
       const db = getDatabase();
       if (!db) return res.json([]);
 
-      const limit = Math.min(parseInt(String(req.query.limit ?? TOP_TAGS_LIMIT), 10) || TOP_TAGS_LIMIT, TOP_TAGS_LIMIT);
+      const limit = Math.min(
+        parseInt(String(req.query.limit ?? TOP_TAGS_LIMIT), 10) || TOP_TAGS_LIMIT,
+        TOP_TAGS_LIMIT,
+      );
       const tags = await listTopTags(db, orgId, limit);
       return res.json(tags);
     }),
@@ -221,7 +218,9 @@ export function registerCallTagRoutes(app: Express) {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-      const tag = String(req.params.tag || "").trim().toLowerCase();
+      const tag = String(req.params.tag || "")
+        .trim()
+        .toLowerCase();
       if (!tag || tag.length > MAX_TAG_LEN) {
         return res.status(400).json({ message: "Invalid tag" });
       }
@@ -242,9 +241,7 @@ export function registerCallTagRoutes(app: Express) {
 
       // Look up matching calls. The IStorage method already scopes by orgId
       // so any cross-org IDs would simply not resolve.
-      const calls = await Promise.all(
-        callIds.map((id) => storage.getCall(orgId, id).catch(() => null)),
-      );
+      const calls = await Promise.all(callIds.map((id) => storage.getCall(orgId, id).catch(() => null)));
       const present = calls
         .filter((c): c is NonNullable<typeof c> => c !== null && c !== undefined)
         .map((c: any) => ({
@@ -304,14 +301,10 @@ export function registerCallTagRoutes(app: Express) {
 
       const { timestampMs, text } = req.body;
       if (typeof timestampMs !== "number" || !Number.isFinite(timestampMs) || timestampMs < 0) {
-        return res
-          .status(400)
-          .json({ message: "timestampMs must be a non-negative finite number" });
+        return res.status(400).json({ message: "timestampMs must be a non-negative finite number" });
       }
       if (typeof text !== "string" || !text.trim() || text.length > MAX_ANNOTATION_LEN) {
-        return res
-          .status(400)
-          .json({ message: `text must be a non-empty string ≤ ${MAX_ANNOTATION_LEN} chars` });
+        return res.status(400).json({ message: `text must be a non-empty string ≤ ${MAX_ANNOTATION_LEN} chars` });
       }
 
       const call = await storage.getCall(orgId, callId);
