@@ -21,8 +21,8 @@
  * reference there as a follow-up commit).
  */
 import { sql, eq, and, desc } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { performanceSnapshots, type PerformanceSnapshotRow, type InsertPerformanceSnapshot } from "@shared/schema";
+import type { Database } from "../db/index";
 import { logger } from "../services/logger";
 
 let ddlEnsured = false;
@@ -32,7 +32,7 @@ let ddlEnsured = false;
  * Safe to call repeatedly; only does real work on the first invocation
  * after process start.
  */
-export async function ensureSnapshotTable(db: NodePgDatabase): Promise<void> {
+export async function ensureSnapshotTable(db: Database): Promise<void> {
   if (ddlEnsured) return;
 
   await db.execute(sql`
@@ -74,7 +74,7 @@ export async function ensureSnapshotTable(db: NodePgDatabase): Promise<void> {
  * via the unique index uq_perf_snap_target_period).
  */
 export async function upsertSnapshot(
-  db: NodePgDatabase,
+  db: Database,
   snapshot: InsertPerformanceSnapshot,
 ): Promise<PerformanceSnapshotRow> {
   await ensureSnapshotTable(db);
@@ -107,7 +107,7 @@ export async function upsertSnapshot(
  * next snapshot.
  */
 export async function listRecentSnapshots(
-  db: NodePgDatabase,
+  db: Database,
   orgId: string,
   level: string,
   targetId: string,
@@ -132,7 +132,7 @@ export async function listRecentSnapshots(
  * Fetch a single snapshot by id, scoped to org for tenancy isolation.
  */
 export async function getSnapshotById(
-  db: NodePgDatabase,
+  db: Database,
   orgId: string,
   id: string,
 ): Promise<PerformanceSnapshotRow | null> {
@@ -148,7 +148,7 @@ export async function getSnapshotById(
 /**
  * Delete all snapshots for an org. Used by org deletion / GDPR purge.
  */
-export async function deleteSnapshotsByOrg(db: NodePgDatabase, orgId: string): Promise<number> {
+export async function deleteSnapshotsByOrg(db: Database, orgId: string): Promise<number> {
   await ensureSnapshotTable(db);
   const result = await db
     .delete(performanceSnapshots)
@@ -163,7 +163,7 @@ export async function deleteSnapshotsByOrg(db: NodePgDatabase, orgId: string): P
  * Admin operation; should be audit-logged by the caller.
  */
 export async function resetSnapshotContext(
-  db: NodePgDatabase,
+  db: Database,
   orgId: string,
   level: string,
   targetId: string,
