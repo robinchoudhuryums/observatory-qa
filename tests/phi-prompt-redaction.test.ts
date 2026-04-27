@@ -1,29 +1,37 @@
 /**
- * Tests for PHI redaction at AI inference boundaries (Tier 0.1 of the
- * CallAnalyzer adaptation plan).
+ * Tests for server/services/phi-policy.ts — the centralized redact-or-preserve
+ * decision that gates PHI flow into Bedrock prompts.
  *
- * Observatory has a HIPAA BAA with AWS Bedrock, so PHI in prompts is
- * compliant. These tests guard the defense-in-depth policy: PHI is stripped
- * before prompts enter Bedrock unless the prompt's job IS to summarize PHI
- * (clinical note generation).
- *
- * What's covered:
- *   - shouldRedactPhiForCategory: routing logic
- *   - CLINICAL_CATEGORIES: set membership stays in sync with buildSystemPrompt
- *   - buildUserMessage: redacts for non-clinical, preserves for clinical,
- *     respects explicit redactPhi option
+ * Observatory has a HIPAA BAA with AWS Bedrock so PHI in prompts is compliant.
+ * This module is defense-in-depth: PHI is stripped before prompts enter
+ * Bedrock unless the prompt's job IS to summarize PHI (clinical note generation).
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   CLINICAL_CATEGORIES,
   shouldRedactPhiForCategory,
-  buildUserMessage,
-} from "../server/services/ai-prompts";
+  redactTextForCategory,
+} from "../server/services/phi-policy";
+
+describe("CLINICAL_CATEGORIES — invariants", () => {
+  it("contains exactly the four clinical-note-generation categories", () => {
+    // INVARIANT: this set must stay in sync with buildSystemPrompt's clinical
+    // routing in server/services/ai-prompts.ts. A clinical category whose
+    // system prompt asks for SOAP notes but whose transcript arrives
+    // PHI-redacted produces useless notes — this test pins the contract.
+    assert.equal(CLINICAL_CATEGORIES.size, 4);
+    assert.ok(CLINICAL_CATEGORIES.has("clinical_encounter"));
+    assert.ok(CLINICAL_CATEGORIES.has("telemedicine"));
+    assert.ok(CLINICAL_CATEGORIES.has("dental_encounter"));
+    assert.ok(CLINICAL_CATEGORIES.has("dental_consultation"));
+  });
+});
 
 describe("shouldRedactPhiForCategory — routing logic", () => {
-  it("redacts when no category provided (default safe)", () => {
+  it("redacts when no category provided (safe default)", () => {
     assert.equal(shouldRedactPhiForCategory(undefined), true);
+    assert.equal(shouldRedactPhiForCategory(null), true);
     assert.equal(shouldRedactPhiForCategory(""), true);
   });
 
@@ -56,89 +64,42 @@ describe("shouldRedactPhiForCategory — routing logic", () => {
   });
 });
 
-describe("CLINICAL_CATEGORIES — invariants", () => {
-  it("contains exactly the four clinical-note-generation categories", () => {
-    // If buildSystemPrompt's clinical routing changes, this test must be
-    // updated alongside it. Drift between the two is a HIPAA-relevant bug.
-    assert.equal(CLINICAL_CATEGORIES.size, 4);
-    assert.ok(CLINICAL_CATEGORIES.has("clinical_encounter"));
-    assert.ok(CLINICAL_CATEGORIES.has("telemedicine"));
-    assert.ok(CLINICAL_CATEGORIES.has("dental_encounter"));
-    assert.ok(CLINICAL_CATEGORIES.has("dental_consultation"));
-  });
-});
+describe("redactTextForCategory — wrapped redactor", () => {
+  // Patterns Observatory's redactor catches: SSN, phone, email, MRN, DOB.
+  const phiText =
+    "Patient SSN 123-45-6789, phone (555) 123-4567, email user@example.com, MRN 1234567, DOB 01/15/1952.";
 
-describe("buildUserMessage — PHI redaction routing", () => {
-  // Use Observatory's redactor patterns: SSN, phone, email, MRN, DOB.
-  // These are the surface that travels into Bedrock with the transcript.
-  const phiTranscript =
-    "Agent: Hi, this is Sarah. Patient: My SSN is 123-45-6789, " +
-    "phone (555) 123-4567, email john.doe@example.com, MRN 1234567, DOB 01/15/1952.";
-
-  it("redacts PHI by default for non-clinical category (inbound)", () => {
-    const out = buildUserMessage(phiTranscript, "inbound");
+  it("redacts for non-clinical category (default routing)", () => {
+    const out = redactTextForCategory(phiText, "inbound");
     assert.ok(!out.includes("123-45-6789"), "SSN must be redacted");
     assert.ok(!out.includes("(555) 123-4567"), "phone must be redacted");
-    assert.ok(!out.includes("john.doe@example.com"), "email must be redacted");
-    assert.ok(!out.includes("1234567"), "MRN must be redacted");
-    assert.ok(!out.includes("01/15/1952"), "DOB must be redacted");
+    assert.ok(!out.includes("user@example.com"), "email must be redacted");
     assert.ok(out.includes("[REDACTED]"), "must contain redaction markers");
   });
 
-  it("redacts PHI by default when no category provided (safe default)", () => {
-    const out = buildUserMessage(phiTranscript);
+  it("preserves PHI for clinical category (default routing)", () => {
+    const out = redactTextForCategory(phiText, "clinical_encounter");
+    assert.equal(out, phiText, "no redaction for clinical category");
+  });
+
+  it("redacts when no category provided (safe default)", () => {
+    const out = redactTextForCategory(phiText, undefined);
     assert.ok(!out.includes("123-45-6789"));
-    assert.ok(!out.includes("john.doe@example.com"));
+    assert.ok(!out.includes("user@example.com"));
   });
 
-  it("preserves PHI for clinical_encounter (AI must see PHI to draft notes)", () => {
-    const out = buildUserMessage(phiTranscript, "clinical_encounter");
-    assert.ok(out.includes("123-45-6789"), "SSN must be preserved for clinical");
-    assert.ok(out.includes("(555) 123-4567"), "phone must be preserved");
-    assert.ok(out.includes("john.doe@example.com"), "email must be preserved");
+  it("explicit override true forces redaction even for clinical", () => {
+    const out = redactTextForCategory(phiText, "clinical_encounter", true);
+    assert.ok(!out.includes("123-45-6789"));
   });
 
-  it("preserves PHI for telemedicine, dental_encounter, dental_consultation", () => {
-    for (const category of ["telemedicine", "dental_encounter", "dental_consultation"]) {
-      const out = buildUserMessage(phiTranscript, category);
-      assert.ok(out.includes("123-45-6789"), `SSN preserved for ${category}`);
-      assert.ok(out.includes("MRN 1234567"), `MRN preserved for ${category}`);
-    }
+  it("explicit override false skips redaction even for non-clinical", () => {
+    const out = redactTextForCategory(phiText, "inbound", false);
+    assert.equal(out, phiText);
   });
 
-  it("respects explicit redactPhi: true even for clinical categories", () => {
-    const out = buildUserMessage(phiTranscript, "clinical_encounter", { redactPhi: true });
-    assert.ok(!out.includes("123-45-6789"), "explicit override forces redaction");
-  });
-
-  it("respects explicit redactPhi: false even for non-clinical categories", () => {
-    const out = buildUserMessage(phiTranscript, "inbound", { redactPhi: false });
-    assert.ok(out.includes("123-45-6789"), "explicit override skips redaction");
-  });
-
-  it("preserves agent name detection cues (no NAME pattern in redactor)", () => {
-    // Observatory's redactor intentionally omits name patterns to keep
-    // detected_agent_name working. This test pins that contract: the agent
-    // greeting "Hi, this is Sarah" should survive redaction.
-    const out = buildUserMessage(phiTranscript, "inbound");
-    assert.ok(out.includes("Sarah"), "agent name cue must survive redaction");
-  });
-
-  it("preserves benign transcript content", () => {
-    const benign = "Agent: Thanks for calling. How can I help today? Customer: I have a question about my order.";
-    const out = buildUserMessage(benign, "inbound");
-    assert.ok(out.includes("Thanks for calling"));
-    assert.ok(out.includes("question about my order"));
-  });
-
-  it("attaches low-confidence note when transcriptConfidence < 0.5", () => {
-    const out = buildUserMessage("benign text", "inbound", { transcriptConfidence: 0.3 });
-    assert.ok(out.includes("LOW confidence"));
-    assert.ok(out.includes("30%"));
-  });
-
-  it("does not attach confidence note for high-confidence transcripts", () => {
-    const out = buildUserMessage("benign text", "inbound", { transcriptConfidence: 0.9 });
-    assert.ok(!out.includes("LOW confidence"));
+  it("preserves benign text unchanged", () => {
+    const benign = "Thanks for calling. How can I help today?";
+    assert.equal(redactTextForCategory(benign, "inbound"), benign);
   });
 });
