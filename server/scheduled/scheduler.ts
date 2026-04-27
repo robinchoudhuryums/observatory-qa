@@ -107,3 +107,56 @@ export function scheduleWeekly(
     if (timer) clearTimeout(timer);
   };
 }
+
+/**
+ * Schedule a function to run hourly, aligned to the top of each UTC hour.
+ *
+ * Tier 0.5 of the CallAnalyzer adaptation plan. Used by the scheduled-reports
+ * tick (generation + delivery), where running aligned to the hour makes
+ * cross-instance behavior predictable in multi-instance deployments.
+ *
+ * On first call, computes the delay until the next top-of-hour and schedules
+ * accordingly. After each run, re-schedules for the next hour to avoid drift.
+ *
+ * NOTE: in multi-instance deployments, every instance will fire concurrently
+ * at the top of the hour. The downstream task should be idempotent (which
+ * runScheduledReportsTick is, via its UNIQUE(orgId, reportType, periodStart)
+ * guard).
+ */
+export function scheduleHourly(
+  fn: () => void | Promise<void>,
+  label: string,
+): () => void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let cancelled = false;
+
+  function msUntilNextRun(): number {
+    const now = new Date();
+    const next = new Date(now);
+    // Top of the next hour
+    next.setUTCHours(now.getUTCHours() + 1, 0, 0, 0);
+    return next.getTime() - now.getTime();
+  }
+
+  function scheduleNext() {
+    if (cancelled) return;
+    const delayMs = msUntilNextRun();
+    logger.info({ label, nextRunIn: `${Math.round(delayMs / 60_000)}m` }, "Scheduled next hourly run");
+    timer = setTimeout(async () => {
+      if (cancelled) return;
+      try {
+        await fn();
+      } catch (err) {
+        logger.error({ err, label }, "Scheduled hourly task failed");
+      }
+      scheduleNext();
+    }, delayMs);
+  }
+
+  scheduleNext();
+
+  return () => {
+    cancelled = true;
+    if (timer) clearTimeout(timer);
+  };
+}

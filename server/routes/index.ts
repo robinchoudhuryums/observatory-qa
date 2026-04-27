@@ -40,6 +40,7 @@ import { registerBenchmarkRoutes } from "./benchmarks";
 import { registerPatientJourneyRoutes } from "./patient-journey";
 import { registerBaaRoutes } from "./baa";
 import { registerAssemblyAIWebhookRoutes } from "./assemblyai-webhook";
+import { registerCallTagRoutes } from "./call-tags";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -86,6 +87,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerDashboardRoutes(app);
   registerEmployeeRoutes(app);
   registerCallRoutes(app);
+  // Call tags + annotations (Tier 1A) — must come AFTER registerCallRoutes
+  // so the /api/calls/:id namespace base is established. Tag/annotation
+  // routes mount additional sub-paths under /api/calls/:id and /api/tags.
+  registerCallTagRoutes(app);
   registerReportRoutes(app);
   registerCoachingRoutes(app);
   registerInsightRoutes(app);
