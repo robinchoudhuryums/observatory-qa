@@ -13,7 +13,6 @@
  *     only enforces orgId scoping at the data layer).
  */
 import { sql, eq, and, asc, desc } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import {
   callTags,
   annotations,
@@ -22,11 +21,12 @@ import {
   type Annotation,
   type InsertAnnotation,
 } from "@shared/schema";
+import type { Database } from "../db/index";
 import { logger } from "../services/logger";
 
 let ddlEnsured = false;
 
-export async function ensureCallTagsTables(db: NodePgDatabase): Promise<void> {
+export async function ensureCallTagsTables(db: Database): Promise<void> {
   if (ddlEnsured) return;
 
   await db.execute(sql`
@@ -81,7 +81,7 @@ export async function ensureCallTagsTables(db: NodePgDatabase): Promise<void> {
  * List all tags for a specific call. Org-scoped.
  */
 export async function listTagsForCall(
-  db: NodePgDatabase,
+  db: Database,
   orgId: string,
   callId: string,
 ): Promise<CallTag[]> {
@@ -98,7 +98,7 @@ export async function listTagsForCall(
  * (orgId, callId, tag) combination — the caller can return 409 to the user.
  */
 export async function addTag(
-  db: NodePgDatabase,
+  db: Database,
   data: InsertCallTag,
 ): Promise<CallTag | null> {
   await ensureCallTagsTables(db);
@@ -116,7 +116,7 @@ export async function addTag(
  * Look up a single tag by id, scoped to org.
  */
 export async function getTagById(
-  db: NodePgDatabase,
+  db: Database,
   orgId: string,
   tagId: string,
 ): Promise<CallTag | null> {
@@ -134,7 +134,7 @@ export async function getTagById(
  * route layer before this is called.
  */
 export async function deleteTag(
-  db: NodePgDatabase,
+  db: Database,
   orgId: string,
   tagId: string,
 ): Promise<void> {
@@ -149,7 +149,7 @@ export async function deleteTag(
  * Drives autocomplete and the "browse by tag" UI.
  */
 export async function listTopTags(
-  db: NodePgDatabase,
+  db: Database,
   orgId: string,
   limit = 100,
 ): Promise<Array<{ tag: string; count: number }>> {
@@ -176,7 +176,7 @@ export async function listTopTags(
  * (viewer team scoping, etc.) and looks up call details.
  */
 export async function listCallIdsByTag(
-  db: NodePgDatabase,
+  db: Database,
   orgId: string,
   tag: string,
   limit = 100,
@@ -194,7 +194,7 @@ export async function listCallIdsByTag(
 /**
  * Bulk delete all tags for an org (GDPR purge integration).
  */
-export async function deleteTagsByOrg(db: NodePgDatabase, orgId: string): Promise<number> {
+export async function deleteTagsByOrg(db: Database, orgId: string): Promise<number> {
   await ensureCallTagsTables(db);
   const result = await db
     .delete(callTags)
@@ -211,7 +211,7 @@ export async function deleteTagsByOrg(db: NodePgDatabase, orgId: string): Promis
  * List all annotations for a call, ordered along the timeline.
  */
 export async function listAnnotationsForCall(
-  db: NodePgDatabase,
+  db: Database,
   orgId: string,
   callId: string,
 ): Promise<Annotation[]> {
@@ -228,7 +228,7 @@ export async function listAnnotationsForCall(
  * at the route layer.
  */
 export async function addAnnotation(
-  db: NodePgDatabase,
+  db: Database,
   data: InsertAnnotation,
 ): Promise<Annotation> {
   await ensureCallTagsTables(db);
@@ -241,7 +241,7 @@ export async function addAnnotation(
  * author-or-manager delete check before invoking deleteAnnotation.
  */
 export async function getAnnotationById(
-  db: NodePgDatabase,
+  db: Database,
   orgId: string,
   annotationId: string,
 ): Promise<Annotation | null> {
@@ -259,7 +259,7 @@ export async function getAnnotationById(
  * the route layer.
  */
 export async function deleteAnnotation(
-  db: NodePgDatabase,
+  db: Database,
   orgId: string,
   annotationId: string,
 ): Promise<void> {
@@ -272,7 +272,7 @@ export async function deleteAnnotation(
 /**
  * Bulk delete all annotations for an org (GDPR purge integration).
  */
-export async function deleteAnnotationsByOrg(db: NodePgDatabase, orgId: string): Promise<number> {
+export async function deleteAnnotationsByOrg(db: Database, orgId: string): Promise<number> {
   await ensureCallTagsTables(db);
   const result = await db
     .delete(annotations)
