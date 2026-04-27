@@ -13,7 +13,12 @@ export { runWeeklyDigest } from "./weekly-digest";
 export { runAuditChainVerify } from "./audit-chain-verify";
 export { runCoachingScheduledTasks } from "./coaching-tasks";
 export { runPostProcessingReconciliation } from "./post-processing-reconciliation";
-export { scheduleDaily, scheduleWeekly } from "./scheduler";
+export {
+  runScheduledReportsTask,
+  startScheduledReportsHourlyTick,
+  runScheduledReportsCatchUp,
+} from "./scheduled-reports-tick";
+export { scheduleDaily, scheduleWeekly, scheduleHourly } from "./scheduler";
 
 // Re-import for orchestrator use
 import { runRetention } from "./retention";
