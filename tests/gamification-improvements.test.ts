@@ -237,8 +237,8 @@ describe("Badge Definitions", () => {
     }
   });
 
-  it("has 12 system badge definitions", () => {
-    assert.equal(BADGE_DEFINITIONS.length, 12);
+  it("has 15 system badge definitions", () => {
+    assert.equal(BADGE_DEFINITIONS.length, 15);
   });
 
   it("covers all 5 categories", () => {

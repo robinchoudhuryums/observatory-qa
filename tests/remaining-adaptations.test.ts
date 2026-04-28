@@ -84,7 +84,7 @@ describe("Performance snapshots", () => {
     const { saveSnapshot, getSnapshots, aggregateMetrics } = await import("../server/services/performance-snapshots.js");
     const metrics = aggregateMetrics([]);
 
-    saveSnapshot({
+    await saveSnapshot({
       id: "test-snap-1",
       orgId: "org-test",
       level: "company",
@@ -98,7 +98,7 @@ describe("Performance snapshots", () => {
       generatedAt: new Date().toISOString(),
     });
 
-    const results = getSnapshots("org-test", "company", "org-test");
+    const results = await getSnapshots("org-test", "company", "org-test");
     assert.ok(results.length >= 1);
     assert.equal(results[0].targetName, "Test Co");
   });
@@ -208,7 +208,7 @@ describe("Scheduled reports", () => {
     // This test requires MemStorage but the module imports storage at top level.
     // Test the getReports function which is simpler.
     const { getReports } = await import("../server/services/scheduled-reports.js");
-    const reports = getReports("nonexistent-org");
+    const reports = await getReports("nonexistent-org");
     assert.ok(Array.isArray(reports));
     assert.equal(reports.length, 0);
   });
