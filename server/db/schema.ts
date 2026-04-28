@@ -1196,3 +1196,18 @@ export const businessAssociateAgreements = pgTable(
     index("baa_expiry_idx").on(t.expiresAt),
   ],
 );
+
+export {
+  performanceSnapshots,
+} from "@shared/schema/snapshots";
+export {
+  scheduledReports,
+  scheduledReportConfigs,
+} from "@shared/schema/scheduled-reports";
+export {
+  callTags,
+  annotations,
+} from "@shared/schema/call-tags";
+export {
+  scoringCorrections,
+} from "@shared/schema/scoring-corrections";

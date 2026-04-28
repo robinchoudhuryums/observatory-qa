@@ -79,6 +79,27 @@ export const BADGE_DEFINITIONS = [
     icon: "target",
     category: "performance",
   },
+  {
+    id: "compliance_star",
+    name: "Compliance Star",
+    description: "5 consecutive calls with compliance sub-score 9.0 or higher",
+    icon: "shield-check",
+    category: "performance",
+  },
+  {
+    id: "empathy_champion",
+    name: "Empathy Champion",
+    description: "5 consecutive calls with customer experience sub-score 9.0 or higher",
+    icon: "heart",
+    category: "performance",
+  },
+  {
+    id: "resolution_ace",
+    name: "Resolution Ace",
+    description: "5 consecutive calls with resolution sub-score 9.0 or higher",
+    icon: "target",
+    category: "performance",
+  },
   // Improvement badges
   {
     id: "most_improved",

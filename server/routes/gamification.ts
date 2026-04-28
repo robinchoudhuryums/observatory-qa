@@ -6,6 +6,7 @@ import { validateUUIDParam } from "./helpers";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import { BADGE_DEFINITIONS, type BadgeId } from "@shared/schema";
 import { asyncHandler } from "../middleware/error-handler";
+import { evaluateSubScoreBadges } from "../services/sub-score-badges";
 
 // Points awarded for various activities
 const POINT_VALUES = {
@@ -149,6 +150,7 @@ export async function recordActivity(
 
     // Check for new badges
     await checkAndAwardBadges(orgId, employeeId);
+    await evaluateSubScoreBadges(orgId, employeeId);
   } catch (error) {
     logger.error({ err: error, orgId, employeeId, pointType }, "Failed to record gamification activity");
   }

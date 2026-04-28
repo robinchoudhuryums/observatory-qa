@@ -10,6 +10,8 @@ import { aiProvider } from "./ai-factory";
 import { buildAgentSummaryPrompt } from "./ai-provider";
 import { logger } from "./logger";
 import type { CallSummary, CoachingSession } from "@shared/schema";
+import { prepareCallSummariesForPrompt } from "./coaching-prompt";
+import { generateProgressivePlan, progressivePlanToActionPlan, type WeaknessContext } from "./coaching-progressive";
 
 // Default thresholds for auto-recommendations (can be overridden per-org via settings.coachingThresholds)
 const DEFAULT_THRESHOLDS = {

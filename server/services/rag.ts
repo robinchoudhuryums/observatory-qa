@@ -13,6 +13,7 @@ import { sql, eq, and } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { chunkDocument } from "./chunker";
 import { generateEmbedding, generateEmbeddingsBatch, isEmbeddingAvailable } from "./embeddings";
+import { generateQueryEmbedding } from "./embeddings-rag";
 import { logger } from "./logger";
 import { detectPromptInjection } from "../utils/ai-guardrails";
 import { redactPhi } from "../utils/phi-redactor";
@@ -499,7 +500,8 @@ export async function searchRelevantChunks(
   }
 
   // Generate query embedding
-  const queryEmbedding = await generateEmbedding(queryText);
+  const queryEmbedding = await
+  generateQueryEmbedding(queryText);
   timer.mark("embedding");
   const embeddingStr = `[${queryEmbedding.join(",")}]`;
 
