@@ -9,7 +9,7 @@ import {
   isAccountLocked,
   recordFailedAttempt,
   unlockAccount,
-} from "../server/auth.ts";
+} from "../server/auth.js";
 
 /**
  * RBAC (Role-Based Access Control) tests.
@@ -105,11 +105,11 @@ describe("RBAC - Role-Based Access Control", () => {
       const express = (await import("express")).default;
       const app = express();
       app.use(express.json());
-      const { setupAuth } = await import("../server/auth.ts");
+      const { setupAuth } = await import("../server/auth.js");
       await setupAuth(app);
 
       // Test routes with different role requirements
-      const { requireAuth, requireRole } = await import("../server/auth.ts");
+      const { requireAuth, requireRole } = await import("../server/auth.js");
       app.get("/api/test/public", (_req, res) => res.json({ ok: true }));
       app.get("/api/test/authed", requireAuth, (_req, res) => res.json({ ok: true }));
       app.get("/api/test/viewer", requireAuth, requireRole("viewer"), (_req, res) => res.json({ ok: true }));

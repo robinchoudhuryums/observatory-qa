@@ -13,7 +13,7 @@ import {
   REGISTRATION_EMAIL_REGEX,
   REGISTRATION_SLUG_REGEX,
   REGISTRATION_FIELD_LIMITS,
-} from "../server/routes/registration.ts";
+} from "../server/routes/registration.js";
 
 const VALID_INDUSTRIES = INDUSTRY_TYPES.map((t) => t.value);
 const VALID_ROLES = USER_ROLES.map((r) => r.value);

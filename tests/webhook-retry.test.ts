@@ -21,7 +21,7 @@ import {
   formatFlagLabels,
   matchFlagsAgainstEvents,
   mergeWebhookConfig,
-} from "../server/services/notifications.ts";
+} from "../server/services/notifications.js";
 
 // ---------------------------------------------------------------------------
 // withRetry unit tests (imported directly from helpers)
