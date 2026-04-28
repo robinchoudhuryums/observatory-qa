@@ -246,7 +246,8 @@ export class PerKeyCircuitBreaker {
   /** Snapshot of all currently-tracked breakers, sorted by most-recently-failed. */
   snapshot(): CircuitSnapshot[] {
     const out: CircuitSnapshot[] = [];
-    for (const [key, b] of this.breakers) {
+    // Array.from(): downlevelIteration-safe; same semantics as `for...of` on the Map.
+    for (const [key, b] of Array.from(this.breakers)) {
       out.push({
         key,
         state: b.getState(),
