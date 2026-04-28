@@ -30,102 +30,124 @@ export function registerCoachingRoutes(app: Express): void {
   // ==================== COACHING ROUTES ====================
 
   // List all coaching sessions (managers and admins) — filtered by subTeam when applicable
-  app.get("/api/coaching", requireAuth, injectOrgContext, requireRole("manager", "admin"), asyncHandler(async (req, res) => {
-    const { limit, offset } = parsePagination(req.query);
-    let sessions = await storage.getAllCoachingSessions(req.orgId!);
+  app.get(
+    "/api/coaching",
+    requireAuth,
+    injectOrgContext,
+    requireRole("manager", "admin"),
+    asyncHandler(async (req, res) => {
+      const { limit, offset } = parsePagination(req.query);
+      let sessions = await storage.getAllCoachingSessions(req.orgId!);
 
-    // Team-scoped filtering: managers with a subTeam see only their team's sessions
-    const teamEmployeeIds = req.user ? await getTeamScopedEmployeeIds(req.orgId!, req.user) : null;
-    if (teamEmployeeIds !== null) {
-      sessions = sessions.filter((s) => teamEmployeeIds.has(s.employeeId));
-    }
+      // Team-scoped filtering: managers with a subTeam see only their team's sessions
+      const teamEmployeeIds = req.user ? await getTeamScopedEmployeeIds(req.orgId!, req.user) : null;
+      if (teamEmployeeIds !== null) {
+        sessions = sessions.filter((s) => teamEmployeeIds.has(s.employeeId));
+      }
 
-    // Batch-load employee names instead of N+1
-    const employees = await storage.getAllEmployees(req.orgId!);
-    const empMap = new Map(employees.map((e) => [e.id, e.name]));
-    const enriched = sessions.map((s) => ({
-      ...s,
-      employeeName: empMap.get(s.employeeId) || "Unknown",
-    }));
-    logPhiAccess({
-      ...auditContext(req),
-      event: "view_coaching_sessions",
-      resourceType: "coaching",
-      detail: `Listed ${enriched.length} coaching sessions`,
-    });
-    const sorted = enriched.sort(
-      (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
-    );
-    // Apply pagination (limit/offset from query params)
-    const paginated = sorted.slice(offset, offset + limit);
-    res.json(paginated);
-  }));
+      // Batch-load employee names instead of N+1
+      const employees = await storage.getAllEmployees(req.orgId!);
+      const empMap = new Map(employees.map((e) => [e.id, e.name]));
+      const enriched = sessions.map((s) => ({
+        ...s,
+        employeeName: empMap.get(s.employeeId) || "Unknown",
+      }));
+      logPhiAccess({
+        ...auditContext(req),
+        event: "view_coaching_sessions",
+        resourceType: "coaching",
+        detail: `Listed ${enriched.length} coaching sessions`,
+      });
+      const sorted = enriched.sort(
+        (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
+      );
+      // Apply pagination (limit/offset from query params)
+      const paginated = sorted.slice(offset, offset + limit);
+      res.json(paginated);
+    }),
+  );
 
   // Get coaching sessions for the currently authenticated user (viewer self-service)
   // Looks up the employee record matching the user's email/username and returns their sessions.
-  app.get("/api/coaching/my", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
-    const username = req.user!.username;
-    // Try to find the matching employee by email (username is usually email)
-    let employee = await storage.getEmployeeByEmail(req.orgId!, username);
-    // Fallback: search all employees for a name match (case-insensitive)
-    if (!employee) {
-      const all = await storage.getAllEmployees(req.orgId!);
-      const nameLower = req.user!.name?.toLowerCase();
-      employee = all.find(
-        (e) => e.name?.toLowerCase() === nameLower || e.email?.toLowerCase() === username.toLowerCase(),
-      );
-    }
-    if (!employee) {
-      return res.json([]); // No employee record linked — return empty
-    }
-    const sessions = await storage.getCoachingSessionsByEmployee(req.orgId!, employee.id);
-    logPhiAccess({
-      ...auditContext(req),
-      event: "view_own_coaching_sessions",
-      resourceType: "coaching",
-      resourceId: employee.id,
-      detail: `${sessions.length} sessions for self`,
-    });
-    res.json(sessions.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()));
-  }));
+  app.get(
+    "/api/coaching/my",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const username = req.user!.username;
+      // Try to find the matching employee by email (username is usually email)
+      let employee = await storage.getEmployeeByEmail(req.orgId!, username);
+      // Fallback: search all employees for a name match (case-insensitive)
+      if (!employee) {
+        const all = await storage.getAllEmployees(req.orgId!);
+        const nameLower = req.user!.name?.toLowerCase();
+        employee = all.find(
+          (e) => e.name?.toLowerCase() === nameLower || e.email?.toLowerCase() === username.toLowerCase(),
+        );
+      }
+      if (!employee) {
+        return res.json([]); // No employee record linked — return empty
+      }
+      const sessions = await storage.getCoachingSessionsByEmployee(req.orgId!, employee.id);
+      logPhiAccess({
+        ...auditContext(req),
+        event: "view_own_coaching_sessions",
+        resourceType: "coaching",
+        resourceId: employee.id,
+        detail: `${sessions.length} sessions for self`,
+      });
+      res.json(sessions.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()));
+    }),
+  );
 
   // Get coaching sessions for a specific employee
-  app.get("/api/coaching/employee/:employeeId", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
-    // Team scoping: verify caller has access to this employee
-    const teamIds = req.user?.role !== "admin" ? await getTeamScopedEmployeeIds(req.orgId!, req.user!) : null;
-    if (teamIds !== null && !teamIds.has(req.params.employeeId)) {
-      throw new AppError(403, "Employee is outside your team");
-    }
-    const sessions = await storage.getCoachingSessionsByEmployee(req.orgId!, req.params.employeeId);
-    logPhiAccess({
-      ...auditContext(req),
-      event: "view_employee_coaching",
-      resourceType: "coaching",
-      resourceId: req.params.employeeId,
-      detail: `${sessions.length} sessions for employee`,
-    });
-    res.json(sessions.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()));
-  }));
+  app.get(
+    "/api/coaching/employee/:employeeId",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      // Team scoping: verify caller has access to this employee
+      const teamIds = req.user?.role !== "admin" ? await getTeamScopedEmployeeIds(req.orgId!, req.user!) : null;
+      if (teamIds !== null && !teamIds.has(req.params.employeeId)) {
+        throw new AppError(403, "Employee is outside your team");
+      }
+      const sessions = await storage.getCoachingSessionsByEmployee(req.orgId!, req.params.employeeId);
+      logPhiAccess({
+        ...auditContext(req),
+        event: "view_employee_coaching",
+        resourceType: "coaching",
+        resourceId: req.params.employeeId,
+        detail: `${sessions.length} sessions for employee`,
+      });
+      res.json(sessions.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()));
+    }),
+  );
 
   // Create a coaching session (managers and admins)
-  app.post("/api/coaching", requireAuth, injectOrgContext, requireRole("manager", "admin"), asyncHandler(async (req, res) => {
-    const parsed = insertCoachingSessionSchema.safeParse({
-      ...req.body,
-      assignedBy: req.user?.name || req.user?.username || "Unknown",
-    });
-    if (!parsed.success) {
-      throw new AppError(400, "Invalid coaching data");
-    }
-    const session = await storage.createCoachingSession(req.orgId!, parsed.data);
-    logPhiAccess({
-      ...auditContext(req),
-      event: "create_coaching_session",
-      resourceType: "coaching",
-      resourceId: session.id,
-      detail: `Created coaching session for employee ${session.employeeId}`,
-    });
-    res.status(201).json(session);
-  }));
+  app.post(
+    "/api/coaching",
+    requireAuth,
+    injectOrgContext,
+    requireRole("manager", "admin"),
+    asyncHandler(async (req, res) => {
+      const parsed = insertCoachingSessionSchema.safeParse({
+        ...req.body,
+        assignedBy: req.user?.name || req.user?.username || "Unknown",
+      });
+      if (!parsed.success) {
+        throw new AppError(400, "Invalid coaching data");
+      }
+      const session = await storage.createCoachingSession(req.orgId!, parsed.data);
+      logPhiAccess({
+        ...auditContext(req),
+        event: "create_coaching_session",
+        resourceType: "coaching",
+        resourceId: session.id,
+        detail: `Created coaching session for employee ${session.employeeId}`,
+      });
+      res.status(201).json(session);
+    }),
+  );
 
   // Update a coaching session (status, notes, action plan progress)
   const updateCoachingSchema = z
@@ -139,39 +161,45 @@ export function registerCoachingRoutes(app: Express): void {
     })
     .strict();
 
-  app.patch("/api/coaching/:id", requireAuth, injectOrgContext, requireRole("manager", "admin"), asyncHandler(async (req, res) => {
-    const parsed = updateCoachingSchema.safeParse(req.body);
-    if (!parsed.success) {
-      throw new AppError(400, "Invalid update data");
-    }
-    const updates: Record<string, any> = { ...parsed.data };
-    if (updates.status === "completed") {
-      updates.completedAt = new Date().toISOString();
-    }
-    const updated = await storage.updateCoachingSession(req.orgId!, req.params.id, updates);
-    if (!updated) {
-      throw new AppError(404, "Coaching session not found", ERROR_CODES.COACHING_NOT_FOUND);
-    }
-    logPhiAccess({
-      ...auditContext(req),
-      event: "update_coaching_session",
-      resourceType: "coaching",
-      resourceId: req.params.id,
-      detail: `Updated fields: ${Object.keys(parsed.data).join(", ")}`,
-    });
-
-    // Gamification: award points when coaching session completed
-    if (updates.status === "completed" && updated.employeeId) {
-      try {
-        const { recordActivity } = await import("./gamification");
-        await recordActivity(req.orgId!, updated.employeeId, "coaching_completed");
-      } catch (err) {
-        logger.warn({ err, sessionId: req.params.id }, "Failed to update gamification for coaching completion");
+  app.patch(
+    "/api/coaching/:id",
+    requireAuth,
+    injectOrgContext,
+    requireRole("manager", "admin"),
+    asyncHandler(async (req, res) => {
+      const parsed = updateCoachingSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new AppError(400, "Invalid update data");
       }
-    }
+      const updates: Record<string, any> = { ...parsed.data };
+      if (updates.status === "completed") {
+        updates.completedAt = new Date().toISOString();
+      }
+      const updated = await storage.updateCoachingSession(req.orgId!, req.params.id, updates);
+      if (!updated) {
+        throw new AppError(404, "Coaching session not found", ERROR_CODES.COACHING_NOT_FOUND);
+      }
+      logPhiAccess({
+        ...auditContext(req),
+        event: "update_coaching_session",
+        resourceType: "coaching",
+        resourceId: req.params.id,
+        detail: `Updated fields: ${Object.keys(parsed.data).join(", ")}`,
+      });
 
-    res.json(updated);
-  }));
+      // Gamification: award points when coaching session completed
+      if (updates.status === "completed" && updated.employeeId) {
+        try {
+          const { recordActivity } = await import("./gamification");
+          await recordActivity(req.orgId!, updated.employeeId, "coaching_completed");
+        } catch (err) {
+          logger.warn({ err, sessionId: req.params.id }, "Failed to update gamification for coaching completion");
+        }
+      }
+
+      res.json(updated);
+    }),
+  );
 
   // ==================== COACHING RECOMMENDATIONS ====================
 
@@ -289,14 +317,19 @@ export function registerCoachingRoutes(app: Express): void {
   // ==================== COACHING EFFECTIVENESS ====================
 
   // Get effectiveness metrics for a coaching session
-  app.get("/api/coaching/:id/effectiveness", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
-    const result = await calculateEffectiveness(req.orgId!, req.params.id);
-    if (!result) {
-      res.json({ message: "Not enough data to calculate effectiveness", data: null });
-      return;
-    }
-    res.json(result);
-  }));
+  app.get(
+    "/api/coaching/:id/effectiveness",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const result = await calculateEffectiveness(req.orgId!, req.params.id);
+      if (!result) {
+        res.json({ message: "Not enough data to calculate effectiveness", data: null });
+        return;
+      }
+      res.json(result);
+    }),
+  );
 
   // ==================== MANAGER REVIEW QUEUE ====================
 
@@ -315,17 +348,29 @@ export function registerCoachingRoutes(app: Express): void {
   // ==================== WEEKLY DIGEST ====================
 
   // Generate and optionally send weekly digest
-  app.get("/api/coaching/digest", requireAuth, injectOrgContext, requireRole("manager", "admin"), asyncHandler(async (req, res) => {
-    const digest = await generateWeeklyDigest(req.orgId!);
-    res.json(digest);
-  }));
+  app.get(
+    "/api/coaching/digest",
+    requireAuth,
+    injectOrgContext,
+    requireRole("manager", "admin"),
+    asyncHandler(async (req, res) => {
+      const digest = await generateWeeklyDigest(req.orgId!);
+      res.json(digest);
+    }),
+  );
 
   // Send the weekly digest to configured webhook
-  app.post("/api/coaching/digest/send", requireAuth, injectOrgContext, requireRole("admin"), asyncHandler(async (req, res) => {
-    const digest = await generateWeeklyDigest(req.orgId!);
-    const sent = await sendDigestNotification(digest);
-    res.json({ sent, digest });
-  }));
+  app.post(
+    "/api/coaching/digest/send",
+    requireAuth,
+    injectOrgContext,
+    requireRole("admin"),
+    asyncHandler(async (req, res) => {
+      const digest = await generateWeeklyDigest(req.orgId!);
+      const sent = await sendDigestNotification(digest);
+      res.json({ sent, digest });
+    }),
+  );
 
   // ==================== COACHING ANALYTICS ====================
 
@@ -345,11 +390,16 @@ export function registerCoachingRoutes(app: Express): void {
 
   // ==================== COACHING TEMPLATES ====================
 
-  app.get("/api/coaching/templates", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
-    const { category } = req.query;
-    const templates = await storage.listCoachingTemplates(req.orgId!, category as string | undefined);
-    res.json(templates);
-  }));
+  app.get(
+    "/api/coaching/templates",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const { category } = req.query;
+      const templates = await storage.listCoachingTemplates(req.orgId!, category as string | undefined);
+      res.json(templates);
+    }),
+  );
 
   app.post(
     "/api/coaching/templates",
@@ -410,30 +460,42 @@ export function registerCoachingRoutes(app: Express): void {
 
   // ==================== AUTOMATION RULES ====================
 
-  app.get("/api/coaching/automation-rules", requireAuth, injectOrgContext, requireRole("admin"), asyncHandler(async (req, res) => {
-    const rules = await storage.listAutomationRules(req.orgId!);
-    res.json(rules);
-  }));
+  app.get(
+    "/api/coaching/automation-rules",
+    requireAuth,
+    injectOrgContext,
+    requireRole("admin"),
+    asyncHandler(async (req, res) => {
+      const rules = await storage.listAutomationRules(req.orgId!);
+      res.json(rules);
+    }),
+  );
 
-  app.post("/api/coaching/automation-rules", requireAuth, injectOrgContext, requireRole("admin"), asyncHandler(async (req, res) => {
-    const parsed = insertAutomationRuleSchema.safeParse({
-      ...req.body,
-      orgId: req.orgId!,
-      createdBy: req.user?.name || req.user?.username || "Unknown",
-    });
-    if (!parsed.success) {
-      throw new AppError(400, "Invalid rule data");
-    }
-    const rule = await storage.createAutomationRule(req.orgId!, parsed.data);
-    logPhiAccess({
-      ...auditContext(req),
-      event: "create_automation_rule",
-      resourceType: "coaching",
-      resourceId: rule.id,
-      detail: rule.name,
-    });
-    res.status(201).json(rule);
-  }));
+  app.post(
+    "/api/coaching/automation-rules",
+    requireAuth,
+    injectOrgContext,
+    requireRole("admin"),
+    asyncHandler(async (req, res) => {
+      const parsed = insertAutomationRuleSchema.safeParse({
+        ...req.body,
+        orgId: req.orgId!,
+        createdBy: req.user?.name || req.user?.username || "Unknown",
+      });
+      if (!parsed.success) {
+        throw new AppError(400, "Invalid rule data");
+      }
+      const rule = await storage.createAutomationRule(req.orgId!, parsed.data);
+      logPhiAccess({
+        ...auditContext(req),
+        event: "create_automation_rule",
+        resourceType: "coaching",
+        resourceId: rule.id,
+        detail: rule.name,
+      });
+      res.status(201).json(rule);
+    }),
+  );
 
   app.patch(
     "/api/coaching/automation-rules/:id",
@@ -476,52 +538,62 @@ export function registerCoachingRoutes(app: Express): void {
   // ==================== SELF-ASSESSMENT ====================
 
   // Employee submits self-assessment before seeing AI analysis
-  app.post("/api/coaching/:id/self-assess", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
-    const session = await storage.getCoachingSession(req.orgId!, req.params.id);
-    if (!session) {
-      throw new AppError(404, "Coaching session not found");
-    }
+  app.post(
+    "/api/coaching/:id/self-assess",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const session = await storage.getCoachingSession(req.orgId!, req.params.id);
+      if (!session) {
+        throw new AppError(404, "Coaching session not found");
+      }
 
-    // Ensure the requesting user is the employee being coached (or a manager/admin can also submit)
-    const parsedBody = selfAssessSchema.safeParse(req.body);
-    if (!parsedBody.success) {
-      throw new AppError(400, "Invalid self-assessment data");
-    }
+      // Ensure the requesting user is the employee being coached (or a manager/admin can also submit)
+      const parsedBody = selfAssessSchema.safeParse(req.body);
+      if (!parsedBody.success) {
+        throw new AppError(400, "Invalid self-assessment data");
+      }
 
-    if ((session as any).selfAssessedAt) {
-      throw new AppError(409, "Self-assessment already submitted for this session.");
-    }
+      if ((session as any).selfAssessedAt) {
+        throw new AppError(409, "Self-assessment already submitted for this session.");
+      }
 
-    const updated = await storage.updateCoachingSession(req.orgId!, req.params.id, {
-      selfAssessmentScore: parsedBody.data.score,
-      selfAssessmentNotes: parsedBody.data.notes,
-      selfAssessedAt: new Date().toISOString(),
-    } as any);
+      const updated = await storage.updateCoachingSession(req.orgId!, req.params.id, {
+        selfAssessmentScore: parsedBody.data.score,
+        selfAssessmentNotes: parsedBody.data.notes,
+        selfAssessedAt: new Date().toISOString(),
+      } as any);
 
-    logPhiAccess({
-      ...auditContext(req),
-      event: "self_assessment_submitted",
-      resourceType: "coaching",
-      resourceId: req.params.id,
-      detail: `Self-assessment score: ${parsedBody.data.score}`,
-    });
+      logPhiAccess({
+        ...auditContext(req),
+        event: "self_assessment_submitted",
+        resourceType: "coaching",
+        resourceId: req.params.id,
+        detail: `Self-assessment score: ${parsedBody.data.score}`,
+      });
 
-    res.json(updated);
-  }));
+      res.json(updated);
+    }),
+  );
 
   // Get self-assessment for a session (managers/admins see full data; employee sees own)
-  app.get("/api/coaching/:id/self-assessment", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
-    const session = await storage.getCoachingSession(req.orgId!, req.params.id);
-    if (!session) {
-      throw new AppError(404, "Coaching session not found");
-    }
-    res.json({
-      submitted: !!(session as any).selfAssessedAt,
-      score: (session as any).selfAssessmentScore ?? null,
-      notes: (session as any).selfAssessmentNotes ?? null,
-      submittedAt: (session as any).selfAssessedAt ?? null,
-    });
-  }));
+  app.get(
+    "/api/coaching/:id/self-assessment",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const session = await storage.getCoachingSession(req.orgId!, req.params.id);
+      if (!session) {
+        throw new AppError(404, "Coaching session not found");
+      }
+      res.json({
+        submitted: !!(session as any).selfAssessedAt,
+        score: (session as any).selfAssessmentScore ?? null,
+        notes: (session as any).selfAssessmentNotes ?? null,
+        submittedAt: (session as any).selfAssessedAt ?? null,
+      });
+    }),
+  );
 
   // ==================== FOLLOW-UP & OVERDUE ====================
 
@@ -539,10 +611,16 @@ export function registerCoachingRoutes(app: Express): void {
   );
 
   // Overdue sessions
-  app.get("/api/coaching/overdue", requireAuth, injectOrgContext, requireRole("manager", "admin"), asyncHandler(async (req, res) => {
-    const overdue = await getOverdueSessions(req.orgId!);
-    res.json(overdue);
-  }));
+  app.get(
+    "/api/coaching/overdue",
+    requireAuth,
+    injectOrgContext,
+    requireRole("manager", "admin"),
+    asyncHandler(async (req, res) => {
+      const overdue = await getOverdueSessions(req.orgId!);
+      res.json(overdue);
+    }),
+  );
 
   // Force-compute and cache effectiveness for a session
   app.post(
@@ -589,9 +667,9 @@ export function registerCoachingRoutes(app: Express): void {
       if (!employee) throw new AppError(404, "Employee not found");
 
       if (!aiProvider.isAvailable || !aiProvider.generateText) {
-        return res.status(503).json(
-          errorResponse(ERROR_CODES.INTERNAL_ERROR, "AI provider not available for module generation"),
-        );
+        return res
+          .status(503)
+          .json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "AI provider not available for module generation"));
       }
 
       const { assignToEmployee = false, generateQuiz = true, difficulty = "intermediate" } = req.body || {};
@@ -663,18 +741,17 @@ Respond with ONLY valid JSON (no markdown fences):
       const moduleInput: InsertLearningModule = {
         orgId,
         title: String(generated.title || `Training: ${session.title}`).slice(0, 500),
-        description: String(
-          generated.description || `Auto-generated from coaching session "${session.title}"`,
-        ).slice(0, 5000),
+        description: String(generated.description || `Auto-generated from coaching session "${session.title}"`).slice(
+          0,
+          5000,
+        ),
         contentType: "ai_generated",
         category: session.category || "coaching",
         content: String(generated.content || "").slice(0, 500000),
         quizQuestions: Array.isArray(generated.quizQuestions)
           ? generated.quizQuestions.slice(0, 20).map((q: any) => ({
               question: String(q.question || "").slice(0, 1000),
-              options: Array.isArray(q.options)
-                ? q.options.slice(0, 10).map((o: any) => String(o).slice(0, 500))
-                : [],
+              options: Array.isArray(q.options) ? q.options.slice(0, 10).map((o: any) => String(o).slice(0, 500)) : [],
               correctIndex: typeof q.correctIndex === "number" ? q.correctIndex : 0,
               explanation: q.explanation ? String(q.explanation).slice(0, 1000) : undefined,
             }))

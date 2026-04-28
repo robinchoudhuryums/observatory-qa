@@ -68,16 +68,25 @@ const updateRevenueSchema = z.object({
 
 export function registerRevenueRoutes(app: Express) {
   // Get revenue metrics summary
-  app.get("/api/revenue/metrics", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/revenue/metrics",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
       const metrics = await storage.getRevenueMetrics(orgId);
       res.json(metrics);
-    }));
+    }),
+  );
 
   // List all call revenue records
-  app.get("/api/revenue", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/revenue",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -96,7 +105,10 @@ export function registerRevenueRoutes(app: Express) {
           if (rev.convertedAt && call?.uploadedAt) {
             const callDate = new Date(call.uploadedAt);
             const convertDate = new Date(rev.convertedAt);
-            daysToConvert = Math.max(0, Math.round((convertDate.getTime() - callDate.getTime()) / (24 * 60 * 60 * 1000)));
+            daysToConvert = Math.max(
+              0,
+              Math.round((convertDate.getTime() - callDate.getTime()) / (24 * 60 * 60 * 1000)),
+            );
           }
 
           return {
@@ -111,17 +123,24 @@ export function registerRevenueRoutes(app: Express) {
       );
 
       res.json(enriched);
-    }));
+    }),
+  );
 
   // Get revenue for a specific call
-  app.get("/api/revenue/call/:callId", requireAuth, injectOrgContext, validateUUIDParam("callId"), asyncHandler(async (req, res) => {
+  app.get(
+    "/api/revenue/call/:callId",
+    requireAuth,
+    injectOrgContext,
+    validateUUIDParam("callId"),
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
       const revenue = await storage.getCallRevenue(orgId, req.params.callId);
       if (!revenue) return res.status(404).json({ message: "Revenue record not found" });
       res.json(revenue);
-    }));
+    }),
+  );
 
   // Create or update revenue for a call
   app.put(
@@ -131,54 +150,58 @@ export function registerRevenueRoutes(app: Express) {
     injectOrgContext,
     validateUUIDParam("callId"),
     asyncHandler(async (req, res) => {
-        const orgId = req.orgId;
-        if (!orgId) return res.status(403).json({ message: "Organization context required" });
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-        const { callId } = req.params;
+      const { callId } = req.params;
 
-        const parsed = updateRevenueSchema.safeParse(req.body);
-        if (!parsed.success) {
-          return res.status(400).json({ message: "Invalid revenue data", errors: parsed.error.flatten().fieldErrors });
+      const parsed = updateRevenueSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid revenue data", errors: parsed.error.flatten().fieldErrors });
+      }
+
+      const call = await storage.getCall(orgId, callId);
+      if (!call) return res.status(404).json({ message: "Call not found" });
+
+      const revenueData: Record<string, unknown> = { ...parsed.data, updatedBy: req.user!.name || req.user!.username };
+
+      // Auto-set convertedAt when conversion status changes to "converted"
+      if (parsed.data.conversionStatus === "converted" && !parsed.data.convertedAt) {
+        const existingRev = await storage.getCallRevenue(orgId, callId);
+        if (!existingRev?.convertedAt) {
+          revenueData.convertedAt = new Date().toISOString();
         }
-
-        const call = await storage.getCall(orgId, callId);
-        if (!call) return res.status(404).json({ message: "Call not found" });
-
-        const revenueData: Record<string, unknown> = { ...parsed.data, updatedBy: req.user!.name || req.user!.username };
-
-        // Auto-set convertedAt when conversion status changes to "converted"
-        if (parsed.data.conversionStatus === "converted" && !parsed.data.convertedAt) {
-          const existingRev = await storage.getCallRevenue(orgId, callId);
-          if (!existingRev?.convertedAt) {
-            revenueData.convertedAt = new Date().toISOString();
-          }
-        }
-        const existing = await storage.getCallRevenue(orgId, callId);
-        if (existing) {
-          const updated = await storage.updateCallRevenue(orgId, callId, revenueData);
-          res.json(updated);
-        } else {
-          const revenue = await storage.createCallRevenue(orgId, {
-            orgId,
-            callId,
-            conversionStatus: "unknown",
-            ...revenueData,
-          });
-          res.json(revenue);
-        }
-
-        logPhiAccess({
-          ...auditContext(req),
-          event: "update_call_revenue",
-          resourceType: "revenue",
-          resourceId: callId,
+      }
+      const existing = await storage.getCallRevenue(orgId, callId);
+      if (existing) {
+        const updated = await storage.updateCallRevenue(orgId, callId, revenueData);
+        res.json(updated);
+      } else {
+        const revenue = await storage.createCallRevenue(orgId, {
+          orgId,
+          callId,
+          conversionStatus: "unknown",
+          ...revenueData,
         });
-        logger.info({ orgId, callId }, "Call revenue updated");
-      }),
+        res.json(revenue);
+      }
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "update_call_revenue",
+        resourceType: "revenue",
+        resourceId: callId,
+      });
+      logger.info({ orgId, callId }, "Call revenue updated");
+    }),
   );
 
   // Get revenue by employee (aggregated)
-  app.get("/api/revenue/by-employee", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/revenue/by-employee",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -225,10 +248,15 @@ export function registerRevenueRoutes(app: Express) {
 
       const result = Object.values(byEmployee).sort((a, b) => b.totalActual - a.totalActual);
       res.json(result);
-    }));
+    }),
+  );
 
   // --- Revenue forecasting ---
-  app.get("/api/revenue/forecast", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/revenue/forecast",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -239,7 +267,7 @@ export function registerRevenueRoutes(app: Express) {
       const callDateMap = new Map<string, string>();
       for (const [id, call] of Array.from(callMap)) {
         if (call.uploadedAt) callDateMap.set(id, call.uploadedAt);
-}
+      }
 
       // Current month data
       const now = new Date();
@@ -301,10 +329,15 @@ export function registerRevenueRoutes(app: Express) {
         trackedCallCount: tracked.length,
         convertedCallCount: converted.length,
       });
-    }));
+    }),
+  );
 
   // --- Attribution funnel: call → appointment → treatment → payment ---
-  app.get("/api/revenue/attribution", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/revenue/attribution",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -378,10 +411,15 @@ export function registerRevenueRoutes(app: Express) {
       };
 
       res.json({ funnel, conversionRates: rates, revenueByStage });
-    }));
+    }),
+  );
 
   // --- Payer mix analysis ---
-  app.get("/api/revenue/payer-mix", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/revenue/payer-mix",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -464,7 +502,8 @@ export function registerRevenueRoutes(app: Express) {
         totalRecords: revenues.length,
         totalRevenue: Math.round(totalRevenue * 100) / 100,
       });
-    }));
+    }),
+  );
 
   // --- EHR revenue sync: pull treatment/payment data from EHR ---
   app.post(
@@ -474,150 +513,153 @@ export function registerRevenueRoutes(app: Express) {
     injectOrgContext,
     validateUUIDParam("callId"),
     asyncHandler(async (req, res) => {
-        const orgId = req.orgId;
-        if (!orgId) return res.status(403).json({ message: "Organization context required" });
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-        const { callId } = req.params;
-        const call = await storage.getCall(orgId, callId);
-        if (!call) return res.status(404).json({ message: "Call not found" });
+      const { callId } = req.params;
+      const call = await storage.getCall(orgId, callId);
+      if (!call) return res.status(404).json({ message: "Call not found" });
 
-        // Check EHR configuration
-        const org = await storage.getOrganization(orgId);
-        const ehrConfig = (org?.settings as any)?.ehrConfig;
-        if (!ehrConfig?.enabled || !ehrConfig?.system) {
-          return res.status(400).json({ message: "EHR integration not configured. Set up EHR in org settings first." });
+      // Check EHR configuration
+      const org = await storage.getOrganization(orgId);
+      const ehrConfig = (org?.settings as any)?.ehrConfig;
+      if (!ehrConfig?.enabled || !ehrConfig?.system) {
+        return res.status(400).json({ message: "EHR integration not configured. Set up EHR in org settings first." });
+      }
+
+      // Get or create revenue record
+      let revenue = await storage.getCallRevenue(orgId, callId);
+      if (!revenue) {
+        revenue = await storage.createCallRevenue(orgId, {
+          orgId,
+          callId,
+          conversionStatus: "unknown",
+        });
+      }
+
+      // Try to find matching patient/appointment from the request body or existing data
+      const { ehrPatientId } = req.body;
+
+      if (!ehrPatientId) {
+        return res.status(400).json({
+          message: "ehrPatientId is required to sync revenue data from EHR",
+          hint: "Use GET /api/ehr/patients to search for the patient first",
+        });
+      }
+
+      // Attempt to pull treatment plans from EHR
+      let treatmentPlans: any[] = [];
+      try {
+        const { getEhrAdapter } = await import("../services/ehr/index");
+        const { decryptField } = await import("../services/phi-encryption");
+        const adapter = getEhrAdapter(ehrConfig.system);
+        if (!adapter) {
+          return res.status(400).json({ message: `Unsupported EHR system: ${ehrConfig.system}` });
         }
-
-        // Get or create revenue record
-        let revenue = await storage.getCallRevenue(orgId, callId);
-        if (!revenue) {
-          revenue = await storage.createCallRevenue(orgId, {
-            orgId,
-            callId,
-            conversionStatus: "unknown",
-          });
-        }
-
-        // Try to find matching patient/appointment from the request body or existing data
-        const { ehrPatientId } = req.body;
-
-        if (!ehrPatientId) {
-          return res.status(400).json({
-            message: "ehrPatientId is required to sync revenue data from EHR",
-            hint: "Use GET /api/ehr/patients to search for the patient first",
-          });
-        }
-
-        // Attempt to pull treatment plans from EHR
-        let treatmentPlans: any[] = [];
-        try {
-          const { getEhrAdapter } = await import("../services/ehr/index");
-          const { decryptField } = await import("../services/phi-encryption");
-          const adapter = getEhrAdapter(ehrConfig.system);
-          if (!adapter) {
-            return res.status(400).json({ message: `Unsupported EHR system: ${ehrConfig.system}` });
-          }
-          const config = {
-            ...ehrConfig,
-            apiKey: ehrConfig.apiKey ? decryptField(ehrConfig.apiKey) : undefined,
-          };
-          treatmentPlans = await adapter.getPatientTreatmentPlans(config, ehrPatientId);
-        } catch (ehrErr) {
-          logger.warn({ err: ehrErr, callId }, "EHR treatment plan fetch failed");
-          return res.status(502).json({ message: "Failed to fetch data from EHR. Check connection settings." });
-        }
-
-        // Find relevant treatment plan (most recent accepted or in-progress)
-        const relevantPlan =
-          treatmentPlans.find(
-            (p) => p.status === "accepted" || p.status === "in_progress" || p.status === "completed",
-          ) || treatmentPlans[0];
-
-        if (!relevantPlan) {
-          return res.json({
-            message: "No treatment plans found for this patient in EHR",
-            revenue,
-            ehrSynced: false,
-          });
-        }
-
-        // Map EHR data to revenue fields — validate numeric values from external source
-        const safeNum = (v: unknown): number | undefined =>
-          typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined;
-
-        const updates: Record<string, any> = {
-          ehrSyncedAt: new Date().toISOString(),
-          updatedBy: `ehr-sync:${req.user!.username}`,
+        const config = {
+          ...ehrConfig,
+          apiKey: ehrConfig.apiKey ? decryptField(ehrConfig.apiKey) : undefined,
         };
+        treatmentPlans = await adapter.getPatientTreatmentPlans(config, ehrPatientId);
+      } catch (ehrErr) {
+        logger.warn({ err: ehrErr, callId }, "EHR treatment plan fetch failed");
+        return res.status(502).json({ message: "Failed to fetch data from EHR. Check connection settings." });
+      }
 
-        const totalFee = safeNum(relevantPlan.totalFee);
-        const totalInsurance = safeNum(relevantPlan.totalInsurance);
-        const totalPatient = safeNum(relevantPlan.totalPatient);
+      // Find relevant treatment plan (most recent accepted or in-progress)
+      const relevantPlan =
+        treatmentPlans.find((p) => p.status === "accepted" || p.status === "in_progress" || p.status === "completed") ||
+        treatmentPlans[0];
 
-        if (totalFee) {
-          updates.treatmentValue = totalFee;
-          updates.estimatedRevenue = totalFee;
-        }
-        if (totalInsurance !== undefined) updates.insuranceAmount = totalInsurance;
-        if (totalPatient !== undefined) updates.patientAmount = totalPatient;
+      if (!relevantPlan) {
+        return res.json({
+          message: "No treatment plans found for this patient in EHR",
+          revenue,
+          ehrSynced: false,
+        });
+      }
 
-        // Determine payer type from validated amounts
-        if (totalInsurance && totalInsurance > 0 && totalPatient && totalPatient > 0) {
-          updates.payerType = "mixed";
-        } else if (totalInsurance && totalInsurance > 0) {
-          updates.payerType = "insurance";
-        } else if (totalPatient && totalPatient > 0) {
-          updates.payerType = "cash";
-        }
+      // Map EHR data to revenue fields — validate numeric values from external source
+      const safeNum = (v: unknown): number | undefined =>
+        typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined;
 
-        // Map treatment plan status to attribution stage
-        if (relevantPlan.status === "completed") {
-          updates.treatmentAccepted = true;
-          updates.attributionStage = "treatment_accepted";
-          updates.conversionStatus = "converted";
-          updates.actualRevenue = relevantPlan.totalFee || updates.treatmentValue;
-        } else if (relevantPlan.status === "accepted" || relevantPlan.status === "in_progress") {
-          updates.treatmentAccepted = true;
-          updates.attributionStage = "treatment_accepted";
-          updates.conversionStatus = "pending";
-        } else if (relevantPlan.status === "proposed") {
-          updates.attributionStage = "appointment_completed";
-          updates.conversionStatus = "pending";
-        }
+      const updates: Record<string, any> = {
+        ehrSyncedAt: new Date().toISOString(),
+        updatedBy: `ehr-sync:${req.user!.username}`,
+      };
 
-        // Map scheduled procedures
-        if (relevantPlan.phases?.length > 0) {
-          const procedures: Array<{ code: string; description: string; estimatedValue: number }> = [];
-          for (const phase of relevantPlan.phases) {
-            if (phase.procedures) {
-              for (const proc of phase.procedures) {
-                procedures.push({
-                  code: proc.code || "",
-                  description: proc.description || "",
-                  estimatedValue: proc.fee || 0,
-                });
-              }
+      const totalFee = safeNum(relevantPlan.totalFee);
+      const totalInsurance = safeNum(relevantPlan.totalInsurance);
+      const totalPatient = safeNum(relevantPlan.totalPatient);
+
+      if (totalFee) {
+        updates.treatmentValue = totalFee;
+        updates.estimatedRevenue = totalFee;
+      }
+      if (totalInsurance !== undefined) updates.insuranceAmount = totalInsurance;
+      if (totalPatient !== undefined) updates.patientAmount = totalPatient;
+
+      // Determine payer type from validated amounts
+      if (totalInsurance && totalInsurance > 0 && totalPatient && totalPatient > 0) {
+        updates.payerType = "mixed";
+      } else if (totalInsurance && totalInsurance > 0) {
+        updates.payerType = "insurance";
+      } else if (totalPatient && totalPatient > 0) {
+        updates.payerType = "cash";
+      }
+
+      // Map treatment plan status to attribution stage
+      if (relevantPlan.status === "completed") {
+        updates.treatmentAccepted = true;
+        updates.attributionStage = "treatment_accepted";
+        updates.conversionStatus = "converted";
+        updates.actualRevenue = relevantPlan.totalFee || updates.treatmentValue;
+      } else if (relevantPlan.status === "accepted" || relevantPlan.status === "in_progress") {
+        updates.treatmentAccepted = true;
+        updates.attributionStage = "treatment_accepted";
+        updates.conversionStatus = "pending";
+      } else if (relevantPlan.status === "proposed") {
+        updates.attributionStage = "appointment_completed";
+        updates.conversionStatus = "pending";
+      }
+
+      // Map scheduled procedures
+      if (relevantPlan.phases?.length > 0) {
+        const procedures: Array<{ code: string; description: string; estimatedValue: number }> = [];
+        for (const phase of relevantPlan.phases) {
+          if (phase.procedures) {
+            for (const proc of phase.procedures) {
+              procedures.push({
+                code: proc.code || "",
+                description: proc.description || "",
+                estimatedValue: proc.fee || 0,
+              });
             }
           }
-          if (procedures.length > 0) updates.scheduledProcedures = procedures;
         }
+        if (procedures.length > 0) updates.scheduledProcedures = procedures;
+      }
 
-        const updated = await storage.updateCallRevenue(orgId, callId, updates);
+      const updated = await storage.updateCallRevenue(orgId, callId, updates);
 
-        logPhiAccess({ ...auditContext(req), event: "ehr_revenue_sync", resourceType: "revenue", resourceId: callId });
-        logger.info({ orgId, callId, ehrPatientId }, "Revenue synced from EHR");
+      logPhiAccess({ ...auditContext(req), event: "ehr_revenue_sync", resourceType: "revenue", resourceId: callId });
+      logger.info({ orgId, callId, ehrPatientId }, "Revenue synced from EHR");
 
-        res.json({
-          revenue: updated,
-          ehrSynced: true,
-          treatmentPlanStatus: relevantPlan.status,
-          treatmentPlansFound: treatmentPlans.length,
-        });
-      }),
+      res.json({
+        revenue: updated,
+        ehrSynced: true,
+        treatmentPlanStatus: relevantPlan.status,
+        treatmentPlansFound: treatmentPlans.length,
+      });
+    }),
   );
 
   // Get revenue trend data (weekly buckets for last 12 weeks)
-  app.get("/api/revenue/trend", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/revenue/trend",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -628,7 +670,7 @@ export function registerRevenueRoutes(app: Express) {
       const callDateMap = new Map<string, string>();
       for (const [id, call] of Array.from(callMap)) {
         if (call.uploadedAt) callDateMap.set(id, call.uploadedAt);
-}
+      }
 
       // Build weekly buckets for the last 12 weeks (Monday-aligned)
       const now = new Date();
@@ -667,5 +709,6 @@ export function registerRevenueRoutes(app: Express) {
       }
 
       res.json(weeks);
-    }));
+    }),
+  );
 }

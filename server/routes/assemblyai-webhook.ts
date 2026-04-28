@@ -20,9 +20,8 @@ export function registerAssemblyAIWebhookRoutes(app: Express): void {
     // Trim both sides — accidental whitespace in env vars causes length mismatch
     // and rejects valid webhooks without any useful error signal.
     const expectedToken = (process.env.ASSEMBLYAI_WEBHOOK_SECRET || process.env.SESSION_SECRET || "").trim();
-    const receivedToken = typeof req.headers["x-assembly-webhook-token"] === "string"
-      ? req.headers["x-assembly-webhook-token"].trim()
-      : "";
+    const receivedToken =
+      typeof req.headers["x-assembly-webhook-token"] === "string" ? req.headers["x-assembly-webhook-token"].trim() : "";
 
     // Reject when no webhook secret is configured — prevents accepting forged payloads
     if (!expectedToken) {

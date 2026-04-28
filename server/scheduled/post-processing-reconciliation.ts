@@ -114,9 +114,6 @@ export async function runPostProcessingReconciliation(
   }
 
   if (totalReconciled > 0) {
-    logger.info(
-      { totalReconciled, orgsChecked: totalOrgsChecked },
-      "Post-processing reconciliation complete",
-    );
+    logger.info({ totalReconciled, orgsChecked: totalOrgsChecked }, "Post-processing reconciliation complete");
   }
 }

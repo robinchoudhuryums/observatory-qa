@@ -100,19 +100,9 @@ export interface RecordCorrectionParams {
  * Returns the persisted row, or null if the DB is unavailable or the call
  * doesn't belong to the org.
  */
-export async function recordScoringCorrection(
-  params: RecordCorrectionParams,
-): Promise<ScoringCorrectionRow | null> {
-  const {
-    orgId,
-    callId,
-    correctedBy,
-    correctedByName,
-    reason,
-    originalScore,
-    correctedScore,
-    subScoreChanges,
-  } = params;
+export async function recordScoringCorrection(params: RecordCorrectionParams): Promise<ScoringCorrectionRow | null> {
+  const { orgId, callId, correctedBy, correctedByName, reason, originalScore, correctedScore, subScoreChanges } =
+    params;
 
   const db = getDatabase();
   if (!db) {
@@ -263,9 +253,7 @@ export async function getCorrectionStats(
   const since = sinceDays ? new Date(Date.now() - sinceDays * 86_400_000) : new Date(0);
   const rows = await listCorrectionsSince(db, orgId, since);
   const avgDelta =
-    rows.length > 0
-      ? rows.reduce((sum, c) => sum + Math.abs(c.correctedScore - c.originalScore), 0) / rows.length
-      : 0;
+    rows.length > 0 ? rows.reduce((sum, c) => sum + Math.abs(c.correctedScore - c.originalScore), 0) / rows.length : 0;
 
   return {
     ...stats,

@@ -129,10 +129,7 @@ export function AudioWaveform({
 
   if (error) {
     return (
-      <div
-        className="flex items-center justify-center text-xs text-muted-foreground"
-        style={{ height }}
-      >
+      <div className="flex items-center justify-center text-xs text-muted-foreground" style={{ height }}>
         Waveform unavailable
       </div>
     );

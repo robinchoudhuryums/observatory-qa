@@ -99,10 +99,7 @@ function pluckSubScore(analysis: unknown, dim: string, fallback?: string): numbe
  * Pure function — exposed for unit tests so the awarding logic can be
  * tested without mocking storage.
  */
-export function qualifiesForBadge(
-  recentCallsAnalyses: Array<{ analysis?: unknown }>,
-  def: SubScoreBadgeDef,
-): boolean {
+export function qualifiesForBadge(recentCallsAnalyses: Array<{ analysis?: unknown }>, def: SubScoreBadgeDef): boolean {
   const lastN = recentCallsAnalyses.slice(-def.consecutiveRequired);
   if (lastN.length < def.consecutiveRequired) return false;
   const scores = lastN.map((c) => pluckSubScore(c.analysis, def.dimension, def.dimensionFallback));

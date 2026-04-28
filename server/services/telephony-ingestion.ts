@@ -126,10 +126,7 @@ export async function ingestRecordings(
   const ingested = results.filter((r) => r.status === "ingested").length;
   const duplicates = results.filter((r) => r.status === "duplicate").length;
   if (ingested > 0 || duplicates > 0) {
-    logger.info(
-      { orgId, total: recordings.length, ingested, duplicates },
-      "Telephony batch ingestion complete",
-    );
+    logger.info({ orgId, total: recordings.length, ingested, duplicates }, "Telephony batch ingestion complete");
   }
 
   return results;

@@ -56,7 +56,12 @@ export function registerPatientJourneyRoutes(app: Express) {
    * GET /api/patient-journeys — List patient journeys for the org.
    * Groups calls by patient identity to build longitudinal views.
    */
-  app.get("/api/patient-journeys", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/patient-journeys",
+    requireAuth,
+    requireRole("manager"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) throw new AppError(403, "Organization context required");
 
@@ -199,14 +204,20 @@ export function registerPatientJourneyRoutes(app: Express) {
             ? Math.round((result.reduce((s, j) => s + j.touchpointCount, 0) / result.length) * 10) / 10
             : 0,
       });
-  }));
+    }),
+  );
 
   /**
    * GET /api/patient-journeys/insights — Aggregate patient journey insights.
    * Shows retention patterns, sentiment trends across repeat visits, and
    * which employees handle the most returning patients.
    */
-  app.get("/api/patient-journeys/insights", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/patient-journeys/insights",
+    requireAuth,
+    requireRole("manager"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) throw new AppError(403, "Organization context required");
 
@@ -301,5 +312,6 @@ export function registerPatientJourneyRoutes(app: Express) {
             avgSingleVisitRevenue > 0 ? Math.round((avgMultiVisitRevenue / avgSingleVisitRevenue) * 10) / 10 : null,
         },
       });
-  }));
+    }),
+  );
 }

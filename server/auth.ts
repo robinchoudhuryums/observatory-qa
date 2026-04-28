@@ -408,7 +408,14 @@ export async function setupAuth(app: Express) {
               const orgIds = matches.map((u) => u.orgId);
               const orgs = await Promise.all(orgIds.map((id) => storage.getOrganization(id)));
               const orgSlugs = orgs.filter(Boolean).map((o: any) => o.slug);
-              logPhiAccess({ event: "login_ambiguous", username, resourceType: "auth", ip, userAgent, detail: `${matches.length} orgs` });
+              logPhiAccess({
+                event: "login_ambiguous",
+                username,
+                resourceType: "auth",
+                ip,
+                userAgent,
+                detail: `${matches.length} orgs`,
+              });
               return done(null, false, {
                 message: "This username exists in multiple organizations. Please select one.",
                 code: "OBS-AUTH-008",

@@ -46,9 +46,10 @@ export async function initDatabase(): Promise<Database | null> {
       // rejectUnauthorized defaults to true for proper certificate verification.
       // Set DB_SSL_REJECT_UNAUTHORIZED=false only for managed databases (e.g., Neon, Render)
       // that use self-signed certificates not in the system CA store.
-      ssl: process.env.NODE_ENV === "production"
-        ? { rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== "false" }
-        : undefined,
+      ssl:
+        process.env.NODE_ENV === "production"
+          ? { rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== "false" }
+          : undefined,
     });
 
     // Verify the connection

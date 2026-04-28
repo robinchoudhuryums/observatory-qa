@@ -31,7 +31,9 @@ export const scheduledReportConfigs = pgTable(
     orgId: text("org_id").notNull(),
     reportType: text("report_type").notNull(),
     enabled: boolean("enabled").notNull().default(true),
-    recipientEmails: jsonb("recipient_emails").notNull().default(sql`'[]'::jsonb`),
+    recipientEmails: jsonb("recipient_emails")
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     /** Cron-like string interpreted by scheduler:
      *  - "weekly:monday" | "weekly:tuesday" | ...
      *  - "monthly:1" through "monthly:28"  (day-of-month)
@@ -65,7 +67,9 @@ export const scheduledReports = pgTable(
     periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
     /** 'pending' | 'generated' | 'sent' | 'failed' */
     status: text("status").notNull().default("pending"),
-    recipientEmails: jsonb("recipient_emails").notNull().default(sql`'[]'::jsonb`),
+    recipientEmails: jsonb("recipient_emails")
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     /** S3 key (or other artifact reference) for the rendered CSV/PDF. */
     artifactKey: text("artifact_key"),
     /** Optional inline payload for tiny CSVs (sub-MB). Omit for larger

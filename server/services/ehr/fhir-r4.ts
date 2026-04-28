@@ -188,7 +188,10 @@ export class FhirR4Adapter implements IEhrAdapter {
     } catch (err) {
       const ehrErr = classifyEhrError(err, "FHIR R4");
       if (ehrErr.errorType === "not_found") return null;
-      logger.error({ err: ehrErr, ehrPatientId, errorType: ehrErr.errorType }, `FHIR R4 getPatient failed: ${ehrErr.errorType}`);
+      logger.error(
+        { err: ehrErr, ehrPatientId, errorType: ehrErr.errorType },
+        `FHIR R4 getPatient failed: ${ehrErr.errorType}`,
+      );
       throw ehrErr;
     }
   }
@@ -319,7 +322,10 @@ export class FhirR4Adapter implements IEhrAdapter {
     } catch (err) {
       const ehrErr = classifyEhrError(err, "FHIR R4");
       if (ehrErr.errorType === "not_found") return [];
-      logger.error({ err: ehrErr, patientId, errorType: ehrErr.errorType }, `FHIR R4 getPatientTreatmentPlans failed: ${ehrErr.errorType}`);
+      logger.error(
+        { err: ehrErr, patientId, errorType: ehrErr.errorType },
+        `FHIR R4 getPatientTreatmentPlans failed: ${ehrErr.errorType}`,
+      );
       throw ehrErr;
     }
   }

@@ -23,7 +23,11 @@ function safeJsonParse<T>(val: unknown, fallback: T): T {
 
 export function registerReportRoutes(app: Express): void {
   // Search calls (with optional score/date/category filters)
-  app.get("/api/search", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/search",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const query = req.query.q as string;
       if (!query) {
         res.status(400).json({ message: "Search query is required" });
@@ -75,17 +79,27 @@ export function registerReportRoutes(app: Express): void {
         detail: `Search returned ${results.length} results`,
       });
       res.json(results);
-    }));
+    }),
+  );
 
   // This new route will handle requests for the Performance page
-  app.get("/api/performance", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/performance",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       // We can reuse the existing function to get top performers
       const performers = await storage.getTopPerformers(req.orgId!, 10); // Get top 10
       logPhiAccess({ ...auditContext(req), event: "view_performance", resourceType: "performance" });
       res.json(performers);
-    }));
+    }),
+  );
 
-  app.get("/api/reports/summary", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/reports/summary",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const [metrics, sentiment, performers] = await Promise.all([
         storage.getDashboardMetrics(req.orgId!),
         storage.getSentimentDistribution(req.orgId!),
@@ -100,10 +114,15 @@ export function registerReportRoutes(app: Express): void {
 
       logPhiAccess({ ...auditContext(req), event: "view_report_summary", resourceType: "report" });
       res.json(reportData);
-    }));
+    }),
+  );
 
   // Filtered reports: accepts date range, employee, department filters
-  app.get("/api/reports/filtered", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/reports/filtered",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const { from, to, employeeId, department, callPartyType } = req.query;
 
       // Validate date parameters
@@ -287,10 +306,15 @@ export function registerReportRoutes(app: Express): void {
         avgSubScores,
         autoAssignedCount,
       });
-    }));
+    }),
+  );
 
   // Comparative analytics: compare two time periods side by side
-  app.get("/api/reports/compare", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/reports/compare",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const { currentFrom, currentTo, previousFrom, previousTo } = req.query;
       if (!currentFrom || !currentTo || !previousFrom || !previousTo) {
         res.status(400).json({ message: "Required query params: currentFrom, currentTo, previousFrom, previousTo" });
@@ -346,10 +370,15 @@ export function registerReportRoutes(app: Express): void {
 
       logPhiAccess({ ...auditContext(req), event: "view_report_compare", resourceType: "report" });
       res.json({ current, previous, delta });
-    }));
+    }),
+  );
 
   // Agent profile: aggregated feedback across all calls for an employee
-  app.get("/api/reports/agent-profile/:employeeId", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/reports/agent-profile/:employeeId",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const { employeeId } = req.params;
       const { from, to } = req.query;
 
@@ -501,10 +530,15 @@ export function registerReportRoutes(app: Express): void {
           (a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime(),
         ),
       });
-    }));
+    }),
+  );
 
   // Generate AI narrative summary for an agent's performance
-  app.post("/api/reports/agent-summary/:employeeId", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.post(
+    "/api/reports/agent-summary/:employeeId",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       if (!aiProvider.isAvailable || !aiProvider.generateText) {
         res.status(503).json({ message: "AI provider not configured. Set up Bedrock or Gemini credentials." });
         return;
@@ -611,10 +645,15 @@ export function registerReportRoutes(app: Express): void {
       logger.info({ employeeId: req.params.employeeId }, "AI summary generated");
 
       res.json({ summary });
-    }));
+    }),
+  );
 
   // Export agent profile report as printable HTML (for PDF via browser print)
-  app.get("/api/reports/agent-profile/:employeeId/export", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/reports/agent-profile/:employeeId/export",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const { employeeId } = req.params;
       const employee = await storage.getEmployee(req.orgId!, employeeId);
       if (!employee) {
@@ -690,5 +729,6 @@ export function registerReportRoutes(app: Express): void {
 
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.send(html);
-    }));
+    }),
+  );
 }

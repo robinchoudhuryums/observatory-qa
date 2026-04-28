@@ -19,13 +19,22 @@ const VALID_SOURCES = new Set(MARKETING_SOURCES.map((s) => s.value));
 function mapUtmSourceToMarketingSource(utmSource: string): string {
   const source = (utmSource || "").toLowerCase().trim();
   const map: Record<string, string> = {
-    google: "google_ads", "google-ads": "google_ads", adwords: "google_ads",
-    facebook: "facebook_ads", fb: "facebook_ads", meta: "facebook_ads",
-    instagram: "instagram", ig: "instagram",
+    google: "google_ads",
+    "google-ads": "google_ads",
+    adwords: "google_ads",
+    facebook: "facebook_ads",
+    fb: "facebook_ads",
+    meta: "facebook_ads",
+    instagram: "instagram",
+    ig: "instagram",
     yelp: "yelp",
-    email: "email_campaign", newsletter: "email_campaign", mailchimp: "email_campaign",
-    sms: "sms_campaign", text: "sms_campaign",
-    direct_mail: "direct_mail", postcard: "direct_mail",
+    email: "email_campaign",
+    newsletter: "email_campaign",
+    mailchimp: "email_campaign",
+    sms: "sms_campaign",
+    text: "sms_campaign",
+    direct_mail: "direct_mail",
+    postcard: "direct_mail",
   };
   return map[source] || "website"; // Default to "website" for unknown UTM sources
 }
@@ -33,55 +42,72 @@ function mapUtmSourceToMarketingSource(utmSource: string): string {
 export function registerMarketingRoutes(app: Express): void {
   // --- Marketing Campaigns ---
 
-  app.get("/api/marketing/campaigns", requireAuth, injectOrgContext, asyncHandler(async (req: Request, res: Response) => {
-    const orgId = req.orgId;
-    if (!orgId) throw new AppError(403, "Organization context required");
-    const { source, active } = req.query;
-    const campaigns = await storage.listMarketingCampaigns(orgId, {
-      source: source as string | undefined,
-      isActive: active === "true" ? true : active === "false" ? false : undefined,
-    });
-    res.json(campaigns);
-  }));
+  app.get(
+    "/api/marketing/campaigns",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req: Request, res: Response) => {
+      const orgId = req.orgId;
+      if (!orgId) throw new AppError(403, "Organization context required");
+      const { source, active } = req.query;
+      const campaigns = await storage.listMarketingCampaigns(orgId, {
+        source: source as string | undefined,
+        isActive: active === "true" ? true : active === "false" ? false : undefined,
+      });
+      res.json(campaigns);
+    }),
+  );
 
-  app.get("/api/marketing/campaigns/:id", requireAuth, injectOrgContext, validateUUIDParam(), asyncHandler(async (req: Request, res: Response) => {
-    const orgId = req.orgId;
-    if (!orgId) throw new AppError(403, "Organization context required");
-    const campaign = await storage.getMarketingCampaign(orgId, req.params.id);
-    if (!campaign) throw new AppError(404, "Campaign not found");
-    res.json(campaign);
-  }));
+  app.get(
+    "/api/marketing/campaigns/:id",
+    requireAuth,
+    injectOrgContext,
+    validateUUIDParam(),
+    asyncHandler(async (req: Request, res: Response) => {
+      const orgId = req.orgId;
+      if (!orgId) throw new AppError(403, "Organization context required");
+      const campaign = await storage.getMarketingCampaign(orgId, req.params.id);
+      if (!campaign) throw new AppError(404, "Campaign not found");
+      res.json(campaign);
+    }),
+  );
 
-  app.post("/api/marketing/campaigns", requireAuth, injectOrgContext, requireRole("manager"), asyncHandler(async (req: Request, res: Response) => {
-    const orgId = req.orgId;
-    if (!orgId) throw new AppError(403, "Organization context required");
-    const { name, source, medium, startDate, endDate, budget, trackingCode, notes } = req.body;
-    if (!name || !source) throw new AppError(400, "name and source are required");
-    if (!VALID_SOURCES.has(source))
-      throw new AppError(400, `Invalid source. Valid sources: ${Array.from(VALID_SOURCES).join(", ")}`);
-    // Validate budget is non-negative
-    if (budget !== undefined && (typeof budget !== "number" || budget < 0)) {
-      throw new AppError(400, "budget must be a non-negative number");
-    }
-    // Validate date ordering
-    if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
-      throw new AppError(400, "startDate must be before endDate");
-    }
-    const campaign = await storage.createMarketingCampaign(orgId, {
-      orgId,
-      name,
-      source,
-      medium,
-      startDate,
-      endDate,
-      budget,
-      trackingCode,
-      notes,
-      isActive: true,
-      createdBy: (req.user as any)?.name || "unknown",
-    });
-    res.status(201).json(campaign);
-  }));
+  app.post(
+    "/api/marketing/campaigns",
+    requireAuth,
+    injectOrgContext,
+    requireRole("manager"),
+    asyncHandler(async (req: Request, res: Response) => {
+      const orgId = req.orgId;
+      if (!orgId) throw new AppError(403, "Organization context required");
+      const { name, source, medium, startDate, endDate, budget, trackingCode, notes } = req.body;
+      if (!name || !source) throw new AppError(400, "name and source are required");
+      if (!VALID_SOURCES.has(source))
+        throw new AppError(400, `Invalid source. Valid sources: ${Array.from(VALID_SOURCES).join(", ")}`);
+      // Validate budget is non-negative
+      if (budget !== undefined && (typeof budget !== "number" || budget < 0)) {
+        throw new AppError(400, "budget must be a non-negative number");
+      }
+      // Validate date ordering
+      if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
+        throw new AppError(400, "startDate must be before endDate");
+      }
+      const campaign = await storage.createMarketingCampaign(orgId, {
+        orgId,
+        name,
+        source,
+        medium,
+        startDate,
+        endDate,
+        budget,
+        trackingCode,
+        notes,
+        isActive: true,
+        createdBy: (req.user as any)?.name || "unknown",
+      });
+      res.status(201).json(campaign);
+    }),
+  );
 
   app.patch(
     "/api/marketing/campaigns/:id",
@@ -139,8 +165,20 @@ export function registerMarketingRoutes(app: Express): void {
       const orgId = req.orgId;
       if (!orgId) throw new AppError(403, "Organization context required");
       const callId = req.params.callId;
-      const { source, campaignId, isNewPatient, referrerName, detectionMethod, confidence, notes,
-        utmSource, utmMedium, utmCampaign, utmContent, utmTerm } = req.body;
+      const {
+        source,
+        campaignId,
+        isNewPatient,
+        referrerName,
+        detectionMethod,
+        confidence,
+        notes,
+        utmSource,
+        utmMedium,
+        utmCampaign,
+        utmContent,
+        utmTerm,
+      } = req.body;
       if (!source) throw new AppError(400, "source is required");
       if (!VALID_SOURCES.has(source))
         throw new AppError(400, `Invalid source. Valid sources: ${Array.from(VALID_SOURCES).join(", ")}`);
@@ -160,16 +198,19 @@ export function registerMarketingRoutes(app: Express): void {
           notes,
           detectionMethod: detectionMethod || existing.detectionMethod,
           confidence: confidence ?? existing.confidence,
-          utmSource, utmMedium, utmCampaign, utmContent, utmTerm,
+          utmSource,
+          utmMedium,
+          utmCampaign,
+          utmContent,
+          utmTerm,
         });
         return res.json(updated);
       }
 
       // Auto-detect UTM-based source if UTM params provided and no explicit source match
-      const effectiveDetection = utmSource ? "utm" : (detectionMethod || "manual");
-      const effectiveSource = utmSource && !VALID_SOURCES.has(source)
-        ? mapUtmSourceToMarketingSource(utmSource)
-        : source;
+      const effectiveDetection = utmSource ? "utm" : detectionMethod || "manual";
+      const effectiveSource =
+        utmSource && !VALID_SOURCES.has(source) ? mapUtmSourceToMarketingSource(utmSource) : source;
 
       const attr = await storage.createCallAttribution(orgId, {
         orgId,
@@ -182,7 +223,11 @@ export function registerMarketingRoutes(app: Express): void {
         confidence: confidence || (utmSource ? 0.95 : 1.0), // UTM = high confidence
         notes,
         attributedBy: (req.user as any)?.name || "unknown",
-        utmSource, utmMedium, utmCampaign, utmContent, utmTerm,
+        utmSource,
+        utmMedium,
+        utmCampaign,
+        utmContent,
+        utmTerm,
       });
       res.status(201).json(attr);
     }),
@@ -205,149 +250,154 @@ export function registerMarketingRoutes(app: Express): void {
   // --- Marketing Analytics ---
 
   /** GET /api/marketing/metrics — Aggregated metrics by source */
-  app.get("/api/marketing/metrics", requireAuth, injectOrgContext, asyncHandler(async (req: Request, res: Response) => {
-    const orgId = req.orgId;
-    if (!orgId) throw new AppError(403, "Organization context required");
+  app.get(
+    "/api/marketing/metrics",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req: Request, res: Response) => {
+      const orgId = req.orgId;
+      if (!orgId) throw new AppError(403, "Organization context required");
 
-    // Optional date-range filtering (e.g., ?startDate=2026-01-01&endDate=2026-03-31)
-    const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
-    const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
-    if (startDate && isNaN(startDate.getTime())) {
-      throw new AppError(400, "Invalid startDate format (use ISO 8601)");
-    }
-    if (endDate && isNaN(endDate.getTime())) {
-      throw new AppError(400, "Invalid endDate format (use ISO 8601)");
-    }
-
-    // Load all data in parallel to avoid sequential queries
-    let [attributions, campaigns, revenues] = await Promise.all([
-      storage.listCallAttributions(orgId),
-      storage.listMarketingCampaigns(orgId),
-      storage.listCallRevenues(orgId),
-    ]);
-
-    // Apply date-range filter if provided
-    if (startDate || endDate) {
-      attributions = attributions.filter((a) => {
-        const created = a.createdAt ? new Date(a.createdAt) : null;
-        if (!created) return true;
-        if (startDate && created < startDate) return false;
-        if (endDate && created > endDate) return false;
-        return true;
-      });
-    }
-
-    // Build revenue lookup (amount + attribution stage for funnel visibility)
-    const revenueByCall = new Map<string, number>();
-    const stageByCall = new Map<string, string>();
-    for (const rev of revenues) {
-      revenueByCall.set(rev.callId, rev.actualRevenue || rev.estimatedRevenue || 0);
-      if (rev.attributionStage) stageByCall.set(rev.callId, rev.attributionStage);
-    }
-
-    // Build campaign budget lookup (sum budgets per source for active campaigns)
-    const budgetBySource = new Map<string, number>();
-    for (const camp of campaigns) {
-      if (camp.budget && camp.isActive) {
-        const current = budgetBySource.get(camp.source) || 0;
-        budgetBySource.set(camp.source, current + camp.budget);
+      // Optional date-range filtering (e.g., ?startDate=2026-01-01&endDate=2026-03-31)
+      const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
+      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+      if (startDate && isNaN(startDate.getTime())) {
+        throw new AppError(400, "Invalid startDate format (use ISO 8601)");
       }
-    }
-
-    // Batch-load call scores in parallel (replaces N+1 sequential loop)
-    const callIds = attributions.map((a) => a.callId);
-    const analysisResults = await Promise.all(
-      callIds.map((cid) => storage.getCallAnalysis(orgId, cid).catch(() => undefined)),
-    );
-    const callScores = new Map<string, number>();
-    for (let i = 0; i < callIds.length; i++) {
-      const analysis = analysisResults[i];
-      if (analysis?.performanceScore) {
-        callScores.set(callIds[i], parseFloat(String(analysis.performanceScore)));
+      if (endDate && isNaN(endDate.getTime())) {
+        throw new AppError(400, "Invalid endDate format (use ISO 8601)");
       }
-    }
 
-    // Aggregate by source — includes funnel stage visibility
-    const STAGE_ORDER = [
-      "call_identified",
-      "appointment_scheduled",
-      "appointment_completed",
-      "treatment_accepted",
-      "payment_collected",
-    ];
+      // Load all data in parallel to avoid sequential queries
+      let [attributions, campaigns, revenues] = await Promise.all([
+        storage.listCallAttributions(orgId),
+        storage.listMarketingCampaigns(orgId),
+        storage.listCallRevenues(orgId),
+      ]);
 
-    const sourceMap = new Map<
-      string,
-      {
-        calls: number;
-        newPatients: number;
-        converted: number;
-        revenue: number;
-        scores: number[];
-        funnel: Record<string, number>;
+      // Apply date-range filter if provided
+      if (startDate || endDate) {
+        attributions = attributions.filter((a) => {
+          const created = a.createdAt ? new Date(a.createdAt) : null;
+          if (!created) return true;
+          if (startDate && created < startDate) return false;
+          if (endDate && created > endDate) return false;
+          return true;
+        });
       }
-    >();
 
-    for (const attr of attributions) {
-      if (!sourceMap.has(attr.source)) {
-        const funnel: Record<string, number> = {};
-        for (const s of STAGE_ORDER) funnel[s] = 0;
-        sourceMap.set(attr.source, { calls: 0, newPatients: 0, converted: 0, revenue: 0, scores: [], funnel });
+      // Build revenue lookup (amount + attribution stage for funnel visibility)
+      const revenueByCall = new Map<string, number>();
+      const stageByCall = new Map<string, string>();
+      for (const rev of revenues) {
+        revenueByCall.set(rev.callId, rev.actualRevenue || rev.estimatedRevenue || 0);
+        if (rev.attributionStage) stageByCall.set(rev.callId, rev.attributionStage);
       }
-      const entry = sourceMap.get(attr.source)!;
-      entry.calls++;
-      entry.funnel.call_identified++;
-      if (attr.isNewPatient) entry.newPatients++;
-      const rev = revenueByCall.get(attr.callId) || 0;
-      if (rev > 0) {
-        entry.converted++;
-        entry.revenue += rev;
-      }
-      const score = callScores.get(attr.callId);
-      if (score) entry.scores.push(score);
 
-      // Track attribution stage for source→funnel pipeline visibility
-      const stage = stageByCall.get(attr.callId);
-      if (stage) {
-        const stageIdx = STAGE_ORDER.indexOf(stage);
-        // A record at stage N counts for all stages 0..N (funnel monotonicity)
-        for (let i = 1; i <= stageIdx; i++) {
-          entry.funnel[STAGE_ORDER[i]]++;
+      // Build campaign budget lookup (sum budgets per source for active campaigns)
+      const budgetBySource = new Map<string, number>();
+      for (const camp of campaigns) {
+        if (camp.budget && camp.isActive) {
+          const current = budgetBySource.get(camp.source) || 0;
+          budgetBySource.set(camp.source, current + camp.budget);
         }
       }
-    }
 
-    const metrics = Array.from(sourceMap.entries()).map(([source, data]) => {
-      const budget = budgetBySource.get(source);
-      return {
-        source,
-        totalCalls: data.calls,
-        newPatients: data.newPatients,
-        convertedCalls: data.converted,
-        totalRevenue: Math.round(data.revenue * 100) / 100,
-        avgPerformanceScore:
-          data.scores.length > 0
-            ? Math.round((data.scores.reduce((a, b) => a + b, 0) / data.scores.length) * 10) / 10
-            : 0,
-        costPerLead: budget && data.calls > 0 ? Math.round((budget / data.calls) * 100) / 100 : null,
-        roi: budget && data.revenue > 0 ? Math.round(((data.revenue - budget) / budget) * 100) / 100 : null,
-        // Source→funnel pipeline: how far leads from this source progress
-        funnel: data.funnel,
-      };
-    });
+      // Batch-load call scores in parallel (replaces N+1 sequential loop)
+      const callIds = attributions.map((a) => a.callId);
+      const analysisResults = await Promise.all(
+        callIds.map((cid) => storage.getCallAnalysis(orgId, cid).catch(() => undefined)),
+      );
+      const callScores = new Map<string, number>();
+      for (let i = 0; i < callIds.length; i++) {
+        const analysis = analysisResults[i];
+        if (analysis?.performanceScore) {
+          callScores.set(callIds[i], parseFloat(String(analysis.performanceScore)));
+        }
+      }
 
-    // Sort by total calls descending
-    metrics.sort((a, b) => b.totalCalls - a.totalCalls);
+      // Aggregate by source — includes funnel stage visibility
+      const STAGE_ORDER = [
+        "call_identified",
+        "appointment_scheduled",
+        "appointment_completed",
+        "treatment_accepted",
+        "payment_collected",
+      ];
 
-    res.json({
-      sources: metrics,
-      totalAttributed: attributions.length,
-      totalNewPatients: attributions.filter((a) => a.isNewPatient).length,
-      totalRevenue: Math.round(Array.from(sourceMap.values()).reduce((sum, d) => sum + d.revenue, 0) * 100) / 100,
-      totalBudget: Math.round(Array.from(budgetBySource.values()).reduce((sum, b) => sum + b, 0) * 100) / 100,
-      activeCampaigns: campaigns.filter((c) => c.isActive).length,
-    });
-  }));
+      const sourceMap = new Map<
+        string,
+        {
+          calls: number;
+          newPatients: number;
+          converted: number;
+          revenue: number;
+          scores: number[];
+          funnel: Record<string, number>;
+        }
+      >();
+
+      for (const attr of attributions) {
+        if (!sourceMap.has(attr.source)) {
+          const funnel: Record<string, number> = {};
+          for (const s of STAGE_ORDER) funnel[s] = 0;
+          sourceMap.set(attr.source, { calls: 0, newPatients: 0, converted: 0, revenue: 0, scores: [], funnel });
+        }
+        const entry = sourceMap.get(attr.source)!;
+        entry.calls++;
+        entry.funnel.call_identified++;
+        if (attr.isNewPatient) entry.newPatients++;
+        const rev = revenueByCall.get(attr.callId) || 0;
+        if (rev > 0) {
+          entry.converted++;
+          entry.revenue += rev;
+        }
+        const score = callScores.get(attr.callId);
+        if (score) entry.scores.push(score);
+
+        // Track attribution stage for source→funnel pipeline visibility
+        const stage = stageByCall.get(attr.callId);
+        if (stage) {
+          const stageIdx = STAGE_ORDER.indexOf(stage);
+          // A record at stage N counts for all stages 0..N (funnel monotonicity)
+          for (let i = 1; i <= stageIdx; i++) {
+            entry.funnel[STAGE_ORDER[i]]++;
+          }
+        }
+      }
+
+      const metrics = Array.from(sourceMap.entries()).map(([source, data]) => {
+        const budget = budgetBySource.get(source);
+        return {
+          source,
+          totalCalls: data.calls,
+          newPatients: data.newPatients,
+          convertedCalls: data.converted,
+          totalRevenue: Math.round(data.revenue * 100) / 100,
+          avgPerformanceScore:
+            data.scores.length > 0
+              ? Math.round((data.scores.reduce((a, b) => a + b, 0) / data.scores.length) * 10) / 10
+              : 0,
+          costPerLead: budget && data.calls > 0 ? Math.round((budget / data.calls) * 100) / 100 : null,
+          roi: budget && data.revenue > 0 ? Math.round(((data.revenue - budget) / budget) * 100) / 100 : null,
+          // Source→funnel pipeline: how far leads from this source progress
+          funnel: data.funnel,
+        };
+      });
+
+      // Sort by total calls descending
+      metrics.sort((a, b) => b.totalCalls - a.totalCalls);
+
+      res.json({
+        sources: metrics,
+        totalAttributed: attributions.length,
+        totalNewPatients: attributions.filter((a) => a.isNewPatient).length,
+        totalRevenue: Math.round(Array.from(sourceMap.values()).reduce((sum, d) => sum + d.revenue, 0) * 100) / 100,
+        totalBudget: Math.round(Array.from(budgetBySource.values()).reduce((sum, b) => sum + b, 0) * 100) / 100,
+        activeCampaigns: campaigns.filter((c) => c.isActive).length,
+      });
+    }),
+  );
 
   /** GET /api/marketing/campaigns/:id/metrics — Metrics for a single campaign */
   app.get(
@@ -646,7 +696,7 @@ export function registerMarketingRoutes(app: Express): void {
         cohorts.get(monthKey)!.push({
           total: 1,
           converted: isConverted ? 1 : 0,
-          revenue: isConverted ? (rev?.actualRevenue || rev?.estimatedRevenue || 0) : 0,
+          revenue: isConverted ? rev?.actualRevenue || rev?.estimatedRevenue || 0 : 0,
           source: attr.source,
         });
       }

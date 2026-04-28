@@ -244,7 +244,10 @@ export class AssemblyAIService {
     // still provides its own sentiment scoring regardless.
     const isNonEnglish = options?.language ? !options.language.toLowerCase().startsWith("en") : false;
     if (isNonEnglish) {
-      logger.info({ language: options!.language }, "Non-English language specified — disabling AssemblyAI sentiment analysis (cost optimization)");
+      logger.info(
+        { language: options!.language },
+        "Non-English language specified — disabling AssemblyAI sentiment analysis (cost optimization)",
+      );
     }
 
     const body: Record<string, unknown> = {

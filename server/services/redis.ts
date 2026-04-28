@@ -312,12 +312,7 @@ export async function ephemeralGet(prefix: string, key: string): Promise<string 
  * In-memory fallback implements the same check-and-set atomically within
  * the single-threaded event loop.
  */
-export async function ephemeralSetNx(
-  prefix: string,
-  key: string,
-  value: string,
-  ttlMs: number,
-): Promise<boolean> {
+export async function ephemeralSetNx(prefix: string, key: string, value: string, ttlMs: number): Promise<boolean> {
   const fullKey = `${prefix}:${key}`;
   if (redisClient?.status === "ready") {
     // ioredis: SET key value PX ttl NX -> "OK" on success, null if not set

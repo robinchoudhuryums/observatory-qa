@@ -186,92 +186,107 @@ export function registerEmailRoutes(app: Express): void {
    * GET /api/emails
    * List all email interactions for the org (convenience endpoint, filters by channel).
    */
-  app.get("/api/emails", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
-    const orgId = req.orgId!;
+  app.get(
+    "/api/emails",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const orgId = req.orgId!;
 
-    const allCalls = await storage.getCallsWithDetails(orgId, {
-      limit: parseInt(req.query.limit as string) || 100,
-      offset: parseInt(req.query.offset as string) || 0,
-    });
+      const allCalls = await storage.getCallsWithDetails(orgId, {
+        limit: parseInt(req.query.limit as string) || 100,
+        offset: parseInt(req.query.offset as string) || 0,
+      });
 
-    // Filter to email channel only
-    const emails = allCalls.filter((c) => c.channel === "email");
+      // Filter to email channel only
+      const emails = allCalls.filter((c) => c.channel === "email");
 
-    res.json(emails);
-  }));
+      res.json(emails);
+    }),
+  );
 
   /**
    * GET /api/emails/threads
    * Get email conversations grouped by thread ID.
    */
-  app.get("/api/emails/threads", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
-    const orgId = req.orgId!;
+  app.get(
+    "/api/emails/threads",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const orgId = req.orgId!;
 
-    const allCalls = await storage.getAllCalls(orgId);
-    const emailCalls = allCalls.filter((c) => c.channel === "email" && c.emailThreadId);
+      const allCalls = await storage.getAllCalls(orgId);
+      const emailCalls = allCalls.filter((c) => c.channel === "email" && c.emailThreadId);
 
-    // Group by thread ID
-    const threads = new Map<string, typeof emailCalls>();
-    for (const email of emailCalls) {
-      const tid = email.emailThreadId!;
-      if (!threads.has(tid)) threads.set(tid, []);
-      threads.get(tid)!.push(email);
-    }
+      // Group by thread ID
+      const threads = new Map<string, typeof emailCalls>();
+      for (const email of emailCalls) {
+        const tid = email.emailThreadId!;
+        if (!threads.has(tid)) threads.set(tid, []);
+        threads.get(tid)!.push(email);
+      }
 
-    const result = Array.from(threads.entries()).map(([threadId, messages]) => ({
-      threadId,
-      messageCount: messages.length,
-      latestSubject: messages.sort((a, b) => (b.uploadedAt || "").localeCompare(a.uploadedAt || ""))[0]?.emailSubject,
-      latestDate: messages[0]?.uploadedAt,
-      messages: messages.sort((a, b) => (a.uploadedAt || "").localeCompare(b.uploadedAt || "")),
-    }));
+      const result = Array.from(threads.entries()).map(([threadId, messages]) => ({
+        threadId,
+        messageCount: messages.length,
+        latestSubject: messages.sort((a, b) => (b.uploadedAt || "").localeCompare(a.uploadedAt || ""))[0]?.emailSubject,
+        latestDate: messages[0]?.uploadedAt,
+        messages: messages.sort((a, b) => (a.uploadedAt || "").localeCompare(b.uploadedAt || "")),
+      }));
 
-    res.json(result.sort((a, b) => (b.latestDate || "").localeCompare(a.latestDate || "")));
-  }));
+      res.json(result.sort((a, b) => (b.latestDate || "").localeCompare(a.latestDate || "")));
+    }),
+  );
 
   /**
    * GET /api/emails/stats
    * Email channel analytics: volume, avg scores, category breakdown.
    */
-  app.get("/api/emails/stats", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
-    const orgId = req.orgId!;
+  app.get(
+    "/api/emails/stats",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const orgId = req.orgId!;
 
-    const allCalls = await storage.getCallsWithDetails(orgId);
-    const emails = allCalls.filter((c) => c.channel === "email");
+      const allCalls = await storage.getCallsWithDetails(orgId);
+      const emails = allCalls.filter((c) => c.channel === "email");
 
-    const completed = emails.filter((e) => e.status === "completed");
-    const scores = completed.map((e) => parseFloat(e.analysis?.performanceScore || "0")).filter((s) => s > 0);
+      const completed = emails.filter((e) => e.status === "completed");
+      const scores = completed.map((e) => parseFloat(e.analysis?.performanceScore || "0")).filter((s) => s > 0);
 
-    const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+      const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
 
-    // Category breakdown
-    const byCategory: Record<string, number> = {};
-    for (const e of emails) {
-      const cat = e.callCategory || "email_general";
-      byCategory[cat] = (byCategory[cat] || 0) + 1;
-    }
+      // Category breakdown
+      const byCategory: Record<string, number> = {};
+      for (const e of emails) {
+        const cat = e.callCategory || "email_general";
+        byCategory[cat] = (byCategory[cat] || 0) + 1;
+      }
 
-    // Sentiment breakdown
-    const sentiments = { positive: 0, neutral: 0, negative: 0 };
-    for (const e of completed) {
-      const sent = e.sentiment?.overallSentiment as keyof typeof sentiments;
-      if (sent && sentiments[sent] !== undefined) sentiments[sent]++;
-    }
+      // Sentiment breakdown
+      const sentiments = { positive: 0, neutral: 0, negative: 0 };
+      for (const e of completed) {
+        const sent = e.sentiment?.overallSentiment as keyof typeof sentiments;
+        if (sent && sentiments[sent] !== undefined) sentiments[sent]++;
+      }
 
-    // Thread count
-    const threadIds = new Set(emails.filter((e) => e.emailThreadId).map((e) => e.emailThreadId));
+      // Thread count
+      const threadIds = new Set(emails.filter((e) => e.emailThreadId).map((e) => e.emailThreadId));
 
-    res.json({
-      totalEmails: emails.length,
-      completed: completed.length,
-      processing: emails.filter((e) => e.status === "processing").length,
-      failed: emails.filter((e) => e.status === "failed").length,
-      avgPerformanceScore: Math.round(avgScore * 10) / 10,
-      sentimentDistribution: sentiments,
-      categoryBreakdown: byCategory,
-      threadCount: threadIds.size,
-    });
-  }));
+      res.json({
+        totalEmails: emails.length,
+        completed: completed.length,
+        processing: emails.filter((e) => e.status === "processing").length,
+        failed: emails.filter((e) => e.status === "failed").length,
+        avgPerformanceScore: Math.round(avgScore * 10) / 10,
+        sentimentDistribution: sentiments,
+        categoryBreakdown: byCategory,
+        threadCount: threadIds.size,
+      });
+    }),
+  );
 }
 
 /**

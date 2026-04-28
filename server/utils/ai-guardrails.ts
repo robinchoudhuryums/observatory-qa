@@ -52,23 +52,41 @@ const INJECTION_PATTERNS: Array<{ regex: RegExp; label: string }> = [
 // --- Call-analysis-specific patterns (spoken injection via transcript) ---
 const CALL_ANALYSIS_INJECTION_PATTERNS: Array<{ regex: RegExp; label: string }> = [
   // Score manipulation attempts
-  { regex: /give\s+(this|the)\s+(call|agent|person)\s+a\s+(perfect|high|10|ten)\s+score/i, label: "score manipulation: request high score" },
+  {
+    regex: /give\s+(this|the)\s+(call|agent|person)\s+a\s+(perfect|high|10|ten)\s+score/i,
+    label: "score manipulation: request high score",
+  },
   { regex: /score\s+this\s+(call\s+)?(a\s+)?(10|ten|perfect)/i, label: "score manipulation: force perfect score" },
-  { regex: /this\s+call\s+(should|must|deserves?)\s+(be\s+)?(a\s+)?(10|ten|perfect)/i, label: "score manipulation: assert perfect score" },
+  {
+    regex: /this\s+call\s+(should|must|deserves?)\s+(be\s+)?(a\s+)?(10|ten|perfect)/i,
+    label: "score manipulation: assert perfect score",
+  },
   // Output format manipulation
   { regex: /output\s+the\s+following\s+json/i, label: "output format manipulation" },
   { regex: /return\s+this\s+exact\s+(json|response|output)/i, label: "output override attempt" },
   { regex: /respond\s+with\s+only\s+(this|the\s+following)/i, label: "response override attempt" },
   // Expanded instruction overrides (more flexible matching)
-  { regex: /ignore\s+(all\s+)?(previous|prior|above|earlier|system)\s+(instructions?|prompts?|rules?|guidelines?)/i, label: "system instruction override" },
-  { regex: /disregard\s+(all\s+)?(previous|prior|above|earlier|system)\s+(instructions?|prompts?|rules?|guidelines?)/i, label: "system instruction override" },
-  { regex: /forget\s+(all\s+)?(previous|prior|above|earlier|system)\s+(instructions?|prompts?|rules?|guidelines?)/i, label: "system instruction override" },
+  {
+    regex: /ignore\s+(all\s+)?(previous|prior|above|earlier|system)\s+(instructions?|prompts?|rules?|guidelines?)/i,
+    label: "system instruction override",
+  },
+  {
+    regex: /disregard\s+(all\s+)?(previous|prior|above|earlier|system)\s+(instructions?|prompts?|rules?|guidelines?)/i,
+    label: "system instruction override",
+  },
+  {
+    regex: /forget\s+(all\s+)?(previous|prior|above|earlier|system)\s+(instructions?|prompts?|rules?|guidelines?)/i,
+    label: "system instruction override",
+  },
   // Role reassignment
   { regex: /you\s+are\s+now\s+(a|an|the|my)\s+/i, label: "role reassignment attempt" },
   { regex: /pretend\s+(you('re|\s+are)\s+)?(not\s+)?(a|an|the)\s+/i, label: "role manipulation" },
   { regex: /act\s+as\s+(if\s+)?(you('re|\s+are)\s+)?(a|an|the|my)\s+/i, label: "role manipulation" },
   // Chat template injection
-  { regex: /\[system\]|\[inst\]|\[\/inst\]|<\|system\|>|<\|user\|>|<\|assistant\|>/i, label: "chat template injection" },
+  {
+    regex: /\[system\]|\[inst\]|\[\/inst\]|<\|system\|>|<\|user\|>|<\|assistant\|>/i,
+    label: "chat template injection",
+  },
   { regex: /```\s*(system|instruction|prompt)/i, label: "code block instruction injection" },
   { regex: /override\s+(the\s+)?(system|safety|content)\s+(prompt|filter|policy)/i, label: "safety override attempt" },
 ];
@@ -83,7 +101,7 @@ function normalizeForDetection(input: string): string {
   let normalized = input.replace(/[\u200B\u200C\u200D\uFEFF\u00AD\u2060\u180E]/g, "");
   normalized = normalized.normalize("NFKD").replace(/[\u0300-\u036f]/g, ""); // Strip combining diacritical marks
   // Cyrillic lookalike substitution
-  const cyrillicMap: Record<string, string> = { 'а': 'a', 'е': 'e', 'і': 'i', 'о': 'o', 'р': 'p', 'с': 'c', 'у': 'y', 'х': 'x' };
+  const cyrillicMap: Record<string, string> = { а: "a", е: "e", і: "i", о: "o", р: "p", с: "c", у: "y", х: "x" };
   normalized = normalized.replace(/[\u0400-\u04FF]/g, (ch) => cyrillicMap[ch.toLowerCase()] || ch);
   return normalized;
 }
@@ -185,11 +203,7 @@ export interface OutputGuardrailResult {
   reason?: string;
 }
 
-const ROLE_DEVIATION_PHRASES = [
-  "As an AI language model",
-  "I cannot help with",
-  "I'm sorry, but as an AI",
-];
+const ROLE_DEVIATION_PHRASES = ["As an AI language model", "I cannot help with", "I'm sorry, but as an AI"];
 
 const PROMPT_ECHO_MARKERS = ["SYSTEM:", "INSTRUCTIONS:", "### System"];
 
@@ -231,7 +245,8 @@ export function checkOutputGuardrails(output: string, systemPromptSnippets?: str
   }
   const lower = output.toLowerCase();
   for (const phrase of OUTPUT_ROLE_DEVIATION_PHRASES) {
-    if (lower.includes(phrase)) return { flagged: true, reason: `Response deviates from call analysis role: "${phrase}"` };
+    if (lower.includes(phrase))
+      return { flagged: true, reason: `Response deviates from call analysis role: "${phrase}"` };
   }
   return { flagged: false };
 }

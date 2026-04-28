@@ -254,7 +254,9 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                       onChange={(e) => setSelectedOrgSlug(e.target.value)}
                     >
                       {ambiguousOrgSlugs.map((slug) => (
-                        <option key={slug} value={slug}>{slug}</option>
+                        <option key={slug} value={slug}>
+                          {slug}
+                        </option>
                       ))}
                     </select>
                   </div>

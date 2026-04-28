@@ -45,9 +45,7 @@ export class CircuitBreakerOpenError extends Error {
   readonly failureCount: number;
 
   constructor(label: string, failureCount: number) {
-    super(
-      `Circuit breaker [${label}] is open — call rejected (${failureCount} consecutive failures, cooling down)`,
-    );
+    super(`Circuit breaker [${label}] is open — call rejected (${failureCount} consecutive failures, cooling down)`);
     this.name = "CircuitBreakerOpenError";
     this.label = label;
     this.failureCount = failureCount;

@@ -27,36 +27,54 @@ const updateEmployeeSchema = z
 
 export function registerEmployeeRoutes(app: Express): void {
   // Get all employees — filtered by manager's subTeam if set
-  app.get("/api/employees", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
-    let employees = await storage.getAllEmployees(req.orgId!);
+  app.get(
+    "/api/employees",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      let employees = await storage.getAllEmployees(req.orgId!);
 
-    const teamEmployeeIds = req.user ? await getTeamScopedEmployeeIds(req.orgId!, req.user) : null;
-    if (teamEmployeeIds !== null) {
-      employees = employees.filter((e) => teamEmployeeIds.has(e.id));
-    }
+      const teamEmployeeIds = req.user ? await getTeamScopedEmployeeIds(req.orgId!, req.user) : null;
+      if (teamEmployeeIds !== null) {
+        employees = employees.filter((e) => teamEmployeeIds.has(e.id));
+      }
 
-    res.json(employees);
-  }));
+      res.json(employees);
+    }),
+  );
 
   // HIPAA: Only managers and admins can create employees
-  app.post("/api/employees", requireAuth, injectOrgContext, requireRole("manager", "admin"), asyncHandler(async (req, res) => {
-    const parsed = insertEmployeeSchema.safeParse(req.body);
-    if (!parsed.success) throw new AppError(400, "Invalid employee data", ERROR_CODES.VALIDATION_ERROR);
-    const employee = await storage.createEmployee(req.orgId!, parsed.data);
-    res.status(201).json(employee);
-  }));
+  app.post(
+    "/api/employees",
+    requireAuth,
+    injectOrgContext,
+    requireRole("manager", "admin"),
+    asyncHandler(async (req, res) => {
+      const parsed = insertEmployeeSchema.safeParse(req.body);
+      if (!parsed.success) throw new AppError(400, "Invalid employee data", ERROR_CODES.VALIDATION_ERROR);
+      const employee = await storage.createEmployee(req.orgId!, parsed.data);
+      res.status(201).json(employee);
+    }),
+  );
 
   // HIPAA: Only managers and admins can update employees
-  app.patch("/api/employees/:id", requireAuth, injectOrgContext, requireRole("manager", "admin"), validateId, asyncHandler(async (req, res) => {
-    const parsed = updateEmployeeSchema.safeParse(req.body);
-    if (!parsed.success) throw new AppError(400, "Invalid update data", ERROR_CODES.VALIDATION_ERROR);
+  app.patch(
+    "/api/employees/:id",
+    requireAuth,
+    injectOrgContext,
+    requireRole("manager", "admin"),
+    validateId,
+    asyncHandler(async (req, res) => {
+      const parsed = updateEmployeeSchema.safeParse(req.body);
+      if (!parsed.success) throw new AppError(400, "Invalid update data", ERROR_CODES.VALIDATION_ERROR);
 
-    const employee = await storage.getEmployee(req.orgId!, req.params.id);
-    if (!employee) throw new AppError(404, "Employee not found", ERROR_CODES.EMP_NOT_FOUND);
+      const employee = await storage.getEmployee(req.orgId!, req.params.id);
+      if (!employee) throw new AppError(404, "Employee not found", ERROR_CODES.EMP_NOT_FOUND);
 
-    const updated = await storage.updateEmployee(req.orgId!, req.params.id, parsed.data);
-    res.json(updated);
-  }));
+      const updated = await storage.updateEmployee(req.orgId!, req.params.id, parsed.data);
+      res.json(updated);
+    }),
+  );
 
   // HIPAA: Only admins can bulk import employees
   app.post("/api/employees/import-csv", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {

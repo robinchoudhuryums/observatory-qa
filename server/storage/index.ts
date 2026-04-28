@@ -47,7 +47,7 @@ function createStorage(): IStorage {
         if (typeof prop === "symbol") return undefined;
         throw new Error(
           `Storage accessed before PostgreSQL initialization (attempted: ${String(prop)}). ` +
-          `Ensure initPostgresStorage() completes before using storage.`,
+            `Ensure initPostgresStorage() completes before using storage.`,
         );
       },
     });

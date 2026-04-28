@@ -429,4 +429,3 @@ export function analyzeProviderStyle(orgId: string, userId: string, notes: Clini
     suggestedPreferences,
   };
 }
-

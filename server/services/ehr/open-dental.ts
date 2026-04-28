@@ -96,7 +96,10 @@ export class OpenDentalAdapter implements IEhrAdapter {
     } catch (err) {
       const ehrErr = classifyEhrError(err, "Open Dental");
       if (ehrErr.errorType === "not_found") return null;
-      logger.error({ err: ehrErr, ehrPatientId, errorType: ehrErr.errorType }, `Open Dental getPatient failed: ${ehrErr.errorType}`);
+      logger.error(
+        { err: ehrErr, ehrPatientId, errorType: ehrErr.errorType },
+        `Open Dental getPatient failed: ${ehrErr.errorType}`,
+      );
       throw ehrErr;
     }
   }
@@ -162,7 +165,9 @@ export class OpenDentalAdapter implements IEhrAdapter {
         let procedures: OpenDentalProcTP[] = [];
         try {
           procedures = await this.request<OpenDentalProcTP[]>(
-            config, "GET", `/proctp?TreatPlanNum=${plan.TreatPlanNum}`,
+            config,
+            "GET",
+            `/proctp?TreatPlanNum=${plan.TreatPlanNum}`,
           );
         } catch {
           // Non-fatal: return plan without procedure details
@@ -195,9 +200,10 @@ export class OpenDentalAdapter implements IEhrAdapter {
           patientId,
           providerId: "",
           status: this.mapTreatPlanStatus(plan.TPStatus),
-          phases: mappedProcs.length > 0
-            ? [{ phase: 1, description: plan.Heading || "Treatment Plan", procedures: mappedProcs }]
-            : [],
+          phases:
+            mappedProcs.length > 0
+              ? [{ phase: 1, description: plan.Heading || "Treatment Plan", procedures: mappedProcs }]
+              : [],
           totalFee: Math.round(totalFee * 100) / 100,
           totalInsurance: Math.round(totalInsurance * 100) / 100,
           totalPatient: Math.round(totalPatient * 100) / 100,
@@ -209,7 +215,10 @@ export class OpenDentalAdapter implements IEhrAdapter {
     } catch (err) {
       const ehrErr = classifyEhrError(err, "Open Dental");
       if (ehrErr.errorType === "not_found") return [];
-      logger.error({ err: ehrErr, patientId, errorType: ehrErr.errorType }, `Open Dental getPatientTreatmentPlans failed: ${ehrErr.errorType}`);
+      logger.error(
+        { err: ehrErr, patientId, errorType: ehrErr.errorType },
+        `Open Dental getPatientTreatmentPlans failed: ${ehrErr.errorType}`,
+      );
       throw ehrErr;
     }
   }
@@ -253,7 +262,12 @@ export class OpenDentalAdapter implements IEhrAdapter {
   private mapPatient(p: OpenDentalPatient): EhrPatient {
     // Parse comma-separated allergy/medication strings into arrays
     const parseList = (s?: string) =>
-      s ? s.split(/[,;]\s*/).map((x) => x.trim()).filter(Boolean) : undefined;
+      s
+        ? s
+            .split(/[,;]\s*/)
+            .map((x) => x.trim())
+            .filter(Boolean)
+        : undefined;
 
     return {
       ehrPatientId: String(p.PatNum),
@@ -280,13 +294,13 @@ export class OpenDentalAdapter implements IEhrAdapter {
   private mapAppointment(a: OpenDentalAppointment): EhrAppointment {
     // Parse procedure description (format: "D1110 - Prophylaxis, D0120 - Periodic Exam")
     const procedures = a.ProcDescript
-      ? a.ProcDescript.split(",").map((p) => {
-          const trimmed = p.trim();
-          const match = trimmed.match(/^([A-Z]?\d{4,5})\s*[-–—]\s*(.+)/);
-          return match
-            ? { code: match[1]!, description: match[2]!.trim() }
-            : { code: "", description: trimmed };
-        }).filter((p) => p.description)
+      ? a.ProcDescript.split(",")
+          .map((p) => {
+            const trimmed = p.trim();
+            const match = trimmed.match(/^([A-Z]?\d{4,5})\s*[-–—]\s*(.+)/);
+            return match ? { code: match[1]!, description: match[2]!.trim() } : { code: "", description: trimmed };
+          })
+          .filter((p) => p.description)
       : undefined;
 
     return {

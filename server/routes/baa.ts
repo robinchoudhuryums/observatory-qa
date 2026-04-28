@@ -55,7 +55,9 @@ export function registerBaaRoutes(app: Express): void {
   // List all BAAs for the org
   app.get(
     "/api/admin/baa",
-    requireAuth, injectOrgContext, requireRole("admin"),
+    requireAuth,
+    injectOrgContext,
+    requireRole("admin"),
     asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
       const baas = await storage.listBusinessAssociateAgreements?.(orgId);
@@ -79,7 +81,9 @@ export function registerBaaRoutes(app: Express): void {
   // Get a single BAA
   app.get(
     "/api/admin/baa/:id",
-    requireAuth, injectOrgContext, requireRole("admin"),
+    requireAuth,
+    injectOrgContext,
+    requireRole("admin"),
     asyncHandler(async (req, res) => {
       const baa = await storage.getBusinessAssociateAgreement?.(req.orgId!, req.params.id);
       if (!baa) throw new AppError(404, "BAA not found");
@@ -90,9 +94,25 @@ export function registerBaaRoutes(app: Express): void {
   // Create a new BAA record
   app.post(
     "/api/admin/baa",
-    requireAuth, injectOrgContext, requireRole("admin"),
+    requireAuth,
+    injectOrgContext,
+    requireRole("admin"),
     asyncHandler(async (req, res) => {
-      const { vendorName, vendorType, description, contactName, contactEmail, signedAt, expiresAt, renewalReminderDays, signedBy, vendorSignatory, documentUrl, notes, phiCategories } = req.body;
+      const {
+        vendorName,
+        vendorType,
+        description,
+        contactName,
+        contactEmail,
+        signedAt,
+        expiresAt,
+        renewalReminderDays,
+        signedBy,
+        vendorSignatory,
+        documentUrl,
+        notes,
+        phiCategories,
+      } = req.body;
 
       if (!vendorName || typeof vendorName !== "string" || !vendorName.trim()) {
         throw new AppError(400, "vendorName is required");
@@ -115,12 +135,15 @@ export function registerBaaRoutes(app: Express): void {
         status: "active",
         signedAt: typeof signedAt === "string" ? signedAt : undefined,
         expiresAt: typeof expiresAt === "string" ? expiresAt : undefined,
-        renewalReminderDays: typeof renewalReminderDays === "number" ? Math.max(1, Math.min(365, renewalReminderDays)) : 30,
+        renewalReminderDays:
+          typeof renewalReminderDays === "number" ? Math.max(1, Math.min(365, renewalReminderDays)) : 30,
         signedBy: typeof signedBy === "string" ? signedBy.slice(0, 255) : undefined,
         vendorSignatory: typeof vendorSignatory === "string" ? vendorSignatory.slice(0, 255) : undefined,
         documentUrl: typeof documentUrl === "string" ? documentUrl.slice(0, 2000) : undefined,
         notes: typeof notes === "string" ? notes.slice(0, 5000) : undefined,
-        phiCategories: Array.isArray(phiCategories) ? phiCategories.filter((c: unknown) => typeof c === "string").slice(0, 20) : [],
+        phiCategories: Array.isArray(phiCategories)
+          ? phiCategories.filter((c: unknown) => typeof c === "string").slice(0, 20)
+          : [],
         createdAt: now,
         updatedAt: now,
       };
@@ -144,15 +167,28 @@ export function registerBaaRoutes(app: Express): void {
   // Update a BAA
   app.patch(
     "/api/admin/baa/:id",
-    requireAuth, injectOrgContext, requireRole("admin"),
+    requireAuth,
+    injectOrgContext,
+    requireRole("admin"),
     asyncHandler(async (req, res) => {
       const existing = await storage.getBusinessAssociateAgreement?.(req.orgId!, req.params.id);
       if (!existing) throw new AppError(404, "BAA not found");
 
       const allowed = [
-        "vendorName", "vendorType", "description", "contactName", "contactEmail",
-        "status", "signedAt", "expiresAt", "renewalReminderDays", "signedBy",
-        "vendorSignatory", "documentUrl", "notes", "phiCategories",
+        "vendorName",
+        "vendorType",
+        "description",
+        "contactName",
+        "contactEmail",
+        "status",
+        "signedAt",
+        "expiresAt",
+        "renewalReminderDays",
+        "signedBy",
+        "vendorSignatory",
+        "documentUrl",
+        "notes",
+        "phiCategories",
       ];
       const updates: Record<string, unknown> = { updatedAt: new Date().toISOString() };
       for (const key of allowed) {
@@ -181,7 +217,9 @@ export function registerBaaRoutes(app: Express): void {
   // Delete a BAA (soft — changes status to terminated)
   app.delete(
     "/api/admin/baa/:id",
-    requireAuth, injectOrgContext, requireRole("admin"),
+    requireAuth,
+    injectOrgContext,
+    requireRole("admin"),
     asyncHandler(async (req, res) => {
       const existing = await storage.getBusinessAssociateAgreement?.(req.orgId!, req.params.id);
       if (!existing) throw new AppError(404, "BAA not found");
@@ -206,10 +244,15 @@ export function registerBaaRoutes(app: Express): void {
   // Get BAAs nearing expiry
   app.get(
     "/api/admin/baa/expiring",
-    requireAuth, injectOrgContext, requireRole("admin"),
+    requireAuth,
+    injectOrgContext,
+    requireRole("admin"),
     asyncHandler(async (req, res) => {
       const baas = await storage.listBusinessAssociateAgreements?.(req.orgId!);
-      if (!baas) { res.json([]); return; }
+      if (!baas) {
+        res.json([]);
+        return;
+      }
 
       const now = Date.now();
       const expiring = baas

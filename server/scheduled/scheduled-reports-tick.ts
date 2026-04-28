@@ -18,11 +18,7 @@
  */
 import type { IStorage } from "../storage/types";
 import { logger } from "../services/logger";
-import {
-  runScheduledReportsTick,
-  deliverPendingReports,
-  catchUpReports,
-} from "../services/scheduled-reports";
+import { runScheduledReportsTick, deliverPendingReports, catchUpReports } from "../services/scheduled-reports";
 import { scheduleHourly } from "./scheduler";
 
 /**
@@ -115,10 +111,7 @@ export async function runScheduledReportsCatchUp(storage: IStorage): Promise<voi
         totalGenerated += result.generated;
         totalSkipped += result.skipped;
       } catch (orgErr) {
-        logger.warn(
-          { err: orgErr, orgId: org.id },
-          "scheduled-reports catch-up failed for org",
-        );
+        logger.warn({ err: orgErr, orgId: org.id }, "scheduled-reports catch-up failed for org");
       }
     }
 

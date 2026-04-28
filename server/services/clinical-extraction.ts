@@ -122,11 +122,17 @@ function extractVitals(text: string): ExtractedVitals | undefined {
 
   // Validate physiological ranges — reject garbage values that would corrupt analytics.
   // Ranges are intentionally wide to accommodate edge cases (pediatric, geriatric, critical care).
-  if (vitals.bloodPressureSystolic !== undefined && (vitals.bloodPressureSystolic < 40 || vitals.bloodPressureSystolic > 300)) {
+  if (
+    vitals.bloodPressureSystolic !== undefined &&
+    (vitals.bloodPressureSystolic < 40 || vitals.bloodPressureSystolic > 300)
+  ) {
     delete vitals.bloodPressureSystolic;
     delete vitals.bloodPressureDiastolic; // BP pair is meaningless if systolic is invalid
   }
-  if (vitals.bloodPressureDiastolic !== undefined && (vitals.bloodPressureDiastolic < 20 || vitals.bloodPressureDiastolic > 200)) {
+  if (
+    vitals.bloodPressureDiastolic !== undefined &&
+    (vitals.bloodPressureDiastolic < 20 || vitals.bloodPressureDiastolic > 200)
+  ) {
     delete vitals.bloodPressureSystolic;
     delete vitals.bloodPressureDiastolic;
   }

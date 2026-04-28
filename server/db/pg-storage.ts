@@ -85,22 +85,88 @@ import { normalizeAnalysis } from "../storage";
 
 // JSONB field types — typed casts in mappers (replaces `as any` with documented types)
 // These mirror the Zod schemas in shared/schema but are plain TS for the DB layer.
-type AnalysisFeedback = { strengths?: Array<string | { text: string; timestamp?: string }>; suggestions?: Array<string | { text: string; timestamp?: string }> };
-type ManualEdit = { editedBy: string; editedAt: string; reason: string; fieldsChanged: string[]; previousValues: Record<string, unknown> };
-type ConfidenceFactors = { transcriptConfidence: number; wordCount: number; callDurationSeconds: number; transcriptLength: number; aiAnalysisCompleted: boolean; overallScore: number; [key: string]: unknown };
+type AnalysisFeedback = {
+  strengths?: Array<string | { text: string; timestamp?: string }>;
+  suggestions?: Array<string | { text: string; timestamp?: string }>;
+};
+type ManualEdit = {
+  editedBy: string;
+  editedAt: string;
+  reason: string;
+  fieldsChanged: string[];
+  previousValues: Record<string, unknown>;
+};
+type ConfidenceFactors = {
+  transcriptConfidence: number;
+  wordCount: number;
+  callDurationSeconds: number;
+  transcriptLength: number;
+  aiAnalysisCompleted: boolean;
+  overallScore: number;
+  [key: string]: unknown;
+};
 type SubScores = { compliance?: number; customerExperience?: number; communication?: number; resolution?: number };
-type SpeechMetrics = { talkSpeedWpm?: number; deadAirSeconds?: number; deadAirCount?: number; longestDeadAirSeconds?: number; interruptionCount?: number; fillerWordCount?: number; fillerWords?: Record<string, number>; avgResponseTimeMs?: number; talkListenRatio?: number; speakerATalkPercent?: number; speakerBTalkPercent?: number };
+type SpeechMetrics = {
+  talkSpeedWpm?: number;
+  deadAirSeconds?: number;
+  deadAirCount?: number;
+  longestDeadAirSeconds?: number;
+  interruptionCount?: number;
+  fillerWordCount?: number;
+  fillerWords?: Record<string, number>;
+  avgResponseTimeMs?: number;
+  talkListenRatio?: number;
+  speakerATalkPercent?: number;
+  speakerBTalkPercent?: number;
+};
 type SelfReview = { score?: number; notes?: string; reviewedAt?: string; reviewedBy?: string };
-type ScoreDispute = { status: "open" | "under_review" | "accepted" | "rejected"; reason: string; disputedBy: string; disputedAt: string; resolvedBy?: string; resolvedAt?: string; resolution?: string; originalScore?: number; adjustedScore?: number };
-type SuggestedBillingCodes = { cptCodes?: Array<{ code: string; description: string; confidence: number }>; icd10Codes?: Array<{ code: string; description: string; confidence: number }>; cdtCodes?: Array<{ code: string; description: string; confidence: number }> };
-type EhrPushStatus = { success: boolean; ehrRecordId?: string; error?: string; timestamp: string; retriedViaQueue?: boolean; requiresManualRetry?: boolean };
-type SentimentSegment = { text: string; sentiment: "POSITIVE" | "NEUTRAL" | "NEGATIVE"; confidence: number; start: number; end: number };
+type ScoreDispute = {
+  status: "open" | "under_review" | "accepted" | "rejected";
+  reason: string;
+  disputedBy: string;
+  disputedAt: string;
+  resolvedBy?: string;
+  resolvedAt?: string;
+  resolution?: string;
+  originalScore?: number;
+  adjustedScore?: number;
+};
+type SuggestedBillingCodes = {
+  cptCodes?: Array<{ code: string; description: string; confidence: number }>;
+  icd10Codes?: Array<{ code: string; description: string; confidence: number }>;
+  cdtCodes?: Array<{ code: string; description: string; confidence: number }>;
+};
+type EhrPushStatus = {
+  success: boolean;
+  ehrRecordId?: string;
+  error?: string;
+  timestamp: string;
+  retriedViaQueue?: boolean;
+  requiresManualRetry?: boolean;
+};
+type SentimentSegment = {
+  text: string;
+  sentiment: "POSITIVE" | "NEUTRAL" | "NEGATIVE";
+  confidence: number;
+  start: number;
+  end: number;
+};
 type TranscriptWord = { text: string; start: number; end: number; confidence: number; speaker?: string };
-type TranscriptCorrection = { wordIndex: number; original: string; corrected: string; correctedBy: string; correctedAt: string };
+type TranscriptCorrection = {
+  wordIndex: number;
+  original: string;
+  corrected: string;
+  correctedBy: string;
+  correctedAt: string;
+};
 type RequiredPhrase = { severity: "required" | "recommended"; phrase: string; label: string };
 type ScoringWeights = { compliance: number; customerExperience: number; communication: number; resolution: number };
 type CoachingActionItem = { task: string; completed: boolean };
-type EffectivenessSnap = { preCoaching?: { avgScore?: number }; postCoaching?: { avgScore?: number }; [key: string]: unknown };
+type EffectivenessSnap = {
+  preCoaching?: { avgScore?: number };
+  postCoaching?: { avgScore?: number };
+  [key: string]: unknown;
+};
 
 // Raw SQL execute result — Drizzle returns rows directly or wrapped in { rows: [...] }
 // depending on the driver. This helper normalizes both formats.
@@ -299,11 +365,7 @@ export class PostgresStorage {
   }
 
   async getUsersByUsername(username: string): Promise<User[]> {
-    const rows = await this.db
-      .select()
-      .from(tables.users)
-      .where(eq(tables.users.username, username))
-      .limit(10);
+    const rows = await this.db.select().from(tables.users).where(eq(tables.users.username, username)).limit(10);
     return rows.map((r) => this.mapUser(r));
   }
 
@@ -1503,14 +1565,11 @@ export class PostgresStorage {
     if (updates.dueDate !== undefined) setClause.dueDate = updates.dueDate ? new Date(updates.dueDate) : null;
     if (updates.completedAt !== undefined)
       setClause.completedAt = updates.completedAt ? new Date(updates.completedAt) : null;
-    if (updates.selfAssessmentScore !== undefined)
-      setClause.selfAssessmentScore = updates.selfAssessmentScore;
-    if (updates.selfAssessmentNotes !== undefined)
-      setClause.selfAssessmentNotes = updates.selfAssessmentNotes;
+    if (updates.selfAssessmentScore !== undefined) setClause.selfAssessmentScore = updates.selfAssessmentScore;
+    if (updates.selfAssessmentNotes !== undefined) setClause.selfAssessmentNotes = updates.selfAssessmentNotes;
     if (updates.selfAssessedAt !== undefined)
       setClause.selfAssessedAt = updates.selfAssessedAt ? new Date(updates.selfAssessedAt) : null;
-    if (updates.effectivenessSnapshot !== undefined)
-      setClause.effectivenessSnapshot = updates.effectivenessSnapshot;
+    if (updates.effectivenessSnapshot !== undefined) setClause.effectivenessSnapshot = updates.effectivenessSnapshot;
     if (updates.effectivenessCalculatedAt !== undefined)
       setClause.effectivenessCalculatedAt = updates.effectivenessCalculatedAt
         ? new Date(updates.effectivenessCalculatedAt)
@@ -2483,7 +2542,6 @@ export class PostgresStorage {
       createdAt: toISOString(row.createdAt),
     };
   }
-
 
   // --- Feature methods (A/B tests, LMS, gamification, revenue, etc.) ---
   // Implementations are in pg-storage-features.ts and applied to the

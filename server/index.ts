@@ -352,7 +352,9 @@ app.use("/api/super-admin", distributedRateLimit(60 * 1000, 30) as any);
     if (process.env.SESSION_SECRET === "dev-secret")
       envErrors.push("SESSION_SECRET is set to 'dev-secret' — use a random 32+ character string in production");
     else if (process.env.SESSION_SECRET && process.env.SESSION_SECRET.length < 32)
-      envErrors.push(`SESSION_SECRET is too short (${process.env.SESSION_SECRET.length} chars) — must be at least 32 characters in production`);
+      envErrors.push(
+        `SESSION_SECRET is too short (${process.env.SESSION_SECRET.length} chars) — must be at least 32 characters in production`,
+      );
   }
 
   // PHI encryption (HIPAA requirement in production)

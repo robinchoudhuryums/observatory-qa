@@ -160,44 +160,55 @@ export function checkApiKeyScope(requiredScope: string): RequestHandler {
 
 export function registerApiKeyRoutes(app: Express): void {
   // List API keys for current org (admin only, paginated)
-  app.get("/api/api-keys", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
-    const { limit, offset } = parsePagination(req.query);
-    const keys = await storage.listApiKeys(req.orgId!);
-    // Never return the hash — only metadata
-    const now = Date.now();
-    const KEY_ROTATION_DAYS = 90;
-    const sanitized = keys.map((k) => {
-      const staleDays = k.createdAt ? Math.floor((now - new Date(k.createdAt).getTime()) / (1000 * 60 * 60 * 24)) : 0;
-      // Warn if key has no expiry and was created more than KEY_ROTATION_DAYS ago
-      const rotationWarning = !k.expiresAt && staleDays >= KEY_ROTATION_DAYS;
-      // Show resource scopes in response
-      const permissions: string[] = k.permissions || [];
-      const broadPerms = permissions.filter((p) => (BROAD_PERMISSIONS as readonly string[]).includes(p));
-      const resourceScopes = permissions.filter((p) => p.includes(":"));
-      return {
-        id: k.id,
-        name: k.name,
-        keyPrefix: k.keyPrefix,
-        permissions: k.permissions,
-        broadPermissions: broadPerms,
-        resourceScopes,
-        createdBy: k.createdBy,
-        status: k.status,
-        expiresAt: k.expiresAt,
-        lastUsedAt: k.lastUsedAt,
-        createdAt: k.createdAt,
-        staleDays,
-        rotationWarning,
-      };
-    });
-    res.json(sanitized);
-  }));
+  app.get(
+    "/api/api-keys",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const { limit, offset } = parsePagination(req.query);
+      const keys = await storage.listApiKeys(req.orgId!);
+      // Never return the hash — only metadata
+      const now = Date.now();
+      const KEY_ROTATION_DAYS = 90;
+      const sanitized = keys.map((k) => {
+        const staleDays = k.createdAt ? Math.floor((now - new Date(k.createdAt).getTime()) / (1000 * 60 * 60 * 24)) : 0;
+        // Warn if key has no expiry and was created more than KEY_ROTATION_DAYS ago
+        const rotationWarning = !k.expiresAt && staleDays >= KEY_ROTATION_DAYS;
+        // Show resource scopes in response
+        const permissions: string[] = k.permissions || [];
+        const broadPerms = permissions.filter((p) => (BROAD_PERMISSIONS as readonly string[]).includes(p));
+        const resourceScopes = permissions.filter((p) => p.includes(":"));
+        return {
+          id: k.id,
+          name: k.name,
+          keyPrefix: k.keyPrefix,
+          permissions: k.permissions,
+          broadPermissions: broadPerms,
+          resourceScopes,
+          createdBy: k.createdBy,
+          status: k.status,
+          expiresAt: k.expiresAt,
+          lastUsedAt: k.lastUsedAt,
+          createdAt: k.createdAt,
+          staleDays,
+          rotationWarning,
+        };
+      });
+      res.json(sanitized);
+    }),
+  );
 
   // Create a new API key (admin only)
   // Accepts either broad permissions OR resource scopes (or both, though mixing is unusual)
   // broad: ["read"] | ["write"] | ["admin"]
   // resource scopes: ["calls:read", "employees:read"] — enforced per-route
-  app.post("/api/api-keys", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
+  app.post(
+    "/api/api-keys",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const { name, permissions, resourceScopes, expiresInDays } = req.body;
       if (!name) {
         return res.status(400).json({ message: "Name is required" });
@@ -219,7 +230,8 @@ export function registerApiKeyRoutes(app: Express): void {
       // would silently override scopes, which is confusing and a privilege escalation risk.
       if (broadPerms.length > 0 && scopePerms.length > 0) {
         return res.status(400).json({
-          message: "Cannot mix broad permissions (read/write/admin) with resource scopes (e.g. calls:read). Use one or the other.",
+          message:
+            "Cannot mix broad permissions (read/write/admin) with resource scopes (e.g. calls:read). Use one or the other.",
           broadPermissions: broadPerms,
           resourceScopes: scopePerms,
         });
@@ -265,10 +277,16 @@ export function registerApiKeyRoutes(app: Express): void {
         expiresAt: apiKey.expiresAt,
         createdAt: apiKey.createdAt,
       });
-  }));
+    }),
+  );
 
   // Revoke an API key (admin only)
-  app.patch("/api/api-keys/:id/revoke", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
+  app.patch(
+    "/api/api-keys/:id/revoke",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const updated = await storage.updateApiKey(req.orgId!, req.params.id, { status: "revoked" });
       if (!updated) {
         return res.status(404).json({ message: "API key not found" });
@@ -282,10 +300,16 @@ export function registerApiKeyRoutes(app: Express): void {
       });
       logger.info({ orgId: req.orgId, keyId: req.params.id }, "API key revoked");
       res.json({ message: "API key revoked" });
-    }));
+    }),
+  );
 
   // Delete an API key permanently (admin only)
-  app.delete("/api/api-keys/:id", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
+  app.delete(
+    "/api/api-keys/:id",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       logPhiAccess({
         ...auditContext(req),
         event: "api_key_deleted",
@@ -294,5 +318,6 @@ export function registerApiKeyRoutes(app: Express): void {
       });
       await storage.deleteApiKey(req.orgId!, req.params.id);
       res.json({ message: "API key deleted" });
-    }));
+    }),
+  );
 }

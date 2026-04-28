@@ -99,10 +99,11 @@ async function main() {
 
         if (row.integrity_hash !== expectedHash || row.prev_hash !== prevHash) {
           // Update both integrity_hash and prev_hash to make chain consistent
-          await client.query(
-            `UPDATE audit_logs SET integrity_hash = $1, prev_hash = $2 WHERE id = $3`,
-            [expectedHash, prevHash, row.id],
-          );
+          await client.query(`UPDATE audit_logs SET integrity_hash = $1, prev_hash = $2 WHERE id = $3`, [
+            expectedHash,
+            prevHash,
+            row.id,
+          ]);
           fixedCount++;
         }
 

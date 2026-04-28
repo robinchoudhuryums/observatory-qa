@@ -47,10 +47,7 @@ const MAX_REASON_CHARS_PER_LINE = 280;
  * if a future migration backfilled rows from a less-sanitized source, this
  * render-time pass catches it.
  */
-export async function buildCorrectionContext(
-  orgId: string,
-  callCategory?: string | null,
-): Promise<string | undefined> {
+export async function buildCorrectionContext(orgId: string, callCategory?: string | null): Promise<string | undefined> {
   const db = getDatabase();
   if (!db) return undefined;
 

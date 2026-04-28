@@ -94,10 +94,7 @@ export async function ensureScheduledReportTables(db: Database): Promise<void> {
  * is a no-op (returns existing row). The hourly scheduler tick relies on this
  * to safely catch up after restarts without producing duplicate reports.
  */
-export async function upsertReport(
-  db: Database,
-  report: InsertScheduledReport,
-): Promise<ScheduledReportRow> {
+export async function upsertReport(db: Database, report: InsertScheduledReport): Promise<ScheduledReportRow> {
   await ensureScheduledReportTables(db);
   const result = await db
     .insert(scheduledReports)
@@ -120,11 +117,7 @@ export async function upsertReport(
 /**
  * Mark a report as sent (post-email-send). Captures sentAt timestamp.
  */
-export async function markReportSent(
-  db: Database,
-  orgId: string,
-  reportId: string,
-): Promise<void> {
+export async function markReportSent(db: Database, orgId: string, reportId: string): Promise<void> {
   await ensureScheduledReportTables(db);
   await db
     .update(scheduledReports)
@@ -186,22 +179,14 @@ export async function listReports(
   const conditions = options.reportType
     ? and(eq(scheduledReports.orgId, orgId), eq(scheduledReports.reportType, options.reportType))
     : eq(scheduledReports.orgId, orgId);
-  return db
-    .select()
-    .from(scheduledReports)
-    .where(conditions)
-    .orderBy(desc(scheduledReports.periodEnd))
-    .limit(limit);
+  return db.select().from(scheduledReports).where(conditions).orderBy(desc(scheduledReports.periodEnd)).limit(limit);
 }
 
 /**
  * Find reports that need delivery (generated but not yet sent).
  * Used by the email-send tick.
  */
-export async function listPendingDelivery(
-  db: Database,
-  limit = 50,
-): Promise<ScheduledReportRow[]> {
+export async function listPendingDelivery(db: Database, limit = 50): Promise<ScheduledReportRow[]> {
   await ensureScheduledReportTables(db);
   return db
     .select()
@@ -260,13 +245,7 @@ export async function listEnabledConfigs(db: Database): Promise<ScheduledReportC
 /**
  * List configs for a specific org (admin UI).
  */
-export async function listOrgConfigs(
-  db: Database,
-  orgId: string,
-): Promise<ScheduledReportConfigRow[]> {
+export async function listOrgConfigs(db: Database, orgId: string): Promise<ScheduledReportConfigRow[]> {
   await ensureScheduledReportTables(db);
-  return db
-    .select()
-    .from(scheduledReportConfigs)
-    .where(eq(scheduledReportConfigs.orgId, orgId));
+  return db.select().from(scheduledReportConfigs).where(eq(scheduledReportConfigs.orgId, orgId));
 }

@@ -10,11 +10,7 @@
  * alias from server/db/index.ts) and `orgId` for tenancy isolation.
  */
 import { sql, eq, and, desc, gte } from "drizzle-orm";
-import {
-  scoringCorrections,
-  type ScoringCorrectionRow,
-  type InsertScoringCorrection,
-} from "@shared/schema";
+import { scoringCorrections, type ScoringCorrectionRow, type InsertScoringCorrection } from "@shared/schema";
 import type { Database } from "../db/index";
 import { logger } from "../services/logger";
 
@@ -70,10 +66,7 @@ export async function ensureScoringCorrectionsTable(db: Database): Promise<void>
  * Insert a new scoring correction. Multiple corrections per (call, user) are
  * allowed — managers may edit a call's score multiple times as they review.
  */
-export async function insertCorrection(
-  db: Database,
-  data: InsertScoringCorrection,
-): Promise<ScoringCorrectionRow> {
+export async function insertCorrection(db: Database, data: InsertScoringCorrection): Promise<ScoringCorrectionRow> {
   await ensureScoringCorrectionsTable(db);
   const result = await db.insert(scoringCorrections).values(data).returning();
   return result[0];
@@ -83,11 +76,7 @@ export async function insertCorrection(
  * List the N most recent corrections in an org, newest first.
  * Used by buildCorrectionContext (Tier 2B) to enrich Bedrock prompts.
  */
-export async function listRecentByOrg(
-  db: Database,
-  orgId: string,
-  limit = 50,
-): Promise<ScoringCorrectionRow[]> {
+export async function listRecentByOrg(db: Database, orgId: string, limit = 50): Promise<ScoringCorrectionRow[]> {
   await ensureScoringCorrectionsTable(db);
   return db
     .select()
@@ -111,12 +100,7 @@ export async function listRecentByCategory(
   const where = category
     ? and(eq(scoringCorrections.orgId, orgId), eq(scoringCorrections.callCategory, category))
     : eq(scoringCorrections.orgId, orgId);
-  return db
-    .select()
-    .from(scoringCorrections)
-    .where(where)
-    .orderBy(desc(scoringCorrections.correctedAt))
-    .limit(limit);
+  return db.select().from(scoringCorrections).where(where).orderBy(desc(scoringCorrections.correctedAt)).limit(limit);
 }
 
 /**
@@ -142,11 +126,7 @@ export async function listRecentByUser(
  * List corrections in an org since a given timestamp.
  * Used by checkScoringQuality (Tier 2C) and detectScoringRegression (Tier 2D).
  */
-export async function listCorrectionsSince(
-  db: Database,
-  orgId: string,
-  since: Date,
-): Promise<ScoringCorrectionRow[]> {
+export async function listCorrectionsSince(db: Database, orgId: string, since: Date): Promise<ScoringCorrectionRow[]> {
   await ensureScoringCorrectionsTable(db);
   return db
     .select()
@@ -159,11 +139,7 @@ export async function listCorrectionsSince(
  * List all corrections for a specific call in an org. Drives per-call
  * audit-trail UI ("show me every edit to this call's score").
  */
-export async function listForCall(
-  db: Database,
-  orgId: string,
-  callId: string,
-): Promise<ScoringCorrectionRow[]> {
+export async function listForCall(db: Database, orgId: string, callId: string): Promise<ScoringCorrectionRow[]> {
   await ensureScoringCorrectionsTable(db);
   return db
     .select()

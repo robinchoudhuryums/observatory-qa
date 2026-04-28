@@ -741,17 +741,19 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
                             className={`inline-block ${confClass} ${corrClass}`}
                             title={showConfidence ? `Confidence: ${(word.confidence * 100).toFixed(0)}%` : undefined}
                             onClick={() => handleWordClick(wordIndex, isPending ? correctedText! : word.text)}
-                            {...(showCorrectionMode ? {
-                              role: "button" as const,
-                              tabIndex: 0,
-                              "aria-label": `${isPending ? "Edit correction for" : "Correct"} "${word.text}"`,
-                              onKeyDown: (e: React.KeyboardEvent) => {
-                                if (e.key === "Enter" || e.key === " ") {
-                                  e.preventDefault();
-                                  handleWordClick(wordIndex, isPending ? correctedText! : word.text);
+                            {...(showCorrectionMode
+                              ? {
+                                  role: "button" as const,
+                                  tabIndex: 0,
+                                  "aria-label": `${isPending ? "Edit correction for" : "Correct"} "${word.text}"`,
+                                  onKeyDown: (e: React.KeyboardEvent) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                      e.preventDefault();
+                                      handleWordClick(wordIndex, isPending ? correctedText! : word.text);
+                                    }
+                                  },
                                 }
-                              },
-                            } : {})}
+                              : {})}
                           >
                             {isPending ? (
                               <>

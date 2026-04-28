@@ -148,8 +148,7 @@ export async function checkScoringQuality(orgId: string): Promise<ScoringQuality
     const downgradeRate = downgrades / directional;
 
     if (upgradeRate >= BIAS_THRESHOLD) {
-      const avgDelta =
-        recentCorrections.reduce((s, c) => s + (c.correctedScore - c.originalScore), 0) / directional;
+      const avgDelta = recentCorrections.reduce((s, c) => s + (c.correctedScore - c.originalScore), 0) / directional;
       alerts.push({
         orgId,
         type: "systematic_bias",
@@ -168,8 +167,7 @@ export async function checkScoringQuality(orgId: string): Promise<ScoringQuality
         timestamp: new Date().toISOString(),
       });
     } else if (downgradeRate >= BIAS_THRESHOLD) {
-      const avgDelta =
-        recentCorrections.reduce((s, c) => s + (c.originalScore - c.correctedScore), 0) / directional;
+      const avgDelta = recentCorrections.reduce((s, c) => s + (c.originalScore - c.correctedScore), 0) / directional;
       alerts.push({
         orgId,
         type: "systematic_bias",

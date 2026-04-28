@@ -78,7 +78,9 @@ export async function syncSchema(_dbArg: Database): Promise<void> {
       if (extResult.rows.length > 0) {
         logger.info({ version: (extResult.rows[0] as any).extversion }, "pgvector extension available");
       } else {
-        logger.warn("pgvector extension NOT installed — RAG vector search will not work. Run: CREATE EXTENSION vector;");
+        logger.warn(
+          "pgvector extension NOT installed — RAG vector search will not work. Run: CREATE EXTENSION vector;",
+        );
       }
     } catch {
       logger.warn("Could not check pgvector availability (non-fatal)");
@@ -390,7 +392,9 @@ export async function syncSchema(_dbArg: Database): Promise<void> {
       )
     `);
     // Add is_default column for existing tables (idempotent)
-    await db.execute(sql`ALTER TABLE prompt_templates ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT false`);
+    await db.execute(
+      sql`ALTER TABLE prompt_templates ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT false`,
+    );
     await db.execute(sql`CREATE INDEX IF NOT EXISTS prompt_templates_org_id_idx ON prompt_templates (org_id)`);
     await db.execute(
       sql`CREATE INDEX IF NOT EXISTS prompt_templates_org_category_idx ON prompt_templates (org_id, call_category)`,
@@ -614,7 +618,9 @@ export async function syncSchema(_dbArg: Database): Promise<void> {
     await addColumnIfNotExists(db, "reference_documents", "content_hash", "VARCHAR(64)");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS ref_docs_org_id_idx ON reference_documents (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS ref_docs_category_idx ON reference_documents (org_id, category)`);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS ref_docs_applies_to_gin_idx ON reference_documents USING gin (applies_to jsonb_path_ops)`);
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS ref_docs_applies_to_gin_idx ON reference_documents USING gin (applies_to jsonb_path_ops)`,
+    );
     await addRlsPolicy(db, "reference_documents").catch((e) =>
       logger.warn({ err: e }, "RLS setup skipped for reference_documents"),
     );
@@ -646,7 +652,9 @@ export async function syncSchema(_dbArg: Database): Promise<void> {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS doc_chunks_document_id_idx ON document_chunks (document_id)`);
     await addColumnIfNotExists(db, "document_chunks", "content_hash", "VARCHAR(64)");
     await addColumnIfNotExists(db, "document_chunks", "retrieval_count", "INTEGER DEFAULT 0");
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS doc_chunks_content_hash_idx ON document_chunks (org_id, content_hash)`).catch(() => {});
+    await db
+      .execute(sql`CREATE INDEX IF NOT EXISTS doc_chunks_content_hash_idx ON document_chunks (org_id, content_hash)`)
+      .catch(() => {});
     // HNSW vector index for fast cosine similarity search.
     // Without this, pgvector does sequential scan (O(n) per query).
     // HNSW provides approximate nearest neighbor with O(log n) performance.
@@ -821,22 +829,12 @@ export async function syncSchema(_dbArg: Database): Promise<void> {
       sql`CREATE INDEX IF NOT EXISTS live_sessions_created_by_idx ON live_sessions (org_id, created_by)`,
     );
     // F-12: Structured consent metadata for HIPAA §164.508 audit trail.
-    await db.execute(
-      sql`ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS consent_method VARCHAR(20)`,
-    );
-    await db.execute(
-      sql`ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS consent_captured_at TIMESTAMP`,
-    );
-    await db.execute(
-      sql`ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS consent_captured_by TEXT`,
-    );
+    await db.execute(sql`ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS consent_method VARCHAR(20)`);
+    await db.execute(sql`ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS consent_captured_at TIMESTAMP`);
+    await db.execute(sql`ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS consent_captured_by TEXT`);
     // Consent revocation: HIPAA §164.508 right to revoke consent mid-session.
-    await db.execute(
-      sql`ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS consent_revoked_at TIMESTAMP`,
-    );
-    await db.execute(
-      sql`ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS consent_revoked_by TEXT`,
-    );
+    await db.execute(sql`ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS consent_revoked_at TIMESTAMP`);
+    await db.execute(sql`ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS consent_revoked_by TEXT`);
     await addRlsPolicy(db, "live_sessions").catch((e) =>
       logger.warn({ err: e }, "RLS setup skipped for live_sessions"),
     );
@@ -1194,9 +1192,7 @@ export async function syncSchema(_dbArg: Database): Promise<void> {
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS baa_records_org_idx ON baa_records (org_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS baa_records_org_status_idx ON baa_records (org_id, status)`);
-    await addRlsPolicy(db, "baa_records").catch((e) =>
-      logger.warn({ err: e }, "RLS setup skipped for baa_records"),
-    );
+    await addRlsPolicy(db, "baa_records").catch((e) => logger.warn({ err: e }, "RLS setup skipped for baa_records"));
 
     // --- Revenue: time-to-convert tracking ---
     await addColumnIfNotExists(db, "call_revenues", "converted_at", "TIMESTAMPTZ");
@@ -1372,15 +1368,11 @@ export async function syncSchema(_dbArg: Database): Promise<void> {
         updated_at TIMESTAMP DEFAULT NOW()
       )
     `);
-    await db.execute(
-      sql`CREATE INDEX IF NOT EXISTS baa_org_idx ON business_associate_agreements (org_id)`,
-    );
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS baa_org_idx ON business_associate_agreements (org_id)`);
     await db.execute(
       sql`CREATE INDEX IF NOT EXISTS baa_org_status_idx ON business_associate_agreements (org_id, status)`,
     );
-    await db.execute(
-      sql`CREATE INDEX IF NOT EXISTS baa_expiry_idx ON business_associate_agreements (expires_at)`,
-    );
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS baa_expiry_idx ON business_associate_agreements (expires_at)`);
     await addRlsPolicy(db, "business_associate_agreements").catch((e) =>
       logger.warn({ err: e }, "RLS setup skipped for business_associate_agreements"),
     );

@@ -40,7 +40,11 @@ export function registerCallInsightRoutes(app: Express): void {
   // ==================== SPEECH ANALYTICS ====================
 
   // GET speech metrics for a call (already stored in analysis, but convenient endpoint)
-  app.get("/api/calls/:id/speech-metrics", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/calls/:id/speech-metrics",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
       if (!analysis) {
         res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
@@ -53,12 +57,17 @@ export function registerCallInsightRoutes(app: Express): void {
         resourceId: req.params.id,
       });
       res.json((analysis as any).speechMetrics || null);
-    }));
+    }),
+  );
 
   // ==================== SELF-REVIEW ====================
 
   // POST: Agent submits a self-review for their own call
-  app.post("/api/calls/:id/self-review", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.post(
+    "/api/calls/:id/self-review",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const parsed = selfReviewSchema.safeParse(req.body);
       if (!parsed.success) {
         res.status(400).json({ message: "Invalid self-review data", errors: parsed.error.flatten() });
@@ -89,12 +98,17 @@ export function registerCallInsightRoutes(app: Express): void {
       });
 
       res.json({ success: true, selfReview });
-    }));
+    }),
+  );
 
   // ==================== SCORE DISPUTE ====================
 
   // POST: Agent disputes a QA score
-  app.post("/api/calls/:id/dispute", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.post(
+    "/api/calls/:id/dispute",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const parsed = disputeSchema.safeParse(req.body);
       if (!parsed.success) {
         res.status(400).json({ message: "Invalid dispute data", errors: parsed.error.flatten() });
@@ -132,7 +146,8 @@ export function registerCallInsightRoutes(app: Express): void {
       });
 
       res.json({ success: true, scoreDispute });
-    }));
+    }),
+  );
 
   // PATCH: Manager resolves a score dispute
   app.patch(
@@ -141,52 +156,52 @@ export function registerCallInsightRoutes(app: Express): void {
     injectOrgContext,
     requireRole("manager", "admin"),
     asyncHandler(async (req, res) => {
-        const parsed = resolveDisputeSchema.safeParse(req.body);
-        if (!parsed.success) {
-          res.status(400).json({ message: "Invalid resolution data", errors: parsed.error.flatten() });
-          return;
-        }
+      const parsed = resolveDisputeSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ message: "Invalid resolution data", errors: parsed.error.flatten() });
+        return;
+      }
 
-        const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
-        const existingDispute = (analysis as any)?.scoreDispute;
-        if (!existingDispute) {
-          res.status(404).json({ message: "No dispute found for this call" });
-          return;
-        }
+      const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
+      const existingDispute = (analysis as any)?.scoreDispute;
+      if (!existingDispute) {
+        res.status(404).json({ message: "No dispute found for this call" });
+        return;
+      }
 
-        if (existingDispute.status !== "open" && existingDispute.status !== "under_review") {
-          res.status(409).json({ message: "Dispute is already resolved" });
-          return;
-        }
+      if (existingDispute.status !== "open" && existingDispute.status !== "under_review") {
+        res.status(409).json({ message: "Dispute is already resolved" });
+        return;
+      }
 
-        const updatedDispute = {
-          ...existingDispute,
-          status: parsed.data.status,
-          resolution: parsed.data.resolution || "",
-          resolvedBy: req.user?.id || "unknown",
-          resolvedAt: new Date().toISOString(),
-          adjustedScore: parsed.data.adjustedScore,
-        };
+      const updatedDispute = {
+        ...existingDispute,
+        status: parsed.data.status,
+        resolution: parsed.data.resolution || "",
+        resolvedBy: req.user?.id || "unknown",
+        resolvedAt: new Date().toISOString(),
+        adjustedScore: parsed.data.adjustedScore,
+      };
 
-        const updatedAnalysis: Record<string, unknown> = { ...analysis, scoreDispute: updatedDispute };
+      const updatedAnalysis: Record<string, unknown> = { ...analysis, scoreDispute: updatedDispute };
 
-        // If accepted and adjustedScore provided, update the performance score
-        if (parsed.data.status === "accepted" && parsed.data.adjustedScore !== undefined) {
-          updatedAnalysis.performanceScore = parsed.data.adjustedScore.toString();
-        }
+      // If accepted and adjustedScore provided, update the performance score
+      if (parsed.data.status === "accepted" && parsed.data.adjustedScore !== undefined) {
+        updatedAnalysis.performanceScore = parsed.data.adjustedScore.toString();
+      }
 
-        await storage.createCallAnalysis(req.orgId!, updatedAnalysis as any);
+      await storage.createCallAnalysis(req.orgId!, updatedAnalysis as any);
 
-        logPhiAccess({
-          ...auditContext(req),
-          event: "score_dispute_resolved",
-          resourceType: "call_analysis",
-          resourceId: req.params.id,
-          detail: `Dispute ${parsed.data.status}${parsed.data.adjustedScore ? `, adjusted to ${parsed.data.adjustedScore}` : ""}`,
-        });
+      logPhiAccess({
+        ...auditContext(req),
+        event: "score_dispute_resolved",
+        resourceType: "call_analysis",
+        resourceId: req.params.id,
+        detail: `Dispute ${parsed.data.status}${parsed.data.adjustedScore ? `, adjusted to ${parsed.data.adjustedScore}` : ""}`,
+      });
 
-        res.json({ success: true, scoreDispute: updatedDispute });
-      }),
+      res.json({ success: true, scoreDispute: updatedDispute });
+    }),
   );
 
   // ==================== REFERRAL LETTER GENERATION ====================
@@ -198,21 +213,21 @@ export function registerCallInsightRoutes(app: Express): void {
     injectOrgContext,
     requireRole("manager", "admin"),
     asyncHandler(async (req, res) => {
-        const parsed = callReferralSchema.safeParse(req.body);
-        if (!parsed.success) {
-          res.status(400).json({ message: "Invalid referral letter request", errors: parsed.error.flatten() });
-          return;
-        }
+      const parsed = callReferralSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ message: "Invalid referral letter request", errors: parsed.error.flatten() });
+        return;
+      }
 
-        const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
-        if (!analysis) {
-          res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
-          return;
-        }
+      const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
+      if (!analysis) {
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
+        return;
+      }
 
-        const transcript = await storage.getTranscript(req.orgId!, req.params.id);
+      const transcript = await storage.getTranscript(req.orgId!, req.params.id);
 
-        const prompt = `Generate a professional clinical referral letter based on the following encounter information.
+      const prompt = `Generate a professional clinical referral letter based on the following encounter information.
 
 ENCOUNTER SUMMARY:
 ${analysis.summary || "Not available"}
@@ -236,23 +251,23 @@ Generate a formal referral letter that includes:
 
 Return as JSON: { "letter": "full letter text", "urgency": "routine|urgent|emergent" }`;
 
-        const result = await generateWithProvider(req.orgId!, prompt);
-        const jsonResult = extractJson(result);
-        const letter = (jsonResult?.letter as string) || result;
-        const urgency = (jsonResult?.urgency as string) || "routine";
+      const result = await generateWithProvider(req.orgId!, prompt);
+      const jsonResult = extractJson(result);
+      const letter = (jsonResult?.letter as string) || result;
+      const urgency = (jsonResult?.urgency as string) || "routine";
 
-        await storage.createCallAnalysis(req.orgId!, { ...analysis, referralLetter: letter } as any);
+      await storage.createCallAnalysis(req.orgId!, { ...analysis, referralLetter: letter } as any);
 
-        logPhiAccess({
-          ...auditContext(req),
-          event: "referral_letter_generated",
-          resourceType: "call_analysis",
-          resourceId: req.params.id,
-          detail: `Referral to ${parsed.data.referToSpecialty}`,
-        });
+      logPhiAccess({
+        ...auditContext(req),
+        event: "referral_letter_generated",
+        resourceType: "call_analysis",
+        resourceId: req.params.id,
+        detail: `Referral to ${parsed.data.referToSpecialty}`,
+      });
 
-        res.json({ success: true, referralLetter: letter, urgency });
-      }),
+      res.json({ success: true, referralLetter: letter, urgency });
+    }),
   );
 
   // ==================== PATIENT VISIT SUMMARY ====================
@@ -264,13 +279,13 @@ Return as JSON: { "letter": "full letter text", "urgency": "routine|urgent|emerg
     injectOrgContext,
     requireRole("manager", "admin"),
     asyncHandler(async (req, res) => {
-        const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
-        if (!analysis) {
-          res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
-          return;
-        }
+      const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
+      if (!analysis) {
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
+        return;
+      }
 
-        const prompt = `Generate a patient-friendly visit summary in plain, non-medical language.
+      const prompt = `Generate a patient-friendly visit summary in plain, non-medical language.
 
 ENCOUNTER SUMMARY:
 ${analysis.summary || "Not available"}
@@ -291,21 +306,21 @@ Keep it under 500 words.
 
 Return as JSON: { "summary": "the patient-friendly summary text" }`;
 
-        const result = await generateWithProvider(req.orgId!, prompt);
-        const jsonResult = extractJson(result);
-        const summary = (jsonResult?.summary as string) || result;
+      const result = await generateWithProvider(req.orgId!, prompt);
+      const jsonResult = extractJson(result);
+      const summary = (jsonResult?.summary as string) || result;
 
-        await storage.createCallAnalysis(req.orgId!, { ...analysis, patientSummary: summary } as any);
+      await storage.createCallAnalysis(req.orgId!, { ...analysis, patientSummary: summary } as any);
 
-        logPhiAccess({
-          ...auditContext(req),
-          event: "patient_summary_generated",
-          resourceType: "call_analysis",
-          resourceId: req.params.id,
-        });
+      logPhiAccess({
+        ...auditContext(req),
+        event: "patient_summary_generated",
+        resourceType: "call_analysis",
+        resourceId: req.params.id,
+      });
 
-        res.json({ success: true, patientSummary: summary });
-      }),
+      res.json({ success: true, patientSummary: summary });
+    }),
   );
 
   // ==================== AUTO-SUGGESTED BILLING CODES ====================
@@ -317,17 +332,17 @@ Return as JSON: { "summary": "the patient-friendly summary text" }`;
     injectOrgContext,
     requireRole("manager", "admin"),
     asyncHandler(async (req, res) => {
-        const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
-        if (!analysis) {
-          res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
-          return;
-        }
+      const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
+      if (!analysis) {
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
+        return;
+      }
 
-        const transcript = await storage.getTranscript(req.orgId!, req.params.id);
-        const org = await storage.getOrganization(req.orgId!);
-        const isDental = org?.settings?.industryType === "dental" || false;
+      const transcript = await storage.getTranscript(req.orgId!, req.params.id);
+      const org = await storage.getOrganization(req.orgId!);
+      const isDental = org?.settings?.industryType === "dental" || false;
 
-        const prompt = `Analyze this clinical encounter and suggest appropriate billing codes.
+      const prompt = `Analyze this clinical encounter and suggest appropriate billing codes.
 
 ENCOUNTER SUMMARY:
 ${analysis.summary || "Not available"}
@@ -361,39 +376,39 @@ Return as JSON:
 
 Only include codes you have reasonable confidence in (>= 0.5). These are suggestions — always require provider review.`;
 
-        const result = await generateWithProvider(req.orgId!, prompt);
-        const suggestedCodes = extractJson(result) || {};
+      const result = await generateWithProvider(req.orgId!, prompt);
+      const suggestedCodes = extractJson(result) || {};
 
-        // Validate and normalize the response
-        const normalized = {
-          cptCodes: Array.isArray(suggestedCodes.cptCodes)
-            ? (suggestedCodes.cptCodes as any[]).filter(
-                (c) => c.code && c.description && typeof c.confidence === "number",
-              )
-            : [],
-          icd10Codes: Array.isArray(suggestedCodes.icd10Codes)
-            ? (suggestedCodes.icd10Codes as any[]).filter(
-                (c) => c.code && c.description && typeof c.confidence === "number",
-              )
-            : [],
-          cdtCodes: Array.isArray(suggestedCodes.cdtCodes)
-            ? (suggestedCodes.cdtCodes as any[]).filter(
-                (c) => c.code && c.description && typeof c.confidence === "number",
-              )
-            : [],
-        };
+      // Validate and normalize the response
+      const normalized = {
+        cptCodes: Array.isArray(suggestedCodes.cptCodes)
+          ? (suggestedCodes.cptCodes as any[]).filter(
+              (c) => c.code && c.description && typeof c.confidence === "number",
+            )
+          : [],
+        icd10Codes: Array.isArray(suggestedCodes.icd10Codes)
+          ? (suggestedCodes.icd10Codes as any[]).filter(
+              (c) => c.code && c.description && typeof c.confidence === "number",
+            )
+          : [],
+        cdtCodes: Array.isArray(suggestedCodes.cdtCodes)
+          ? (suggestedCodes.cdtCodes as any[]).filter(
+              (c) => c.code && c.description && typeof c.confidence === "number",
+            )
+          : [],
+      };
 
-        await storage.createCallAnalysis(req.orgId!, { ...analysis, suggestedBillingCodes: normalized } as any);
+      await storage.createCallAnalysis(req.orgId!, { ...analysis, suggestedBillingCodes: normalized } as any);
 
-        logPhiAccess({
-          ...auditContext(req),
-          event: "billing_codes_suggested",
-          resourceType: "call_analysis",
-          resourceId: req.params.id,
-          detail: `Suggested: ${normalized.cptCodes.length} CPT, ${normalized.icd10Codes.length} ICD-10, ${normalized.cdtCodes.length} CDT`,
-        });
+      logPhiAccess({
+        ...auditContext(req),
+        event: "billing_codes_suggested",
+        resourceType: "call_analysis",
+        resourceId: req.params.id,
+        detail: `Suggested: ${normalized.cptCodes.length} CPT, ${normalized.icd10Codes.length} ICD-10, ${normalized.cdtCodes.length} CDT`,
+      });
 
-        res.json({ success: true, suggestedBillingCodes: normalized });
-      }),
+      res.json({ success: true, suggestedBillingCodes: normalized });
+    }),
   );
 }

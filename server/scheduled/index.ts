@@ -101,9 +101,17 @@ export async function runAllDailyTasks(storage: IStorage, opts: DailyTaskOptions
     { name: "quota-alerts", timeoutMs: DEFAULT_TASK_TIMEOUT_MS, fn: () => runQuotaAlerts(storage, orgs) },
     { name: "audit-chain-verify", timeoutMs: DEFAULT_TASK_TIMEOUT_MS, fn: () => runAuditChainVerify(storage, orgs) },
     { name: "coaching-tasks", timeoutMs: DEFAULT_TASK_TIMEOUT_MS, fn: () => runCoachingScheduledTasks(storage, orgs) },
-    { name: "post-processing-reconciliation", timeoutMs: DEFAULT_TASK_TIMEOUT_MS, fn: () => runPostProcessingReconciliation(storage, orgs) },
+    {
+      name: "post-processing-reconciliation",
+      timeoutMs: DEFAULT_TASK_TIMEOUT_MS,
+      fn: () => runPostProcessingReconciliation(storage, orgs),
+    },
     // Tier 2: scoring-feedback quality + regression checks (per-org)
-    { name: "scoring-quality-tasks", timeoutMs: DEFAULT_TASK_TIMEOUT_MS, fn: () => runScoringQualityTasks(storage, orgs) },
+    {
+      name: "scoring-quality-tasks",
+      timeoutMs: DEFAULT_TASK_TIMEOUT_MS,
+      fn: () => runScoringQualityTasks(storage, orgs),
+    },
   ];
 
   for (const task of tasks) {

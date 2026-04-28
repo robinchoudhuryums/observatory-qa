@@ -308,7 +308,9 @@ export function buildFhirComposition(params: {
   }
 
   // ICD-10 codes → FHIR diagnosis section with optional linkage
-  const icd10Codes = note.icd10Codes as Array<{ code: string; description: string; linkedDiagnosis?: string; isPrimary?: boolean }> | undefined;
+  const icd10Codes = note.icd10Codes as
+    | Array<{ code: string; description: string; linkedDiagnosis?: string; isPrimary?: boolean }>
+    | undefined;
   if (icd10Codes && icd10Codes.length > 0) {
     const diagText = icd10Codes
       .map((c) => {
@@ -354,9 +356,7 @@ export function buildFhirComposition(params: {
       text: loinc.display,
     },
     date: attestedAt,
-    author: practitionerId
-      ? [{ reference: `Practitioner/${practitionerId}`, display: providerName }]
-      : [author],
+    author: practitionerId ? [{ reference: `Practitioner/${practitionerId}`, display: providerName }] : [author],
     title: "Clinical Note",
     custodian: {
       display: orgName,
@@ -497,8 +497,7 @@ export function buildFhirBundle(params: {
 
   // 3. Build Encounter
   const encounterId = `encounter-${params.callId}`;
-  const encounterDate =
-    params.encounterDate || (params.note.attestedAt as string) || new Date().toISOString();
+  const encounterDate = params.encounterDate || (params.note.attestedAt as string) || new Date().toISOString();
   const encounter = buildFhirEncounter({
     encounterId,
     patientId,

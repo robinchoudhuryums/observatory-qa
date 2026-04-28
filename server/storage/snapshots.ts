@@ -136,11 +136,7 @@ export async function listRecentSnapshots(
 /**
  * Fetch a single snapshot by id, scoped to org for tenancy isolation.
  */
-export async function getSnapshotById(
-  db: Database,
-  orgId: string,
-  id: string,
-): Promise<PerformanceSnapshotRow | null> {
+export async function getSnapshotById(db: Database, orgId: string, id: string): Promise<PerformanceSnapshotRow | null> {
   await ensureSnapshotTable(db);
   const rows = await db
     .select()

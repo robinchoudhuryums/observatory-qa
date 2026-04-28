@@ -171,9 +171,12 @@ export class BedrockProvider implements AIAnalysisProvider {
         lastErr = err;
         clearTimeout(timeout);
         const statusCode = err?.$metadata?.httpStatusCode;
-        const isRetryable = statusCode === 429 || (statusCode >= 500 && statusCode < 600)
-          || err?.name === "AbortError" || err?.name === "TimeoutError"
-          || err?.isBedrockEmptyContent === true;
+        const isRetryable =
+          statusCode === 429 ||
+          (statusCode >= 500 && statusCode < 600) ||
+          err?.name === "AbortError" ||
+          err?.name === "TimeoutError" ||
+          err?.isBedrockEmptyContent === true;
 
         if (isRetryable && attempt < MAX_RETRIES) {
           const delay = BASE_DELAY_MS * Math.pow(2, attempt);
@@ -232,10 +235,7 @@ export class BedrockProvider implements AIAnalysisProvider {
       // The cachePoint block tells Bedrock to cache everything above it.
       const command = new ConverseCommand({
         modelId: this.model,
-        system: [
-          { text: systemPrompt } as any,
-          { cachePoint: { type: "default" } } as any,
-        ],
+        system: [{ text: systemPrompt } as any, { cachePoint: { type: "default" } } as any],
         messages: [{ role: "user", content: [{ text: userMessage }] }],
         inferenceConfig: {
           temperature: 0.3,

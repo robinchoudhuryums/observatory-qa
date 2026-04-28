@@ -57,11 +57,7 @@ export const scoringCorrections = pgTable(
     /** "My corrections" widget — per-user list ordered by recency. */
     byUser: index("idx_scoring_corr_org_user_corrected_at").on(t.orgId, t.correctedBy, t.correctedAt),
     /** Grouping for prompt context + similar-uncorrected — by category + direction. */
-    byCategoryDirection: index("idx_scoring_corr_org_category_direction").on(
-      t.orgId,
-      t.callCategory,
-      t.direction,
-    ),
+    byCategoryDirection: index("idx_scoring_corr_org_category_direction").on(t.orgId, t.callCategory, t.direction),
   }),
 );
 

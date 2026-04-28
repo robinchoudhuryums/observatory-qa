@@ -1197,17 +1197,7 @@ export const businessAssociateAgreements = pgTable(
   ],
 );
 
-export {
-  performanceSnapshots,
-} from "@shared/schema/snapshots";
-export {
-  scheduledReports,
-  scheduledReportConfigs,
-} from "@shared/schema/scheduled-reports";
-export {
-  callTags,
-  annotations,
-} from "@shared/schema/call-tags";
-export {
-  scoringCorrections,
-} from "@shared/schema/scoring-corrections";
+export { performanceSnapshots } from "@shared/schema/snapshots";
+export { scheduledReports, scheduledReportConfigs } from "@shared/schema/scheduled-reports";
+export { callTags, annotations } from "@shared/schema/call-tags";
+export { scoringCorrections } from "@shared/schema/scoring-corrections";

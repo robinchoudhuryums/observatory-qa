@@ -161,7 +161,9 @@ export function registerPasswordResetRoutes(app: Express): void {
   /**
    * Reset password with a valid token.
    */
-  app.post("/api/auth/reset-password", asyncHandler(async (req, res) => {
+  app.post(
+    "/api/auth/reset-password",
+    asyncHandler(async (req, res) => {
       const { token, newPassword } = req.body;
       if (!token || !newPassword) {
         return res.status(400).json({ message: "Token and new password are required" });
@@ -201,5 +203,6 @@ export function registerPasswordResetRoutes(app: Express): void {
 
       logger.info({ userId: result.userId }, "Password reset successfully");
       res.json({ message: "Password has been reset. You can now log in with your new password." });
-    }));
+    }),
+  );
 }

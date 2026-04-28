@@ -245,7 +245,7 @@ export async function generateCoachingPlan(orgId: string, sessionId: string): Pr
   if (recentCalls.length === 0) return null;
 
   const avgScore = average(recentCalls.map((c) => Number(c.analysis?.performanceScore) || 0));
-    const callSummaries = prepareCallSummariesForPrompt(
+  const callSummaries = prepareCallSummariesForPrompt(
     recentCalls.slice(0, 5).map((c) => ({
       score: c.analysis?.performanceScore,
       subScores: c.analysis?.subScores,
@@ -254,7 +254,7 @@ export async function generateCoachingPlan(orgId: string, sessionId: string): Pr
       flags: c.analysis?.flags,
       sentiment: c.sentiment?.overallSentiment,
     })),
-    null,  // null = use default redact-by-policy; coaching is non-clinical
+    null, // null = use default redact-by-policy; coaching is non-clinical
   );
 
   const prompt = `You are a call center coaching expert. Generate a structured coaching action plan for the following agent.
@@ -445,7 +445,7 @@ export async function runAutomationRules(
               automationRuleId: rule.id,
               templateId: actions.templateId || null,
             } as any;
-            
+
             const conditions = rule.conditions as any;
             const isRecurringPattern =
               rule.triggerType === "trend_decline" ||

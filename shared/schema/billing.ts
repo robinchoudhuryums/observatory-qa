@@ -656,10 +656,10 @@ export type DashboardMetrics = {
   avgConfidence?: number | null;
   /** Data quality breakdown: count of calls by confidence level. */
   dataQuality?: {
-    highConfidence: number;   // >= 0.7
+    highConfidence: number; // >= 0.7
     mediumConfidence: number; // >= 0.4 and < 0.7
-    lowConfidence: number;    // < 0.4
-    noConfidence: number;     // null/missing confidence score
+    lowConfidence: number; // < 0.4
+    noConfidence: number; // null/missing confidence score
   };
 };
 
