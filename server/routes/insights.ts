@@ -638,8 +638,8 @@ export function registerInsightRoutes(app: Express): void {
     const targetId = (req.query.targetId as string) || orgId;
     const limit = Math.min(Math.max(parseInt(String(req.query.limit)) || 10, 1), 50);
 
-    const { getSnapshots: getSnaps } = await import("../services/performance-snapshots");
-    const snapshots = getSnaps(orgId, level as any, targetId, limit);
+        const { getSnapshots: getSnaps } = await import("../services/performance-snapshots");
+    const snapshots = await getSnaps(orgId, level as any, targetId, limit);
 
     res.json({ snapshots, count: snapshots.length });
   }));

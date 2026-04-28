@@ -15,7 +15,7 @@ import { asyncHandler } from "../middleware/error-handler";
  * Uses concurrent lookups capped at 50 at a time to bound memory and DB load.
  */
 async function getCallMapForRevenues(orgId: string, revenues: CallRevenue[]): Promise<Map<string, Call>> {
-  const uniqueCallIds = [...new Set(revenues.map((r) => r.callId))];
+  const uniqueCallIds = Array.from(new Set(revenues.map((r) => r.callId)));
   const callMap = new Map<string, Call>();
   // Process in batches of 50 to avoid overwhelming the DB connection pool
   const BATCH = 50;
@@ -237,9 +237,9 @@ export function registerRevenueRoutes(app: Express) {
       const revenues = await storage.listCallRevenues(orgId, { startDate: sixMonthsAgo });
       const callMap = await getCallMapForRevenues(orgId, revenues);
       const callDateMap = new Map<string, string>();
-      for (const [id, call] of callMap) {
+      for (const [id, call] of Array.from(callMap)) {
         if (call.uploadedAt) callDateMap.set(id, call.uploadedAt);
-      }
+}
 
       // Current month data
       const now = new Date();
@@ -626,9 +626,9 @@ export function registerRevenueRoutes(app: Express) {
       const revenues = await storage.listCallRevenues(orgId, { startDate });
       const callMap = await getCallMapForRevenues(orgId, revenues);
       const callDateMap = new Map<string, string>();
-      for (const [id, call] of callMap) {
+      for (const [id, call] of Array.from(callMap)) {
         if (call.uploadedAt) callDateMap.set(id, call.uploadedAt);
-      }
+}
 
       // Build weekly buckets for the last 12 weeks (Monday-aligned)
       const now = new Date();
