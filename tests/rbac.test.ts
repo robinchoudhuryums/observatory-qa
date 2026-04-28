@@ -1,6 +1,15 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import http from "http";
+import {
+  ROLE_HIERARCHY,
+  MAX_FAILED_ATTEMPTS,
+  LOCKOUT_DURATION_MS,
+  SESSION_IDLE_TIMEOUT_MS,
+  isAccountLocked,
+  recordFailedAttempt,
+  unlockAccount,
+} from "../server/auth.ts";
 
 /**
  * RBAC (Role-Based Access Control) tests.
@@ -11,6 +20,9 @@ import http from "http";
  * - Manager role can do viewer actions + write operations
  * - Admin role has full access
  * - requireRole middleware enforces hierarchy correctly
+ *
+ * INV-18: Tests import ROLE_HIERARCHY from auth.ts (not redefined locally)
+ * — when production levels change, these tests change with them.
  */
 
 // Helper: make an HTTP request to the test server
@@ -58,38 +70,26 @@ function request(
 }
 
 describe("RBAC - Role-Based Access Control", () => {
-  describe("Role hierarchy", () => {
-    it("admin level (3) > manager level (2) > viewer level (1)", () => {
-      const ROLE_HIERARCHY: Record<string, number> = {
-        admin: 3,
-        manager: 2,
-        viewer: 1,
-      };
-
-      assert.strictEqual(ROLE_HIERARCHY.admin, 3);
-      assert.strictEqual(ROLE_HIERARCHY.manager, 2);
-      assert.strictEqual(ROLE_HIERARCHY.viewer, 1);
+  describe("Role hierarchy (production constants)", () => {
+    it("admin > manager > viewer in production ROLE_HIERARCHY", () => {
       assert.ok(ROLE_HIERARCHY.admin > ROLE_HIERARCHY.manager);
       assert.ok(ROLE_HIERARCHY.manager > ROLE_HIERARCHY.viewer);
+      // viewer is the lowest tier and must be > 0 so unknown roles (which fall to 0) are denied
+      assert.ok(ROLE_HIERARCHY.viewer > 0);
     });
 
-    it("requireRole allows higher roles access to lower-role endpoints", () => {
-      const ROLE_HIERARCHY: Record<string, number> = { admin: 3, manager: 2, viewer: 1 };
-
-      // Simulate requireRole("manager", "admin") check
+    it("requireRole(manager, admin) gates: admin and manager pass, viewer denied", () => {
+      // Mirror the production check in requireRole(): the user level must be
+      // >= the *minimum* of the allowed roles' levels.
       const allowedRoles = ["manager", "admin"];
-      const requiredLevel = Math.min(...allowedRoles.map(r => ROLE_HIERARCHY[r] ?? 0));
+      const requiredLevel = Math.min(...allowedRoles.map((r) => ROLE_HIERARCHY[r] ?? 0));
 
-      // Admin should pass (3 >= 2)
       assert.ok(ROLE_HIERARCHY.admin >= requiredLevel);
-      // Manager should pass (2 >= 2)
       assert.ok(ROLE_HIERARCHY.manager >= requiredLevel);
-      // Viewer should NOT pass (1 < 2)
       assert.ok(ROLE_HIERARCHY.viewer < requiredLevel);
     });
 
-    it("unknown role gets level 0 (no access)", () => {
-      const ROLE_HIERARCHY: Record<string, number> = { admin: 3, manager: 2, viewer: 1 };
+    it("unknown role gets level 0 (no access) via the production lookup pattern", () => {
       const unknownLevel = ROLE_HIERARCHY["unknown_role"] ?? 0;
       assert.strictEqual(unknownLevel, 0);
     });
@@ -105,11 +105,11 @@ describe("RBAC - Role-Based Access Control", () => {
       const express = (await import("express")).default;
       const app = express();
       app.use(express.json());
-      const { setupAuth } = await import("../server/auth");
+      const { setupAuth } = await import("../server/auth.ts");
       await setupAuth(app);
 
       // Test routes with different role requirements
-      const { requireAuth, requireRole, injectOrgContext } = await import("../server/auth");
+      const { requireAuth, requireRole } = await import("../server/auth.ts");
       app.get("/api/test/public", (_req, res) => res.json({ ok: true }));
       app.get("/api/test/authed", requireAuth, (_req, res) => res.json({ ok: true }));
       app.get("/api/test/viewer", requireAuth, requireRole("viewer"), (_req, res) => res.json({ ok: true }));
@@ -150,51 +150,55 @@ describe("RBAC - Role-Based Access Control", () => {
     });
   });
 
-  describe("Account lockout", () => {
-    it("locks account after 5 failed attempts", () => {
-      const MAX_FAILED_ATTEMPTS = 5;
-      const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
-      const loginAttempts = new Map<string, { count: number; lastAttempt: number; lockedUntil?: number }>();
-
-      // Simulate 5 failed attempts
-      for (let i = 0; i < MAX_FAILED_ATTEMPTS; i++) {
-        const record = loginAttempts.get("testuser") || { count: 0, lastAttempt: 0 };
-        record.count++;
-        record.lastAttempt = Date.now();
-        if (record.count >= MAX_FAILED_ATTEMPTS) {
-          record.lockedUntil = Date.now() + LOCKOUT_DURATION_MS;
-        }
-        loginAttempts.set("testuser", record);
-      }
-
-      const record = loginAttempts.get("testuser")!;
-      assert.strictEqual(record.count, 5);
-      assert.ok(record.lockedUntil !== undefined);
-      assert.ok(record.lockedUntil > Date.now());
+  describe("Account lockout (production isAccountLocked + recordFailedAttempt)", () => {
+    it("MAX_FAILED_ATTEMPTS is 5 (HIPAA — invariant)", () => {
+      assert.strictEqual(MAX_FAILED_ATTEMPTS, 5);
     });
 
-    it("unlocks after lockout duration expires", () => {
-      const lockedUntil = Date.now() - 1000; // Expired 1 second ago
-      const isLocked = Date.now() <= lockedUntil;
-      assert.strictEqual(isLocked, false);
+    it("LOCKOUT_DURATION_MS is 15 minutes (HIPAA — invariant)", () => {
+      assert.strictEqual(LOCKOUT_DURATION_MS, 15 * 60 * 1000);
+    });
+
+    it("locks account after MAX_FAILED_ATTEMPTS recorded failures", async () => {
+      // Use a unique username so this test doesn't collide with parallel runs
+      const username = `lockout-test-${Date.now()}-${Math.random()}`;
+      try {
+        assert.strictEqual(await isAccountLocked(username), false, "account should start unlocked");
+        for (let i = 0; i < MAX_FAILED_ATTEMPTS; i++) {
+          await recordFailedAttempt(username);
+        }
+        assert.strictEqual(await isAccountLocked(username), true, "should be locked after MAX_FAILED_ATTEMPTS");
+      } finally {
+        await unlockAccount(username); // cleanup
+      }
+    });
+
+    it("does not lock account before MAX_FAILED_ATTEMPTS", async () => {
+      const username = `lockout-test-${Date.now()}-${Math.random()}`;
+      try {
+        for (let i = 0; i < MAX_FAILED_ATTEMPTS - 1; i++) {
+          await recordFailedAttempt(username);
+        }
+        assert.strictEqual(await isAccountLocked(username), false);
+      } finally {
+        await unlockAccount(username);
+      }
+    });
+
+    it("unlockAccount clears the lockout state", async () => {
+      const username = `lockout-test-${Date.now()}-${Math.random()}`;
+      for (let i = 0; i < MAX_FAILED_ATTEMPTS; i++) await recordFailedAttempt(username);
+      assert.strictEqual(await isAccountLocked(username), true);
+      await unlockAccount(username);
+      assert.strictEqual(await isAccountLocked(username), false);
     });
   });
 });
 
-describe("Session timeout (HIPAA)", () => {
-  it("session maxAge is 15 minutes (900000ms)", () => {
-    const SESSION_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
-    assert.strictEqual(SESSION_IDLE_TIMEOUT_MS, 900000);
-  });
-
-  it("rolling sessions reset on each request", () => {
-    // Rolling: true means cookie expiry resets on activity
-    // This is verified by config, not runtime behavior
-    const config = {
-      rolling: true,
-      cookie: { maxAge: 15 * 60 * 1000 },
-    };
-    assert.strictEqual(config.rolling, true);
-    assert.strictEqual(config.cookie.maxAge, 900000);
+describe("Session timeout (HIPAA — production constant)", () => {
+  it("SESSION_IDLE_TIMEOUT_MS is 15 minutes (900000ms)", () => {
+    // HIPAA addressable requirement: idle timeout for healthcare
+    assert.strictEqual(SESSION_IDLE_TIMEOUT_MS, 15 * 60 * 1000);
+    assert.strictEqual(SESSION_IDLE_TIMEOUT_MS, 900_000);
   });
 });
