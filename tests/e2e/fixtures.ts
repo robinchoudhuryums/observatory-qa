@@ -35,9 +35,13 @@ async function ensureWorkerOrg(
   workerIndex: number,
 ): Promise<{ orgSlug: string; adminUser: string; adminPass: string; viewerUser: string; viewerPass: string }> {
   const orgSlug = makeOrgSlug(workerIndex);
-  const adminUser = `admin-${orgSlug}`;
+  // /api/auth/register requires the username to be a valid email address
+  // (registration.ts EMAIL_REGEX). The local part stays unique per worker so
+  // multiple Playwright workers don't collide; the @e2e.test domain is
+  // RFC 2606-reserved and never resolves to a real recipient.
+  const adminUser = `admin-${orgSlug}@e2e.test`;
   const adminPass = "TestAdmin1234!";
-  const viewerUser = `viewer-${orgSlug}`;
+  const viewerUser = `viewer-${orgSlug}@e2e.test`;
   const viewerPass = "TestViewer1234!";
 
   if (!workerSetupDone || workerOrgSlug !== orgSlug) {

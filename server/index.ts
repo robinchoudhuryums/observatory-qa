@@ -300,8 +300,10 @@ app.use((req, res, next) => {
 const isE2E = process.env.E2E_TESTING === "true";
 const loginRateLimit = isE2E ? 500 : 5;
 app.post("/api/auth/login", distributedRateLimit(15 * 60 * 1000, loginRateLimit) as any);
-// Rate limit registration: 3 per hour per IP
-app.post("/api/auth/register", distributedRateLimit(60 * 60 * 1000, 3) as any);
+// Rate limit registration: 3 per hour per IP (relaxed in E2E: each worker
+// boots its own org, and Playwright retries can quickly burn through 3).
+const registrationRateLimit = isE2E ? 200 : 3;
+app.post("/api/auth/register", distributedRateLimit(60 * 60 * 1000, registrationRateLimit) as any);
 // Rate limit password reset: 5 per 15 minutes per IP (prevent token brute-force & enumeration)
 app.post("/api/auth/forgot-password", distributedRateLimit(15 * 60 * 1000, 5) as any);
 app.post("/api/auth/reset-password", distributedRateLimit(15 * 60 * 1000, 5) as any);
