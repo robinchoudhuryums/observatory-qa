@@ -83,9 +83,15 @@ export async function runScheduledReportsTask(
  *   // On shutdown: stopReportsTick();
  */
 export function startScheduledReportsHourlyTick(): () => void {
-  // Wrap in zero-arg arrow — runScheduledReportsTask accepts optional args
-  // for orchestrator compatibility, but scheduleHourly expects a no-arg fn.
-  return scheduleHourly(() => runScheduledReportsTask(), "scheduled-reports-tick");
+  // Wrap in zero-arg async arrow that awaits but discards the result type:
+  //   - runScheduledReportsTask returns Promise<{generated, delivered}>
+  //   - scheduleHourly expects () => void | Promise<void>
+  // The async arrow's body has no `return` statement, so the inferred return
+  // type is Promise<void> — satisfies the contract while still awaiting the
+  // task before the next tick fires.
+  return scheduleHourly(async () => {
+    await runScheduledReportsTask();
+  }, "scheduled-reports-tick");
 }
 
 /**
