@@ -83,7 +83,9 @@ export async function runScheduledReportsTask(
  *   // On shutdown: stopReportsTick();
  */
 export function startScheduledReportsHourlyTick(): () => void {
-  return scheduleHourly(runScheduledReportsTask, "scheduled-reports-tick");
+  // Wrap in zero-arg arrow — runScheduledReportsTask accepts optional args
+  // for orchestrator compatibility, but scheduleHourly expects a no-arg fn.
+  return scheduleHourly(() => runScheduledReportsTask(), "scheduled-reports-tick");
 }
 
 /**
