@@ -25,6 +25,11 @@ import { performanceSnapshots, type PerformanceSnapshotRow, type InsertPerforman
 import type { Database } from "../db/index";
 import { logger } from "../services/logger";
 
+// Re-export types from @shared/schema so consumers can import them directly
+// from this module — keeps the storage module's public API self-contained
+// and avoids "declared locally, but not exported" errors in service callers.
+export type { PerformanceSnapshotRow, InsertPerformanceSnapshot };
+
 let ddlEnsured = false;
 
 /**
