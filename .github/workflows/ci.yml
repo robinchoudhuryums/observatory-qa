@@ -74,12 +74,16 @@ jobs:
         run: npm run check
 
       - name: Unit tests with coverage
-        # Thresholds set just below current main coverage levels (lines 62.23%,
-        # functions 50.73%, branches 83.73% as of 2026-04-28). The previous
-        # 70/60/55 thresholds were aspirational and silently breached when the
-        # CallAnalyzer adaptation series (PR #71) merged. These numbers act as
-        # a regression ratchet — push them up incrementally as new tests land.
-        run: npx c8 --check-coverage --lines 60 --functions 50 --branches 80 --reporter=text --reporter=text-summary --reporter=lcov --src=server --src=shared tsx --test tests/*.test.ts
+        # Thresholds set just below current main coverage levels under Node 20.
+        # Most recent baseline (2026-04-28): lines 60.08%, functions 58.36%,
+        # branches 82.69%. The lines threshold dropped from 60 to 59 in PR #76:
+        # importing production helpers from tests (instead of redefining them)
+        # pulls more transitive code into the c8 denominator without proportional
+        # numerator gain — net more honest, slightly lower percentage. The
+        # functions threshold went UP (50 → 55) because the same PR exercises
+        # several real helpers that were previously simulated. These numbers act
+        # as a regression ratchet — push them up incrementally as new tests land.
+        run: npx c8 --check-coverage --lines 59 --functions 55 --branches 80 --reporter=text --reporter=text-summary --reporter=lcov --src=server --src=shared tsx --test tests/*.test.ts
 
       - name: Upload coverage report
         if: always()
