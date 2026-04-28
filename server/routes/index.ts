@@ -41,6 +41,7 @@ import { registerPatientJourneyRoutes } from "./patient-journey";
 import { registerBaaRoutes } from "./baa";
 import { registerAssemblyAIWebhookRoutes } from "./assemblyai-webhook";
 import { registerCallTagRoutes } from "./call-tags";
+import { registerScoringCorrectionRoutes } from "./scoring-corrections";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -91,6 +92,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // so the /api/calls/:id namespace base is established. Tag/annotation
   // routes mount additional sub-paths under /api/calls/:id and /api/tags.
   registerCallTagRoutes(app);
+  // Scoring corrections (Tier 2E) — read-side endpoints under /api/scoring-corrections/*
+  // Capture-side is at PATCH /api/calls/:id/analysis (handled in registerCallRoutes).
+  registerScoringCorrectionRoutes(app);
   registerReportRoutes(app);
   registerCoachingRoutes(app);
   registerInsightRoutes(app);
