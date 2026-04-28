@@ -1,15 +1,16 @@
 # Pending Hand-Edits
 
 This branch (`claude/adapt-callanalyzer-observatory-EZDqB`) shipped Tier 0.1 / 0.2 / 0.3 / 0.5
-infrastructure plus Tier 1A (tags + annotations), 1B (resilience), 1C (progressive
-coaching plan), and 1D (sub-score badges) — modules + tests only.
+infrastructure plus Tier 1 (1A tags+annotations, 1B resilience, 1C progressive coaching plan,
+1D sub-score badges) and **Tier 2 scoring feedback loop** (2A-2E).
 
-The hand-edits below complete the wire-ups in the larger files (22-49KB) that hit
-the GitHub MCP push-stream-timeout reliably. Each is a 1-10 line change; the whole
-list is **~10 minutes via Codespaces or any local checkout**.
+The hand-edits below complete the wire-ups in larger files (22-49KB) that hit the GitHub
+MCP push-stream-timeout reliably. Each is a 1-25 line change; the whole list is **~15 minutes
+total** via github.dev or any local checkout.
 
-The list is grouped by Tier so you can land in any order. Tier 0.5 wire-ups (A-D)
-have the most behavior impact; Tier 1 wire-ups (E-G) are additive.
+The list is grouped by tier so you can land in any order. Tier 0.5 wire-ups (A-D) and Tier 1
+wire-ups (E-G) are independent of Tier 2 wire-ups (H-K) — start with whichever is most
+useful.
 
 ---
 
@@ -17,31 +18,19 @@ have the most behavior impact; Tier 1 wire-ups (E-G) are additive.
 
 **File:** `server/services/rag.ts` (~48KB)
 
-**1.** Add this import after the existing line:
-```ts
-import { generateEmbedding, generateEmbeddingsBatch, isEmbeddingAvailable } from "./embeddings";
-```
-
-Add directly below it:
+Add after the existing `import { generateEmbedding, generateEmbeddingsBatch, isEmbeddingAvailable } from "./embeddings";`:
 ```ts
 import { generateQueryEmbedding } from "./embeddings-rag";
 ```
 
-**2.** Inside `searchRelevantChunks`, find:
+Inside `searchRelevantChunks`, replace:
 ```ts
-  // Generate query embedding
   const queryEmbedding = await generateEmbedding(queryText);
 ```
-
-Replace with:
+with:
 ```ts
-  // Generate query embedding (PHI-redacted via embeddings-rag adapter — Tier 0.1)
   const queryEmbedding = await generateQueryEmbedding(queryText);
 ```
-
-**Effect:** RAG queries get PHI-redacted before reaching Bedrock's Titan embedding
-endpoint. Document indexing keeps using `generateEmbedding` directly. Adapter from
-commit `2ff2cdd9`.
 
 ---
 
@@ -49,51 +38,23 @@ commit `2ff2cdd9`.
 
 **File:** `server/services/coaching-engine.ts` (~22KB)
 
-**1.** Add this import after the existing imports at the top of the file:
+Add this import:
 ```ts
 import { prepareCallSummariesForPrompt } from "./coaching-prompt";
 ```
 
-**2.** Inside `generateCoachingPlan`, find this block:
-```ts
-  const callSummaries = recentCalls.slice(0, 5).map((c) => ({
-    score: c.analysis?.performanceScore,
-    subScores: c.analysis?.subScores,
-    summary: c.analysis?.summary,
-    feedback: c.analysis?.feedback,
-    flags: c.analysis?.flags,
-    sentiment: c.sentiment?.overallSentiment,
-  }));
-```
-
-Wrap the result in the prepared helper:
-```ts
-  const callSummaries = prepareCallSummariesForPrompt(
-    recentCalls.slice(0, 5).map((c) => ({
-      score: c.analysis?.performanceScore,
-      subScores: c.analysis?.subScores,
-      summary: c.analysis?.summary,
-      feedback: c.analysis?.feedback,
-      flags: c.analysis?.flags,
-      sentiment: c.sentiment?.overallSentiment,
-    })),
-    null,  // null = use default redact-by-policy; coaching is non-clinical
-  );
-```
-
-**Effect:** PHI is deep-redacted from call summaries before they enter the Bedrock
-prompt for coaching plan generation. Adapter from commit `7952aa0b`.
+In `generateCoachingPlan`, wrap the existing `recentCalls.slice(0, 5).map(...)` callSummaries
+assignment with `prepareCallSummariesForPrompt(...)`. Pass `null` as the second argument
+(coaching is non-clinical → default redact policy).
 
 ---
 
-## C. Tier 0.2/0.3 — Wire new tables into canonical schema sync
+## C. Tier 0.2/0.3/1A/2A — Wire new tables into canonical schema sync
 
 **File:** `server/db/schema.ts` (~49KB)
 
-Find the existing table definitions block near the bottom and add:
-
+Append to the existing exports block:
 ```ts
-// --- Tier 0.2 / 0.3 / 1A tables (re-exported from shared/schema for sync-schema discovery) ---
 export {
   performanceSnapshots,
 } from "@shared/schema/snapshots";
@@ -105,26 +66,17 @@ export {
   callTags,
   annotations,
 } from "@shared/schema/call-tags";
+export {
+  scoringCorrections,
+} from "@shared/schema/scoring-corrections";
 ```
 
-If `sync-schema.ts` walks tables programmatically via Drizzle, this re-export
-is sufficient. If it has hand-coded DDL, you'll also need to add CREATE TABLE
-/ CREATE INDEX statements there mirroring what's in:
-
-- `server/storage/snapshots.ts` → `ensureSnapshotTable()`
-- `server/storage/scheduled-reports.ts` → `ensureScheduledReportTables()`
-- `server/storage/call-tags.ts` → `ensureCallTagsTables()`
-
-**Why:** invariant **INV-10** in `CLAUDE.md`: "Schema changes go in both
-`schema.ts` and `sync-schema.ts`".
-
-**Important — RLS:** the tenant-scoped tables in CLAUDE.md (27 of them) have
-PostgreSQL Row-Level Security policies. The five new tables (`performance_snapshots`,
-`scheduled_reports`, `scheduled_report_configs`, `call_tags`, `annotations`) do
-NOT have RLS policies yet. Application-level `orgId` scoping in the storage modules
-is the only isolation today. **Strongly recommended before production rollout** —
-add `CREATE POLICY ... USING (org_id = current_setting('app.org_id'))` blocks
-matching the existing 27 tables. See `sync-schema.ts` for the patterns.
+**RLS warning:** none of the SIX new tables (`performance_snapshots`, `scheduled_reports`,
+`scheduled_report_configs`, `call_tags`, `annotations`, `scoring_corrections`) currently
+have RLS policies, unlike OQ's existing 27 tenant-scoped tables. Application-level orgId
+filtering in the storage modules is the only isolation today. **Recommended before
+production rollout** — add `CREATE POLICY ... USING (org_id = current_setting('app.org_id'))`
+patterns mirroring the existing 27 tables. See `sync-schema.ts`.
 
 ---
 
@@ -132,54 +84,19 @@ matching the existing 27 tables. See `sync-schema.ts` for the patterns.
 
 **File:** `server/index.ts` (~24KB)
 
-Find this block inside the `server.listen` callback (line ~325):
-
+Find the `await import("./scheduled")` block (~line 325) and add to the destructure:
 ```ts
-      // Scheduled tasks (extracted to server/scheduled/ for testability)
-      const {
-        runRetention,
-        runTrialDowngrade,
-        runQuotaAlerts,
-        runWeeklyDigest,
-        runAllDailyTasks,
-        scheduleDaily,
-        scheduleWeekly,
-      } = await import("./scheduled");
-```
-
-Add the two new exports to the destructure:
-
-```ts
-      const {
-        runRetention,
-        runTrialDowngrade,
-        runQuotaAlerts,
-        runWeeklyDigest,
-        runAllDailyTasks,
-        scheduleDaily,
-        scheduleWeekly,
         startScheduledReportsHourlyTick,
         runScheduledReportsCatchUp,
-      } = await import("./scheduled");
 ```
 
-Then after `cancelWeeklyDigest = scheduleWeekly(...)`:
-
+After `cancelWeeklyDigest = scheduleWeekly(...)`:
 ```ts
-      // Hourly scheduled-reports tick (generation + delivery) — Tier 0.5
       const cancelReportsTick = startScheduledReportsHourlyTick();
-      // Boot-time catch-up of missed report periods (fire-and-forget, ~12 weeks/months)
       void runScheduledReportsCatchUp(storage);
 ```
 
-In the `shutdown` function, after `cancelDailyTasks(); cancelWeeklyDigest();` add:
-
-```ts
-        cancelReportsTick();
-```
-
-**Effect:** the hourly tick (generation + delivery) starts firing at top-of-hour;
-missed periods are backfilled async on first boot per org.
+In the `shutdown` function, add `cancelReportsTick();` alongside the other cancels.
 
 ---
 
@@ -187,75 +104,14 @@ missed periods are backfilled async on first boot per org.
 
 **File:** `server/services/coaching-engine.ts` (~22KB)
 
-CA's pattern is to call the multi-week progressive generator when an automation
-rule fires for **recurring weakness** (consistent low sub-score in one dimension).
-OQ's `runAutomationRules` currently creates the session with a static action plan
-from a template; the wire-up below replaces that with an AI-generated progressive
-plan when available.
-
-**1.** Add imports near the top of the file (alongside other `./` imports):
+Add import:
 ```ts
 import { generateProgressivePlan, progressivePlanToActionPlan, type WeaknessContext } from "./coaching-progressive";
 ```
 
-**2.** Inside `runAutomationRules`, find the block where the session is created
-from the rule (after `evaluateRule` returns true):
-
-```ts
-            const sessionData = {
-              orgId,
-              employeeId: employee.id,
-              assignedBy: "Automation",
-              category: actions.sessionCategory || "general",
-              title: sessionTitle,
-              notes: actions.sessionNotes
-                ? actions.sessionNotes.replace("{employee}", employee.name).replace("{rule}", rule.name)
-                : `Auto-created by rule: ${rule.name}`,
-              actionPlan: template?.actionPlan?.map((t: any) => ({ task: t.task, completed: false })) || [],
-              status: "pending" as const,
-              automatedTrigger: rule.triggerType,
-              automationRuleId: rule.id,
-              templateId: actions.templateId || null,
-            } as any;
-```
-
-Right BEFORE `await storage.createCoachingSession(orgId, sessionData);`, add:
-
-```ts
-            // Tier 1C: For trend_decline / consecutive_low_score / flag_recurring,
-            // attempt to generate an AI progressive plan and use it instead of the
-            // static template. Falls back to the template if Bedrock is unavailable
-            // or the response can't be parsed.
-            const conditions = rule.conditions as any;
-            const isRecurringPattern =
-              rule.triggerType === "trend_decline" ||
-              rule.triggerType === "consecutive_low_score" ||
-              rule.triggerType === "flag_recurring";
-
-            if (isRecurringPattern) {
-              const primary: WeaknessContext = {
-                dim: conditions.flagType || rule.triggerType,
-                label: rule.name,
-                avgScore: 0, // best-effort; fill from analyzed window if you compute it elsewhere
-                count: conditions.consecutiveCount ?? 3,
-              };
-              try {
-                const progressive = await generateProgressivePlan(orgId, employee.id, primary, {
-                  totalCallsAnalyzed: 20,
-                });
-                if (progressive) {
-                  sessionData.actionPlan = progressivePlanToActionPlan(progressive);
-                  sessionData.notes = progressive.notes;
-                }
-              } catch (err) {
-                logger.warn({ err, ruleId: rule.id, employeeId: employee.id }, "Progressive plan generation failed — using template fallback");
-              }
-            }
-```
-
-**Effect:** automation rules for recurring weakness produce richer multi-week
-coaching plans. Non-recurring patterns (e.g. low_sentiment) keep the template
-behavior unchanged. Module from commit `06484edb`.
+In `runAutomationRules`, BEFORE `await storage.createCoachingSession(orgId, sessionData);`, add the
+recurring-pattern detection block from the previous version of this doc (replaces static template
+with AI-generated multi-week plan when applicable).
 
 ---
 
@@ -263,39 +119,30 @@ behavior unchanged. Module from commit `06484edb`.
 
 **File:** `shared/schema/features.ts` (~24KB)
 
-Find the `BADGE_DEFINITIONS` array (search for `compliance_star` returning no hits
-confirms the addition is needed). Add three entries:
-
+Add three entries to `BADGE_DEFINITIONS` (after `consistency_king` for category locality):
 ```ts
   {
     id: "compliance_star",
     name: "Compliance Star",
     description: "5 consecutive calls with compliance sub-score 9.0 or higher",
-    category: "performance",
     icon: "shield-check",
+    category: "performance",
   },
   {
     id: "empathy_champion",
     name: "Empathy Champion",
     description: "5 consecutive calls with customer experience sub-score 9.0 or higher",
-    category: "performance",
     icon: "heart",
+    category: "performance",
   },
   {
     id: "resolution_ace",
     name: "Resolution Ace",
     description: "5 consecutive calls with resolution sub-score 9.0 or higher",
-    category: "performance",
     icon: "target",
+    category: "performance",
   },
 ```
-
-If `BadgeId` is a union literal type, also add the three IDs to that union so
-the route's `as never` cast in `server/services/sub-score-badges.ts` becomes
-unnecessary (you can then drop the cast — it's safe to leave too).
-
-**Effect:** UI components that render `BADGE_DEFINITIONS` (badge gallery,
-employee profile) will surface the three new badges with names + descriptions.
 
 ---
 
@@ -303,23 +150,133 @@ employee profile) will surface the three new badges with names + descriptions.
 
 **File:** `server/routes/gamification.ts` (~21KB)
 
-**1.** Add this import alongside the existing imports at the top of the file:
+Add import:
 ```ts
 import { evaluateSubScoreBadges } from "../services/sub-score-badges";
 ```
 
-**2.** At the END of the `checkAndAwardBadges` function (just before the closing
-`} catch (error) {`), add:
-
+At the END of `checkAndAwardBadges` (just before `} catch (error) {`):
 ```ts
-    // Tier 1D: sub-score excellence badges (compliance_star, empathy_champion, resolution_ace)
     await evaluateSubScoreBadges(orgId, employeeId);
 ```
 
-**Effect:** sub-score excellence badges are evaluated alongside the existing
-badge checks after every call processed. Idempotent — already-held badges are
-skipped. Non-throwing — failures are logged but don't fail the parent function.
-Module from commit `0bb80a22`.
+---
+
+## H. Tier 2A — Capture corrections at PATCH /api/calls/:id/analysis
+
+**File:** `server/routes/calls.ts` (~35KB)
+
+Add import:
+```ts
+import { recordScoringCorrection } from "../services/scoring-feedback";
+```
+
+Find the `PATCH /api/calls/:id/analysis` handler (search for the existing analysis-edit
+audit-log pattern). After the analysis update is persisted but before the response is sent,
+capture the correction:
+
+```ts
+      // Tier 2A: capture this edit as a scoring correction (fire-and-forget, non-blocking)
+      const newScore = parseFloat(String(req.body?.performanceScore ?? ""));
+      const oldScore = parseFloat(String(existingAnalysis?.performanceScore ?? ""));
+      if (
+        Number.isFinite(newScore) &&
+        Number.isFinite(oldScore) &&
+        Math.abs(newScore - oldScore) >= 0.1 &&
+        typeof req.body?.editReason === "string"
+      ) {
+        // Build per-sub-score deltas if the patch touched any
+        const subScoreChanges: Record<string, { original: number; corrected: number }> | undefined =
+          (() => {
+            const oldSubs = (existingAnalysis as any)?.subScores ?? {};
+            const newSubs = (req.body?.subScores as Record<string, unknown>) ?? {};
+            const out: Record<string, { original: number; corrected: number }> = {};
+            for (const [k, v] of Object.entries(newSubs)) {
+              const o = parseFloat(String(oldSubs[k] ?? ""));
+              const n = parseFloat(String(v ?? ""));
+              if (Number.isFinite(o) && Number.isFinite(n) && Math.abs(o - n) >= 0.1) {
+                out[k] = { original: o, corrected: n };
+              }
+            }
+            return Object.keys(out).length > 0 ? out : undefined;
+          })();
+
+        void recordScoringCorrection({
+          orgId,
+          callId: req.params.id,
+          correctedBy: req.user!.id,
+          correctedByName: req.user!.name || req.user!.username,
+          reason: req.body.editReason,
+          originalScore: oldScore,
+          correctedScore: newScore,
+          subScoreChanges,
+        });
+      }
+```
+
+The capture is `void`-prefixed and fire-and-forget — the route handler doesn't await it,
+so a correction-capture failure never blocks the analysis edit.
+
+---
+
+## I. Tier 2B — Inject correction context into Bedrock analysis prompt
+
+**File:** `server/services/bedrock.ts` (~12KB — small enough for MCP, but documenting here for completeness)
+
+Add import:
+```ts
+import { buildCorrectionContext } from "./scoring-feedback-context";
+```
+
+In `analyzeCallTranscript`, after the existing `safeTranscript` line and BEFORE
+`const systemPrompt = buildSystemPrompt(...)`:
+
+```ts
+    // Tier 2B: pull recent scoring corrections for this org/category and append
+    // them as an "untrusted manager notes" block to the system prompt. Empty
+    // when no relevant corrections exist.
+    const correctionContext = await buildCorrectionContext(/* orgId */ "", callCategory);
+```
+
+Then update the `system: [...]` array in the ConverseCommand:
+```ts
+        system: [
+          { text: systemPrompt + (correctionContext ? "\n\n" + correctionContext : "") } as any,
+          { cachePoint: { type: "default" } } as any,
+        ],
+```
+
+**Note:** `analyzeCallTranscript` doesn't currently receive `orgId` as a parameter. Either
+(a) thread orgId through from the call-processing service into BedrockProvider
+(plumbing only — add to the method signature + every caller), OR (b) leave correction
+context disabled until the next refactor — it's additive.
+
+---
+
+## J. Tier 2 — Wire quality + regression checks into daily scheduler
+
+**File:** `server/scheduled/index.ts` (~5.5KB — small enough for MCP)
+
+Will attempt this via MCP push.
+
+Adds to the `runAllDailyTasks` orchestrator + per-task imports:
+- `runScoringQualityChecks` from `./scoring-quality-tasks` (new wrapper file in this commit)
+- `runScoringRegressionChecks` from same
+
+---
+
+## K. Tier 2E — Register scoring corrections routes
+
+**File:** `server/routes/index.ts` (~5KB — small enough for MCP)
+
+Will attempt this via MCP push.
+
+Adds:
+```ts
+import { registerScoringCorrectionRoutes } from "./scoring-corrections";
+// ...
+registerScoringCorrectionRoutes(app);
+```
 
 ---
 
@@ -327,27 +284,35 @@ Module from commit `0bb80a22`.
 
 ```bash
 npm run check         # TypeScript — should pass
-npm run test          # New test files: phi-prompt-redaction, call-tags, resilience,
-                      # coaching-progressive, sub-score-badges
+npm run test          # New test files for all tiers
 npm run dev           # Local smoke test
 ```
 
 Expected log lines after deploy:
-- A: `"PHI-redacted query embedding"` traces in the RAG path
-- B: `"prepareCallSummariesForPrompt"` invocations
-- C: `"sync-schema: created performance_snapshots / scheduled_reports / ..."` on first boot
-- D: `"scheduled-reports-tick complete"` at the top of each UTC hour
-- E: `"Progressive plan generation failed — using template fallback"` (warning if Bedrock unavailable)
-- F: badge gallery shows three new "performance" category badges
-- G: `"Sub-score excellence badge awarded"` info logs after qualifying call sequences
+- A: PHI-redacted query embeddings traced
+- B: `prepareCallSummariesForPrompt` invocations
+- C: `sync-schema: created scoring_corrections / ...` on first boot
+- D: `scheduled-reports-tick complete` at top of each UTC hour
+- E: `Progressive plan generation failed — using template fallback` (warn if Bedrock unavailable)
+- F: badge gallery shows three new "performance" badges
+- G: `Sub-score excellence badge awarded` after qualifying sequences
+- H: `Scoring correction recorded` after each manual analysis edit
+- I: Bedrock prompt includes `<<<UNTRUSTED_MANAGER_NOTES>>>` block when corrections exist
+- J: `Scoring quality issues detected` (warn) and `Scoring regression detected` (warn) in daily orchestrator
+- K: 5 new endpoints under `/api/scoring-corrections/*` reachable
 
 ## Recommended order
 
-1. **D** first — activates the largest accumulated infra (scheduled reports tick)
-2. **B → A** — quickest behavior wins (PHI redaction wired up)
-3. **F → G** — Tier 1D goes together
-4. **E** — Tier 1C, slightly more complex
-5. **C** — schema sync wiring; do last so the runtime `ensureXTable()` guards
-   stay as the safety net while you verify
+1. **K + J** first — these will be auto-attempted via MCP after this doc commits
+2. **D** — activates the largest accumulated infra (scheduled reports tick)
+3. **B → A** — quickest behavior wins (PHI redaction wired up)
+4. **F → G** — Tier 1D goes together
+5. **E** — Tier 1C, slightly more complex
+6. **H** — Tier 2A capture (depends on the calls.ts handler shape; verify against
+   the existing audit-trail block before pasting)
+7. **C** — schema sync wiring; do last so the runtime `ensureXTable()` guards stay
+   as the safety net while you verify
+8. **I** — only if you've completed the `analyzeCallTranscript(orgId, ...)` plumbing
+   refactor first (see the note in I above)
 
-Total: ~10 minutes if you're familiar with the files; ~20 if not.
+Total: ~15 minutes if you're familiar with the files; ~25 if not.
