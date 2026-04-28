@@ -37,9 +37,7 @@ const WEBHOOK_EVENTS = ENV_WEBHOOK_EVENTS;
  * the precedence rules without going through storage.
  */
 export function mergeWebhookConfig(
-  orgSettings:
-    | { webhookUrl?: string; webhookPlatform?: "slack" | "teams"; webhookEvents?: string[] }
-    | undefined,
+  orgSettings: { webhookUrl?: string; webhookPlatform?: "slack" | "teams"; webhookEvents?: string[] } | undefined,
   envDefaults: { url: string | undefined; platform: "slack" | "teams"; events: string[] },
 ): { url: string | undefined; platform: "slack" | "teams"; events: string[] } {
   return {
