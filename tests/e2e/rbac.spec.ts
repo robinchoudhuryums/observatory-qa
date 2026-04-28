@@ -4,8 +4,8 @@ test.describe("RBAC - Role-Based Access Control", () => {
   test("viewer cannot see admin links", async ({ page }) => {
     await page.goto("/");
     await expect(page.locator("[data-testid='sidebar']")).toBeVisible({ timeout: 15000 });
-    await expect(page.locator("[data-testid='nav-link-admin']")).not.toBeVisible();
-    await expect(page.locator("[data-testid='nav-link-templates']")).not.toBeVisible();
+    await expect(page.locator("[data-testid='nav-link-administration']")).not.toBeVisible();
+    await expect(page.locator("[data-testid='nav-link-prompt-templates']")).not.toBeVisible();
     await expect(page.locator("[data-testid='nav-link-audit-logs']")).not.toBeVisible();
   });
 
