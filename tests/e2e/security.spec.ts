@@ -127,10 +127,14 @@ viewerTest.describe("RBAC — viewer role escalation prevention", () => {
     const cookies = await page.context().cookies();
     const csrf = cookies.find((c) => c.name === "csrf-token")?.value ?? "";
 
-    const resp = await page.request.delete("/api/calls/nonexistent-id", {
+    // The :id has a global app.param("id") handler that 400s on non-UUIDs
+    // BEFORE any route middleware runs, so we need a well-formed UUID to
+    // actually reach the requireRole check. Using all-zeros so the id is
+    // guaranteed to not match a real call.
+    const resp = await page.request.delete("/api/calls/00000000-0000-0000-0000-000000000099", {
       headers: { "x-csrf-token": csrf },
     });
-    // Should be 403 (role check) before 404 (not found)
+    // Role check (403) should run before the not-found check (404)
     expect(resp.status()).toBe(403);
   });
 
