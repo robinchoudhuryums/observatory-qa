@@ -141,13 +141,17 @@ export function registerRegistrationRoutes(app: Express): void {
         industryType === "dental" ? dentalCategories : industryType === "medical" ? medicalCategories : undefined;
 
       // Create the organization
+      // E2E_TESTING auto-marks onboarding complete so authenticated tests
+      // don't get redirected to the onboarding wizard before the page they
+      // navigate to has a chance to render.
+      const isE2E = process.env.E2E_TESTING === "true";
       const org = await storage.createOrganization({
         name: orgName,
         slug: orgSlug,
         status: "trial",
         settings: {
           retentionDays: 90,
-          branding: { appName: orgName },
+          branding: { appName: orgName, ...(isE2E ? { onboardingCompleted: true } : {}) },
           industryType: industryType || undefined,
           callCategories: defaultCategories,
         },
