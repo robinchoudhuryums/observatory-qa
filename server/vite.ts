@@ -46,6 +46,12 @@ export async function setupVite(app: Express, server: Server) {
   });
 
   app.use(vite.middlewares);
+  // Unknown /api/* paths must return JSON 404 — never the SPA HTML fallback.
+  // Returning HTML for an unmatched API route makes clients (and tests)
+  // misread it as a 200 success.
+  app.use("/api", (_req, res) => {
+    res.status(404).json({ message: "Not Found", errorCode: "OBS-API-404" });
+  });
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;
 
@@ -98,6 +104,13 @@ export function serveStatic(app: Express) {
       lastModified: true,
     }),
   );
+
+  // Unknown /api/* paths must return JSON 404 — never the SPA HTML fallback.
+  // Returning HTML for an unmatched API route makes clients (and tests)
+  // misread it as a 200 success.
+  app.use("/api", (_req, res) => {
+    res.status(404).json({ message: "Not Found", errorCode: "OBS-API-404" });
+  });
 
   // SPA fallback — index.html should never be cached (or very short cache).
   // CDNs should always revalidate this to pick up new deployments.

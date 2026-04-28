@@ -21,8 +21,8 @@ test.describe("API auth enforcement — no session", () => {
     expect(resp.status()).toBe(401);
   });
 
-  test("GET /api/admin/users returns 401 without auth", async ({ request }) => {
-    const resp = await request.get("/api/admin/users");
+  test("GET /api/users returns 401 without auth", async ({ request }) => {
+    const resp = await request.get("/api/users");
     expect(resp.status()).toBe(401);
   });
 
@@ -51,9 +51,13 @@ test.describe("API auth enforcement — no session", () => {
     expect(resp.status()).toBe(401);
   });
 
-  test("POST /api/calls/upload returns 401 without auth", async ({ request }) => {
+  test("POST /api/calls/upload rejects unauthenticated requests", async ({ request }) => {
     const resp = await request.post("/api/calls/upload");
-    expect(resp.status()).toBe(401);
+    // CSRF middleware runs before requireAuth, so an unauthenticated POST
+    // without a CSRF token is rejected at 403 with code OBS-AUTH-CSRF
+    // before requireAuth has a chance to return 401. Either is correct —
+    // both deny the request.
+    expect([401, 403]).toContain(resp.status());
   });
 
   test("GET /api/auth/me returns 401 without auth", async ({ request }) => {
@@ -67,7 +71,7 @@ test.describe("API auth enforcement — no session", () => {
 
 viewerTest.describe("RBAC — viewer role escalation prevention", () => {
   viewerTest("viewer cannot list admin users via API", async ({ page }) => {
-    const resp = await page.request.get("/api/admin/users");
+    const resp = await page.request.get("/api/users");
     expect(resp.status()).toBe(403);
   });
 
@@ -135,7 +139,7 @@ viewerTest.describe("RBAC — viewer role escalation prevention", () => {
     const cookies = await page.context().cookies();
     const csrf = cookies.find((c) => c.name === "csrf-token")?.value ?? "";
 
-    const resp = await page.request.post("/api/admin/invitations", {
+    const resp = await page.request.post("/api/invitations", {
       headers: { "x-csrf-token": csrf },
       data: { email: "hacker@evil.com", role: "admin" },
     });
@@ -407,12 +411,17 @@ test.describe("Logout invalidates session", () => {
     });
     expect(loginResp.status()).toBe(200);
 
-    // Confirm we are authenticated
+    // Confirm we are authenticated — also ensures the csrf-token cookie
+    // is set on the APIRequestContext for the logout POST below.
     const meResp = await request.get("/api/auth/me");
     expect(meResp.status()).toBe(200);
 
-    // Logout
-    const logoutResp = await request.post("/api/auth/logout");
+    // Logout — POST requires the double-submit CSRF token
+    const csrf =
+      (await request.storageState()).cookies.find((c) => c.name === "csrf-token")?.value ?? "";
+    const logoutResp = await request.post("/api/auth/logout", {
+      headers: { "x-csrf-token": csrf },
+    });
     expect([200, 302]).toContain(logoutResp.status());
 
     // Subsequent requests should be unauthenticated
