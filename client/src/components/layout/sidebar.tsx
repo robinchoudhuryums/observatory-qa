@@ -75,7 +75,13 @@ const analyticsNav: NavItem[] = [
 const managementNav: NavItem[] = [
   { name: "Employees", href: "/employees", icon: RiUserAddLine },
   { name: "Coaching", href: "/coaching", icon: RiClipboardLine, requireRole: ["manager", "admin"] },
-  { name: "Calibration", href: "/calibration", icon: RiScales3Line, requireRole: ["manager", "admin"], minPlan: "professional" },
+  {
+    name: "Calibration",
+    href: "/calibration",
+    icon: RiScales3Line,
+    requireRole: ["manager", "admin"],
+    minPlan: "professional",
+  },
 ];
 
 /** Items for the Channels section (Starter+). */
@@ -268,7 +274,13 @@ export default function Sidebar() {
    * - Items below the user's plan show a "PRO" upgrade badge and link to billing.
    * - Items requiring a role the user doesn't have are hidden entirely.
    */
-  const NavLink = ({ item, badge }: { item: NavItem; badge?: { count: number; activeColor: string; inactiveColor: string } }) => {
+  const NavLink = ({
+    item,
+    badge,
+  }: {
+    item: NavItem;
+    badge?: { count: number; activeColor: string; inactiveColor: string };
+  }) => {
     // Role gate — hide entirely if user doesn't have required role
     if (item.requireRole && (!user?.role || !item.requireRole.includes(user.role))) return null;
 
@@ -330,9 +342,19 @@ export default function Sidebar() {
   };
 
   /** Render a collapsible section with nav items */
-  const NavSection = ({ title, items, defaultCollapsed }: { title: string; items: NavItem[]; defaultCollapsed?: boolean }) => {
+  const NavSection = ({
+    title,
+    items,
+    defaultCollapsed,
+  }: {
+    title: string;
+    items: NavItem[];
+    defaultCollapsed?: boolean;
+  }) => {
     // If no items are visible (all role-gated out), hide the section header
-    const visibleItems = items.filter((item) => !item.requireRole || (user?.role && item.requireRole.includes(user.role)));
+    const visibleItems = items.filter(
+      (item) => !item.requireRole || (user?.role && item.requireRole.includes(user.role)),
+    );
     if (visibleItems.length === 0) return null;
 
     return (
@@ -427,11 +449,15 @@ export default function Sidebar() {
             <NavLink
               key={item.name}
               item={item}
-              badge={item.name === "Dashboard" && flaggedCount > 0 ? {
-                count: flaggedCount,
-                activeColor: "bg-red-500 text-white",
-                inactiveColor: "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300",
-              } : undefined}
+              badge={
+                item.name === "Dashboard" && flaggedCount > 0
+                  ? {
+                      count: flaggedCount,
+                      activeColor: "bg-red-500 text-white",
+                      inactiveColor: "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300",
+                    }
+                  : undefined
+              }
             />
           ))}
 
@@ -476,11 +502,15 @@ export default function Sidebar() {
                     <NavLink
                       key={item.name}
                       item={item}
-                      badge={item.name === "Administration" ? {
-                        count: pendingRequestCount,
-                        activeColor: "bg-yellow-500 text-white",
-                        inactiveColor: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300",
-                      } : undefined}
+                      badge={
+                        item.name === "Administration"
+                          ? {
+                              count: pendingRequestCount,
+                              activeColor: "bg-yellow-500 text-white",
+                              inactiveColor: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300",
+                            }
+                          : undefined
+                      }
                     />
                   ))}
                 </div>

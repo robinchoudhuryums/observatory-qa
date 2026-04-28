@@ -6,3 +6,4 @@ export * from "./schema/features";
 export * from "./schema/snapshots";
 export * from "./schema/scheduled-reports";
 export * from "./schema/call-tags";
+export * from "./schema/scoring-corrections";

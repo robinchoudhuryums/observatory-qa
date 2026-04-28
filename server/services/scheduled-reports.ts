@@ -193,7 +193,10 @@ export async function generateReport(
     saveReportInMemory(report);
   }
 
-  logger.info({ orgId, reportId: report.id, type: reportType, calls: periodCalls.length }, "Generated scheduled report");
+  logger.info(
+    { orgId, reportId: report.id, type: reportType, calls: periodCalls.length },
+    "Generated scheduled report",
+  );
   return report;
 }
 
@@ -263,9 +266,7 @@ export async function getReports(orgId: string, limit = 10): Promise<ScheduledRe
     }
   }
   const reports = reportStore.get(orgId) || [];
-  return reports
-    .sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime())
-    .slice(0, limit);
+  return reports.sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime()).slice(0, limit);
 }
 
 // ---------------------------------------------------------------------------
@@ -395,7 +396,9 @@ function buildReportEmail(row: ScheduledReportRow): { subject: string; text: str
   // CRLF safe — `sendEmail` strips header-injectable chars from `to` and
   // `subject` defensively, but the report_type is org-supplied (config row)
   // so we still sanitize here.
-  const safeReportType = String(row.reportType).replace(/[\r\n]/g, " ").slice(0, 80);
+  const safeReportType = String(row.reportType)
+    .replace(/[\r\n]/g, " ")
+    .slice(0, 80);
   const subject = `[Observatory QA] ${safeReportType} — ${periodEndStr}`;
 
   if (!report) {

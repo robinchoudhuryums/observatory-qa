@@ -121,41 +121,44 @@ export default function Upload() {
               {/* Call category and employee assignment */}
               <div className="flex flex-wrap items-end gap-3 mb-6">
                 <div className="flex flex-col gap-1">
-                  <label className="text-sm font-medium text-muted-foreground" htmlFor="call-type-select">Call Type</label>
+                  <label className="text-sm font-medium text-muted-foreground" htmlFor="call-type-select">
+                    Call Type
+                  </label>
                   <Select value={callCategory} onValueChange={setCallCategory}>
                     <SelectTrigger className="w-48" id="call-type-select" aria-label="Call type">
                       <SelectValue placeholder="Select call type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CALL_CATEGORIES.map((cat) => (
-                      <SelectItem key={cat.value} value={cat.value}>
-                        {cat.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CALL_CATEGORIES.map((cat) => (
+                        <SelectItem key={cat.value} value={cat.value}>
+                          {cat.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-sm font-medium text-muted-foreground" htmlFor="agent-select">Assign To</label>
+                  <label className="text-sm font-medium text-muted-foreground" htmlFor="agent-select">
+                    Assign To
+                  </label>
                   <Select
                     value={employeeId || "__unassigned__"}
                     onValueChange={(v) => setEmployeeId(v === "__unassigned__" ? "" : v)}
                   >
                     <SelectTrigger className="w-52" id="agent-select" aria-label="Assign to agent">
                       <SelectValue placeholder="Select agent" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__unassigned__">
-                      <span className="text-muted-foreground italic">Unassigned (auto-detect)</span>
-                    </SelectItem>
-                    {employees?.map((employee) => (
-                      <SelectItem key={employee.id} value={employee.id}>
-                        {employee.name}
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__unassigned__">
+                        <span className="text-muted-foreground italic">Unassigned (auto-detect)</span>
                       </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                      {employees?.map((employee) => (
+                        <SelectItem key={employee.id} value={employee.id}>
+                          {employee.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 

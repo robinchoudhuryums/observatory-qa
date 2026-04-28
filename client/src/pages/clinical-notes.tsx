@@ -156,7 +156,11 @@ export default function ClinicalNotesPage() {
     onError: (err: any) => {
       const isConflict = err.message?.includes("modified by another user") || err.status === 409;
       if (isConflict) {
-        toast({ title: "Edit conflict", description: "This note was modified by another user. Refreshing to get latest version.", variant: "destructive" });
+        toast({
+          title: "Edit conflict",
+          description: "This note was modified by another user. Refreshing to get latest version.",
+          variant: "destructive",
+        });
         queryClient.invalidateQueries({ queryKey: ["/api/calls", callId] });
         setEditing(false);
         setEditFields({});

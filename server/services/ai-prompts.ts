@@ -582,7 +582,8 @@ export function buildUserMessage(
   // For low-confidence transcripts, inject guidance asking the AI to flag uncertainty
   let confidenceNote = "";
   if (options?.transcriptConfidence !== undefined && options.transcriptConfidence < 0.5) {
-    confidenceNote = `\nNOTE: This transcript has LOW confidence (${Math.round(options.transcriptConfidence * 100)}%). ` +
+    confidenceNote =
+      `\nNOTE: This transcript has LOW confidence (${Math.round(options.transcriptConfidence * 100)}%). ` +
       "Some words may be inaccurate. When scoring, account for potential transcription errors. " +
       "Flag any passages where the meaning is ambiguous with [UNCLEAR] in your summary.\n";
   }

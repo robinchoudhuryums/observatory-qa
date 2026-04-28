@@ -398,8 +398,8 @@ export default function ClinicalLivePage() {
               <div className="space-y-3 flex-1">
                 <p className="text-sm font-medium">Patient Consent Required</p>
                 <p className="text-sm text-muted-foreground">
-                  You must obtain consent from the patient before recording this encounter. HIPAA §164.508
-                  requires documented consent with the method of capture recorded in the audit trail.
+                  You must obtain consent from the patient before recording this encounter. HIPAA §164.508 requires
+                  documented consent with the method of capture recorded in the audit trail.
                 </p>
                 <div className="space-y-1.5">
                   <Label htmlFor="consent-method" className="text-sm font-medium">
@@ -469,9 +469,9 @@ export default function ClinicalLivePage() {
           >
             <RiErrorWarningLine className="w-4 h-4 shrink-0" />
             <span>
-              <strong>Audio upload failing.</strong> The server stopped accepting audio chunks — your recording
-              may be incomplete. Check your network connection, then pause and resume to retry. If the problem
-              persists, stop the session and restart.
+              <strong>Audio upload failing.</strong> The server stopped accepting audio chunks — your recording may be
+              incomplete. Check your network connection, then pause and resume to retry. If the problem persists, stop
+              the session and restart.
             </span>
           </div>
         )}

@@ -80,11 +80,7 @@ export async function ensureCallTagsTables(db: Database): Promise<void> {
 /**
  * List all tags for a specific call. Org-scoped.
  */
-export async function listTagsForCall(
-  db: Database,
-  orgId: string,
-  callId: string,
-): Promise<CallTag[]> {
+export async function listTagsForCall(db: Database, orgId: string, callId: string): Promise<CallTag[]> {
   await ensureCallTagsTables(db);
   return db
     .select()
@@ -97,10 +93,7 @@ export async function listTagsForCall(
  * Add a tag to a call. Returns null if the tag already exists for this
  * (orgId, callId, tag) combination — the caller can return 409 to the user.
  */
-export async function addTag(
-  db: Database,
-  data: InsertCallTag,
-): Promise<CallTag | null> {
+export async function addTag(db: Database, data: InsertCallTag): Promise<CallTag | null> {
   await ensureCallTagsTables(db);
   const result = await db
     .insert(callTags)
@@ -115,11 +108,7 @@ export async function addTag(
 /**
  * Look up a single tag by id, scoped to org.
  */
-export async function getTagById(
-  db: Database,
-  orgId: string,
-  tagId: string,
-): Promise<CallTag | null> {
+export async function getTagById(db: Database, orgId: string, tagId: string): Promise<CallTag | null> {
   await ensureCallTagsTables(db);
   const rows = await db
     .select()
@@ -133,15 +122,9 @@ export async function getTagById(
  * Delete a tag by id, scoped to org. Author-or-manager check happens in the
  * route layer before this is called.
  */
-export async function deleteTag(
-  db: Database,
-  orgId: string,
-  tagId: string,
-): Promise<void> {
+export async function deleteTag(db: Database, orgId: string, tagId: string): Promise<void> {
   await ensureCallTagsTables(db);
-  await db
-    .delete(callTags)
-    .where(and(eq(callTags.orgId, orgId), eq(callTags.id, tagId)));
+  await db.delete(callTags).where(and(eq(callTags.orgId, orgId), eq(callTags.id, tagId)));
 }
 
 /**
@@ -175,12 +158,7 @@ export async function listTopTags(
  * Returns just the IDs — the caller layers in additional access control
  * (viewer team scoping, etc.) and looks up call details.
  */
-export async function listCallIdsByTag(
-  db: Database,
-  orgId: string,
-  tag: string,
-  limit = 100,
-): Promise<string[]> {
+export async function listCallIdsByTag(db: Database, orgId: string, tag: string, limit = 100): Promise<string[]> {
   await ensureCallTagsTables(db);
   const rows = await db
     .select({ callId: callTags.callId })
@@ -196,10 +174,7 @@ export async function listCallIdsByTag(
  */
 export async function deleteTagsByOrg(db: Database, orgId: string): Promise<number> {
   await ensureCallTagsTables(db);
-  const result = await db
-    .delete(callTags)
-    .where(eq(callTags.orgId, orgId))
-    .returning({ id: callTags.id });
+  const result = await db.delete(callTags).where(eq(callTags.orgId, orgId)).returning({ id: callTags.id });
   return result.length;
 }
 
@@ -210,11 +185,7 @@ export async function deleteTagsByOrg(db: Database, orgId: string): Promise<numb
 /**
  * List all annotations for a call, ordered along the timeline.
  */
-export async function listAnnotationsForCall(
-  db: Database,
-  orgId: string,
-  callId: string,
-): Promise<Annotation[]> {
+export async function listAnnotationsForCall(db: Database, orgId: string, callId: string): Promise<Annotation[]> {
   await ensureCallTagsTables(db);
   return db
     .select()
@@ -227,10 +198,7 @@ export async function listAnnotationsForCall(
  * Add an annotation. Validation (text length, timestampMs ≥0) is enforced
  * at the route layer.
  */
-export async function addAnnotation(
-  db: Database,
-  data: InsertAnnotation,
-): Promise<Annotation> {
+export async function addAnnotation(db: Database, data: InsertAnnotation): Promise<Annotation> {
   await ensureCallTagsTables(db);
   const result = await db.insert(annotations).values(data).returning();
   return result[0];
@@ -240,11 +208,7 @@ export async function addAnnotation(
  * Look up a single annotation by id, scoped to org. Used for the
  * author-or-manager delete check before invoking deleteAnnotation.
  */
-export async function getAnnotationById(
-  db: Database,
-  orgId: string,
-  annotationId: string,
-): Promise<Annotation | null> {
+export async function getAnnotationById(db: Database, orgId: string, annotationId: string): Promise<Annotation | null> {
   await ensureCallTagsTables(db);
   const rows = await db
     .select()
@@ -258,15 +222,9 @@ export async function getAnnotationById(
  * Delete an annotation by id. Org-scoped. Author-or-manager check is in
  * the route layer.
  */
-export async function deleteAnnotation(
-  db: Database,
-  orgId: string,
-  annotationId: string,
-): Promise<void> {
+export async function deleteAnnotation(db: Database, orgId: string, annotationId: string): Promise<void> {
   await ensureCallTagsTables(db);
-  await db
-    .delete(annotations)
-    .where(and(eq(annotations.orgId, orgId), eq(annotations.id, annotationId)));
+  await db.delete(annotations).where(and(eq(annotations.orgId, orgId), eq(annotations.id, annotationId)));
 }
 
 /**
@@ -274,9 +232,6 @@ export async function deleteAnnotation(
  */
 export async function deleteAnnotationsByOrg(db: Database, orgId: string): Promise<number> {
   await ensureCallTagsTables(db);
-  const result = await db
-    .delete(annotations)
-    .where(eq(annotations.orgId, orgId))
-    .returning({ id: annotations.id });
+  const result = await db.delete(annotations).where(eq(annotations.orgId, orgId)).returning({ id: annotations.id });
   return result.length;
 }

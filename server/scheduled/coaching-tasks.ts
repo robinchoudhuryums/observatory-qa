@@ -16,10 +16,7 @@ export async function runCoachingScheduledTasks(storage: IStorage, orgs?: any[])
         // Run automation rules daily
         const { triggered, sessionsCreated } = await runAutomationRules(org.id);
         if (sessionsCreated > 0)
-          logger.info(
-            { orgId: org.id, triggered, sessionsCreated },
-            "Automation rules created coaching sessions",
-          );
+          logger.info({ orgId: org.id, triggered, sessionsCreated }, "Automation rules created coaching sessions");
 
         // Cache effectiveness for completed sessions 30+ days old
         await sweepEffectivenessSnapshots(org.id);

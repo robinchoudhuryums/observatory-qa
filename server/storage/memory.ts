@@ -1178,7 +1178,10 @@ export class MemStorage implements IStorage {
     return this.callRevenuesStore.get(`${orgId}:${callId}`);
   }
 
-  async listCallRevenues(orgId: string, filters?: { conversionStatus?: string; startDate?: string; endDate?: string }): Promise<CallRevenue[]> {
+  async listCallRevenues(
+    orgId: string,
+    filters?: { conversionStatus?: string; startDate?: string; endDate?: string },
+  ): Promise<CallRevenue[]> {
     let results = Array.from(this.callRevenuesStore.values()).filter((r) => r.orgId === orgId);
     if (filters?.conversionStatus) results = results.filter((r) => r.conversionStatus === filters.conversionStatus);
     if (filters?.startDate) {

@@ -31,10 +31,7 @@ export async function runAuditChainVerify(storage: IStorage, orgs?: any[]): Prom
             detail: `Chain broken at sequence ${result.brokenAt} of ${result.checkedCount} entries`,
           });
         } else if (result.checkedCount > 0) {
-          logger.info(
-            { orgId: org.id, checkedCount: result.checkedCount },
-            "Nightly audit chain verification: OK",
-          );
+          logger.info({ orgId: org.id, checkedCount: result.checkedCount }, "Nightly audit chain verification: OK");
         }
       } catch (orgErr) {
         logger.warn({ err: orgErr, orgId: org.id }, "Audit chain verify failed for org");

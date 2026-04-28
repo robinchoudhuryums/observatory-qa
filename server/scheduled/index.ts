@@ -18,6 +18,7 @@ export {
   startScheduledReportsHourlyTick,
   runScheduledReportsCatchUp,
 } from "./scheduled-reports-tick";
+export { runScoringQualityTasks } from "./scoring-quality-tasks";
 export { scheduleDaily, scheduleWeekly, scheduleHourly } from "./scheduler";
 
 // Re-import for orchestrator use
@@ -28,6 +29,7 @@ import { runWeeklyDigest } from "./weekly-digest";
 import { runAuditChainVerify } from "./audit-chain-verify";
 import { runCoachingScheduledTasks } from "./coaching-tasks";
 import { runPostProcessingReconciliation } from "./post-processing-reconciliation";
+import { runScoringQualityTasks } from "./scoring-quality-tasks";
 
 interface DailyTaskOptions {
   queuesReady: boolean;
@@ -89,7 +91,7 @@ export async function runAllDailyTasks(storage: IStorage, opts: DailyTaskOptions
   // Each task is individually wrapped with a timeout AND a try/catch so that
   // (a) a hung task can't silently block downstream tasks, and (b) a thrown
   // task doesn't prevent the rest from running. See F-14 in broad-scan audit.
-  const tasks: Array<{ name: string; timeoutMs: number; fn: () => Promise<void> }> = [
+  const tasks: Array<{ name: string; timeoutMs: number; fn: () => Promise<void | unknown> }> = [
     {
       name: "retention",
       timeoutMs: RETENTION_TASK_TIMEOUT_MS,
@@ -99,7 +101,17 @@ export async function runAllDailyTasks(storage: IStorage, opts: DailyTaskOptions
     { name: "quota-alerts", timeoutMs: DEFAULT_TASK_TIMEOUT_MS, fn: () => runQuotaAlerts(storage, orgs) },
     { name: "audit-chain-verify", timeoutMs: DEFAULT_TASK_TIMEOUT_MS, fn: () => runAuditChainVerify(storage, orgs) },
     { name: "coaching-tasks", timeoutMs: DEFAULT_TASK_TIMEOUT_MS, fn: () => runCoachingScheduledTasks(storage, orgs) },
-    { name: "post-processing-reconciliation", timeoutMs: DEFAULT_TASK_TIMEOUT_MS, fn: () => runPostProcessingReconciliation(storage, orgs) },
+    {
+      name: "post-processing-reconciliation",
+      timeoutMs: DEFAULT_TASK_TIMEOUT_MS,
+      fn: () => runPostProcessingReconciliation(storage, orgs),
+    },
+    // Tier 2: scoring-feedback quality + regression checks (per-org)
+    {
+      name: "scoring-quality-tasks",
+      timeoutMs: DEFAULT_TASK_TIMEOUT_MS,
+      fn: () => runScoringQualityTasks(storage, orgs),
+    },
   ];
 
   for (const task of tasks) {

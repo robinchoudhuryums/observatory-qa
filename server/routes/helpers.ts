@@ -57,7 +57,8 @@ export function acquireUploadSlot(orgId: string): boolean {
 
 export function releaseUploadSlot(orgId: string): void {
   const current = orgUploadCounts.get(orgId) || 0;
-  if (current <= 1) orgUploadCounts.delete(orgId); // Clean up entry when at 0 or 1
+  if (current <= 1)
+    orgUploadCounts.delete(orgId); // Clean up entry when at 0 or 1
   else orgUploadCounts.set(orgId, current - 1);
   // Safety: if somehow called when count is already 0, delete ensures no negative values
 }

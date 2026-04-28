@@ -6,6 +6,7 @@ import { validateUUIDParam } from "./helpers";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import { BADGE_DEFINITIONS, type BadgeId } from "@shared/schema";
 import { asyncHandler } from "../middleware/error-handler";
+import { evaluateSubScoreBadges } from "../services/sub-score-badges";
 
 // Points awarded for various activities
 const POINT_VALUES = {
@@ -26,7 +27,11 @@ export async function checkAndAwardBadges(orgId: string, employeeId: string): Pr
     // Filter by employee at the query level to avoid loading ALL org calls.
     // Limit to 200 — we only need counts (for milestones) and last 20 (for performance badges).
     // For milestone checks like "hundred_calls", 200 is sufficient to determine 100+ exist.
-    const employeeCalls = await storage.getCallSummaries(orgId, { employee: employeeId, status: "completed", limit: 200 });
+    const employeeCalls = await storage.getCallSummaries(orgId, {
+      employee: employeeId,
+      status: "completed",
+      limit: 200,
+    });
     const existingBadges = await storage.getEmployeeBadges(orgId, employeeId);
     const hasBadge = (id: string) => existingBadges.some((b) => b.badgeId === id);
 
@@ -149,6 +154,7 @@ export async function recordActivity(
 
     // Check for new badges
     await checkAndAwardBadges(orgId, employeeId);
+    await evaluateSubScoreBadges(orgId, employeeId);
   } catch (error) {
     logger.error({ err: error, orgId, employeeId, pointType }, "Failed to record gamification activity");
   }
@@ -156,7 +162,11 @@ export async function recordActivity(
 
 export function registerGamificationRoutes(app: Express) {
   // Get leaderboard for the org
-  app.get("/api/gamification/leaderboard", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/gamification/leaderboard",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -197,7 +207,8 @@ export function registerGamificationRoutes(app: Express) {
       });
 
       res.json(leaderboard);
-    }));
+    }),
+  );
 
   // Get gamification profile for an employee
   app.get(
@@ -206,45 +217,45 @@ export function registerGamificationRoutes(app: Express) {
     injectOrgContext,
     validateUUIDParam("employeeId"),
     asyncHandler(async (req, res) => {
-        const orgId = req.orgId;
-        if (!orgId) return res.status(403).json({ message: "Organization context required" });
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-        const { employeeId } = req.params;
-        const [profile, badges, employee] = await Promise.all([
-          storage.getGamificationProfile(orgId, employeeId),
-          storage.getEmployeeBadges(orgId, employeeId),
-          storage.getEmployee(orgId, employeeId),
-        ]);
+      const { employeeId } = req.params;
+      const [profile, badges, employee] = await Promise.all([
+        storage.getGamificationProfile(orgId, employeeId),
+        storage.getEmployeeBadges(orgId, employeeId),
+        storage.getEmployee(orgId, employeeId),
+      ]);
 
-        if (!employee) return res.status(404).json({ message: "Employee not found" });
+      if (!employee) return res.status(404).json({ message: "Employee not found" });
 
-        // Check opt-out status before returning profile
-        const org = await storage.getOrganization(orgId);
-        const gamSettings = (org?.settings as any)?.gamification;
-        if (gamSettings?.enabled === false) return res.json({ optedOut: true, message: "Gamification is disabled" });
-        const optedOutIds = new Set(gamSettings?.optedOutEmployeeIds || []);
-        const optedOutRoles = new Set(gamSettings?.optedOutRoles || []);
-        if (optedOutIds.has(employeeId) || optedOutRoles.has((employee as any).role)) {
-          return res.json({ optedOut: true, message: "This employee has opted out of gamification" });
-        }
+      // Check opt-out status before returning profile
+      const org = await storage.getOrganization(orgId);
+      const gamSettings = (org?.settings as any)?.gamification;
+      if (gamSettings?.enabled === false) return res.json({ optedOut: true, message: "Gamification is disabled" });
+      const optedOutIds = new Set(gamSettings?.optedOutEmployeeIds || []);
+      const optedOutRoles = new Set(gamSettings?.optedOutRoles || []);
+      if (optedOutIds.has(employeeId) || optedOutRoles.has((employee as any).role)) {
+        return res.json({ optedOut: true, message: "This employee has opted out of gamification" });
+      }
 
-        // Enrich badges with definitions
-        const enrichedBadges = badges.map((b) => {
-          const def = BADGE_DEFINITIONS.find((d) => d.id === b.badgeId);
-          return { ...b, name: def?.name, description: def?.description, icon: def?.icon, category: def?.category };
-        });
+      // Enrich badges with definitions
+      const enrichedBadges = badges.map((b) => {
+        const def = BADGE_DEFINITIONS.find((d) => d.id === b.badgeId);
+        return { ...b, name: def?.name, description: def?.description, icon: def?.icon, category: def?.category };
+      });
 
-        res.json({
-          employeeId,
-          employeeName: employee.name,
-          totalPoints: profile.totalPoints,
-          currentStreak: profile.currentStreak,
-          longestStreak: profile.longestStreak,
-          level: Math.floor(profile.totalPoints / 100),
-          badges: enrichedBadges,
-          availableBadges: BADGE_DEFINITIONS.filter((d) => !badges.some((b) => b.badgeId === d.id)),
-        });
-      }),
+      res.json({
+        employeeId,
+        employeeName: employee.name,
+        totalPoints: profile.totalPoints,
+        currentStreak: profile.currentStreak,
+        longestStreak: profile.longestStreak,
+        level: Math.floor(profile.totalPoints / 100),
+        badges: enrichedBadges,
+        availableBadges: BADGE_DEFINITIONS.filter((d) => !badges.some((b) => b.badgeId === d.id)),
+      });
+    }),
   );
 
   // Get all badge definitions
@@ -253,13 +264,24 @@ export function registerGamificationRoutes(app: Express) {
   });
 
   // --- Gamification settings (opt-out configuration) ---
-  app.get("/api/gamification/settings", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/gamification/settings",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const org = await storage.getOrganization(req.orgId!);
       const gamification = (org?.settings as any)?.gamification || { enabled: true };
       res.json(gamification);
-    }));
+    }),
+  );
 
-  app.put("/api/gamification/settings", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
+  app.put(
+    "/api/gamification/settings",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
       const { enabled, optedOutRoles, optedOutEmployeeIds, teamCompetitionsEnabled } = req.body;
 
@@ -282,10 +304,16 @@ export function registerGamificationRoutes(app: Express) {
 
       logger.info({ orgId, gamification: { enabled: gamification.enabled } }, "Gamification settings updated");
       res.json(gamification);
-    }));
+    }),
+  );
 
   // --- Manager-awarded custom recognition badges ---
-  app.post("/api/gamification/recognize", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
+  app.post(
+    "/api/gamification/recognize",
+    requireAuth,
+    requireRole("manager"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
       const { employeeId, badgeId, message, callId } = req.body;
 
@@ -339,10 +367,15 @@ export function registerGamificationRoutes(app: Express) {
         "Custom recognition badge awarded",
       );
       res.status(201).json(badge);
-  }));
+    }),
+  );
 
   // --- Team competitions ---
-  app.get("/api/gamification/team-leaderboard", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/gamification/team-leaderboard",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
 
       // Check if team competitions are enabled
@@ -407,10 +440,16 @@ export function registerGamificationRoutes(app: Express) {
         enabled: true,
         teams: teamList.map((t, i) => ({ ...t, rank: i + 1 })),
       });
-    }));
+    }),
+  );
 
   // --- Effectiveness measurement ---
-  app.get("/api/gamification/effectiveness", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/gamification/effectiveness",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
       const employees = await storage.getAllEmployees(orgId);
       const calls = await storage.getCallSummaries(orgId, { status: "completed" });
@@ -505,5 +544,6 @@ export function registerGamificationRoutes(app: Express) {
         },
         employees: stats.sort((a, b) => b.badgeCount - a.badgeCount),
       });
-    }));
+    }),
+  );
 }

@@ -93,7 +93,10 @@ export class EaglesoftAdapter implements IEhrAdapter {
     } catch (err) {
       const ehrErr = classifyEhrError(err, "Eaglesoft");
       if (ehrErr.errorType === "not_found") return null;
-      logger.error({ err: ehrErr, ehrPatientId, errorType: ehrErr.errorType }, `Eaglesoft getPatient failed: ${ehrErr.errorType}`);
+      logger.error(
+        { err: ehrErr, ehrPatientId, errorType: ehrErr.errorType },
+        `Eaglesoft getPatient failed: ${ehrErr.errorType}`,
+      );
       throw ehrErr;
     }
   }
@@ -282,7 +285,10 @@ export class EaglesoftAdapter implements IEhrAdapter {
     } catch (err) {
       const ehrErr = classifyEhrError(err, "Eaglesoft");
       if (ehrErr.errorType === "not_found") return [];
-      logger.error({ err: ehrErr, patientId, errorType: ehrErr.errorType }, `Eaglesoft getPatientTreatmentPlans failed: ${ehrErr.errorType}`);
+      logger.error(
+        { err: ehrErr, patientId, errorType: ehrErr.errorType },
+        `Eaglesoft getPatientTreatmentPlans failed: ${ehrErr.errorType}`,
+      );
       throw ehrErr;
     }
   }

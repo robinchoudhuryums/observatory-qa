@@ -44,7 +44,9 @@ export function registerRegistrationRoutes(app: Express): void {
    * Register a new organization + admin user.
    * Public endpoint — no auth required.
    */
-  app.post("/api/auth/register", asyncHandler(async (req, res, next) => {
+  app.post(
+    "/api/auth/register",
+    asyncHandler(async (req, res, next) => {
       const { orgName, orgSlug, username, password, name, industryType } = req.body;
 
       // Validate required fields
@@ -74,9 +76,26 @@ export function registerRegistrationRoutes(app: Express): void {
 
       // Block reserved slugs that could collide with API route prefixes or system paths
       const RESERVED_SLUGS = [
-        "api", "admin", "auth", "billing", "health", "static", "assets",
-        "login", "logout", "register", "callback", "webhook", "webhooks",
-        "sso", "scim", "oauth", "mfa", "system", "super-admin", "internal",
+        "api",
+        "admin",
+        "auth",
+        "billing",
+        "health",
+        "static",
+        "assets",
+        "login",
+        "logout",
+        "register",
+        "callback",
+        "webhook",
+        "webhooks",
+        "sso",
+        "scim",
+        "oauth",
+        "mfa",
+        "system",
+        "super-admin",
+        "internal",
       ];
       if (RESERVED_SLUGS.includes(orgSlug)) {
         return res.status(400).json({
@@ -191,14 +210,20 @@ export function registerRegistrationRoutes(app: Express): void {
                 isDefault: true,
               });
             }
-            logger.info({ orgId: org.id, industry: dir, count: templates.length }, "Auto-seeded default prompt templates");
+            logger.info(
+              { orgId: org.id, industry: dir, count: templates.length },
+              "Auto-seeded default prompt templates",
+            );
             seeded = true;
             break; // Use the first matching industry directory
           } catch (seedErr) {
             // File not found for this industry — try next in the fallback chain
             if (dir === industry && templateDirs.length > 1) continue;
             if (!seeded) {
-              logger.warn({ err: seedErr, orgId: org.id, industry: dir }, "Failed to seed default templates — continuing without them");
+              logger.warn(
+                { err: seedErr, orgId: org.id, industry: dir },
+                "Failed to seed default templates — continuing without them",
+              );
             }
           }
         }
@@ -224,15 +249,22 @@ export function registerRegistrationRoutes(app: Express): void {
           });
         });
       });
-    }));
+    }),
+  );
 
   // ==================== INVITATION ROUTES ====================
 
   // List invitations for current org (admin/manager only)
-  app.get("/api/invitations", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/invitations",
+    requireAuth,
+    requireRole("manager"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const invitations = await storage.listInvitations(req.orgId!);
       res.json(invitations);
-    }));
+    }),
+  );
 
   // Create invitation (admin/manager only)
   app.post(
@@ -242,48 +274,50 @@ export function registerRegistrationRoutes(app: Express): void {
     injectOrgContext,
     enforceUserQuota(),
     asyncHandler(async (req, res) => {
-        const { email, role } = req.body;
-        if (!email) {
-          return res.status(400).json({ message: "Email is required" });
-        }
-        if (role && !["viewer", "manager", "admin"].includes(role)) {
-          return res.status(400).json({ message: "Invalid role" });
-        }
+      const { email, role } = req.body;
+      if (!email) {
+        return res.status(400).json({ message: "Email is required" });
+      }
+      if (role && !["viewer", "manager", "admin"].includes(role)) {
+        return res.status(400).json({ message: "Invalid role" });
+      }
 
-        // Check if user with this email already exists in the org
-        const orgUsers = await storage.listUsersByOrg(req.orgId!);
-        if (orgUsers.some((u) => u.username === email)) {
-          return res.status(409).json({ message: "A user with this email already exists" });
-        }
+      // Check if user with this email already exists in the org
+      const orgUsers = await storage.listUsersByOrg(req.orgId!);
+      if (orgUsers.some((u) => u.username === email)) {
+        return res.status(409).json({ message: "A user with this email already exists" });
+      }
 
-        // Check for existing pending invitation
-        const existingInvites = await storage.listInvitations(req.orgId!);
-        const pending = existingInvites.find((i) => i.email === email && i.status === "pending");
-        if (pending) {
-          return res.status(409).json({ message: "An invitation for this email is already pending" });
-        }
+      // Check for existing pending invitation
+      const existingInvites = await storage.listInvitations(req.orgId!);
+      const pending = existingInvites.find((i) => i.email === email && i.status === "pending");
+      if (pending) {
+        return res.status(409).json({ message: "An invitation for this email is already pending" });
+      }
 
-        const invitation = await storage.createInvitation(req.orgId!, {
-          orgId: req.orgId!,
-          email,
-          role: role || "viewer",
-          invitedBy: req.user!.username,
-        });
+      const invitation = await storage.createInvitation(req.orgId!, {
+        orgId: req.orgId!,
+        email,
+        role: role || "viewer",
+        invitedBy: req.user!.username,
+      });
 
-        logPhiAccess({
-          ...auditContext(req),
-          event: "invitation_sent",
-          resourceType: "invitation",
-          resourceId: invitation.id,
-          detail: `Email: ${email}, Role: ${role || "viewer"}, Invited by: ${req.user!.username}`,
-        });
-        logger.info({ orgId: req.orgId, email, role: role || "viewer" }, "Invitation created");
-        res.status(201).json(invitation);
-      }),
+      logPhiAccess({
+        ...auditContext(req),
+        event: "invitation_sent",
+        resourceType: "invitation",
+        resourceId: invitation.id,
+        detail: `Email: ${email}, Role: ${role || "viewer"}, Invited by: ${req.user!.username}`,
+      });
+      logger.info({ orgId: req.orgId, email, role: role || "viewer" }, "Invitation created");
+      res.status(201).json(invitation);
+    }),
   );
 
   // Accept invitation (public — requires valid token)
-  app.post("/api/invitations/accept", asyncHandler(async (req, res, next) => {
+  app.post(
+    "/api/invitations/accept",
+    asyncHandler(async (req, res, next) => {
       const { token, username, password, name } = req.body;
       if (!token || !username || !password || !name) {
         return res.status(400).json({ message: "token, username, password, and name are required" });
@@ -375,10 +409,16 @@ export function registerRegistrationRoutes(app: Express): void {
           });
         });
       });
-  }));
+    }),
+  );
 
   // Revoke invitation (admin/manager only)
-  app.delete("/api/invitations/:id", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
+  app.delete(
+    "/api/invitations/:id",
+    requireAuth,
+    requireRole("manager"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       logPhiAccess({
         ...auditContext(req),
         event: "invitation_revoked",
@@ -387,23 +427,27 @@ export function registerRegistrationRoutes(app: Express): void {
       });
       await storage.deleteInvitation(req.orgId!, req.params.id);
       res.json({ message: "Invitation revoked" });
-  }));
+    }),
+  );
 
   // Get invitation details by token (public — for the accept page)
-  app.get("/api/invitations/token/:token", asyncHandler(async (req, res) => {
-    const invitation = await storage.getInvitationByToken(req.params.token);
-    if (!invitation) {
-      return res.status(404).json({ message: "Invalid or expired invitation" });
-    }
+  app.get(
+    "/api/invitations/token/:token",
+    asyncHandler(async (req, res) => {
+      const invitation = await storage.getInvitationByToken(req.params.token);
+      if (!invitation) {
+        return res.status(404).json({ message: "Invalid or expired invitation" });
+      }
 
-    // Don't expose sensitive fields, just what the accept form needs
-    const org = await storage.getOrganization(invitation.orgId);
-    res.json({
-      email: invitation.email,
-      role: invitation.role,
-      orgName: org?.name || "Unknown",
-      status: invitation.status,
-      expiresAt: invitation.expiresAt,
-    });
-  }));
+      // Don't expose sensitive fields, just what the accept form needs
+      const org = await storage.getOrganization(invitation.orgId);
+      res.json({
+        email: invitation.email,
+        role: invitation.role,
+        orgName: org?.name || "Unknown",
+        status: invitation.status,
+        expiresAt: invitation.expiresAt,
+      });
+    }),
+  );
 }

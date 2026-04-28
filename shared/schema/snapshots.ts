@@ -28,7 +28,9 @@ export const performanceSnapshots = pgTable(
     /** AI-generated narrative summary; null until the post-generation Bedrock call lands */
     aiSummary: text("ai_summary"),
     /** IDs of the up-to-3 prior snapshots used as narrative context */
-    priorSnapshotIds: jsonb("prior_snapshot_ids").notNull().default(sql`'[]'::jsonb`),
+    priorSnapshotIds: jsonb("prior_snapshot_ids")
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({

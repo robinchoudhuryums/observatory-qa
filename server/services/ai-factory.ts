@@ -236,7 +236,11 @@ export function getBedrockCircuitState(orgId?: string): {
     state: orgCb.state,
     consecutiveFailures: orgCb.consecutiveFailures,
     openedAt: orgCb.openedAt,
-    global: { state: globalCircuit.state, consecutiveFailures: globalCircuit.consecutiveFailures, openedAt: globalCircuit.openedAt },
+    global: {
+      state: globalCircuit.state,
+      consecutiveFailures: globalCircuit.consecutiveFailures,
+      openedAt: globalCircuit.openedAt,
+    },
   };
 }
 
@@ -272,7 +276,10 @@ export async function withBedrockProtection<T>(orgId: string, fn: () => Promise<
   }
 
   if (orgDecision === "probe" || globalDecision === "probe") {
-    logger.info({ orgId, orgProbe: orgDecision === "probe", globalProbe: globalDecision === "probe" }, "Bedrock circuit breaker: allowing probe request (HALF_OPEN)");
+    logger.info(
+      { orgId, orgProbe: orgDecision === "probe", globalProbe: globalDecision === "probe" },
+      "Bedrock circuit breaker: allowing probe request (HALF_OPEN)",
+    );
   }
 
   if (!acquireBedrockSlot(orgId)) {

@@ -18,10 +18,18 @@ import { syncSeatUsage } from "./billing";
 import { getRedis } from "../services/redis";
 import type { OrgSettings } from "@shared/schema";
 import {
-  declareIncident, advanceIncidentPhase, addTimelineEntry,
-  addActionItem, updateActionItem, updateIncident,
-  getIncident, listIncidents,
-  createBreachReport, updateBreachReport, listBreachReports, getBreachReport,
+  declareIncident,
+  advanceIncidentPhase,
+  addTimelineEntry,
+  addActionItem,
+  updateActionItem,
+  updateIncident,
+  getIncident,
+  listIncidents,
+  createBreachReport,
+  updateBreachReport,
+  listBreachReports,
+  getBreachReport,
 } from "../services/incident-response";
 
 // ─── Zod schemas for incident/breach endpoints ───────────────────────────────
@@ -35,11 +43,13 @@ const incidentCreateSchema = z.object({
   phiInvolved: z.boolean().optional(),
 });
 
-const incidentUpdateSchema = z.object({
-  title: z.string().min(1).max(500).optional(),
-  description: z.string().min(1).max(5000).optional(),
-  severity: z.enum(["critical", "high", "medium", "low"]).optional(),
-}).strict();
+const incidentUpdateSchema = z
+  .object({
+    title: z.string().min(1).max(500).optional(),
+    description: z.string().min(1).max(5000).optional(),
+    severity: z.enum(["critical", "high", "medium", "low"]).optional(),
+  })
+  .strict();
 
 const timelineEntrySchema = z.object({
   description: z.string().min(1).max(2000),
@@ -65,7 +75,9 @@ const breachReportCreateSchema = z.object({
 });
 
 const breachReportUpdateSchema = z.object({
-  notificationStatus: z.enum(["not_required", "pending", "individuals_notified", "hhs_notified", "complete"]).optional(),
+  notificationStatus: z
+    .enum(["not_required", "pending", "individuals_notified", "hhs_notified", "complete"])
+    .optional(),
   individualsNotifiedAt: z.string().optional(),
   hhsNotifiedAt: z.string().optional(),
   mediaNotifiedAt: z.string().optional(),
@@ -77,107 +89,125 @@ export function registerAdminSecurityRoutes(app: Express): void {
   // AUDIT LOG VIEWER (admin only)
   // ============================================================
 
-  app.get("/api/admin/audit-logs", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
-    const { event, userId, username, resourceType, from, to, page, limit } = req.query;
-    const pageNum = Math.max(1, safeInt(page, 1));
-    const pageLimit = Math.min(safeInt(limit, 50), 200);
+  app.get(
+    "/api/admin/audit-logs",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const { event, userId, username, resourceType, from, to, page, limit } = req.query;
+      const pageNum = Math.max(1, safeInt(page, 1));
+      const pageLimit = Math.min(safeInt(limit, 50), 200);
 
-    const result = await queryAuditLogs({
-      orgId: req.orgId!,
-      event: event as string | undefined,
-      userId: userId as string | undefined,
-      username: username as string | undefined,
-      resourceType: resourceType as string | undefined,
-      from: from ? new Date(from as string) : undefined,
-      to: to ? new Date(to as string) : undefined,
-      limit: pageLimit,
-      offset: (pageNum - 1) * pageLimit,
-    });
+      const result = await queryAuditLogs({
+        orgId: req.orgId!,
+        event: event as string | undefined,
+        userId: userId as string | undefined,
+        username: username as string | undefined,
+        resourceType: resourceType as string | undefined,
+        from: from ? new Date(from as string) : undefined,
+        to: to ? new Date(to as string) : undefined,
+        limit: pageLimit,
+        offset: (pageNum - 1) * pageLimit,
+      });
 
-    res.json({
-      entries: result.entries,
-      total: result.total,
-      page: pageNum,
-      pageSize: pageLimit,
-      totalPages: Math.ceil(result.total / pageLimit),
-    });
-  }));
+      res.json({
+        entries: result.entries,
+        total: result.total,
+        page: pageNum,
+        pageSize: pageLimit,
+        totalPages: Math.ceil(result.total / pageLimit),
+      });
+    }),
+  );
 
   // Export audit logs for HIPAA auditors (full date range, no page cap)
-  app.get("/api/admin/audit-logs/export", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
-    const { event, userId, username, resourceType, from, to, format } = req.query;
-    const exportFormat = (format as string) === "json" ? "json" : "csv";
+  app.get(
+    "/api/admin/audit-logs/export",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const { event, userId, username, resourceType, from, to, format } = req.query;
+      const exportFormat = (format as string) === "json" ? "json" : "csv";
 
-    const fromDate = from ? new Date(from as string) : undefined;
-    const toDate = to ? new Date(to as string) : undefined;
+      const fromDate = from ? new Date(from as string) : undefined;
+      const toDate = to ? new Date(to as string) : undefined;
 
-    // Log that an export was performed (HIPAA: audit the auditor)
-    logPhiAccess({
-      ...auditContext(req),
-      event: "audit_log_export",
-      resourceType: "audit_logs",
-      detail: `Exported audit logs: format=${exportFormat}, from=${from || "all"}, to=${to || "now"}`,
-    });
+      // Log that an export was performed (HIPAA: audit the auditor)
+      logPhiAccess({
+        ...auditContext(req),
+        event: "audit_log_export",
+        resourceType: "audit_logs",
+        detail: `Exported audit logs: format=${exportFormat}, from=${from || "all"}, to=${to || "now"}`,
+      });
 
-    const rows = await exportAuditLogs({
-      orgId: req.orgId!,
-      event: event as string | undefined,
-      userId: userId as string | undefined,
-      username: username as string | undefined,
-      resourceType: resourceType as string | undefined,
-      from: fromDate,
-      to: toDate,
-    });
+      const rows = await exportAuditLogs({
+        orgId: req.orgId!,
+        event: event as string | undefined,
+        userId: userId as string | undefined,
+        username: username as string | undefined,
+        resourceType: resourceType as string | undefined,
+        from: fromDate,
+        to: toDate,
+      });
 
-    if (exportFormat === "json") {
-      res.setHeader("Content-Type", "application/json");
+      if (exportFormat === "json") {
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="audit-logs-${new Date().toISOString().slice(0, 10)}.json"`,
+        );
+        return res.json({ exportedAt: new Date().toISOString(), orgId: req.orgId, count: rows.length, entries: rows });
+      }
+
+      // CSV format
+      const headers = [
+        "timestamp",
+        "event",
+        "username",
+        "role",
+        "resourceType",
+        "resourceId",
+        "ip",
+        "userAgent",
+        "detail",
+      ];
+      const csvRows = rows.map((r) =>
+        headers
+          .map((h) => {
+            const val = String((r as unknown as Record<string, unknown>)[h] ?? "");
+            return `"${val.replace(/"/g, '""')}"`;
+          })
+          .join(","),
+      );
+      const csv = [headers.join(","), ...csvRows].join("\n");
+
+      res.setHeader("Content-Type", "text/csv");
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="audit-logs-${new Date().toISOString().slice(0, 10)}.json"`,
+        `attachment; filename="audit-logs-${new Date().toISOString().slice(0, 10)}.csv"`,
       );
-      return res.json({ exportedAt: new Date().toISOString(), orgId: req.orgId, count: rows.length, entries: rows });
-    }
-
-    // CSV format
-    const headers = [
-      "timestamp",
-      "event",
-      "username",
-      "role",
-      "resourceType",
-      "resourceId",
-      "ip",
-      "userAgent",
-      "detail",
-    ];
-    const csvRows = rows.map((r) =>
-      headers
-        .map((h) => {
-          const val = String((r as unknown as Record<string, unknown>)[h] ?? "");
-          return `"${val.replace(/"/g, '""')}"`;
-        })
-        .join(","),
-    );
-    const csv = [headers.join(","), ...csvRows].join("\n");
-
-    res.setHeader("Content-Type", "text/csv");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="audit-logs-${new Date().toISOString().slice(0, 10)}.csv"`,
-    );
-    res.send(csv);
-  }));
+      res.send(csv);
+    }),
+  );
 
   // Verify audit log integrity (tamper detection)
-  app.get("/api/admin/audit-logs/verify", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
-    const result = await verifyAuditChain(req.orgId!);
-    res.json({
-      ...result,
-      message: result.valid
-        ? `Audit chain verified: ${result.checkedCount} entries, no tampering detected.`
-        : `Audit chain BROKEN at sequence ${result.brokenAt}. Possible tampering detected.`,
-    });
-  }));
+  app.get(
+    "/api/admin/audit-logs/verify",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const result = await verifyAuditChain(req.orgId!);
+      res.json({
+        ...result,
+        message: result.valid
+          ? `Audit chain verified: ${result.checkedCount} entries, no tampering detected.`
+          : `Audit chain BROKEN at sequence ${result.brokenAt}. Possible tampering detected.`,
+      });
+    }),
+  );
 
   // ==================== WAF ADMIN ROUTES ====================
 
@@ -366,122 +396,128 @@ export function registerAdminSecurityRoutes(app: Express): void {
    * Data portability — GDPR Article 20 / CCPA.
    * Returns all org data as a structured JSON download (no secrets, no audio binaries).
    */
-  app.get("/api/admin/org/export", requireAuth, injectOrgContext, requireRole("admin"), asyncHandler(async (req, res) => {
-    const orgId = req.orgId!;
-    const org = await storage.getOrganization(orgId);
-    if (!org) {
-      res.status(404).json({ message: "Organization not found" });
-      return;
-    }
+  app.get(
+    "/api/admin/org/export",
+    requireAuth,
+    injectOrgContext,
+    requireRole("admin"),
+    asyncHandler(async (req, res) => {
+      const orgId = req.orgId!;
+      const org = await storage.getOrganization(orgId);
+      if (!org) {
+        res.status(404).json({ message: "Organization not found" });
+        return;
+      }
 
-    logPhiAccess({
-      ...auditContext(req),
-      event: "gdpr_data_export",
-      resourceType: "organization",
-      resourceId: orgId,
-      detail: `Admin ${req.user?.username} exported all org data (GDPR Article 20)`,
-    });
+      logPhiAccess({
+        ...auditContext(req),
+        event: "gdpr_data_export",
+        resourceType: "organization",
+        resourceId: orgId,
+        detail: `Admin ${req.user?.username} exported all org data (GDPR Article 20)`,
+      });
 
-    // Fetch all org data in parallel (no secrets, no password hashes, no MFA secrets)
-    const [users, employees, calls, coaching, promptTemplates, apiKeysList, invitesList, subscription] =
-      await Promise.all([
-        storage.listUsersByOrg(orgId),
-        storage.getAllEmployees(orgId),
-        storage.getAllCalls(orgId),
-        storage.getAllCoachingSessions(orgId),
-        storage.getAllPromptTemplates(orgId),
-        storage.listApiKeys(orgId),
-        storage.listInvitations(orgId),
-        storage.getSubscription(orgId),
-      ]);
-
-    // Fetch transcripts and analyses for calls (best-effort)
-    const callDetails = await Promise.all(
-      calls.slice(0, 1000).map(async (call) => {
-        // Cap at 1000 to prevent timeout
-        const [transcript, analysis] = await Promise.allSettled([
-          storage.getTranscript(orgId, call.id),
-          storage.getCallAnalysis(orgId, call.id),
+      // Fetch all org data in parallel (no secrets, no password hashes, no MFA secrets)
+      const [users, employees, calls, coaching, promptTemplates, apiKeysList, invitesList, subscription] =
+        await Promise.all([
+          storage.listUsersByOrg(orgId),
+          storage.getAllEmployees(orgId),
+          storage.getAllCalls(orgId),
+          storage.getAllCoachingSessions(orgId),
+          storage.getAllPromptTemplates(orgId),
+          storage.listApiKeys(orgId),
+          storage.listInvitations(orgId),
+          storage.getSubscription(orgId),
         ]);
-        return {
-          ...call,
-          transcript: transcript.status === "fulfilled" ? transcript.value?.text : undefined,
-          analysis:
-            analysis.status === "fulfilled"
-              ? analysis.value
-                ? {
-                    performanceScore: analysis.value.performanceScore,
-                    summary: analysis.value.summary,
-                    flags: analysis.value.flags,
-                  }
-                : undefined
-              : undefined,
-        };
-      }),
-    );
 
-    const exportData = {
-      exportedAt: new Date().toISOString(),
-      exportVersion: "1.0",
-      organization: {
-        id: org.id,
-        name: org.name,
-        slug: org.slug,
-        status: org.status,
-        createdAt: org.createdAt,
-        settings: {
-          industryType: org.settings?.industryType,
-          retentionDays: org.settings?.retentionDays,
-          // Exclude secrets: SSO cert, EHR API keys, encryption keys
+      // Fetch transcripts and analyses for calls (best-effort)
+      const callDetails = await Promise.all(
+        calls.slice(0, 1000).map(async (call) => {
+          // Cap at 1000 to prevent timeout
+          const [transcript, analysis] = await Promise.allSettled([
+            storage.getTranscript(orgId, call.id),
+            storage.getCallAnalysis(orgId, call.id),
+          ]);
+          return {
+            ...call,
+            transcript: transcript.status === "fulfilled" ? transcript.value?.text : undefined,
+            analysis:
+              analysis.status === "fulfilled"
+                ? analysis.value
+                  ? {
+                      performanceScore: analysis.value.performanceScore,
+                      summary: analysis.value.summary,
+                      flags: analysis.value.flags,
+                    }
+                  : undefined
+                : undefined,
+          };
+        }),
+      );
+
+      const exportData = {
+        exportedAt: new Date().toISOString(),
+        exportVersion: "1.0",
+        organization: {
+          id: org.id,
+          name: org.name,
+          slug: org.slug,
+          status: org.status,
+          createdAt: org.createdAt,
+          settings: {
+            industryType: org.settings?.industryType,
+            retentionDays: org.settings?.retentionDays,
+            // Exclude secrets: SSO cert, EHR API keys, encryption keys
+          },
         },
-      },
-      users: users.map((u) => ({
-        id: u.id,
-        username: u.username,
-        name: u.name,
-        role: u.role,
-        createdAt: u.createdAt,
-        // Exclude: passwordHash, mfaSecret, mfaBackupCodes
-      })),
-      employees,
-      calls: callDetails,
-      coachingSessions: coaching,
-      promptTemplates,
-      apiKeys: apiKeysList.map((k) => ({
-        id: k.id,
-        name: k.name,
-        keyPrefix: k.keyPrefix,
-        permissions: k.permissions,
-        status: k.status,
-        createdAt: k.createdAt,
-        // Exclude: keyHash
-      })),
-      invitations: invitesList.map((i) => ({
-        id: i.id,
-        email: i.email,
-        role: i.role,
-        status: i.status,
-        createdAt: i.createdAt,
-        expiresAt: i.expiresAt,
-        // Exclude: token
-      })),
-      subscription: subscription
-        ? {
-            planTier: subscription.planTier,
-            status: subscription.status,
-            billingInterval: subscription.billingInterval,
-            currentPeriodEnd: subscription.currentPeriodEnd,
-            // Exclude: stripeCustomerId, stripeSubscriptionId
-          }
-        : null,
-    };
+        users: users.map((u) => ({
+          id: u.id,
+          username: u.username,
+          name: u.name,
+          role: u.role,
+          createdAt: u.createdAt,
+          // Exclude: passwordHash, mfaSecret, mfaBackupCodes
+        })),
+        employees,
+        calls: callDetails,
+        coachingSessions: coaching,
+        promptTemplates,
+        apiKeys: apiKeysList.map((k) => ({
+          id: k.id,
+          name: k.name,
+          keyPrefix: k.keyPrefix,
+          permissions: k.permissions,
+          status: k.status,
+          createdAt: k.createdAt,
+          // Exclude: keyHash
+        })),
+        invitations: invitesList.map((i) => ({
+          id: i.id,
+          email: i.email,
+          role: i.role,
+          status: i.status,
+          createdAt: i.createdAt,
+          expiresAt: i.expiresAt,
+          // Exclude: token
+        })),
+        subscription: subscription
+          ? {
+              planTier: subscription.planTier,
+              status: subscription.status,
+              billingInterval: subscription.billingInterval,
+              currentPeriodEnd: subscription.currentPeriodEnd,
+              // Exclude: stripeCustomerId, stripeSubscriptionId
+            }
+          : null,
+      };
 
-    const filename = `observatory-export-${org.slug}-${new Date().toISOString().split("T")[0]}.json`;
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-    res.setHeader("Content-Type", "application/json");
-    res.setHeader("X-Export-Warning", "Large datasets may be truncated at 1000 records per collection");
-    res.json(exportData);
-  }));
+      const filename = `observatory-export-${org.slug}-${new Date().toISOString().split("T")[0]}.json`;
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("X-Export-Warning", "Large datasets may be truncated at 1000 records per collection");
+      res.json(exportData);
+    }),
+  );
 
   /**
    * DELETE /api/admin/org/purge
@@ -489,170 +525,209 @@ export function registerAdminSecurityRoutes(app: Express): void {
    * Permanently deletes all org data. Requires explicit confirmation phrase.
    * Org record is retained with status "deleted" for audit trail.
    */
-  app.delete("/api/admin/org/purge", requireAuth, injectOrgContext, requireRole("admin"), asyncHandler(async (req, res) => {
-    const orgId = req.orgId!;
-    const { confirmation, reason } = req.body as { confirmation?: string; reason?: string };
+  app.delete(
+    "/api/admin/org/purge",
+    requireAuth,
+    injectOrgContext,
+    requireRole("admin"),
+    asyncHandler(async (req, res) => {
+      const orgId = req.orgId!;
+      const { confirmation, reason } = req.body as { confirmation?: string; reason?: string };
 
-    if (confirmation !== "PURGE ALL DATA") {
-      res.status(400).json({
-        message: "Confirmation required. Set body.confirmation to exactly: PURGE ALL DATA",
-        code: "OBS-GDPR-001",
+      if (confirmation !== "PURGE ALL DATA") {
+        res.status(400).json({
+          message: "Confirmation required. Set body.confirmation to exactly: PURGE ALL DATA",
+          code: "OBS-GDPR-001",
+        });
+        return;
+      }
+
+      if (!reason || typeof reason !== "string" || reason.trim().length < 10) {
+        res.status(400).json({
+          message: "A reason (at least 10 characters) is required for audit trail",
+          code: "OBS-GDPR-002",
+        });
+        return;
+      }
+
+      const org = await storage.getOrganization(orgId);
+      if (!org) {
+        res.status(404).json({ message: "Organization not found" });
+        return;
+      }
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "gdpr_data_purge",
+        resourceType: "organization",
+        resourceId: orgId,
+        detail: `Admin ${req.user?.username} initiated GDPR erasure. Reason: ${reason.trim()}`,
       });
-      return;
-    }
 
-    if (!reason || typeof reason !== "string" || reason.trim().length < 10) {
-      res.status(400).json({
-        message: "A reason (at least 10 characters) is required for audit trail",
-        code: "OBS-GDPR-002",
+      logger.warn(
+        { orgId, adminUser: req.user?.username, reason: reason.trim() },
+        "GDPR data purge initiated — deleting all org data",
+      );
+
+      // 1. Mark org as deleted immediately to block further API access
+      await storage.updateOrganization(orgId, { status: "deleted" } as any);
+      invalidateOrgCache(orgId);
+
+      // 2. Bulk delete all org data (transactional in PostgreSQL, best-effort otherwise)
+      const deletionResult = await storage.deleteOrgData(orgId);
+
+      logger.info({ orgId, ...deletionResult }, "GDPR data purge complete — org record retained for audit trail");
+
+      res.json({
+        success: true,
+        deletedAt: new Date().toISOString(),
+        deletionCounts: deletionResult,
+        message: "Organization data purged. Org record retained for audit trail.",
       });
-      return;
-    }
-
-    const org = await storage.getOrganization(orgId);
-    if (!org) {
-      res.status(404).json({ message: "Organization not found" });
-      return;
-    }
-
-    logPhiAccess({
-      ...auditContext(req),
-      event: "gdpr_data_purge",
-      resourceType: "organization",
-      resourceId: orgId,
-      detail: `Admin ${req.user?.username} initiated GDPR erasure. Reason: ${reason.trim()}`,
-    });
-
-    logger.warn(
-      { orgId, adminUser: req.user?.username, reason: reason.trim() },
-      "GDPR data purge initiated — deleting all org data",
-    );
-
-    // 1. Mark org as deleted immediately to block further API access
-    await storage.updateOrganization(orgId, { status: "deleted" } as any);
-    invalidateOrgCache(orgId);
-
-    // 2. Bulk delete all org data (transactional in PostgreSQL, best-effort otherwise)
-    const deletionResult = await storage.deleteOrgData(orgId);
-
-    logger.info({ orgId, ...deletionResult }, "GDPR data purge complete — org record retained for audit trail");
-
-    res.json({
-      success: true,
-      deletedAt: new Date().toISOString(),
-      deletionCounts: deletionResult,
-      message: "Organization data purged. Org record retained for audit trail.",
-    });
-  }));
+    }),
+  );
 
   // ==================== CUSTOM VOCABULARY (WORD BOOST) ====================
 
-  app.get("/api/admin/vocabulary", requireAuth, injectOrgContext, requireRole("admin"), asyncHandler(async (req, res) => {
-    const org = await storage.getOrganization(req.orgId!);
-    const vocabulary: string[] = (org?.settings as any)?.customVocabulary || [];
-    res.json({ vocabulary });
-  }));
+  app.get(
+    "/api/admin/vocabulary",
+    requireAuth,
+    injectOrgContext,
+    requireRole("admin"),
+    asyncHandler(async (req, res) => {
+      const org = await storage.getOrganization(req.orgId!);
+      const vocabulary: string[] = (org?.settings as any)?.customVocabulary || [];
+      res.json({ vocabulary });
+    }),
+  );
 
-  app.put("/api/admin/vocabulary", requireAuth, injectOrgContext, requireRole("admin"), asyncHandler(async (req, res) => {
-    const { vocabulary } = req.body;
-    if (!Array.isArray(vocabulary)) {
-      res.status(400).json({ message: "vocabulary must be an array of strings" });
-      return;
-    }
-    const cleaned = vocabulary
-      .filter((v: unknown) => typeof v === "string" && v.trim().length > 0)
-      .map((v: string) => v.trim())
-      .slice(0, 500); // Safety cap
+  app.put(
+    "/api/admin/vocabulary",
+    requireAuth,
+    injectOrgContext,
+    requireRole("admin"),
+    asyncHandler(async (req, res) => {
+      const { vocabulary } = req.body;
+      if (!Array.isArray(vocabulary)) {
+        res.status(400).json({ message: "vocabulary must be an array of strings" });
+        return;
+      }
+      const cleaned = vocabulary
+        .filter((v: unknown) => typeof v === "string" && v.trim().length > 0)
+        .map((v: string) => v.trim())
+        .slice(0, 500); // Safety cap
 
-    const org = await storage.getOrganization(req.orgId!);
-    if (!org) {
-      res.status(404).json({ message: "Organization not found" });
-      return;
-    }
+      const org = await storage.getOrganization(req.orgId!);
+      if (!org) {
+        res.status(404).json({ message: "Organization not found" });
+        return;
+      }
 
-    await storage.updateOrganization(req.orgId!, {
-      settings: { ...(org.settings as any), customVocabulary: cleaned },
-    });
-    invalidateOrgCache(req.orgId!);
+      await storage.updateOrganization(req.orgId!, {
+        settings: { ...(org.settings as any), customVocabulary: cleaned },
+      });
+      invalidateOrgCache(req.orgId!);
 
-    logger.info({ orgId: req.orgId, wordCount: cleaned.length }, "Custom vocabulary updated");
-    res.json({ vocabulary: cleaned, count: cleaned.length });
-  }));
+      logger.info({ orgId: req.orgId, wordCount: cleaned.length }, "Custom vocabulary updated");
+      res.json({ vocabulary: cleaned, count: cleaned.length });
+    }),
+  );
 
   // ── GDPR/CCPA: Organisation data export (Right to Access) ────────────────
-  app.get("/api/admin/org/export", requireAuth, injectOrgContext, requireRole("admin"), asyncHandler(async (req, res) => {
-    const orgId = req.orgId!;
-    const [org, employees, calls, users] = await Promise.all([
-      storage.getOrganization(orgId),
-      storage.getAllEmployees(orgId),
-      storage.getAllCalls(orgId),
-      storage.listUsersByOrg(orgId),
-    ]);
+  app.get(
+    "/api/admin/org/export",
+    requireAuth,
+    injectOrgContext,
+    requireRole("admin"),
+    asyncHandler(async (req, res) => {
+      const orgId = req.orgId!;
+      const [org, employees, calls, users] = await Promise.all([
+        storage.getOrganization(orgId),
+        storage.getAllEmployees(orgId),
+        storage.getAllCalls(orgId),
+        storage.listUsersByOrg(orgId),
+      ]);
 
-    // Scrub password hashes from user export
-    const safeUsers = users.map(({ passwordHash: _ph, mfaSecret: _ms, mfaBackupCodes: _mb, ...u }: any) => u);
+      // Scrub password hashes from user export
+      const safeUsers = users.map(({ passwordHash: _ph, mfaSecret: _ms, mfaBackupCodes: _mb, ...u }: any) => u);
 
-    res.json({
-      exportedAt: new Date().toISOString(),
-      organization: org,
-      users: safeUsers,
-      employees,
-      callCount: calls.length,
-      calls: calls.map((c: any) => ({
-        id: c.id,
-        fileName: c.fileName,
-        status: c.status,
-        uploadedAt: c.uploadedAt,
-        duration: c.duration,
-      })),
-    });
-  }));
+      res.json({
+        exportedAt: new Date().toISOString(),
+        organization: org,
+        users: safeUsers,
+        employees,
+        callCount: calls.length,
+        calls: calls.map((c: any) => ({
+          id: c.id,
+          fileName: c.fileName,
+          status: c.status,
+          uploadedAt: c.uploadedAt,
+          duration: c.duration,
+        })),
+      });
+    }),
+  );
 
   // ── GDPR/CCPA: Organisation data purge (Right to Erasure) ────────────────
-  app.delete("/api/admin/org/purge", requireAuth, injectOrgContext, requireRole("admin"), asyncHandler(async (req, res) => {
-    const orgId = req.orgId!;
-    const { confirm } = req.body;
-    if (confirm !== "DELETE_ALL_DATA") {
-      res.status(400).json({ message: "Must send { confirm: 'DELETE_ALL_DATA' } to confirm purge" });
-      return;
-    }
+  app.delete(
+    "/api/admin/org/purge",
+    requireAuth,
+    injectOrgContext,
+    requireRole("admin"),
+    asyncHandler(async (req, res) => {
+      const orgId = req.orgId!;
+      const { confirm } = req.body;
+      if (confirm !== "DELETE_ALL_DATA") {
+        res.status(400).json({ message: "Must send { confirm: 'DELETE_ALL_DATA' } to confirm purge" });
+        return;
+      }
 
-    const result = await storage.deleteOrgData(orgId);
-    logger.warn({ orgId, ...result }, "Org data purged (GDPR/CCPA right to erasure)");
+      const result = await storage.deleteOrgData(orgId);
+      logger.warn({ orgId, ...result }, "Org data purged (GDPR/CCPA right to erasure)");
 
-    // Destroy the current session — org is now deleted
-    req.session.destroy(() => {});
-    res.json({ message: "All organisation data purged", ...result });
-  }));
+      // Destroy the current session — org is now deleted
+      req.session.destroy(() => {});
+      res.json({ message: "All organisation data purged", ...result });
+    }),
+  );
 
   // ==================== MFA RECOVERY APPROVAL (admin) ====================
   // Admins review and approve/deny emergency MFA bypass requests from users
 
   // List pending/email_verified recovery requests for this org
-  app.get("/api/admin/mfa/recovery", requireAuth, injectOrgContext, requireRole("admin"), asyncHandler(async (req, res) => {
-    const recoveryStore: Map<string, any> | undefined = (app as any).__mfaRecoveryStore;
-    if (!recoveryStore) { res.json({ requests: [] }); return; }
+  app.get(
+    "/api/admin/mfa/recovery",
+    requireAuth,
+    injectOrgContext,
+    requireRole("admin"),
+    asyncHandler(async (req, res) => {
+      const recoveryStore: Map<string, any> | undefined = (app as any).__mfaRecoveryStore;
+      if (!recoveryStore) {
+        res.json({ requests: [] });
+        return;
+      }
 
-    const orgId = req.orgId!;
-    const requests: any[] = [];
-    for (const [tokenHash, record] of Array.from(recoveryStore)) {
-      if (record.orgId !== orgId) continue;
-      if (record.status !== "pending" && record.status !== "email_verified") continue;
-      const user = await storage.getUser(record.userId).catch(() => null);
-      requests.push({
-        tokenPrefix: tokenHash.substring(0, 16),
-        userId: record.userId,
-        username: user?.username,
-        name: user?.name,
-        role: user?.role,
-        emailVerified: record.emailVerified,
-        status: record.status,
-        createdAt: new Date(record.createdAt).toISOString(),
-      });
-    }
+      const orgId = req.orgId!;
+      const requests: any[] = [];
+      for (const [tokenHash, record] of Array.from(recoveryStore)) {
+        if (record.orgId !== orgId) continue;
+        if (record.status !== "pending" && record.status !== "email_verified") continue;
+        const user = await storage.getUser(record.userId).catch(() => null);
+        requests.push({
+          tokenPrefix: tokenHash.substring(0, 16),
+          userId: record.userId,
+          username: user?.username,
+          name: user?.name,
+          role: user?.role,
+          emailVerified: record.emailVerified,
+          status: record.status,
+          createdAt: new Date(record.createdAt).toISOString(),
+        });
+      }
 
-    res.json({ requests });
-  }));
+      res.json({ requests });
+    }),
+  );
 
   // Approve a recovery request — generates a short-lived one-time use token
   app.post(
@@ -663,7 +738,10 @@ export function registerAdminSecurityRoutes(app: Express): void {
     asyncHandler(async (req, res) => {
       const { tokenPrefix } = req.params;
       const recoveryStore: Map<string, any> | undefined = (app as any).__mfaRecoveryStore;
-      if (!recoveryStore) { res.status(404).json({ message: "Recovery request not found" }); return; }
+      if (!recoveryStore) {
+        res.status(404).json({ message: "Recovery request not found" });
+        return;
+      }
 
       const orgId = req.orgId!;
       let foundKey: string | undefined;
@@ -680,7 +758,10 @@ export function registerAdminSecurityRoutes(app: Express): void {
         }
       }
 
-      if (!foundKey || !record) { res.status(404).json({ message: "Recovery request not found" }); return; }
+      if (!foundKey || !record) {
+        res.status(404).json({ message: "Recovery request not found" });
+        return;
+      }
 
       const { randomBytes, createHash } = await import("crypto");
       const useToken = randomBytes(32).toString("hex");
@@ -724,7 +805,10 @@ export function registerAdminSecurityRoutes(app: Express): void {
     asyncHandler(async (req, res) => {
       const { tokenPrefix } = req.params;
       const recoveryStore: Map<string, any> | undefined = (app as any).__mfaRecoveryStore;
-      if (!recoveryStore) { res.status(404).json({ message: "Recovery request not found" }); return; }
+      if (!recoveryStore) {
+        res.status(404).json({ message: "Recovery request not found" });
+        return;
+      }
 
       const orgId = req.orgId!;
       let foundKey: string | undefined;
@@ -741,7 +825,10 @@ export function registerAdminSecurityRoutes(app: Express): void {
         }
       }
 
-      if (!foundKey || !record) { res.status(404).json({ message: "Recovery request not found" }); return; }
+      if (!foundKey || !record) {
+        res.status(404).json({ message: "Recovery request not found" });
+        return;
+      }
 
       record.status = "denied";
       recoveryStore.set(foundKey, record);

@@ -13,6 +13,7 @@ import { sql, eq, and } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { chunkDocument } from "./chunker";
 import { generateEmbedding, generateEmbeddingsBatch, isEmbeddingAvailable } from "./embeddings";
+import { generateQueryEmbedding } from "./embeddings-rag";
 import { logger } from "./logger";
 import { detectPromptInjection } from "../utils/ai-guardrails";
 import { redactPhi } from "../utils/phi-redactor";
@@ -68,17 +69,20 @@ export const RESPONSE_STYLE_CONFIG: Record<ResponseStyle, { maxTokens: number; i
   concise: {
     maxTokens: 2048,
     topK: 4,
-    instruction: "Keep your response concise and to the point. Lead with the direct answer in 1-3 sentences. Use bullet points only if listing multiple items.",
+    instruction:
+      "Keep your response concise and to the point. Lead with the direct answer in 1-3 sentences. Use bullet points only if listing multiple items.",
   },
   detailed: {
     maxTokens: 4096,
     topK: 6,
-    instruction: "Provide a balanced response with the direct answer followed by relevant supporting details. Use bullet points for multi-part answers.",
+    instruction:
+      "Provide a balanced response with the direct answer followed by relevant supporting details. Use bullet points for multi-part answers.",
   },
   comprehensive: {
     maxTokens: 8192,
     topK: 10,
-    instruction: "Provide a thorough, comprehensive response. Include all relevant details, step-by-step procedures where applicable, related context, and any important caveats or exceptions from the source documents.",
+    instruction:
+      "Provide a thorough, comprehensive response. Include all relevant details, step-by-step procedures where applicable, related context, and any important caveats or exceptions from the source documents.",
   },
 };
 
@@ -218,7 +222,11 @@ export async function getStructuredAnswer(
         if (t.evaluationCriteria) parts.push(`Criteria: ${(t.evaluationCriteria as string).slice(0, 300)}`);
         if (t.scoringWeights) {
           const w = t.scoringWeights as Record<string, number>;
-          parts.push(`Weights: ${Object.entries(w).map(([k, v]) => `${k}=${v}`).join(", ")}`);
+          parts.push(
+            `Weights: ${Object.entries(w)
+              .map(([k, v]) => `${k}=${v}`)
+              .join(", ")}`,
+          );
         }
         if (t.requiredPhrases) {
           const phrases = t.requiredPhrases as Array<{ phrase: string }>;
@@ -251,13 +259,19 @@ export async function getStructuredAnswer(
 
       if (docs.length === 0) {
         return {
-          answer: "No documents are currently in your knowledge base. Upload documents via the admin panel to enable RAG-powered analysis.",
+          answer:
+            "No documents are currently in your knowledge base. Upload documents via the admin panel to enable RAG-powered analysis.",
           source: "structured",
           confidence: "high",
         };
       }
 
-      const summary = docs.map((d) => `- **${d.name}** (${d.category || "uncategorized"}) — ${d.indexingStatus}, retrieved ${d.retrievalCount || 0} times`).join("\n");
+      const summary = docs
+        .map(
+          (d) =>
+            `- **${d.name}** (${d.category || "uncategorized"}) — ${d.indexingStatus}, retrieved ${d.retrievalCount || 0} times`,
+        )
+        .join("\n");
 
       return {
         answer: `Your knowledge base contains ${docs.length} active document(s):\n\n${summary}`,
@@ -499,7 +513,7 @@ export async function searchRelevantChunks(
   }
 
   // Generate query embedding
-  const queryEmbedding = await generateEmbedding(queryText);
+  const queryEmbedding = await generateQueryEmbedding(queryText);
   timer.mark("embedding");
   const embeddingStr = `[${queryEmbedding.join(",")}]`;
 
@@ -627,7 +641,8 @@ export async function searchRelevantChunks(
   for (const chunk of relevant) {
     const isDuplicate = deduplicated.some((existing) => {
       // Quick length check: if lengths differ by >30%, can't be >85% similar
-      const lenRatio = Math.min(chunk.text.length, existing.text.length) / Math.max(chunk.text.length, existing.text.length);
+      const lenRatio =
+        Math.min(chunk.text.length, existing.text.length) / Math.max(chunk.text.length, existing.text.length);
       if (lenRatio < DEDUP_SIMILARITY_THRESHOLD) return false;
       // Check if one text contains most of the other (overlapping chunks)
       const shorter = chunk.text.length < existing.text.length ? chunk.text : existing.text;
@@ -645,7 +660,8 @@ export async function searchRelevantChunks(
   recordFaqQuery(orgId, queryText, confidence.score, confidence.level);
 
   // Log RAG trace with PHI-redacted query
-  const avgScore = finalResults.length > 0 ? finalResults.reduce((sum, c) => sum + c.score, 0) / finalResults.length : 0;
+  const avgScore =
+    finalResults.length > 0 ? finalResults.reduce((sum, c) => sum + c.score, 0) / finalResults.length : 0;
   logRagTrace({
     traceId: randomUUID(),
     orgId,
@@ -754,14 +770,18 @@ export async function incrementRetrievalCounts(
   // Chunk-level tracking (optional — callers pass chunk IDs when available)
   if (chunkIds && chunkIds.length > 0) {
     const uniqueChunkIds = Array.from(new Set(chunkIds));
-    await db.execute(sql`
+    await db
+      .execute(
+        sql`
       UPDATE document_chunks
       SET retrieval_count = COALESCE(retrieval_count, 0) + 1
       WHERE id = ANY(${uniqueChunkIds}::text[])
-    `).catch((err) => {
-      // Non-fatal — chunk retrieval tracking is analytics, not critical path
-      logger.debug({ err }, "Chunk retrieval count increment failed");
-    });
+    `,
+      )
+      .catch((err) => {
+        // Non-fatal — chunk retrieval tracking is analytics, not critical path
+        logger.debug({ err }, "Chunk retrieval count increment failed");
+      });
   }
 }
 
@@ -989,9 +1009,7 @@ function getSynonymMap(industryType?: string): ReadonlyMap<string, readonly stri
  * If "cpap" maps to ["c-pap", "continuous positive airway pressure"],
  * then "c-pap" also maps to ["cpap"].
  */
-function buildBidirectionalLookup(
-  synonymMap: ReadonlyMap<string, readonly string[]>,
-): Map<string, string[]> {
+function buildBidirectionalLookup(synonymMap: ReadonlyMap<string, readonly string[]>): Map<string, string[]> {
   const lookup = new Map<string, string[]>();
   for (const [key, synonyms] of Array.from(synonymMap)) {
     // key → all synonyms
@@ -1148,7 +1166,7 @@ export function computeConfidence(chunks: RetrievedChunk[]): {
 
   let level: "high" | "partial" | "low" | "none";
   if (effective >= 0.42) level = "high";
-  else if (effective >= 0.30) level = "partial";
+  else if (effective >= 0.3) level = "partial";
   else if (effective >= 0.15) level = "low";
   else level = "none";
   return { score: Math.round(effective * 100) / 100, level };
@@ -1195,7 +1213,7 @@ export function reconcileConfidence(
   const rScore = retrievalConfidence.score;
 
   // Downgrade: LLM says HIGH but retrieval is weak → prevent hallucination trust
-  if (llmLevel === "high" && rScore < 0.30) {
+  if (llmLevel === "high" && rScore < 0.3) {
     finalLevel = "partial";
     reconciled = true;
   }
@@ -1210,7 +1228,7 @@ export function reconcileConfidence(
   // Use effective score directly (threshold 0.50) — it already blends top + avg scores.
   // Previous code tried to back-derive topScore via score/0.65, which is mathematically
   // invalid because effective = topScore*0.65 + avgScore*0.35 (two unknowns).
-  if (llmLevel === "partial" && rScore >= 0.50) {
+  if (llmLevel === "partial" && rScore >= 0.5) {
     finalLevel = "high";
     reconciled = true;
   }

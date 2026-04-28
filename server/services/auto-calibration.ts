@@ -121,7 +121,13 @@ export async function analyzeOrgScoreDistribution(
     );
   } else {
     logger.info(
-      { orgId, mean: snapshot.observed.mean, median: snapshot.observed.median, stdDev: snapshot.observed.stdDev, sampleSize: rawScores.length },
+      {
+        orgId,
+        mean: snapshot.observed.mean,
+        median: snapshot.observed.median,
+        stdDev: snapshot.observed.stdDev,
+        sampleSize: rawScores.length,
+      },
       "Score distribution healthy — no calibration drift",
     );
   }

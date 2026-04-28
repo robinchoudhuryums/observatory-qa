@@ -5,7 +5,15 @@ import { pipeline } from "stream/promises";
 import { storage, normalizeAnalysis } from "../storage";
 import { requireAuth, requireRole, injectOrgContext, requireOrgContext, getTeamScopedEmployeeIds } from "../auth";
 import { logPhiAccess, auditContext } from "../services/audit-log";
-import { upload, safeFloat, validateUUIDParam, acquireUploadSlot, releaseUploadSlot, acquireUploadLock, releaseUploadLock } from "./helpers";
+import {
+  upload,
+  safeFloat,
+  validateUUIDParam,
+  acquireUploadSlot,
+  releaseUploadSlot,
+  acquireUploadLock,
+  releaseUploadLock,
+} from "./helpers";
 import { asyncHandler, AppError } from "../middleware/error-handler";
 
 const validateId = validateUUIDParam("id");
@@ -98,97 +106,112 @@ async function analyzeAndStoreEditPatterns(orgId: string): Promise<void> {
 }
 
 export function registerCallRoutes(app: Express): void {
-  app.get("/api/calls", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
-    const { status, sentiment, employee, limit, offset } = req.query;
-    const parsedLimit = Math.min(Math.max(1, parseInt(limit as string, 10) || 100), 500);
-    const parsedOffset = Math.max(0, parseInt(offset as string, 10) || 0);
+  app.get(
+    "/api/calls",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const { status, sentiment, employee, limit, offset } = req.query;
+      const parsedLimit = Math.min(Math.max(1, parseInt(limit as string, 10) || 100), 500);
+      const parsedOffset = Math.max(0, parseInt(offset as string, 10) || 0);
 
-    // Team-scoped filtering: managers with a subTeam see only their team's calls
-    const teamEmployeeIds = req.user ? await getTeamScopedEmployeeIds(req.orgId!, req.user) : null;
+      // Team-scoped filtering: managers with a subTeam see only their team's calls
+      const teamEmployeeIds = req.user ? await getTeamScopedEmployeeIds(req.orgId!, req.user) : null;
 
-    let calls = await storage.getCallsWithDetails(req.orgId!, {
-      status: status as string,
-      sentiment: sentiment as string,
-      employee: employee as string,
-      limit: parsedLimit,
-      offset: parsedOffset,
-    });
-
-    if (teamEmployeeIds !== null) {
-      calls = calls.filter((c) => !c.employeeId || teamEmployeeIds.has(c.employeeId));
-    }
-
-    // Return raw array — all frontend consumers (Dashboard, Sidebar, CallsTable,
-    // SentimentPage, SearchPage, etc.) expect CallWithDetails[] directly.
-    res.json(calls);
-  }));
-
-  app.get("/api/calls/:id", requireAuth, injectOrgContext, validateId, asyncHandler(async (req, res) => {
-    // Pre-compute team scope BEFORE fetching call details to avoid TOCTOU:
-    // returning 403 leaks existence of cross-team calls, 404 does not.
-    const teamIds = req.user?.role !== "admin" ? await getTeamScopedEmployeeIds(req.orgId!, req.user!) : null;
-
-    const call = await storage.getCall(req.orgId!, req.params.id);
-    if (!call) {
-      res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call not found"));
-      return;
-    }
-
-    // Team scoping: return 404 (not 403) to avoid leaking call existence
-    if (call.employeeId && teamIds !== null && !teamIds.has(call.employeeId)) {
-      res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call not found"));
-      return;
-    }
-
-    logPhiAccess({
-      ...auditContext(req),
-      event: "view_call_details",
-      resourceType: "call",
-      resourceId: req.params.id,
-    });
-
-    const [employee, transcript, sentiment, rawAnalysis] = await Promise.all([
-      call.employeeId ? storage.getEmployee(req.orgId!, call.employeeId) : undefined,
-      storage.getTranscript(req.orgId!, call.id),
-      storage.getSentimentAnalysis(req.orgId!, call.id),
-      storage.getCallAnalysis(req.orgId!, call.id),
-    ]);
-
-    const analysis = normalizeAnalysis(rawAnalysis);
-
-    // Decrypt PHI fields — isolated catch so decryption failures get a clear
-    // HIPAA-specific error rather than a generic 500.
-    try {
-      decryptClinicalNotePhi(analysis as Record<string, unknown> | null, {
-        userId: req.user?.id,
-        orgId: req.orgId,
-        resourceId: call.id,
-        resourceType: "call_analysis",
+      let calls = await storage.getCallsWithDetails(req.orgId!, {
+        status: status as string,
+        sentiment: sentiment as string,
+        employee: employee as string,
+        limit: parsedLimit,
+        offset: parsedOffset,
       });
-    } catch (decryptErr) {
-      logger.error({ err: decryptErr, callId: call.id }, "PHI decryption failed for call details");
+
+      if (teamEmployeeIds !== null) {
+        calls = calls.filter((c) => !c.employeeId || teamEmployeeIds.has(c.employeeId));
+      }
+
+      // Return raw array — all frontend consumers (Dashboard, Sidebar, CallsTable,
+      // SentimentPage, SearchPage, etc.) expect CallWithDetails[] directly.
+      res.json(calls);
+    }),
+  );
+
+  app.get(
+    "/api/calls/:id",
+    requireAuth,
+    injectOrgContext,
+    validateId,
+    asyncHandler(async (req, res) => {
+      // Pre-compute team scope BEFORE fetching call details to avoid TOCTOU:
+      // returning 403 leaks existence of cross-team calls, 404 does not.
+      const teamIds = req.user?.role !== "admin" ? await getTeamScopedEmployeeIds(req.orgId!, req.user!) : null;
+
+      const call = await storage.getCall(req.orgId!, req.params.id);
+      if (!call) {
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call not found"));
+        return;
+      }
+
+      // Team scoping: return 404 (not 403) to avoid leaking call existence
+      if (call.employeeId && teamIds !== null && !teamIds.has(call.employeeId)) {
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call not found"));
+        return;
+      }
+
       logPhiAccess({
         ...auditContext(req),
-        event: "phi_decryption_failure",
-        resourceType: "call_analysis",
-        resourceId: call.id,
-        detail: "Decryption failed — key mismatch or data corruption",
+        event: "view_call_details",
+        resourceType: "call",
+        resourceId: req.params.id,
       });
-      res.status(503).json(errorResponse(
-        ERROR_CODES.PHI_DECRYPTION_FAILED,
-        "Unable to decrypt clinical data. This may indicate an encryption key issue — contact your administrator.",
-      ));
-      return;
-    }
 
-    res.json({
-      ...call,
-      employee,
-      transcript,
-      sentiment,
-      analysis,
-    });
-  }));
+      const [employee, transcript, sentiment, rawAnalysis] = await Promise.all([
+        call.employeeId ? storage.getEmployee(req.orgId!, call.employeeId) : undefined,
+        storage.getTranscript(req.orgId!, call.id),
+        storage.getSentimentAnalysis(req.orgId!, call.id),
+        storage.getCallAnalysis(req.orgId!, call.id),
+      ]);
+
+      const analysis = normalizeAnalysis(rawAnalysis);
+
+      // Decrypt PHI fields — isolated catch so decryption failures get a clear
+      // HIPAA-specific error rather than a generic 500.
+      try {
+        decryptClinicalNotePhi(analysis as Record<string, unknown> | null, {
+          userId: req.user?.id,
+          orgId: req.orgId,
+          resourceId: call.id,
+          resourceType: "call_analysis",
+        });
+      } catch (decryptErr) {
+        logger.error({ err: decryptErr, callId: call.id }, "PHI decryption failed for call details");
+        logPhiAccess({
+          ...auditContext(req),
+          event: "phi_decryption_failure",
+          resourceType: "call_analysis",
+          resourceId: call.id,
+          detail: "Decryption failed — key mismatch or data corruption",
+        });
+        res
+          .status(503)
+          .json(
+            errorResponse(
+              ERROR_CODES.PHI_DECRYPTION_FAILED,
+              "Unable to decrypt clinical data. This may indicate an encryption key issue — contact your administrator.",
+            ),
+          );
+        return;
+      }
+
+      res.json({
+        ...call,
+        employee,
+        transcript,
+        sentiment,
+        analysis,
+      });
+    }),
+  );
 
   // Wrap multer to catch file-size and type errors with proper HTTP responses
   const handleUpload = (req: Request, res: Response, next: NextFunction): void => {
@@ -354,124 +377,152 @@ export function registerCallRoutes(app: Express): void {
     },
   );
 
-  app.get("/api/calls/:id/audio", requireAuth, injectOrgContext, validateId, asyncHandler(async (req, res) => {
-    const call = await storage.getCall(req.orgId!, req.params.id);
-    if (!call) {
-      res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call not found"));
-      return;
-    }
+  app.get(
+    "/api/calls/:id/audio",
+    requireAuth,
+    injectOrgContext,
+    validateId,
+    asyncHandler(async (req, res) => {
+      const call = await storage.getCall(req.orgId!, req.params.id);
+      if (!call) {
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call not found"));
+        return;
+      }
 
-    logPhiAccess({
-      ...auditContext(req),
-      event: req.query.download === "true" ? "download_audio" : "stream_audio",
-      resourceType: "audio",
-      resourceId: req.params.id,
-    });
-
-    const audioFiles = await storage.getAudioFiles(req.orgId!, req.params.id);
-    if (!audioFiles || audioFiles.length === 0) {
-      res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Audio file not found in archive"));
-      return;
-    }
-
-    const audioBuffer = await storage.downloadAudio(req.orgId!, audioFiles[0]);
-    if (!audioBuffer) {
-      res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Audio file could not be retrieved"));
-      return;
-    }
-
-    const ext = path.extname(audioFiles[0]).toLowerCase();
-    const mimeTypes: Record<string, string> = {
-      ".mp3": "audio/mpeg",
-      ".wav": "audio/wav",
-      ".m4a": "audio/mp4",
-      ".mp4": "audio/mp4",
-      ".flac": "audio/flac",
-      ".ogg": "audio/ogg",
-    };
-    const contentType = mimeTypes[ext] || "audio/mpeg";
-
-    if (req.query.download === "true") {
-      const rawName = call.fileName || `call-${req.params.id}${ext}`;
-      const safeName = path.basename(rawName).replace(/[^\w.\-() ]/g, "_");
-      res.setHeader("Content-Disposition", `attachment; filename="${safeName}"`);
-    }
-
-    res.setHeader("Content-Type", contentType);
-    res.setHeader("Content-Length", audioBuffer.length.toString());
-    res.setHeader("Accept-Ranges", "bytes");
-    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
-    res.setHeader("Pragma", "no-cache");
-    res.send(audioBuffer);
-  }));
-
-  app.get("/api/calls/:id/transcript", requireAuth, injectOrgContext, validateId, asyncHandler(async (req, res) => {
-    logPhiAccess({
-      ...auditContext(req),
-      event: "view_transcript",
-      resourceType: "transcript",
-      resourceId: req.params.id,
-    });
-
-    const transcript = await storage.getTranscript(req.orgId!, req.params.id);
-    if (!transcript) {
-      res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Transcript not found"));
-      return;
-    }
-    res.json(transcript);
-  }));
-
-  app.get("/api/calls/:id/sentiment", requireAuth, injectOrgContext, validateId, asyncHandler(async (req, res) => {
-    const sentiment = await storage.getSentimentAnalysis(req.orgId!, req.params.id);
-    if (!sentiment) {
-      res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Sentiment analysis not found"));
-      return;
-    }
-    logPhiAccess({
-      ...auditContext(req),
-      event: "view_sentiment_analysis",
-      resourceType: "sentiment",
-      resourceId: req.params.id,
-    });
-    res.json(sentiment);
-  }));
-
-  app.get("/api/calls/:id/analysis", requireAuth, injectOrgContext, validateId, asyncHandler(async (req, res) => {
-    const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
-    if (!analysis) {
-      res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
-      return;
-    }
-    try {
-      decryptClinicalNotePhi(analysis as Record<string, unknown>, {
-        userId: req.user?.id,
-        orgId: req.orgId,
-        resourceId: req.params.id,
-        resourceType: "call_analysis",
-      });
-    } catch (decryptErr) {
-      logger.error({ err: decryptErr, callId: req.params.id }, "PHI decryption failed for call analysis");
       logPhiAccess({
         ...auditContext(req),
-        event: "phi_decryption_failure",
-        resourceType: "call_analysis",
+        event: req.query.download === "true" ? "download_audio" : "stream_audio",
+        resourceType: "audio",
         resourceId: req.params.id,
-        detail: "Decryption failed — key mismatch or data corruption",
       });
-      res.status(503).json(errorResponse(
-        ERROR_CODES.PHI_DECRYPTION_FAILED,
-        "Unable to decrypt clinical data. This may indicate an encryption key issue — contact your administrator.",
-      ));
-      return;
-    }
-    logPhiAccess({
-      ...auditContext(req),
-      event: "view_call_analysis",
-      resourceType: "analysis",
-      resourceId: req.params.id,
-    });
-    res.json(analysis);
-  }));
+
+      const audioFiles = await storage.getAudioFiles(req.orgId!, req.params.id);
+      if (!audioFiles || audioFiles.length === 0) {
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Audio file not found in archive"));
+        return;
+      }
+
+      const audioBuffer = await storage.downloadAudio(req.orgId!, audioFiles[0]);
+      if (!audioBuffer) {
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Audio file could not be retrieved"));
+        return;
+      }
+
+      const ext = path.extname(audioFiles[0]).toLowerCase();
+      const mimeTypes: Record<string, string> = {
+        ".mp3": "audio/mpeg",
+        ".wav": "audio/wav",
+        ".m4a": "audio/mp4",
+        ".mp4": "audio/mp4",
+        ".flac": "audio/flac",
+        ".ogg": "audio/ogg",
+      };
+      const contentType = mimeTypes[ext] || "audio/mpeg";
+
+      if (req.query.download === "true") {
+        const rawName = call.fileName || `call-${req.params.id}${ext}`;
+        const safeName = path.basename(rawName).replace(/[^\w.\-() ]/g, "_");
+        res.setHeader("Content-Disposition", `attachment; filename="${safeName}"`);
+      }
+
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Content-Length", audioBuffer.length.toString());
+      res.setHeader("Accept-Ranges", "bytes");
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+      res.setHeader("Pragma", "no-cache");
+      res.send(audioBuffer);
+    }),
+  );
+
+  app.get(
+    "/api/calls/:id/transcript",
+    requireAuth,
+    injectOrgContext,
+    validateId,
+    asyncHandler(async (req, res) => {
+      logPhiAccess({
+        ...auditContext(req),
+        event: "view_transcript",
+        resourceType: "transcript",
+        resourceId: req.params.id,
+      });
+
+      const transcript = await storage.getTranscript(req.orgId!, req.params.id);
+      if (!transcript) {
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Transcript not found"));
+        return;
+      }
+      res.json(transcript);
+    }),
+  );
+
+  app.get(
+    "/api/calls/:id/sentiment",
+    requireAuth,
+    injectOrgContext,
+    validateId,
+    asyncHandler(async (req, res) => {
+      const sentiment = await storage.getSentimentAnalysis(req.orgId!, req.params.id);
+      if (!sentiment) {
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Sentiment analysis not found"));
+        return;
+      }
+      logPhiAccess({
+        ...auditContext(req),
+        event: "view_sentiment_analysis",
+        resourceType: "sentiment",
+        resourceId: req.params.id,
+      });
+      res.json(sentiment);
+    }),
+  );
+
+  app.get(
+    "/api/calls/:id/analysis",
+    requireAuth,
+    injectOrgContext,
+    validateId,
+    asyncHandler(async (req, res) => {
+      const analysis = await storage.getCallAnalysis(req.orgId!, req.params.id);
+      if (!analysis) {
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call analysis not found"));
+        return;
+      }
+      try {
+        decryptClinicalNotePhi(analysis as Record<string, unknown>, {
+          userId: req.user?.id,
+          orgId: req.orgId,
+          resourceId: req.params.id,
+          resourceType: "call_analysis",
+        });
+      } catch (decryptErr) {
+        logger.error({ err: decryptErr, callId: req.params.id }, "PHI decryption failed for call analysis");
+        logPhiAccess({
+          ...auditContext(req),
+          event: "phi_decryption_failure",
+          resourceType: "call_analysis",
+          resourceId: req.params.id,
+          detail: "Decryption failed — key mismatch or data corruption",
+        });
+        res
+          .status(503)
+          .json(
+            errorResponse(
+              ERROR_CODES.PHI_DECRYPTION_FAILED,
+              "Unable to decrypt clinical data. This may indicate an encryption key issue — contact your administrator.",
+            ),
+          );
+        return;
+      }
+      logPhiAccess({
+        ...auditContext(req),
+        event: "view_call_analysis",
+        resourceType: "analysis",
+        resourceId: req.params.id,
+      });
+      res.json(analysis);
+    }),
+  );
 
   app.patch(
     "/api/calls/:id/analysis",
@@ -643,29 +694,35 @@ export function registerCallRoutes(app: Express): void {
     }),
   );
 
-  app.patch("/api/calls/:id/tags", requireAuth, injectOrgContext, requireRole("manager", "admin"), asyncHandler(async (req, res) => {
-    const { tags } = req.body;
-    if (!Array.isArray(tags)) {
-      res.status(400).json({ message: "tags must be an array" });
-      return;
-    }
-    const call = await storage.getCall(req.orgId!, req.params.id);
-    if (!call) {
-      res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call not found"));
-      return;
-    }
+  app.patch(
+    "/api/calls/:id/tags",
+    requireAuth,
+    injectOrgContext,
+    requireRole("manager", "admin"),
+    asyncHandler(async (req, res) => {
+      const { tags } = req.body;
+      if (!Array.isArray(tags)) {
+        res.status(400).json({ message: "tags must be an array" });
+        return;
+      }
+      const call = await storage.getCall(req.orgId!, req.params.id);
+      if (!call) {
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call not found"));
+        return;
+      }
 
-    logPhiAccess({
-      ...auditContext(req),
-      event: "update_call_tags",
-      resourceType: "call",
-      resourceId: req.params.id,
-      detail: `Tags: ${tags.join(", ")}`,
-    });
+      logPhiAccess({
+        ...auditContext(req),
+        event: "update_call_tags",
+        resourceType: "call",
+        resourceId: req.params.id,
+        detail: `Tags: ${tags.join(", ")}`,
+      });
 
-    const updated = await storage.updateCall(req.orgId!, req.params.id, { tags });
-    res.json(updated);
-  }));
+      const updated = await storage.updateCall(req.orgId!, req.params.id, { tags });
+      res.json(updated);
+    }),
+  );
 
   // Reanalyze a single call with current prompt templates and AI provider
   app.post(
@@ -719,12 +776,7 @@ export function registerCallRoutes(app: Express): void {
 
           if (!provider.isAvailable) {
             await storage.updateCall(orgId, callId, { status: "completed" });
-            broadcastCallUpdate(
-              callId,
-              "failed",
-              { step: 2, totalSteps: 2, label: "AI provider unavailable" },
-              orgId,
-            );
+            broadcastCallUpdate(callId, "failed", { step: 2, totalSteps: 2, label: "AI provider unavailable" }, orgId);
             return;
           }
 
@@ -781,21 +833,28 @@ export function registerCallRoutes(app: Express): void {
     }),
   );
 
-  app.delete("/api/calls/:id", requireAuth, injectOrgContext, requireRole("manager", "admin"), validateId, asyncHandler(async (req, res) => {
-    const callId = req.params.id;
+  app.delete(
+    "/api/calls/:id",
+    requireAuth,
+    injectOrgContext,
+    requireRole("manager", "admin"),
+    validateId,
+    asyncHandler(async (req, res) => {
+      const callId = req.params.id;
 
-    logPhiAccess({
-      ...auditContext(req),
-      event: "delete_call",
-      resourceType: "call",
-      resourceId: callId,
-    });
+      logPhiAccess({
+        ...auditContext(req),
+        event: "delete_call",
+        resourceType: "call",
+        resourceId: callId,
+      });
 
-    await storage.deleteCall(req.orgId!, callId);
+      await storage.deleteCall(req.orgId!, callId);
 
-    logger.info({ callId }, "Successfully deleted call");
-    res.status(204).send();
-  }));
+      logger.info({ callId }, "Successfully deleted call");
+      res.status(204).send();
+    }),
+  );
 
   // ==================== CALL SHARE ROUTES ====================
   // Resource-level sharing: create time-limited links for external reviewers
@@ -853,27 +912,33 @@ export function registerCallRoutes(app: Express): void {
   );
 
   // List active shares for a call (manager+)
-  app.get("/api/calls/:id/shares", requireAuth, injectOrgContext, requireRole("manager", "admin"), asyncHandler(async (req, res) => {
-    const call = await storage.getCall(req.orgId!, req.params.id);
-    if (!call) {
-      res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call not found"));
-      return;
-    }
-    const shares = await storage.listCallShares(req.orgId!, call.id);
-    const now = new Date();
-    // Filter expired + never return tokenHash
-    const active = shares
-      .filter((s) => new Date(s.expiresAt) > now)
-      .map((s) => ({
-        id: s.id,
-        tokenPrefix: s.tokenPrefix,
-        viewerLabel: s.viewerLabel,
-        expiresAt: s.expiresAt,
-        createdAt: s.createdAt,
-        createdBy: s.createdBy,
-      }));
-    res.json(active);
-  }));
+  app.get(
+    "/api/calls/:id/shares",
+    requireAuth,
+    injectOrgContext,
+    requireRole("manager", "admin"),
+    asyncHandler(async (req, res) => {
+      const call = await storage.getCall(req.orgId!, req.params.id);
+      if (!call) {
+        res.status(404).json(errorResponse(ERROR_CODES.CALL_NOT_FOUND, "Call not found"));
+        return;
+      }
+      const shares = await storage.listCallShares(req.orgId!, call.id);
+      const now = new Date();
+      // Filter expired + never return tokenHash
+      const active = shares
+        .filter((s) => new Date(s.expiresAt) > now)
+        .map((s) => ({
+          id: s.id,
+          tokenPrefix: s.tokenPrefix,
+          viewerLabel: s.viewerLabel,
+          expiresAt: s.expiresAt,
+          createdAt: s.createdAt,
+          createdBy: s.createdBy,
+        }));
+      res.json(active);
+    }),
+  );
 
   // Revoke a specific share (manager+)
   app.delete(
@@ -896,61 +961,64 @@ export function registerCallRoutes(app: Express): void {
 
   // Public endpoint: access a shared call via token (no authentication required)
   // Returns call details, transcript, and analysis — but NOT clinical notes (PHI).
-  app.get("/api/shared-calls/:token", asyncHandler(async (req, res) => {
-    const token = req.params.token;
-    if (!/^[0-9a-f]{48}$/.test(token)) {
-      res.status(404).json({ message: "Invalid or expired share link" });
-      return;
-    }
+  app.get(
+    "/api/shared-calls/:token",
+    asyncHandler(async (req, res) => {
+      const token = req.params.token;
+      if (!/^[0-9a-f]{48}$/.test(token)) {
+        res.status(404).json({ message: "Invalid or expired share link" });
+        return;
+      }
 
-    const tokenHash = createHash("sha256").update(token).digest("hex");
-    const share = await storage.getCallShareByToken(tokenHash);
+      const tokenHash = createHash("sha256").update(token).digest("hex");
+      const share = await storage.getCallShareByToken(tokenHash);
 
-    if (!share) {
-      res.status(404).json({ message: "Invalid or expired share link" });
-      return;
-    }
-    if (new Date(share.expiresAt) < new Date()) {
-      res.status(410).json({ message: "This share link has expired" });
-      return;
-    }
+      if (!share) {
+        res.status(404).json({ message: "Invalid or expired share link" });
+        return;
+      }
+      if (new Date(share.expiresAt) < new Date()) {
+        res.status(410).json({ message: "This share link has expired" });
+        return;
+      }
 
-    const call = await storage.getCall(share.orgId, share.callId);
-    if (!call) {
-      res.status(404).json({ message: "Call not found" });
-      return;
-    }
+      const call = await storage.getCall(share.orgId, share.callId);
+      if (!call) {
+        res.status(404).json({ message: "Call not found" });
+        return;
+      }
 
-    const [employee, transcript, sentiment, rawAnalysis] = await Promise.all([
-      call.employeeId ? storage.getEmployee(share.orgId, call.employeeId) : undefined,
-      storage.getTranscript(share.orgId, call.id),
-      storage.getSentimentAnalysis(share.orgId, call.id),
-      storage.getCallAnalysis(share.orgId, call.id),
-    ]);
+      const [employee, transcript, sentiment, rawAnalysis] = await Promise.all([
+        call.employeeId ? storage.getEmployee(share.orgId, call.employeeId) : undefined,
+        storage.getTranscript(share.orgId, call.id),
+        storage.getSentimentAnalysis(share.orgId, call.id),
+        storage.getCallAnalysis(share.orgId, call.id),
+      ]);
 
-    const analysis = normalizeAnalysis(rawAnalysis);
-    // Strip clinical note from shared view — PHI must not be shared externally
-    if (analysis) {
-      delete (analysis as any).clinicalNote;
-    }
+      const analysis = normalizeAnalysis(rawAnalysis);
+      // Strip clinical note from shared view — PHI must not be shared externally
+      if (analysis) {
+        delete (analysis as any).clinicalNote;
+      }
 
-    res.json({
-      id: call.id,
-      fileName: call.fileName,
-      status: call.status,
-      duration: call.duration,
-      callCategory: call.callCategory,
-      tags: call.tags,
-      uploadedAt: call.uploadedAt,
-      channel: call.channel,
-      employeeName: employee?.name,
-      transcript: transcript ? { text: transcript.text, confidence: transcript.confidence } : undefined,
-      sentiment,
-      analysis,
-      share: {
-        viewerLabel: share.viewerLabel,
-        expiresAt: share.expiresAt,
-      },
-    });
-  }));
+      res.json({
+        id: call.id,
+        fileName: call.fileName,
+        status: call.status,
+        duration: call.duration,
+        callCategory: call.callCategory,
+        tags: call.tags,
+        uploadedAt: call.uploadedAt,
+        channel: call.channel,
+        employeeName: employee?.name,
+        transcript: transcript ? { text: transcript.text, confidence: transcript.confidence } : undefined,
+        sentiment,
+        analysis,
+        share: {
+          viewerLabel: share.viewerLabel,
+          expiresAt: share.expiresAt,
+        },
+      });
+    }),
+  );
 }

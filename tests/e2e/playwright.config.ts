@@ -28,7 +28,7 @@ export default defineConfig({
           NODE_ENV: "production",
           PORT: "5000",
           DISABLE_SECURE_COOKIE: "true",
-          SESSION_SECRET: "e2e-test-secret",
+          SESSION_SECRET: "e2e-test-secret-32plus-chars-required-by-prod-env-validator",
           ASSEMBLYAI_API_KEY: "test-key",
           AUTH_USERS: "admin:admin123:admin:Test Admin:default,viewer:viewer123:viewer:Test Viewer:default",
           PHI_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",

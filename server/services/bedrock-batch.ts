@@ -33,7 +33,16 @@ export interface BatchJob {
   jobId: string;
   jobArn: string;
   orgId: string;
-  status: "Submitted" | "InProgress" | "Completed" | "Failed" | "Stopping" | "Stopped" | "Expired" | "Validating" | "Scheduled";
+  status:
+    | "Submitted"
+    | "InProgress"
+    | "Completed"
+    | "Failed"
+    | "Stopping"
+    | "Stopped"
+    | "Expired"
+    | "Validating"
+    | "Scheduled";
   inputS3Uri: string;
   outputS3Uri: string;
   callIds: string[];
@@ -65,10 +74,7 @@ export async function savePendingBatchItem(item: PendingBatchItem): Promise<void
   const key = `batch-inference/pending/${item.orgId}/${item.callId}.json`;
   await s3.uploadJson(key, item);
 
-  logger.info(
-    { orgId: item.orgId, callId: item.callId, key },
-    "Saved pending batch item to S3",
-  );
+  logger.info({ orgId: item.orgId, callId: item.callId, key }, "Saved pending batch item to S3");
 }
 
 /**
@@ -80,9 +86,7 @@ export async function listPendingItems(orgId?: string): Promise<PendingBatchItem
   if (!bucket) return [];
 
   const s3 = new S3ClientClass(bucket);
-  const prefix = orgId
-    ? `batch-inference/pending/${orgId}/`
-    : `batch-inference/pending/`;
+  const prefix = orgId ? `batch-inference/pending/${orgId}/` : `batch-inference/pending/`;
 
   try {
     const keys = await s3.listObjects(prefix);
@@ -215,10 +219,7 @@ export async function submitBatchJob(
   const jobArn = response.jobArn || "";
   const jobId = jobArn.split("/").pop() || batchId;
 
-  logger.info(
-    { orgId, jobId, jobArn, callCount: callIds.length, model: bedrockModel },
-    "Bedrock batch job submitted",
-  );
+  logger.info({ orgId, jobId, jobArn, callCount: callIds.length, model: bedrockModel }, "Bedrock batch job submitted");
 
   return {
     jobId,
@@ -259,10 +260,7 @@ export async function getBatchJobStatus(jobArn: string): Promise<{
  * Read batch output from S3 and parse results.
  * Returns a map of callId → parsed AI response text.
  */
-export async function readBatchOutput(
-  orgId: string,
-  outputS3Uri: string,
-): Promise<Map<string, string>> {
+export async function readBatchOutput(orgId: string, outputS3Uri: string): Promise<Map<string, string>> {
   const { S3Client: S3ClientClass } = await import("./s3");
   const bucket = process.env.S3_BUCKET;
   if (!bucket) throw new Error("S3_BUCKET not configured");

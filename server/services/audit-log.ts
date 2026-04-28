@@ -233,7 +233,13 @@ function detectAnomalies(entry: AuditEntry & { timestamp: string }): void {
         const oldest = phiAccessByUser.keys().next().value;
         if (oldest) phiAccessByUser.delete(oldest);
       }
-      tracker = { count: 0, uniqueResources: new Set(), windowStart: now, alertedVelocity: false, alertedBreadth: false };
+      tracker = {
+        count: 0,
+        uniqueResources: new Set(),
+        windowStart: now,
+        alertedVelocity: false,
+        alertedBreadth: false,
+      };
     }
 
     tracker.count++;
@@ -299,19 +305,21 @@ function autoCreateIncident(
 ): void {
   try {
     // Lazy import to avoid circular dependency (incident-response imports audit-log)
-    import("./incident-response").then(({ declareIncident }) => {
-      declareIncident(orgId, {
-        title: data.title,
-        description: data.description,
-        severity: data.severity as "low" | "medium" | "high" | "critical",
-        declaredBy: data.declaredBy,
-        phiInvolved: data.phiInvolved,
-        affectedSystems: ["audit-log"],
+    import("./incident-response")
+      .then(({ declareIncident }) => {
+        declareIncident(orgId, {
+          title: data.title,
+          description: data.description,
+          severity: data.severity as "low" | "medium" | "high" | "critical",
+          declaredBy: data.declaredBy,
+          phiInvolved: data.phiInvolved,
+          affectedSystems: ["audit-log"],
+        });
+        logger.info({ orgId, title: data.title }, "Auto-created security incident from anomaly detection");
+      })
+      .catch((err) => {
+        logger.error({ err, orgId }, "Failed to auto-create security incident");
       });
-      logger.info({ orgId, title: data.title }, "Auto-created security incident from anomaly detection");
-    }).catch((err) => {
-      logger.error({ err, orgId }, "Failed to auto-create security incident");
-    });
   } catch {
     // Best-effort — never block the audit path
   }

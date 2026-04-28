@@ -34,22 +34,22 @@ const BLOCKED_SUFFIXES = [".local", ".internal", ".localhost", ".example"];
 
 function isPrivateOrReservedIP(ip: string): boolean {
   // IPv4 checks
-  if (/^127\./.test(ip)) return true;                              // Loopback
-  if (/^10\./.test(ip)) return true;                               // RFC 1918
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(ip)) return true;         // RFC 1918
-  if (/^192\.168\./.test(ip)) return true;                         // RFC 1918
+  if (/^127\./.test(ip)) return true; // Loopback
+  if (/^10\./.test(ip)) return true; // RFC 1918
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(ip)) return true; // RFC 1918
+  if (/^192\.168\./.test(ip)) return true; // RFC 1918
   if (/^100\.(6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\./.test(ip)) return true; // RFC 6598
-  if (/^169\.254\./.test(ip)) return true;                         // Link-local
-  if (/^0\./.test(ip)) return true;                                // "This" network
-  if (/^192\.0\.0\./.test(ip)) return true;                        // IETF assignments
-  if (/^198\.51\.100\./.test(ip)) return true;                     // TEST-NET-2
-  if (/^203\.0\.113\./.test(ip)) return true;                      // TEST-NET-3
-  if (/^(22[4-9]|23\d|24\d|25[0-5])\./.test(ip)) return true;    // Multicast + reserved
+  if (/^169\.254\./.test(ip)) return true; // Link-local
+  if (/^0\./.test(ip)) return true; // "This" network
+  if (/^192\.0\.0\./.test(ip)) return true; // IETF assignments
+  if (/^198\.51\.100\./.test(ip)) return true; // TEST-NET-2
+  if (/^203\.0\.113\./.test(ip)) return true; // TEST-NET-3
+  if (/^(22[4-9]|23\d|24\d|25[0-5])\./.test(ip)) return true; // Multicast + reserved
 
   // IPv6 checks
-  if (ip === "::1" || ip === "::") return true;                    // Loopback + unspecified
-  if (/^fe80:/i.test(ip)) return true;                             // Link-local
-  if (/^fc00:/i.test(ip) || /^fd/i.test(ip)) return true;         // Unique local
+  if (ip === "::1" || ip === "::") return true; // Loopback + unspecified
+  if (/^fe80:/i.test(ip)) return true; // Link-local
+  if (/^fc00:/i.test(ip) || /^fd/i.test(ip)) return true; // Unique local
   const v4mapped = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
   if (v4mapped) return isPrivateOrReservedIP(v4mapped[1]);
 
@@ -69,7 +69,7 @@ export async function validateUrlForSSRF(
   url: string,
   options: { requireHttps?: boolean; skipDnsCheck?: boolean } = {},
 ): Promise<UrlValidationResult> {
-  const requireHttps = options.requireHttps ?? (process.env.NODE_ENV === "production");
+  const requireHttps = options.requireHttps ?? process.env.NODE_ENV === "production";
 
   let parsed: URL;
   try {

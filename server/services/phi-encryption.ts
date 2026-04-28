@@ -40,7 +40,9 @@ function getKey(): Buffer | null {
   if (!keyHex) return null;
 
   if (keyHex.length !== 64 || !/^[0-9a-fA-F]{64}$/.test(keyHex)) {
-    logger.error("PHI_ENCRYPTION_KEY must be exactly 64 valid hex characters (0-9, a-f). Invalid characters will silently truncate the key.");
+    logger.error(
+      "PHI_ENCRYPTION_KEY must be exactly 64 valid hex characters (0-9, a-f). Invalid characters will silently truncate the key.",
+    );
     return null;
   }
 
@@ -78,7 +80,9 @@ function decryptWithKey(payload: string, key: Buffer): string {
   const packed = Buffer.from(payload, "base64");
   const minLength = IV_LENGTH + AUTH_TAG_LENGTH; // iv (12) + authTag (16) = 28; ciphertext may be 0 for empty strings
   if (packed.length < minLength) {
-    throw new Error(`Invalid encrypted payload: ${packed.length} bytes is below minimum ${minLength} (corrupt or truncated data)`);
+    throw new Error(
+      `Invalid encrypted payload: ${packed.length} bytes is below minimum ${minLength} (corrupt or truncated data)`,
+    );
   }
   const iv = packed.subarray(0, IV_LENGTH);
   const authTag = packed.subarray(packed.length - AUTH_TAG_LENGTH);

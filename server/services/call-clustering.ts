@@ -33,13 +33,61 @@ interface TermFrequency {
 }
 
 const STOP_WORDS = new Set([
-  "the", "and", "was", "were", "been", "being", "have", "has", "had",
-  "does", "did", "doing", "will", "would", "could", "should", "shall",
-  "this", "that", "these", "those", "with", "from", "into", "about",
-  "then", "than", "they", "them", "their", "there", "here", "what",
-  "when", "where", "which", "while", "also", "very", "just", "only",
-  "call", "caller", "agent", "customer", "said", "called", "told",
-  "patient", "office", "phone", "number", "time", "today", "help",
+  "the",
+  "and",
+  "was",
+  "were",
+  "been",
+  "being",
+  "have",
+  "has",
+  "had",
+  "does",
+  "did",
+  "doing",
+  "will",
+  "would",
+  "could",
+  "should",
+  "shall",
+  "this",
+  "that",
+  "these",
+  "those",
+  "with",
+  "from",
+  "into",
+  "about",
+  "then",
+  "than",
+  "they",
+  "them",
+  "their",
+  "there",
+  "here",
+  "what",
+  "when",
+  "where",
+  "which",
+  "while",
+  "also",
+  "very",
+  "just",
+  "only",
+  "call",
+  "caller",
+  "agent",
+  "customer",
+  "said",
+  "called",
+  "told",
+  "patient",
+  "office",
+  "phone",
+  "number",
+  "time",
+  "today",
+  "help",
 ]);
 
 /**
@@ -114,7 +162,9 @@ function buildTfIdf(calls: CallSummary[]): TermFrequency[] {
  * Cosine similarity between two term vectors.
  */
 function cosineSimilarity(a: Map<string, number>, b: Map<string, number>): number {
-  let dot = 0, magA = 0, magB = 0;
+  let dot = 0,
+    magA = 0,
+    magB = 0;
   for (const [term, valA] of Array.from(a)) {
     const valB = b.get(term) || 0;
     dot += valA * valB;
@@ -130,10 +180,7 @@ function cosineSimilarity(a: Map<string, number>, b: Map<string, number>): numbe
 /**
  * Agglomerative clustering using cosine similarity threshold.
  */
-function clusterCalls(
-  docTerms: TermFrequency[],
-  similarityThreshold = 0.15,
-): Map<number, TermFrequency[]> {
+function clusterCalls(docTerms: TermFrequency[], similarityThreshold = 0.15): Map<number, TermFrequency[]> {
   const assignments = new Array(docTerms.length).fill(-1);
   let nextCluster = 0;
 
@@ -219,9 +266,7 @@ export async function getCallClusters(
   const cutoff = Date.now() - days * 86400000;
   const sevenDaysAgo = Date.now() - 7 * 86400000;
 
-  let calls = allCalls.filter(
-    (c) => c.analysis && new Date(c.uploadedAt || 0).getTime() >= cutoff,
-  );
+  let calls = allCalls.filter((c) => c.analysis && new Date(c.uploadedAt || 0).getTime() >= cutoff);
 
   if (options.employeeId) {
     calls = calls.filter((c) => c.employeeId === options.employeeId);
@@ -256,15 +301,17 @@ export async function getCallClusters(
     const scores = clusterCalls
       .map((c) => parseFloat(String(c.analysis?.performanceScore || "")))
       .filter((s) => !isNaN(s));
-    const avgScore = scores.length > 0 ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10 : null;
+    const avgScore =
+      scores.length > 0 ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10 : null;
 
     // Average confidence
     const confidences = clusterCalls
       .map((c) => parseFloat(String(c.analysis?.confidenceScore || "")))
       .filter((s) => !isNaN(s) && s > 0);
-    const avgConfidence = confidences.length > 0
-      ? Math.round((confidences.reduce((a, b) => a + b, 0) / confidences.length) * 100) / 100
-      : null;
+    const avgConfidence =
+      confidences.length > 0
+        ? Math.round((confidences.reduce((a, b) => a + b, 0) / confidences.length) * 100) / 100
+        : null;
 
     // Sentiment breakdown
     const sentimentCounts = { positive: 0, neutral: 0, negative: 0 };

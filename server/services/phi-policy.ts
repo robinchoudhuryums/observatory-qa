@@ -58,11 +58,7 @@ export function shouldRedactPhiForCategory(callCategory?: string | null): boolea
  * @param override - Explicit override of the category-based decision.
  *                   Pass `false` to force preservation; pass `true` to force redaction.
  */
-export function redactTextForCategory(
-  text: string,
-  callCategory?: string | null,
-  override?: boolean,
-): string {
+export function redactTextForCategory(text: string, callCategory?: string | null, override?: boolean): string {
   const shouldRedact = override ?? shouldRedactPhiForCategory(callCategory);
   return shouldRedact ? redactPhi(text) : text;
 }

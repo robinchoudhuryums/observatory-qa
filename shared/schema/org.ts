@@ -30,7 +30,10 @@ export const orgSettingsSchema = z.object({
   emailDomain: z
     .string()
     .max(255)
-    .regex(/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/, "Invalid domain format")
+    .regex(
+      /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/,
+      "Invalid domain format",
+    )
     .optional(),
   departments: z.array(z.string().min(1).max(100)).max(100).optional(),
   subTeams: z.record(z.string().max(100), z.array(z.string().min(1).max(100)).max(50)).optional(),

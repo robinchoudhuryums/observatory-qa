@@ -261,7 +261,12 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
   });
 
   // Create a new insurance narrative (optionally linked to a call)
-  app.post("/api/insurance-narratives", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
+  app.post(
+    "/api/insurance-narratives",
+    requireAuth,
+    requireRole("manager"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -337,10 +342,15 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
 
       logger.info({ orgId, narrativeId: narrative.id, letterType }, "Insurance narrative created");
       res.json(narrative);
-    }));
+    }),
+  );
 
   // List narratives for the org
-  app.get("/api/insurance-narratives", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/insurance-narratives",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -350,17 +360,24 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
         status: status as string | undefined,
       });
       res.json(narratives);
-    }));
+    }),
+  );
 
   // Get a specific narrative
-  app.get("/api/insurance-narratives/:id", requireAuth, injectOrgContext, validateUUIDParam(), asyncHandler(async (req, res) => {
+  app.get(
+    "/api/insurance-narratives/:id",
+    requireAuth,
+    injectOrgContext,
+    validateUUIDParam(),
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
       const narrative = await storage.getInsuranceNarrative(orgId, req.params.id);
       if (!narrative) return res.status(404).json({ message: "Narrative not found" });
       res.json(narrative);
-    }));
+    }),
+  );
 
   // Update narrative (edit content, change status)
   app.patch(
@@ -370,13 +387,13 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
     injectOrgContext,
     validateUUIDParam(),
     asyncHandler(async (req, res) => {
-        const orgId = req.orgId;
-        if (!orgId) return res.status(403).json({ message: "Organization context required" });
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-        const updated = await storage.updateInsuranceNarrative(orgId, req.params.id, req.body);
-        if (!updated) return res.status(404).json({ message: "Narrative not found" });
-        res.json(updated);
-      }),
+      const updated = await storage.updateInsuranceNarrative(orgId, req.params.id, req.body);
+      if (!updated) return res.status(404).json({ message: "Narrative not found" });
+      res.json(updated);
+    }),
   );
 
   // Delete a narrative
@@ -387,12 +404,12 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
     injectOrgContext,
     validateUUIDParam(),
     asyncHandler(async (req, res) => {
-        const orgId = req.orgId;
-        if (!orgId) return res.status(403).json({ message: "Organization context required" });
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-        await storage.deleteInsuranceNarrative(orgId, req.params.id);
-        res.json({ success: true });
-      }),
+      await storage.deleteInsuranceNarrative(orgId, req.params.id);
+      res.json({ success: true });
+    }),
   );
 
   // --- Payer-specific templates ---
@@ -408,44 +425,42 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
     injectOrgContext,
     validateUUIDParam(),
     asyncHandler(async (req, res) => {
-        const orgId = req.orgId;
-        if (!orgId) return res.status(403).json({ message: "Organization context required" });
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-        const narrative = await storage.getInsuranceNarrative(orgId, req.params.id);
-        if (!narrative) return res.status(404).json({ message: "Narrative not found" });
+      const narrative = await storage.getInsuranceNarrative(orgId, req.params.id);
+      if (!narrative) return res.status(404).json({ message: "Narrative not found" });
 
-        const { outcome, outcomeNotes, denialCode, denialReason } = req.body;
-        if (!outcome || !["approved", "denied", "partial_approval", "pending", "withdrawn"].includes(outcome)) {
-          return res
-            .status(400)
-            .json({ message: "Valid outcome required: approved, denied, partial_approval, pending, withdrawn" });
+      const { outcome, outcomeNotes, denialCode, denialReason } = req.body;
+      if (!outcome || !["approved", "denied", "partial_approval", "pending", "withdrawn"].includes(outcome)) {
+        return res
+          .status(400)
+          .json({ message: "Valid outcome required: approved, denied, partial_approval, pending, withdrawn" });
+      }
+
+      const updates: Record<string, any> = {
+        outcome,
+        outcomeDate: new Date().toISOString(),
+        outcomeNotes: outcomeNotes || undefined,
+      };
+
+      if (outcome === "denied" || outcome === "partial_approval") {
+        if (!denialCode) {
+          return res.status(400).json({ message: "denialCode is required when outcome is denied or partial_approval" });
         }
+        updates.denialCode = denialCode;
+        if (denialReason) updates.denialReason = denialReason;
+      }
 
-        const updates: Record<string, any> = {
-          outcome,
-          outcomeDate: new Date().toISOString(),
-          outcomeNotes: outcomeNotes || undefined,
-        };
-
-        if (outcome === "denied" || outcome === "partial_approval") {
-          if (!denialCode) {
-            return res
-              .status(400)
-              .json({ message: "denialCode is required when outcome is denied or partial_approval" });
-          }
-          updates.denialCode = denialCode;
-          if (denialReason) updates.denialReason = denialReason;
-        }
-
-        const updated = await storage.updateInsuranceNarrative(orgId, req.params.id, updates);
-        logPhiAccess({
-          ...auditContext(req),
-          event: "narrative_outcome_recorded",
-          resourceType: "insurance_narrative",
-          resourceId: req.params.id,
-        });
-        res.json(updated);
-      }),
+      const updated = await storage.updateInsuranceNarrative(orgId, req.params.id, updates);
+      logPhiAccess({
+        ...auditContext(req),
+        event: "narrative_outcome_recorded",
+        resourceType: "insurance_narrative",
+        resourceId: req.params.id,
+      });
+      res.json(updated);
+    }),
   );
 
   // --- Denial code analysis ---
@@ -455,80 +470,82 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
     requireRole("manager"),
     injectOrgContext,
     asyncHandler(async (req, res) => {
-        const orgId = req.orgId;
-        if (!orgId) return res.status(403).json({ message: "Organization context required" });
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-        const narratives = await storage.listInsuranceNarratives(orgId);
-        const denied = narratives.filter((n) => n.outcome === "denied" || n.outcome === "partial_approval");
+      const narratives = await storage.listInsuranceNarratives(orgId);
+      const denied = narratives.filter((n) => n.outcome === "denied" || n.outcome === "partial_approval");
 
-        if (denied.length === 0) {
-          return res.json({ totalDenials: 0, denialCodes: [], patterns: [], message: "No denials recorded yet" });
+      if (denied.length === 0) {
+        return res.json({ totalDenials: 0, denialCodes: [], patterns: [], message: "No denials recorded yet" });
+      }
+
+      // Group by denial code
+      const codeGroups: Record<
+        string,
+        { count: number; reasons: string[]; letterTypes: string[]; insurers: string[] }
+      > = {};
+      for (const n of denied) {
+        const code = (n as any).denialCode || "unknown";
+        if (!codeGroups[code]) codeGroups[code] = { count: 0, reasons: [], letterTypes: [], insurers: [] };
+        codeGroups[code].count++;
+        if ((n as any).denialReason && !codeGroups[code].reasons.includes((n as any).denialReason)) {
+          codeGroups[code].reasons.push((n as any).denialReason);
         }
+        if (!codeGroups[code].letterTypes.includes(n.letterType)) codeGroups[code].letterTypes.push(n.letterType);
+        if (!codeGroups[code].insurers.includes(n.insurerName)) codeGroups[code].insurers.push(n.insurerName);
+      }
 
-        // Group by denial code
-        const codeGroups: Record<
-          string,
-          { count: number; reasons: string[]; letterTypes: string[]; insurers: string[] }
-        > = {};
-        for (const n of denied) {
-          const code = (n as any).denialCode || "unknown";
-          if (!codeGroups[code]) codeGroups[code] = { count: 0, reasons: [], letterTypes: [], insurers: [] };
-          codeGroups[code].count++;
-          if ((n as any).denialReason && !codeGroups[code].reasons.includes((n as any).denialReason)) {
-            codeGroups[code].reasons.push((n as any).denialReason);
-          }
-          if (!codeGroups[code].letterTypes.includes(n.letterType)) codeGroups[code].letterTypes.push(n.letterType);
-          if (!codeGroups[code].insurers.includes(n.insurerName)) codeGroups[code].insurers.push(n.insurerName);
-        }
+      const denialCodes = Object.entries(codeGroups)
+        .map(([code, data]) => ({
+          code,
+          count: data.count,
+          percentOfDenials: Math.round((data.count / denied.length) * 10000) / 100,
+          commonReasons: data.reasons.slice(0, 3),
+          affectedLetterTypes: data.letterTypes,
+          affectedInsurers: data.insurers,
+        }))
+        .sort((a, b) => b.count - a.count);
 
-        const denialCodes = Object.entries(codeGroups)
-          .map(([code, data]) => ({
-            code,
-            count: data.count,
-            percentOfDenials: Math.round((data.count / denied.length) * 10000) / 100,
-            commonReasons: data.reasons.slice(0, 3),
-            affectedLetterTypes: data.letterTypes,
-            affectedInsurers: data.insurers,
+      // Approval rate by insurer — includes partial_approval tracking
+      const insurerStats: Record<string, { total: number; approved: number; denied: number; partialApproval: number }> =
+        {};
+      for (const n of narratives) {
+        if (!n.outcome || n.outcome === "pending") continue;
+        if (!insurerStats[n.insurerName])
+          insurerStats[n.insurerName] = { total: 0, approved: 0, denied: 0, partialApproval: 0 };
+        insurerStats[n.insurerName].total++;
+        if (n.outcome === "approved") insurerStats[n.insurerName].approved++;
+        else if (n.outcome === "denied") insurerStats[n.insurerName].denied++;
+        else if (n.outcome === "partial_approval") insurerStats[n.insurerName].partialApproval++;
+      }
+
+      // Overall approval rate: approved / (all decided outcomes excluding pending)
+      const decidedCount = narratives.filter((n) => n.outcome && n.outcome !== "pending").length;
+      const approvedCount = narratives.filter((n) => n.outcome === "approved").length;
+
+      res.json({
+        totalDenials: denied.length,
+        totalSubmitted: narratives.filter((n) => n.outcome).length,
+        overallApprovalRate: decidedCount > 0 ? Math.round((approvedCount / decidedCount) * 10000) / 100 : 0,
+        denialCodes,
+        byInsurer: Object.entries(insurerStats)
+          .map(([insurer, stats]) => ({
+            insurer,
+            ...stats,
+            approvalRate: stats.total > 0 ? Math.round((stats.approved / stats.total) * 10000) / 100 : 0,
           }))
-          .sort((a, b) => b.count - a.count);
-
-        // Approval rate by insurer — includes partial_approval tracking
-        const insurerStats: Record<
-          string,
-          { total: number; approved: number; denied: number; partialApproval: number }
-        > = {};
-        for (const n of narratives) {
-          if (!n.outcome || n.outcome === "pending") continue;
-          if (!insurerStats[n.insurerName])
-            insurerStats[n.insurerName] = { total: 0, approved: 0, denied: 0, partialApproval: 0 };
-          insurerStats[n.insurerName].total++;
-          if (n.outcome === "approved") insurerStats[n.insurerName].approved++;
-          else if (n.outcome === "denied") insurerStats[n.insurerName].denied++;
-          else if (n.outcome === "partial_approval") insurerStats[n.insurerName].partialApproval++;
-        }
-
-        // Overall approval rate: approved / (all decided outcomes excluding pending)
-        const decidedCount = narratives.filter((n) => n.outcome && n.outcome !== "pending").length;
-        const approvedCount = narratives.filter((n) => n.outcome === "approved").length;
-
-        res.json({
-          totalDenials: denied.length,
-          totalSubmitted: narratives.filter((n) => n.outcome).length,
-          overallApprovalRate: decidedCount > 0 ? Math.round((approvedCount / decidedCount) * 10000) / 100 : 0,
-          denialCodes,
-          byInsurer: Object.entries(insurerStats)
-            .map(([insurer, stats]) => ({
-              insurer,
-              ...stats,
-              approvalRate: stats.total > 0 ? Math.round((stats.approved / stats.total) * 10000) / 100 : 0,
-            }))
-            .sort((a, b) => a.approvalRate - b.approvalRate),
-        });
-      }),
+          .sort((a, b) => a.approvalRate - b.approvalRate),
+      });
+    }),
   );
 
   // --- Deadline tracking: narratives approaching their submission deadline ---
-  app.get("/api/insurance-narratives/deadlines", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/insurance-narratives/deadlines",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -568,7 +585,8 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
         critical: withDeadlines.filter((n) => n.urgency === "critical").length,
         warning: withDeadlines.filter((n) => n.urgency === "warning").length,
       });
-  }));
+    }),
+  );
 
   // --- Generate supporting document checklist for a letter type ---
   app.get(
@@ -577,34 +595,32 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
     injectOrgContext,
     validateUUIDParam(),
     asyncHandler(async (req, res) => {
-        const orgId = req.orgId;
-        if (!orgId) return res.status(403).json({ message: "Organization context required" });
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-        const narrative = await storage.getInsuranceNarrative(orgId, req.params.id);
-        if (!narrative) return res.status(404).json({ message: "Narrative not found" });
+      const narrative = await storage.getInsuranceNarrative(orgId, req.params.id);
+      if (!narrative) return res.status(404).json({ message: "Narrative not found" });
 
-        // Generate checklist based on letter type
-        const checklist = generateChecklist(narrative.letterType, narrative);
-        const existing = (narrative as any).supportingDocuments as
-          | Array<{ name: string; attached: boolean }>
-          | undefined;
+      // Generate checklist based on letter type
+      const checklist = generateChecklist(narrative.letterType, narrative);
+      const existing = (narrative as any).supportingDocuments as Array<{ name: string; attached: boolean }> | undefined;
 
-        // Merge with any existing attachment tracking
-        const merged = checklist.map((item) => {
-          const match = existing?.find((e) => e.name === item.name);
-          return { ...item, attached: match?.attached || false };
-        });
+      // Merge with any existing attachment tracking
+      const merged = checklist.map((item) => {
+        const match = existing?.find((e) => e.name === item.name);
+        return { ...item, attached: match?.attached || false };
+      });
 
-        res.json({
-          narrativeId: narrative.id,
-          letterType: narrative.letterType,
-          checklist: merged,
-          completionRate:
-            merged.length > 0
-              ? Math.round((merged.filter((i) => i.attached || !i.required).length / merged.length) * 100)
-              : 100,
-        });
-      }),
+      res.json({
+        narrativeId: narrative.id,
+        letterType: narrative.letterType,
+        checklist: merged,
+        completionRate:
+          merged.length > 0
+            ? Math.round((merged.filter((i) => i.attached || !i.required).length / merged.length) * 100)
+            : 100,
+      });
+    }),
   );
 
   // Regenerate narrative text with updated params
@@ -615,34 +631,34 @@ export function registerInsuranceNarrativeRoutes(app: Express) {
     injectOrgContext,
     validateUUIDParam(),
     asyncHandler(async (req, res) => {
-        const orgId = req.orgId;
-        if (!orgId) return res.status(403).json({ message: "Organization context required" });
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-        const narrative = await storage.getInsuranceNarrative(orgId, req.params.id);
-        if (!narrative) return res.status(404).json({ message: "Narrative not found" });
+      const narrative = await storage.getInsuranceNarrative(orgId, req.params.id);
+      if (!narrative) return res.status(404).json({ message: "Narrative not found" });
 
-        // Prevent regeneration of narratives that have outcomes recorded (audit trail integrity)
-        if (narrative.outcome && narrative.outcome !== "pending") {
-          return res.status(400).json({
-            message: "Cannot regenerate a narrative with a recorded outcome. Create a new narrative instead.",
-            code: "OBS-NARRATIVE-OUTCOME-LOCKED",
-          });
-        }
-
-        const generatedNarrative = await generateNarrative({
-          letterType: narrative.letterType,
-          patientName: narrative.patientName,
-          insurerName: narrative.insurerName,
-          patientDob: narrative.patientDob,
-          memberId: narrative.memberId,
-          diagnosisCodes: narrative.diagnosisCodes,
-          procedureCodes: narrative.procedureCodes,
-          clinicalJustification: narrative.clinicalJustification,
-          priorDenialReference: narrative.priorDenialReference,
+      // Prevent regeneration of narratives that have outcomes recorded (audit trail integrity)
+      if (narrative.outcome && narrative.outcome !== "pending") {
+        return res.status(400).json({
+          message: "Cannot regenerate a narrative with a recorded outcome. Create a new narrative instead.",
+          code: "OBS-NARRATIVE-OUTCOME-LOCKED",
         });
+      }
 
-        const updated = await storage.updateInsuranceNarrative(orgId, req.params.id, { generatedNarrative });
-        res.json(updated);
-      }),
+      const generatedNarrative = await generateNarrative({
+        letterType: narrative.letterType,
+        patientName: narrative.patientName,
+        insurerName: narrative.insurerName,
+        patientDob: narrative.patientDob,
+        memberId: narrative.memberId,
+        diagnosisCodes: narrative.diagnosisCodes,
+        procedureCodes: narrative.procedureCodes,
+        clinicalJustification: narrative.clinicalJustification,
+        priorDenialReference: narrative.priorDenialReference,
+      });
+
+      const updated = await storage.updateInsuranceNarrative(orgId, req.params.id, { generatedNarrative });
+      res.json(updated);
+    }),
   );
 }

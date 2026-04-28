@@ -15,11 +15,7 @@ import { logger } from "../services/logger";
  * (today if it hasn't passed yet, tomorrow otherwise). After each run,
  * re-schedules for the next day's occurrence to avoid drift.
  */
-export function scheduleDaily(
-  utcHour: number,
-  fn: () => void | Promise<void>,
-  label: string,
-): () => void {
+export function scheduleDaily(utcHour: number, fn: () => void | Promise<void>, label: string): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let cancelled = false;
 
@@ -123,10 +119,7 @@ export function scheduleWeekly(
  * runScheduledReportsTick is, via its UNIQUE(orgId, reportType, periodStart)
  * guard).
  */
-export function scheduleHourly(
-  fn: () => void | Promise<void>,
-  label: string,
-): () => void {
+export function scheduleHourly(fn: () => void | Promise<void>, label: string): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let cancelled = false;
 

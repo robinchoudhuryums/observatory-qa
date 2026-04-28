@@ -201,10 +201,7 @@ export function registerCallTagRoutes(app: Express) {
       const db = getDatabase();
       if (!db) return res.json([]);
 
-      const limit = Math.min(
-        parseInt(String(req.query.limit ?? TOP_TAGS_LIMIT), 10) || TOP_TAGS_LIMIT,
-        TOP_TAGS_LIMIT,
-      );
+      const limit = Math.min(parseInt(String(req.query.limit ?? TOP_TAGS_LIMIT), 10) || TOP_TAGS_LIMIT, TOP_TAGS_LIMIT);
       const tags = await listTopTags(db, orgId, limit);
       return res.json(tags);
     }),

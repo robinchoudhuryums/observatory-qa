@@ -103,7 +103,10 @@ export class DentrixAdapter implements IEhrAdapter {
     } catch (err) {
       const ehrErr = classifyEhrError(err, "Dentrix");
       if (ehrErr.errorType === "not_found") return null;
-      logger.error({ err: ehrErr, ehrPatientId, errorType: ehrErr.errorType }, `Dentrix getPatient failed: ${ehrErr.errorType}`);
+      logger.error(
+        { err: ehrErr, ehrPatientId, errorType: ehrErr.errorType },
+        `Dentrix getPatient failed: ${ehrErr.errorType}`,
+      );
       throw ehrErr;
     }
   }
@@ -220,7 +223,10 @@ export class DentrixAdapter implements IEhrAdapter {
     } catch (err) {
       const ehrErr = classifyEhrError(err, "Dentrix");
       if (ehrErr.errorType === "not_found") return [];
-      logger.error({ err: ehrErr, patientId, errorType: ehrErr.errorType }, `Dentrix getPatientTreatmentPlans failed: ${ehrErr.errorType}`);
+      logger.error(
+        { err: ehrErr, patientId, errorType: ehrErr.errorType },
+        `Dentrix getPatientTreatmentPlans failed: ${ehrErr.errorType}`,
+      );
       throw ehrErr;
     }
   }

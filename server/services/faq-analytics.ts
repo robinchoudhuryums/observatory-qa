@@ -181,9 +181,7 @@ export function getKnowledgeBaseGaps(
  *
  * Requires minimum 3 orgs asking the same question to prevent de-anonymization.
  */
-export function getCrossOrgFaqPatterns(
-  options?: { minOrgs?: number; minTotalCount?: number; limit?: number },
-): Array<{
+export function getCrossOrgFaqPatterns(options?: { minOrgs?: number; minTotalCount?: number; limit?: number }): Array<{
   normalizedKey: string;
   orgCount: number;
   totalCount: number;
@@ -222,9 +220,7 @@ export function getCrossOrgFaqPatterns(
       normalizedKey: key,
       orgCount: agg.orgSet.size,
       totalCount: agg.totalCount,
-      avgConfidence:
-        agg.totalCount > 0 ? Math.round((agg.totalConfidence / agg.totalCount) * 100) / 100 : 0,
-      lowConfidenceRate:
-        agg.totalCount > 0 ? Math.round((agg.lowConfidenceCount / agg.totalCount) * 100) / 100 : 0,
+      avgConfidence: agg.totalCount > 0 ? Math.round((agg.totalConfidence / agg.totalCount) * 100) / 100 : 0,
+      lowConfidenceRate: agg.totalCount > 0 ? Math.round((agg.lowConfidenceCount / agg.totalCount) * 100) / 100 : 0,
     }));
 }

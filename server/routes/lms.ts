@@ -111,90 +111,107 @@ export function registerLmsRoutes(app: Express): void {
   // --- Learning Modules ---
 
   /** GET /api/lms/modules — List all learning modules for the org */
-  app.get("/api/lms/modules", requireAuth, injectOrgContext, asyncHandler(async (req: Request, res: Response) => {
-    const orgId = req.orgId;
-    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+  app.get(
+    "/api/lms/modules",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req: Request, res: Response) => {
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-    const { category, contentType, published } = req.query;
-    const modules = await storage.listLearningModules(orgId, {
-      category: category as string | undefined,
-      contentType: contentType as string | undefined,
-      isPublished: published === "true" ? true : published === "false" ? false : undefined,
-    });
-    res.json(modules);
-  }));
+      const { category, contentType, published } = req.query;
+      const modules = await storage.listLearningModules(orgId, {
+        category: category as string | undefined,
+        contentType: contentType as string | undefined,
+        isPublished: published === "true" ? true : published === "false" ? false : undefined,
+      });
+      res.json(modules);
+    }),
+  );
 
   /** GET /api/lms/modules/:id — Get a specific module */
-  app.get("/api/lms/modules/:id", requireAuth, injectOrgContext, validateUUIDParam(), asyncHandler(async (req: Request, res: Response) => {
-    const orgId = req.orgId;
-    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+  app.get(
+    "/api/lms/modules/:id",
+    requireAuth,
+    injectOrgContext,
+    validateUUIDParam(),
+    asyncHandler(async (req: Request, res: Response) => {
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-    const module = await storage.getLearningModule(orgId, req.params.id);
-    if (!module) return res.status(404).json({ message: "Module not found" });
-    res.json(module);
-  }));
+      const module = await storage.getLearningModule(orgId, req.params.id);
+      if (!module) return res.status(404).json({ message: "Module not found" });
+      res.json(module);
+    }),
+  );
 
   /** POST /api/lms/modules — Create a new learning module */
-  app.post("/api/lms/modules", requireAuth, injectOrgContext, requireRole("manager"), asyncHandler(async (req: Request, res: Response) => {
-    const orgId = req.orgId;
-    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+  app.post(
+    "/api/lms/modules",
+    requireAuth,
+    injectOrgContext,
+    requireRole("manager"),
+    asyncHandler(async (req: Request, res: Response) => {
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-    const {
-      title,
-      description,
-      contentType,
-      category,
-      content,
-      quizQuestions,
-      estimatedMinutes,
-      difficulty,
-      tags,
-      isPublished,
-      prerequisiteModuleIds,
-      passingScore,
-    } = req.body;
-    if (!title || !contentType) return res.status(400).json({ message: "title and contentType are required" });
+      const {
+        title,
+        description,
+        contentType,
+        category,
+        content,
+        quizQuestions,
+        estimatedMinutes,
+        difficulty,
+        tags,
+        isPublished,
+        prerequisiteModuleIds,
+        passingScore,
+      } = req.body;
+      if (!title || !contentType) return res.status(400).json({ message: "title and contentType are required" });
 
-    // Validate prerequisites exist and don't create cycles
-    if (Array.isArray(prerequisiteModuleIds) && prerequisiteModuleIds.length > 0) {
-      for (const prereqId of prerequisiteModuleIds) {
-        const prereq = await storage.getLearningModule(orgId, prereqId);
-        if (!prereq) return res.status(400).json({ message: `Prerequisite module ${prereqId} not found` });
+      // Validate prerequisites exist and don't create cycles
+      if (Array.isArray(prerequisiteModuleIds) && prerequisiteModuleIds.length > 0) {
+        for (const prereqId of prerequisiteModuleIds) {
+          const prereq = await storage.getLearningModule(orgId, prereqId);
+          if (!prereq) return res.status(400).json({ message: `Prerequisite module ${prereqId} not found` });
+        }
       }
-    }
 
-    const module = await storage.createLearningModule(orgId, {
-      orgId,
-      title,
-      description,
-      contentType,
-      category,
-      content,
-      quizQuestions,
-      estimatedMinutes,
-      difficulty,
-      tags,
-      isPublished: isPublished ?? false,
-      createdBy: (req.user as any)?.name || "unknown",
-      prerequisiteModuleIds: Array.isArray(prerequisiteModuleIds) ? prerequisiteModuleIds : undefined,
-      passingScore: typeof passingScore === "number" ? passingScore : undefined,
-    });
+      const module = await storage.createLearningModule(orgId, {
+        orgId,
+        title,
+        description,
+        contentType,
+        category,
+        content,
+        quizQuestions,
+        estimatedMinutes,
+        difficulty,
+        tags,
+        isPublished: isPublished ?? false,
+        createdBy: (req.user as any)?.name || "unknown",
+        prerequisiteModuleIds: Array.isArray(prerequisiteModuleIds) ? prerequisiteModuleIds : undefined,
+        passingScore: typeof passingScore === "number" ? passingScore : undefined,
+      });
 
-    // Check for circular dependencies after creation (module now has an ID)
-    if (Array.isArray(prerequisiteModuleIds) && prerequisiteModuleIds.length > 0) {
-      const cycle = await detectPrerequisiteCycle(orgId, module.id, prerequisiteModuleIds);
-      if (cycle) {
-        // Remove the module we just created to avoid leaving orphaned data
-        await storage.deleteLearningModule(orgId, module.id);
-        return res.status(400).json({
-          message: "Circular dependency detected in prerequisites",
-          cycle: cycle.map((id) => id.slice(0, 8)), // Truncate IDs for readability
-        });
+      // Check for circular dependencies after creation (module now has an ID)
+      if (Array.isArray(prerequisiteModuleIds) && prerequisiteModuleIds.length > 0) {
+        const cycle = await detectPrerequisiteCycle(orgId, module.id, prerequisiteModuleIds);
+        if (cycle) {
+          // Remove the module we just created to avoid leaving orphaned data
+          await storage.deleteLearningModule(orgId, module.id);
+          return res.status(400).json({
+            message: "Circular dependency detected in prerequisites",
+            cycle: cycle.map((id) => id.slice(0, 8)), // Truncate IDs for readability
+          });
+        }
       }
-    }
 
-    res.status(201).json(module);
-  }));
+      res.status(201).json(module);
+    }),
+  );
 
   /** PATCH /api/lms/modules/:id — Update a module */
   app.patch(
@@ -265,7 +282,10 @@ export function registerLmsRoutes(app: Express): void {
       }
 
       await storage.deleteLearningModule(orgId, moduleId);
-      res.json({ message: "Module deleted", cleanedPaths: allPaths.filter((p) => (p.moduleIds as string[]).includes(moduleId)).length });
+      res.json({
+        message: "Module deleted",
+        cleanedPaths: allPaths.filter((p) => (p.moduleIds as string[]).includes(moduleId)).length,
+      });
     }),
   );
 
@@ -273,31 +293,36 @@ export function registerLmsRoutes(app: Express): void {
    * POST /api/lms/modules/generate — AI-generate a learning module from a reference document.
    * Takes a reference document ID and generates structured learning content.
    */
-  app.post("/api/lms/modules/generate", requireAuth, injectOrgContext, requireRole("manager"), asyncHandler(async (req: Request, res: Response) => {
-    const orgId = req.orgId;
-    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+  app.post(
+    "/api/lms/modules/generate",
+    requireAuth,
+    injectOrgContext,
+    requireRole("manager"),
+    asyncHandler(async (req: Request, res: Response) => {
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-    const { documentId, category, difficulty, generateQuiz } = req.body;
-    if (!documentId) return res.status(400).json({ message: "documentId is required" });
+      const { documentId, category, difficulty, generateQuiz } = req.body;
+      if (!documentId) return res.status(400).json({ message: "documentId is required" });
 
-    // Load the reference document
-    const doc = await storage.getReferenceDocument(orgId, documentId);
-    if (!doc) return res.status(404).json({ message: "Reference document not found" });
-    if (!doc.extractedText || doc.extractedText.length < 50) {
-      return res.status(400).json({ message: "Document has insufficient text content for module generation" });
-    }
+      // Load the reference document
+      const doc = await storage.getReferenceDocument(orgId, documentId);
+      if (!doc) return res.status(404).json({ message: "Reference document not found" });
+      if (!doc.extractedText || doc.extractedText.length < 50) {
+        return res.status(400).json({ message: "Document has insufficient text content for module generation" });
+      }
 
-    if (!aiProvider.isAvailable || !aiProvider.generateText) {
-      return res.status(503).json({ message: "AI provider not available for module generation" });
-    }
+      if (!aiProvider.isAvailable || !aiProvider.generateText) {
+        return res.status(503).json({ message: "AI provider not available for module generation" });
+      }
 
-    const docText = doc.extractedText.slice(0, 30000); // Cap text length
-    const quizInstruction = generateQuiz
-      ? `\n\nAlso generate a "quiz" section with 5-8 multiple-choice questions testing key concepts. Format each question as:
+      const docText = doc.extractedText.slice(0, 30000); // Cap text length
+      const quizInstruction = generateQuiz
+        ? `\n\nAlso generate a "quiz" section with 5-8 multiple-choice questions testing key concepts. Format each question as:
 {"question":"...","options":["A","B","C","D"],"correctIndex":0,"explanation":"Why this is correct"}`
-      : "";
+        : "";
 
-    const prompt = `You are creating a training module from a company document. Convert the following document into structured learning content.
+      const prompt = `You are creating a training module from a company document. Convert the following document into structured learning content.
 
 DOCUMENT: "${doc.name}" (${doc.category})
 ---
@@ -317,112 +342,130 @@ Create a training module with:
 Respond with ONLY valid JSON (no markdown fences):
 {"title":"...","description":"...","content":"...markdown content...","estimatedMinutes":0${generateQuiz ? ',"quizQuestions":[...]' : ""}}`;
 
-    const response = await withRetry(() => aiProvider.generateText!(prompt), {
-      retries: 2,
-      baseDelay: 2000,
-      label: "LMS module generation",
-    });
+      const response = await withRetry(() => aiProvider.generateText!(prompt), {
+        retries: 2,
+        baseDelay: 2000,
+        label: "LMS module generation",
+      });
 
-    // Parse AI response
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      return res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "AI response was not parseable"));
-    }
-    const generated = JSON.parse(jsonMatch[0]);
+      // Parse AI response
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        return res.status(500).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "AI response was not parseable"));
+      }
+      const generated = JSON.parse(jsonMatch[0]);
 
-    // Create the module
-    const module = await storage.createLearningModule(orgId, {
-      orgId,
-      title: generated.title || `Training: ${doc.name}`,
-      description: generated.description || `Auto-generated from ${doc.name}`,
-      contentType: "ai_generated",
-      category: category || "general",
-      content: generated.content || "",
-      quizQuestions: generated.quizQuestions || undefined,
-      estimatedMinutes: generated.estimatedMinutes || 10,
-      difficulty: difficulty || "intermediate",
-      tags: [doc.category, "ai_generated"],
-      sourceDocumentId: documentId,
-      isPublished: false, // Draft by default
-      createdBy: (req.user as any)?.name || "system",
-    });
+      // Create the module
+      const module = await storage.createLearningModule(orgId, {
+        orgId,
+        title: generated.title || `Training: ${doc.name}`,
+        description: generated.description || `Auto-generated from ${doc.name}`,
+        contentType: "ai_generated",
+        category: category || "general",
+        content: generated.content || "",
+        quizQuestions: generated.quizQuestions || undefined,
+        estimatedMinutes: generated.estimatedMinutes || 10,
+        difficulty: difficulty || "intermediate",
+        tags: [doc.category, "ai_generated"],
+        sourceDocumentId: documentId,
+        isPublished: false, // Draft by default
+        createdBy: (req.user as any)?.name || "system",
+      });
 
-    res.status(201).json(module);
-  }));
+      res.status(201).json(module);
+    }),
+  );
 
   // --- Learning Paths ---
 
   /** GET /api/lms/paths — List all learning paths */
-  app.get("/api/lms/paths", requireAuth, injectOrgContext, asyncHandler(async (req: Request, res: Response) => {
-    const orgId = req.orgId;
-    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+  app.get(
+    "/api/lms/paths",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req: Request, res: Response) => {
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-    const paths = await storage.listLearningPaths(orgId);
-    res.json(paths);
-  }));
+      const paths = await storage.listLearningPaths(orgId);
+      res.json(paths);
+    }),
+  );
 
   /** GET /api/lms/paths/:id — Get a learning path with modules */
-  app.get("/api/lms/paths/:id", requireAuth, injectOrgContext, validateUUIDParam(), asyncHandler(async (req: Request, res: Response) => {
-    const orgId = req.orgId;
-    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+  app.get(
+    "/api/lms/paths/:id",
+    requireAuth,
+    injectOrgContext,
+    validateUUIDParam(),
+    asyncHandler(async (req: Request, res: Response) => {
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-    const path = await storage.getLearningPath(orgId, req.params.id);
-    if (!path) return res.status(404).json({ message: "Path not found" });
+      const path = await storage.getLearningPath(orgId, req.params.id);
+      if (!path) return res.status(404).json({ message: "Path not found" });
 
-    // Load modules for this path
-    const modules = await Promise.all(path.moduleIds.map((mid) => storage.getLearningModule(orgId, mid)));
+      // Load modules for this path
+      const modules = await Promise.all(path.moduleIds.map((mid) => storage.getLearningModule(orgId, mid)));
 
-    res.json({
-      ...path,
-      modules: modules.filter(Boolean),
-    });
-  }));
+      res.json({
+        ...path,
+        modules: modules.filter(Boolean),
+      });
+    }),
+  );
 
   /** POST /api/lms/paths — Create a learning path */
-  app.post("/api/lms/paths", requireAuth, injectOrgContext, requireRole("manager"), asyncHandler(async (req: Request, res: Response) => {
-    const orgId = req.orgId;
-    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+  app.post(
+    "/api/lms/paths",
+    requireAuth,
+    injectOrgContext,
+    requireRole("manager"),
+    asyncHandler(async (req: Request, res: Response) => {
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-    const { title, description, category, moduleIds, isRequired, assignedTo, estimatedMinutes } = req.body;
-    if (!title || !moduleIds || !Array.isArray(moduleIds)) {
-      return res.status(400).json({ message: "title and moduleIds are required" });
-    }
-    if (moduleIds.length === 0) {
-      return res.status(400).json({ message: "At least one module is required in a learning path" });
-    }
-
-    // Validate all referenced modules exist
-    for (const moduleId of moduleIds) {
-      const mod = await storage.getLearningModule(orgId, moduleId);
-      if (!mod) {
-        return res.status(400).json({
-          message: `Module "${moduleId}" not found in organization`,
-          code: "OBS-LMS-MODULE-NOT-FOUND",
-        });
+      const { title, description, category, moduleIds, isRequired, assignedTo, estimatedMinutes } = req.body;
+      if (!title || !moduleIds || !Array.isArray(moduleIds)) {
+        return res.status(400).json({ message: "title and moduleIds are required" });
       }
-    }
+      if (moduleIds.length === 0) {
+        return res.status(400).json({ message: "At least one module is required in a learning path" });
+      }
 
-    const path = await storage.createLearningPath(orgId, {
-      orgId,
-      title,
-      description,
-      category,
-      moduleIds,
-      isRequired: isRequired ?? false,
-      assignedTo,
-      estimatedMinutes,
-      createdBy: (req.user as any)?.name || "unknown",
-    });
+      // Validate all referenced modules exist
+      for (const moduleId of moduleIds) {
+        const mod = await storage.getLearningModule(orgId, moduleId);
+        if (!mod) {
+          return res.status(400).json({
+            message: `Module "${moduleId}" not found in organization`,
+            code: "OBS-LMS-MODULE-NOT-FOUND",
+          });
+        }
+      }
 
-    // Send notification emails to assigned employees (fire-and-forget)
-    if (assignedTo && Array.isArray(assignedTo) && assignedTo.length > 0) {
-      notifyAssignedEmployees(orgId, path, assignedTo, (req.user as any)?.name || "Manager").catch((err) =>
-        logger.debug({ err, pathId: path.id }, "Learning path assignment notification failed (non-critical)"),
-      );
-    }
+      const path = await storage.createLearningPath(orgId, {
+        orgId,
+        title,
+        description,
+        category,
+        moduleIds,
+        isRequired: isRequired ?? false,
+        assignedTo,
+        estimatedMinutes,
+        createdBy: (req.user as any)?.name || "unknown",
+      });
 
-    res.status(201).json(path);
-  }));
+      // Send notification emails to assigned employees (fire-and-forget)
+      if (assignedTo && Array.isArray(assignedTo) && assignedTo.length > 0) {
+        notifyAssignedEmployees(orgId, path, assignedTo, (req.user as any)?.name || "Manager").catch((err) =>
+          logger.debug({ err, pathId: path.id }, "Learning path assignment notification failed (non-critical)"),
+        );
+      }
+
+      res.status(201).json(path);
+    }),
+  );
 
   /** PATCH /api/lms/paths/:id — Update a learning path */
   app.patch(
@@ -472,59 +515,64 @@ Respond with ONLY valid JSON (no markdown fences):
   );
 
   /** POST /api/lms/progress — Update learning progress (start, complete, quiz score) */
-  app.post("/api/lms/progress", requireAuth, injectOrgContext, asyncHandler(async (req: Request, res: Response) => {
-    const orgId = req.orgId;
-    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+  app.post(
+    "/api/lms/progress",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req: Request, res: Response) => {
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-    const { employeeId, moduleId, pathId, status, quizScore, quizAttempts, timeSpentMinutes, notes } = req.body;
-    if (!employeeId || !moduleId) return res.status(400).json({ message: "employeeId and moduleId are required" });
+      const { employeeId, moduleId, pathId, status, quizScore, quizAttempts, timeSpentMinutes, notes } = req.body;
+      if (!employeeId || !moduleId) return res.status(400).json({ message: "employeeId and moduleId are required" });
 
-    // Enforce path deadline if module is part of a path
-    if (pathId) {
-      const path = await storage.getLearningPath(orgId, pathId);
-      if (path) {
-        const deadline = checkPathDeadline(path as { dueDate?: string | null });
-        if (deadline?.overdue) {
-          return res.status(403).json({
-            message: "This learning path's deadline has passed. Contact your manager for an extension.",
-            code: "OBS-LMS-DEADLINE-PASSED",
-            dueDate: path.dueDate,
-          });
-        }
+      // Enforce path deadline if module is part of a path
+      if (pathId) {
+        const path = await storage.getLearningPath(orgId, pathId);
+        if (path) {
+          const deadline = checkPathDeadline(path as { dueDate?: string | null });
+          if (deadline?.overdue) {
+            return res.status(403).json({
+              message: "This learning path's deadline has passed. Contact your manager for an extension.",
+              code: "OBS-LMS-DEADLINE-PASSED",
+              dueDate: path.dueDate,
+            });
+          }
 
-        // Enforce sequential order if path requires it
-        if (path.enforceOrder && status === "in_progress") {
-          const moduleIds = Array.isArray(path.moduleIds) ? (path.moduleIds as string[]) : [];
-          const moduleIndex = moduleIds.indexOf(moduleId);
-          if (moduleIndex > 0) {
-            const prevModuleId = moduleIds[moduleIndex - 1];
-            const prevProgress = await storage.getLearningProgress(orgId, employeeId, prevModuleId);
-            if (!prevProgress || prevProgress.status !== "completed") {
-              return res.status(403).json({
-                message: "Complete the previous module first. This learning path requires sequential completion.",
-                code: "OBS-LMS-ENFORCE-ORDER",
-                blockedBy: prevModuleId,
-              });
+          // Enforce sequential order if path requires it
+          if (path.enforceOrder && status === "in_progress") {
+            const moduleIds = Array.isArray(path.moduleIds) ? (path.moduleIds as string[]) : [];
+            const moduleIndex = moduleIds.indexOf(moduleId);
+            if (moduleIndex > 0) {
+              const prevModuleId = moduleIds[moduleIndex - 1];
+              const prevProgress = await storage.getLearningProgress(orgId, employeeId, prevModuleId);
+              if (!prevProgress || prevProgress.status !== "completed") {
+                return res.status(403).json({
+                  message: "Complete the previous module first. This learning path requires sequential completion.",
+                  code: "OBS-LMS-ENFORCE-ORDER",
+                  blockedBy: prevModuleId,
+                });
+              }
             }
           }
         }
       }
-    }
 
-    const progress = await storage.upsertLearningProgress(orgId, {
-      orgId,
-      employeeId,
-      moduleId,
-      pathId,
-      status: status || "in_progress",
-      quizScore,
-      quizAttempts,
-      timeSpentMinutes,
-      completedAt: status === "completed" ? new Date().toISOString() : undefined,
-      notes,
-    });
-    res.json(progress);
-  }));
+      const progress = await storage.upsertLearningProgress(orgId, {
+        orgId,
+        employeeId,
+        moduleId,
+        pathId,
+        status: status || "in_progress",
+        quizScore,
+        quizAttempts,
+        timeSpentMinutes,
+        completedAt: status === "completed" ? new Date().toISOString() : undefined,
+        notes,
+      });
+      res.json(progress);
+    }),
+  );
 
   /**
    * POST /api/lms/modules/:id/submit-quiz — Submit quiz answers for grading.
@@ -666,160 +714,187 @@ Respond with ONLY valid JSON (no markdown fences):
    * GET /api/lms/paths/:id/progress/:employeeId — Get an employee's progress through a learning path.
    * Returns the path with per-module completion status.
    */
-  app.get("/api/lms/paths/:id/progress/:employeeId", requireAuth, injectOrgContext, asyncHandler(async (req: Request, res: Response) => {
-    const orgId = req.orgId;
-    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+  app.get(
+    "/api/lms/paths/:id/progress/:employeeId",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req: Request, res: Response) => {
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-    const path = await storage.getLearningPath(orgId, req.params.id);
-    if (!path) return res.status(404).json({ message: "Path not found" });
+      const path = await storage.getLearningPath(orgId, req.params.id);
+      if (!path) return res.status(404).json({ message: "Path not found" });
 
-    const allProgress = await storage.getEmployeeLearningProgress(orgId, req.params.employeeId);
-    const progressMap = new Map(allProgress.map((p) => [p.moduleId, p]));
+      const allProgress = await storage.getEmployeeLearningProgress(orgId, req.params.employeeId);
+      const progressMap = new Map(allProgress.map((p) => [p.moduleId, p]));
 
-    // Batch-fetch all modules in the path (avoids N+1 query — was 1 query per module)
-    const allModules = await storage.listLearningModules(orgId);
-    const moduleMap = new Map(allModules.map((m) => [m.id, m]));
-    const modules = (path.moduleIds as string[])
-      .map((mid) => {
-        const mod = moduleMap.get(mid);
-        if (!mod) return null;
-        return { ...mod, progress: progressMap.get(mid) || null };
-      })
-      .filter(Boolean);
+      // Batch-fetch all modules in the path (avoids N+1 query — was 1 query per module)
+      const allModules = await storage.listLearningModules(orgId);
+      const moduleMap = new Map(allModules.map((m) => [m.id, m]));
+      const modules = (path.moduleIds as string[])
+        .map((mid) => {
+          const mod = moduleMap.get(mid);
+          if (!mod) return null;
+          return { ...mod, progress: progressMap.get(mid) || null };
+        })
+        .filter(Boolean);
 
-    const validModules = modules;
-    const completedCount = validModules.filter((m: any) => m.progress?.status === "completed").length;
+      const validModules = modules;
+      const completedCount = validModules.filter((m: any) => m.progress?.status === "completed").length;
 
-    res.json({
-      ...path,
-      modules: validModules,
-      completedCount,
-      totalModules: validModules.length,
-      percentComplete: validModules.length > 0 ? Math.round((completedCount / validModules.length) * 100) : 0,
-    });
-  }));
+      res.json({
+        ...path,
+        modules: validModules,
+        completedCount,
+        totalModules: validModules.length,
+        percentComplete: validModules.length > 0 ? Math.round((completedCount / validModules.length) * 100) : 0,
+      });
+    }),
+  );
 
   // ── Bulk progress operations (manager+) ──────────────────────────────────
 
   /** POST /api/lms/bulk/complete — Mark multiple employees as completed for a module */
-  app.post("/api/lms/bulk/complete", requireAuth, injectOrgContext, requireRole("manager"), asyncHandler(async (req: Request, res: Response) => {
-    const orgId = req.orgId;
-    if (!orgId) return res.status(403).json({ message: "Organization context required" });
-    const { moduleId, employeeIds } = req.body;
-    if (!moduleId || !Array.isArray(employeeIds) || employeeIds.length === 0) {
-      return res.status(400).json({ message: "moduleId and employeeIds array required" });
-    }
-    if (employeeIds.length > 200) {
-      return res.status(400).json({ message: "Maximum 200 employees per bulk operation" });
-    }
-
-    let completed = 0;
-    for (const empId of employeeIds) {
-      try {
-        await storage.upsertLearningProgress(orgId, {
-          orgId,
-          employeeId: empId,
-          moduleId,
-          status: "completed",
-          completedAt: new Date().toISOString(),
-        });
-        completed++;
-      } catch {
-        // Skip individual failures
+  app.post(
+    "/api/lms/bulk/complete",
+    requireAuth,
+    injectOrgContext,
+    requireRole("manager"),
+    asyncHandler(async (req: Request, res: Response) => {
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
+      const { moduleId, employeeIds } = req.body;
+      if (!moduleId || !Array.isArray(employeeIds) || employeeIds.length === 0) {
+        return res.status(400).json({ message: "moduleId and employeeIds array required" });
       }
-    }
-    res.json({ completed, total: employeeIds.length });
-  }));
+      if (employeeIds.length > 200) {
+        return res.status(400).json({ message: "Maximum 200 employees per bulk operation" });
+      }
+
+      let completed = 0;
+      for (const empId of employeeIds) {
+        try {
+          await storage.upsertLearningProgress(orgId, {
+            orgId,
+            employeeId: empId,
+            moduleId,
+            status: "completed",
+            completedAt: new Date().toISOString(),
+          });
+          completed++;
+        } catch {
+          // Skip individual failures
+        }
+      }
+      res.json({ completed, total: employeeIds.length });
+    }),
+  );
 
   /** POST /api/lms/bulk/reset — Reset progress for multiple employees on a module */
-  app.post("/api/lms/bulk/reset", requireAuth, injectOrgContext, requireRole("manager"), asyncHandler(async (req: Request, res: Response) => {
-    const orgId = req.orgId;
-    if (!orgId) return res.status(403).json({ message: "Organization context required" });
-    const { moduleId, employeeIds } = req.body;
-    if (!moduleId || !Array.isArray(employeeIds) || employeeIds.length === 0) {
-      return res.status(400).json({ message: "moduleId and employeeIds array required" });
-    }
-    if (employeeIds.length > 200) {
-      return res.status(400).json({ message: "Maximum 200 employees per bulk operation" });
-    }
-
-    let reset = 0;
-    for (const empId of employeeIds) {
-      try {
-        await storage.upsertLearningProgress(orgId, {
-          orgId,
-          employeeId: empId,
-          moduleId,
-          status: "not_started",
-          quizScore: 0,
-          quizAttempts: 0,
-          completedAt: undefined,
-        });
-        reset++;
-      } catch {
-        // Skip individual failures
+  app.post(
+    "/api/lms/bulk/reset",
+    requireAuth,
+    injectOrgContext,
+    requireRole("manager"),
+    asyncHandler(async (req: Request, res: Response) => {
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
+      const { moduleId, employeeIds } = req.body;
+      if (!moduleId || !Array.isArray(employeeIds) || employeeIds.length === 0) {
+        return res.status(400).json({ message: "moduleId and employeeIds array required" });
       }
-    }
-    res.json({ reset, total: employeeIds.length });
-  }));
+      if (employeeIds.length > 200) {
+        return res.status(400).json({ message: "Maximum 200 employees per bulk operation" });
+      }
+
+      let reset = 0;
+      for (const empId of employeeIds) {
+        try {
+          await storage.upsertLearningProgress(orgId, {
+            orgId,
+            employeeId: empId,
+            moduleId,
+            status: "not_started",
+            quizScore: 0,
+            quizAttempts: 0,
+            completedAt: undefined,
+          });
+          reset++;
+        } catch {
+          // Skip individual failures
+        }
+      }
+      res.json({ reset, total: employeeIds.length });
+    }),
+  );
 
   /** POST /api/lms/bulk/assign — Assign a path to multiple employees */
-  app.post("/api/lms/bulk/assign", requireAuth, injectOrgContext, requireRole("manager"), asyncHandler(async (req: Request, res: Response) => {
-    const orgId = req.orgId;
-    if (!orgId) return res.status(403).json({ message: "Organization context required" });
-    const { pathId, employeeIds } = req.body;
-    if (!pathId || !Array.isArray(employeeIds) || employeeIds.length === 0) {
-      return res.status(400).json({ message: "pathId and employeeIds array required" });
-    }
+  app.post(
+    "/api/lms/bulk/assign",
+    requireAuth,
+    injectOrgContext,
+    requireRole("manager"),
+    asyncHandler(async (req: Request, res: Response) => {
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
+      const { pathId, employeeIds } = req.body;
+      if (!pathId || !Array.isArray(employeeIds) || employeeIds.length === 0) {
+        return res.status(400).json({ message: "pathId and employeeIds array required" });
+      }
 
-    const path = await storage.getLearningPath(orgId, pathId);
-    if (!path) return res.status(404).json({ message: "Path not found" });
+      const path = await storage.getLearningPath(orgId, pathId);
+      if (!path) return res.status(404).json({ message: "Path not found" });
 
-    // Merge new employees into assignedTo (deduplicate)
-    const existing = new Set((path.assignedTo as string[]) || []);
-    for (const empId of employeeIds) existing.add(empId);
-    await storage.updateLearningPath(orgId, pathId, {
-      assignedTo: Array.from(existing),
-    });
+      // Merge new employees into assignedTo (deduplicate)
+      const existing = new Set((path.assignedTo as string[]) || []);
+      for (const empId of employeeIds) existing.add(empId);
+      await storage.updateLearningPath(orgId, pathId, {
+        assignedTo: Array.from(existing),
+      });
 
-    // Send notification emails
-    const newAssignees = employeeIds.filter((id) => !(path.assignedTo as string[] || []).includes(id));
-    if (newAssignees.length > 0) {
-      notifyAssignedEmployees(orgId, path, newAssignees, (req.user as any)?.name || "Manager").catch(() => {});
-    }
+      // Send notification emails
+      const newAssignees = employeeIds.filter((id) => !((path.assignedTo as string[]) || []).includes(id));
+      if (newAssignees.length > 0) {
+        notifyAssignedEmployees(orgId, path, newAssignees, (req.user as any)?.name || "Manager").catch(() => {});
+      }
 
-    res.json({ assigned: employeeIds.length, totalAssigned: existing.size });
-  }));
+      res.json({ assigned: employeeIds.length, totalAssigned: existing.size });
+    }),
+  );
 
   /** GET /api/lms/stats — LMS analytics overview */
-  app.get("/api/lms/stats", requireAuth, injectOrgContext, asyncHandler(async (req: Request, res: Response) => {
-    const orgId = req.orgId;
-    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+  app.get(
+    "/api/lms/stats",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req: Request, res: Response) => {
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-    // Optimized: fetch modules + paths + aggregate progress in parallel.
-    // Previous version loaded all employees (could be thousands) then fetched
-    // progress per-employee (N+1 queries capped at 50). Now uses storage-level
-    // aggregation for progress stats.
-    const [modules, paths] = await Promise.all([
-      storage.listLearningModules(orgId),
-      storage.listLearningPaths(orgId),
-    ]);
+      // Optimized: fetch modules + paths + aggregate progress in parallel.
+      // Previous version loaded all employees (could be thousands) then fetched
+      // progress per-employee (N+1 queries capped at 50). Now uses storage-level
+      // aggregation for progress stats.
+      const [modules, paths] = await Promise.all([
+        storage.listLearningModules(orgId),
+        storage.listLearningPaths(orgId),
+      ]);
 
-    const publishedModules = modules.filter((m) => m.isPublished);
-    const aiGenerated = modules.filter((m) => m.contentType === "ai_generated");
+      const publishedModules = modules.filter((m) => m.isPublished);
+      const aiGenerated = modules.filter((m) => m.contentType === "ai_generated");
 
-    // Aggregate progress stats — try SQL-level aggregation, fall back to in-memory
-    let totalCompletions = 0;
-    let totalInProgress = 0;
-    let avgQuizScore: number | null = null;
-    let totalEmployeesLearning = 0;
+      // Aggregate progress stats — try SQL-level aggregation, fall back to in-memory
+      let totalCompletions = 0;
+      let totalInProgress = 0;
+      let avgQuizScore: number | null = null;
+      let totalEmployeesLearning = 0;
 
-    try {
-      const { getDatabase } = await import("../db/index");
-      const db = getDatabase();
-      if (db) {
-        const { sql } = await import("drizzle-orm");
-        const statsResult = await db.execute(sql`
+      try {
+        const { getDatabase } = await import("../db/index");
+        const db = getDatabase();
+        if (db) {
+          const { sql } = await import("drizzle-orm");
+          const statsResult = await db.execute(sql`
           SELECT
             COUNT(*) FILTER (WHERE status = 'completed') AS completed_count,
             COUNT(*) FILTER (WHERE status = 'in_progress') AS in_progress_count,
@@ -828,54 +903,56 @@ Respond with ONLY valid JSON (no markdown fences):
           FROM learning_progress
           WHERE org_id = ${orgId}
         `);
-        const row = (statsResult.rows[0] as any) || {};
-        totalCompletions = parseInt(row.completed_count) || 0;
-        totalInProgress = parseInt(row.in_progress_count) || 0;
-        avgQuizScore = row.avg_quiz != null ? parseInt(row.avg_quiz) : null;
-        totalEmployeesLearning = parseInt(row.unique_learners) || 0;
+          const row = (statsResult.rows[0] as any) || {};
+          totalCompletions = parseInt(row.completed_count) || 0;
+          totalInProgress = parseInt(row.in_progress_count) || 0;
+          avgQuizScore = row.avg_quiz != null ? parseInt(row.avg_quiz) : null;
+          totalEmployeesLearning = parseInt(row.unique_learners) || 0;
+        }
+      } catch {
+        // Fall back to in-memory if SQL fails (e.g., no DB)
+        const employees = await storage.getAllEmployees(orgId);
+        const progressArrays = await Promise.all(
+          employees.slice(0, 50).map((emp) => storage.getEmployeeLearningProgress(orgId, emp.id)),
+        );
+        const allProgress = progressArrays.flat();
+        totalCompletions = allProgress.filter((p) => p.status === "completed").length;
+        totalInProgress = allProgress.filter((p) => p.status === "in_progress").length;
+        const quizScores = allProgress.filter((p) => p.quizScore != null);
+        avgQuizScore =
+          quizScores.length > 0
+            ? Math.round(quizScores.reduce((sum, p) => sum + (p.quizScore || 0), 0) / quizScores.length)
+            : null;
+        totalEmployeesLearning = new Set(allProgress.map((p) => p.employeeId)).size;
       }
-    } catch {
-      // Fall back to in-memory if SQL fails (e.g., no DB)
-      const employees = await storage.getAllEmployees(orgId);
-      const progressArrays = await Promise.all(
-        employees.slice(0, 50).map((emp) => storage.getEmployeeLearningProgress(orgId, emp.id)),
-      );
-      const allProgress = progressArrays.flat();
-      totalCompletions = allProgress.filter((p) => p.status === "completed").length;
-      totalInProgress = allProgress.filter((p) => p.status === "in_progress").length;
-      const quizScores = allProgress.filter((p) => p.quizScore != null);
-      avgQuizScore = quizScores.length > 0
-        ? Math.round(quizScores.reduce((sum, p) => sum + (p.quizScore || 0), 0) / quizScores.length)
-        : null;
-      totalEmployeesLearning = new Set(allProgress.map((p) => p.employeeId)).size;
-    }
 
-    res.json({
-      totalModules: modules.length,
-      publishedModules: publishedModules.length,
-      aiGeneratedModules: aiGenerated.length,
-      totalPaths: paths.length,
-      totalCompletions,
-      totalInProgress,
-      avgQuizScore,
-      totalEmployeesLearning,
-      modulesByCategory: modules.reduce(
-        (acc, m) => {
-          const cat = m.category || "general";
-          acc[cat] = (acc[cat] || 0) + 1;
-          return acc;
-        },
-        {} as Record<string, number>,
-      ),
-      modulesByType: modules.reduce(
-        (acc, m) => {
-          acc[m.contentType] = (acc[m.contentType] || 0) + 1;
-          return acc;
-        },
-        {} as Record<string, number>,
-      ),
-    });
-  }));
+      res.json({
+        totalModules: modules.length,
+        publishedModules: publishedModules.length,
+        aiGeneratedModules: aiGenerated.length,
+        totalPaths: paths.length,
+        totalCompletions,
+        totalInProgress,
+        avgQuizScore,
+        totalEmployeesLearning,
+        modulesByCategory: modules.reduce(
+          (acc, m) => {
+            const cat = m.category || "general";
+            acc[cat] = (acc[cat] || 0) + 1;
+            return acc;
+          },
+          {} as Record<string, number>,
+        ),
+        modulesByType: modules.reduce(
+          (acc, m) => {
+            acc[m.contentType] = (acc[m.contentType] || 0) + 1;
+            return acc;
+          },
+          {} as Record<string, number>,
+        ),
+      });
+    }),
+  );
 
   /**
    * GET /api/lms/modules/:id/prerequisites — Check if employee has met prerequisites.
@@ -998,58 +1075,68 @@ Respond with ONLY valid JSON (no markdown fences):
    * GET /api/lms/modules/:id/certificate — Generate completion certificate data.
    * Returns structured data for certificate rendering (client generates PDF).
    */
-  app.get("/api/lms/modules/:id/certificate", requireAuth, injectOrgContext, validateUUIDParam(), asyncHandler(async (req: Request, res: Response) => {
-    const orgId = req.orgId;
-    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+  app.get(
+    "/api/lms/modules/:id/certificate",
+    requireAuth,
+    injectOrgContext,
+    validateUUIDParam(),
+    asyncHandler(async (req: Request, res: Response) => {
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-    const { employeeId } = req.query;
-    if (!employeeId || typeof employeeId !== "string") {
-      return res.status(400).json({ message: "employeeId query param is required" });
-    }
+      const { employeeId } = req.query;
+      if (!employeeId || typeof employeeId !== "string") {
+        return res.status(400).json({ message: "employeeId query param is required" });
+      }
 
-    const [module, employee, progress, org] = await Promise.all([
-      storage.getLearningModule(orgId, req.params.id),
-      storage.getEmployee(orgId, employeeId),
-      storage.getLearningProgress(orgId, employeeId, req.params.id),
-      storage.getOrganization(orgId),
-    ]);
+      const [module, employee, progress, org] = await Promise.all([
+        storage.getLearningModule(orgId, req.params.id),
+        storage.getEmployee(orgId, employeeId),
+        storage.getLearningProgress(orgId, employeeId, req.params.id),
+        storage.getOrganization(orgId),
+      ]);
 
-    if (!module) return res.status(404).json({ message: "Module not found" });
-    if (!employee) return res.status(404).json({ message: "Employee not found" });
-    if (!progress || progress.status !== "completed") {
-      return res.status(400).json({ message: "Module must be completed to generate certificate" });
-    }
+      if (!module) return res.status(404).json({ message: "Module not found" });
+      if (!employee) return res.status(404).json({ message: "Employee not found" });
+      if (!progress || progress.status !== "completed") {
+        return res.status(400).json({ message: "Module must be completed to generate certificate" });
+      }
 
-    res.json({
-      certificate: {
-        employeeName: employee.name,
-        moduleName: module.title,
-        moduleCategory: module.category,
-        completedAt: progress.completedAt,
-        quizScore: progress.quizScore,
-        organizationName: org?.name || "Organization",
-        difficulty: module.difficulty,
-        estimatedMinutes: module.estimatedMinutes,
-        certificateId: `CERT-${progress.id.slice(0, 8).toUpperCase()}`,
-        issuedAt: new Date().toISOString(),
-      },
-    });
-  }));
+      res.json({
+        certificate: {
+          employeeName: employee.name,
+          moduleName: module.title,
+          moduleCategory: module.category,
+          completedAt: progress.completedAt,
+          quizScore: progress.quizScore,
+          organizationName: org?.name || "Organization",
+          difficulty: module.difficulty,
+          estimatedMinutes: module.estimatedMinutes,
+          certificateId: `CERT-${progress.id.slice(0, 8).toUpperCase()}`,
+          issuedAt: new Date().toISOString(),
+        },
+      });
+    }),
+  );
 
   /**
    * GET /api/lms/coaching-recommendations — Recommend modules based on coaching session topics.
    */
-  app.get("/api/lms/coaching-recommendations", requireAuth, injectOrgContext, asyncHandler(async (req: Request, res: Response) => {
-    const orgId = req.orgId;
-    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+  app.get(
+    "/api/lms/coaching-recommendations",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req: Request, res: Response) => {
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-    const { employeeId, coachingSessionId } = req.query;
-    if (!employeeId || typeof employeeId !== "string") {
-      return res.status(400).json({ message: "employeeId query param is required" });
-    }
+      const { employeeId, coachingSessionId } = req.query;
+      if (!employeeId || typeof employeeId !== "string") {
+        return res.status(400).json({ message: "employeeId query param is required" });
+      }
 
-    // Get published modules
-    const modules = await storage.listLearningModules(orgId, { isPublished: true });
+      // Get published modules
+      const modules = await storage.listLearningModules(orgId, { isPublished: true });
       const employeeProgress = await storage.getEmployeeLearningProgress(orgId, employeeId);
       const completedModuleIds = new Set(
         employeeProgress.filter((p) => p.status === "completed").map((p) => p.moduleId),
@@ -1173,59 +1260,65 @@ Respond with ONLY valid JSON (no markdown fences):
         weakAreas,
         coachingCategory,
       });
-  }));
+    }),
+  );
 
   /** GET /api/lms/knowledge-search — Search the knowledge base (RAG) for employees */
-  app.get("/api/lms/knowledge-search", requireAuth, injectOrgContext, asyncHandler(async (req: Request, res: Response) => {
-    const orgId = req.orgId;
-    if (!orgId) return res.status(403).json({ message: "Organization context required" });
+  app.get(
+    "/api/lms/knowledge-search",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req: Request, res: Response) => {
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-    const query = req.query.q as string;
-    if (!query || query.trim().length < 3) {
-      return res.status(400).json({ message: "Search query must be at least 3 characters" });
-    }
-
-    // Search published modules
-    const modules = await storage.listLearningModules(orgId, { isPublished: true });
-    const matches = modules
-      .filter((m) => {
-        const searchText =
-          `${m.title} ${m.description || ""} ${m.content || ""} ${(m.tags || []).join(" ")}`.toLowerCase();
-        return query
-          .toLowerCase()
-          .split(" ")
-          .every((term) => searchText.includes(term));
-      })
-      .slice(0, 10);
-
-    // Also search reference documents (RAG)
-    let ragResults: Array<{ text: string; documentName: string; relevance: number }> = [];
-    if (process.env.DATABASE_URL) {
-      try {
-        const { searchRelevantChunks, formatRetrievedContext } = await import("../services/rag");
-        const { getDatabase } = await import("../db/index");
-        const db = getDatabase();
-        if (db) {
-          const refDocs = await storage.listReferenceDocuments(orgId);
-          const docIds = refDocs.filter((d) => d.isActive).map((d) => d.id);
-          if (docIds.length > 0) {
-            const chunks = await searchRelevantChunks(db as any, orgId, query, docIds, { topK: 5 });
-            ragResults = chunks.map((c) => ({
-              text: c.text.slice(0, 500),
-              documentName: refDocs.find((d) => d.id === c.documentId)?.name || "Unknown",
-              relevance: c.score,
-            }));
-          }
-        }
-      } catch (ragErr) {
-        logger.warn({ err: ragErr }, "RAG search failed in LMS knowledge search");
+      const query = req.query.q as string;
+      if (!query || query.trim().length < 3) {
+        return res.status(400).json({ message: "Search query must be at least 3 characters" });
       }
-    }
 
-    res.json({
-      modules: matches,
-      knowledgeBase: ragResults,
-      totalResults: matches.length + ragResults.length,
-    });
-  }));
+      // Search published modules
+      const modules = await storage.listLearningModules(orgId, { isPublished: true });
+      const matches = modules
+        .filter((m) => {
+          const searchText =
+            `${m.title} ${m.description || ""} ${m.content || ""} ${(m.tags || []).join(" ")}`.toLowerCase();
+          return query
+            .toLowerCase()
+            .split(" ")
+            .every((term) => searchText.includes(term));
+        })
+        .slice(0, 10);
+
+      // Also search reference documents (RAG)
+      let ragResults: Array<{ text: string; documentName: string; relevance: number }> = [];
+      if (process.env.DATABASE_URL) {
+        try {
+          const { searchRelevantChunks, formatRetrievedContext } = await import("../services/rag");
+          const { getDatabase } = await import("../db/index");
+          const db = getDatabase();
+          if (db) {
+            const refDocs = await storage.listReferenceDocuments(orgId);
+            const docIds = refDocs.filter((d) => d.isActive).map((d) => d.id);
+            if (docIds.length > 0) {
+              const chunks = await searchRelevantChunks(db as any, orgId, query, docIds, { topK: 5 });
+              ragResults = chunks.map((c) => ({
+                text: c.text.slice(0, 500),
+                documentName: refDocs.find((d) => d.id === c.documentId)?.name || "Unknown",
+                relevance: c.score,
+              }));
+            }
+          }
+        } catch (ragErr) {
+          logger.warn({ err: ragErr }, "RAG search failed in LMS knowledge search");
+        }
+      }
+
+      res.json({
+        modules: matches,
+        knowledgeBase: ragResults,
+        totalResults: matches.length + ragResults.length,
+      });
+    }),
+  );
 }

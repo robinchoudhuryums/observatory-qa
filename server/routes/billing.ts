@@ -118,7 +118,9 @@ export function enforceUserQuota() {
       next();
     } catch (error) {
       logger.error({ err: error, orgId }, "User quota check failed — blocking request (fail-closed)");
-      return res.status(503).json({ message: "Unable to verify user quota. Please try again.", code: "QUOTA_CHECK_FAILED" });
+      return res
+        .status(503)
+        .json({ message: "Unable to verify user quota. Please try again.", code: "QUOTA_CHECK_FAILED" });
     }
   };
 }
@@ -152,7 +154,9 @@ export function requirePlanFeature(feature: keyof import("@shared/schema").PlanL
       next();
     } catch (err) {
       logger.error({ err, orgId }, "Plan feature check failed — blocking request (fail-closed)");
-      return res.status(503).json({ message: "Unable to verify plan features. Please try again.", code: "PLAN_CHECK_FAILED" });
+      return res
+        .status(503)
+        .json({ message: "Unable to verify plan features. Please try again.", code: "PLAN_CHECK_FAILED" });
     }
   };
 }
@@ -220,7 +224,10 @@ export function requireActiveSubscription() {
       next();
     } catch (err) {
       logger.error({ err, orgId }, "Subscription check failed — blocking request (fail-closed)");
-      return res.status(503).json({ message: "Unable to verify subscription status. Please try again.", code: "SUBSCRIPTION_CHECK_FAILED" });
+      return res.status(503).json({
+        message: "Unable to verify subscription status. Please try again.",
+        code: "SUBSCRIPTION_CHECK_FAILED",
+      });
     }
   };
 }
@@ -291,7 +298,11 @@ export function registerBillingRoutes(app: Express): void {
   });
 
   // --- Current subscription (authenticated) ---
-  app.get("/api/billing/subscription", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/billing/subscription",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const sub = await storage.getSubscription(req.orgId!);
       const tier = (sub?.planTier as PlanTier) || "free";
       const plan = PLAN_DEFINITIONS[tier];
@@ -372,10 +383,15 @@ export function registerBillingRoutes(app: Express): void {
         gracePeriodDaysLeft,
         stripeConfigured: isStripeConfigured(),
       });
-  }));
+    }),
+  );
 
   // --- Usage history (authenticated) ---
-  app.get("/api/billing/usage", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/billing/usage",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const { months = "6" } = req.query;
       const numMonths = Math.min(parseInt(months as string) || 6, 12);
 
@@ -397,14 +413,20 @@ export function registerBillingRoutes(app: Express): void {
       }
 
       res.json(history.reverse()); // Chronological order
-  }));
+    }),
+  );
 
   // --- Stripe Checkout (admin only) ---
-  app.post("/api/billing/checkout", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
-    const stripe = getStripe();
-    if (!stripe) {
-      return res.status(503).json({ message: "Stripe not configured" });
-    }
+  app.post(
+    "/api/billing/checkout",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const stripe = getStripe();
+      if (!stripe) {
+        return res.status(503).json({ message: "Stripe not configured" });
+      }
 
       const { tier, interval = "monthly" } = req.body;
       if (!tier || !PLAN_TIERS.includes(tier)) {
@@ -477,14 +499,20 @@ export function registerBillingRoutes(app: Express): void {
       });
       logger.info({ orgId: req.orgId, tier, interval }, "Checkout session created");
       res.json({ url: checkoutUrl });
-  }));
+    }),
+  );
 
   // --- Stripe Customer Portal (admin only) ---
-  app.post("/api/billing/portal", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
-    const stripe = getStripe();
-    if (!stripe) {
-      return res.status(503).json({ message: "Stripe not configured" });
-    }
+  app.post(
+    "/api/billing/portal",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const stripe = getStripe();
+      if (!stripe) {
+        return res.status(503).json({ message: "Stripe not configured" });
+      }
 
       const sub = await storage.getSubscription(req.orgId!);
       if (!sub?.stripeCustomerId) {
@@ -495,10 +523,16 @@ export function registerBillingRoutes(app: Express): void {
       const portalUrl = await createPortalSession(stripe, sub.stripeCustomerId, `${baseUrl}/settings?tab=billing`);
 
       res.json({ url: portalUrl });
-  }));
+    }),
+  );
 
   // --- Downgrade to free (admin only) ---
-  app.post("/api/billing/downgrade", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
+  app.post(
+    "/api/billing/downgrade",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const sub = await storage.getSubscription(req.orgId!);
 
       // Cancel Stripe subscription if exists
@@ -533,16 +567,22 @@ export function registerBillingRoutes(app: Express): void {
       });
       logger.info({ orgId: req.orgId }, "Downgraded to free plan");
       res.json({ message: "Downgraded to free plan" });
-  }));
+    }),
+  );
 
   // --- Mid-cycle plan upgrade (admin only) ---
   // Uses stripe.subscriptions.update() + proration instead of a new checkout session.
   // Only applicable when the org already has an active Stripe subscription.
-  app.post("/api/billing/upgrade", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
-    const stripe = getStripe();
-    if (!stripe) {
-      return res.status(503).json({ message: "Stripe not configured" });
-    }
+  app.post(
+    "/api/billing/upgrade",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const stripe = getStripe();
+      if (!stripe) {
+        return res.status(503).json({ message: "Stripe not configured" });
+      }
 
       const { tier, interval = "monthly" } = req.body;
       if (!tier || !PLAN_TIERS.includes(tier)) {
@@ -634,10 +674,16 @@ export function registerBillingRoutes(app: Express): void {
       await syncSeatUsage(req.orgId!);
 
       res.json({ success: true, planTier: tier, interval });
-  }));
+    }),
+  );
 
   // --- Billing alert configuration (admin only) ---
-  app.patch("/api/billing/alerts", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
+  app.patch(
+    "/api/billing/alerts",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const { enabled, quotaThresholdPct, alertEmail } = req.body;
       const org = await storage.getOrganization(req.orgId!);
       if (!org) return res.status(404).json({ message: "Organization not found" });
@@ -655,14 +701,20 @@ export function registerBillingRoutes(app: Express): void {
       invalidateOrgCache(req.orgId!);
       logger.info({ orgId: req.orgId, enabled, quotaThresholdPct }, "Billing alerts updated");
       res.json({ success: true, billingAlerts: updatedSettings.billingAlerts });
-  }));
+    }),
+  );
 
   // --- Seat usage sync (admin only) ---
-  app.post("/api/billing/seats/sync", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
-    const stripe = getStripe();
-    if (!stripe) {
-      return res.status(503).json({ message: "Stripe not configured" });
-    }
+  app.post(
+    "/api/billing/seats/sync",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const stripe = getStripe();
+      if (!stripe) {
+        return res.status(503).json({ message: "Stripe not configured" });
+      }
 
       const sub = await storage.getSubscription(req.orgId!);
       if (!sub?.stripeSeatsItemId) {
@@ -686,7 +738,8 @@ export function registerBillingRoutes(app: Express): void {
         additionalSeats,
         reportedToStripe: true,
       });
-  }));
+    }),
+  );
 
   // --- Stripe Webhook (unauthenticated — verified by signature) ---
   // NOTE: This route must use raw body parsing. The caller must configure
@@ -840,7 +893,10 @@ export function registerBillingRoutes(app: Express): void {
             currentPeriodEnd: new Date(stripeSub.current_period_end * 1000).toISOString(),
             cancelAtPeriodEnd: stripeSub.cancel_at_period_end || false,
           });
-          logger.info({ orgId, tier, status: stripeSub.status, hasSeatMeter: !!updSeatsItem, hasOverageMeter: !!updOverageItem }, "Subscription updated");
+          logger.info(
+            { orgId, tier, status: stripeSub.status, hasSeatMeter: !!updSeatsItem, hasOverageMeter: !!updOverageItem },
+            "Subscription updated",
+          );
           break;
         }
 

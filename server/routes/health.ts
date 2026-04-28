@@ -38,103 +38,106 @@ export function registerHealthRoutes(app: Express): void {
    * Used by Docker HEALTHCHECK, load balancers, and monitoring systems.
    * Each dependency check has a 3s timeout to prevent hanging.
    */
-  app.get("/api/health", asyncHandler(async (_req, res) => {
-    const checks: Record<string, { status: string; detail?: string; latencyMs?: number }> = {};
-    let overall = true;
+  app.get(
+    "/api/health",
+    asyncHandler(async (_req, res) => {
+      const checks: Record<string, { status: string; detail?: string; latencyMs?: number }> = {};
+      let overall = true;
 
-    const CHECK_TIMEOUT_MS = 3000;
+      const CHECK_TIMEOUT_MS = 3000;
 
-    // --- Database / Storage connectivity ---
-    try {
-      const start = Date.now();
-      const orgs = await withTimeout(() => storage.listOrganizations(), CHECK_TIMEOUT_MS, "storage");
-      checks.storage = { status: "ok", detail: `${orgs.length} org(s)`, latencyMs: Date.now() - start };
-    } catch (error) {
-      checks.storage = { status: "error", detail: (error as Error).message };
-      overall = false;
-    }
-
-    // --- Redis connectivity ---
-    const redis = getRedis();
-    if (redis) {
+      // --- Database / Storage connectivity ---
       try {
         const start = Date.now();
-        await withTimeout(() => redis.ping(), CHECK_TIMEOUT_MS, "redis");
-        checks.redis = { status: "ok", latencyMs: Date.now() - start };
+        const orgs = await withTimeout(() => storage.listOrganizations(), CHECK_TIMEOUT_MS, "storage");
+        checks.storage = { status: "ok", detail: `${orgs.length} org(s)`, latencyMs: Date.now() - start };
       } catch (error) {
-        checks.redis = { status: "error", detail: (error as Error).message };
+        checks.storage = { status: "error", detail: (error as Error).message };
         overall = false;
       }
-    } else {
-      checks.redis = { status: "unavailable", detail: "No REDIS_URL configured" };
-    }
 
-    // --- AI provider availability + circuit breaker state ---
-    const circuit = getBedrockCircuitState();
-    checks.ai = {
-      status: !aiProvider.isAvailable ? "unavailable" : circuit.state === "OPEN" ? "degraded" : "ok",
-      detail: `${aiProvider.name} | circuit: ${circuit.state}${circuit.state !== "CLOSED" ? ` (${circuit.consecutiveFailures} failures)` : ""}`,
-    };
+      // --- Redis connectivity ---
+      const redis = getRedis();
+      if (redis) {
+        try {
+          const start = Date.now();
+          await withTimeout(() => redis.ping(), CHECK_TIMEOUT_MS, "redis");
+          checks.redis = { status: "ok", latencyMs: Date.now() - start };
+        } catch (error) {
+          checks.redis = { status: "error", detail: (error as Error).message };
+          overall = false;
+        }
+      } else {
+        checks.redis = { status: "unavailable", detail: "No REDIS_URL configured" };
+      }
 
-    // --- Transcription service ---
-    checks.transcription = {
-      status: process.env.ASSEMBLYAI_API_KEY ? "ok" : "unconfigured",
-    };
+      // --- AI provider availability + circuit breaker state ---
+      const circuit = getBedrockCircuitState();
+      checks.ai = {
+        status: !aiProvider.isAvailable ? "unavailable" : circuit.state === "OPEN" ? "degraded" : "ok",
+        detail: `${aiProvider.name} | circuit: ${circuit.state}${circuit.state !== "CLOSED" ? ` (${circuit.consecutiveFailures} failures)` : ""}`,
+      };
 
-    // --- S3 / Object storage ---
-    if (process.env.S3_BUCKET) {
-      checks.objectStorage = { status: "ok", detail: `bucket: ${process.env.S3_BUCKET}` };
-    } else {
-      checks.objectStorage = { status: "unavailable", detail: "No S3_BUCKET configured" };
-    }
+      // --- Transcription service ---
+      checks.transcription = {
+        status: process.env.ASSEMBLYAI_API_KEY ? "ok" : "unconfigured",
+      };
 
-    // --- Job queues (BullMQ) ---
-    if (redis) {
-      // BullMQ queues are reachable if Redis is up (verified above)
-      checks.queues = { status: "ok", detail: "BullMQ active (Redis-backed)" };
-    } else {
-      checks.queues = { status: "degraded", detail: "In-process fallback (no Redis)" };
-    }
+      // --- S3 / Object storage ---
+      if (process.env.S3_BUCKET) {
+        checks.objectStorage = { status: "ok", detail: `bucket: ${process.env.S3_BUCKET}` };
+      } else {
+        checks.objectStorage = { status: "unavailable", detail: "No S3_BUCKET configured" };
+      }
 
-    // --- Memory usage ---
-    const mem = process.memoryUsage();
-    const heapRatio = mem.heapUsed / mem.heapTotal;
-    const rssBytes = mem.rss;
-    checks.memory = {
-      status: heapRatio > 0.9 ? "warning" : "ok",
-      detail: `${Math.round(mem.heapUsed / 1024 / 1024)}MB / ${Math.round(mem.heapTotal / 1024 / 1024)}MB heap, ${Math.round(rssBytes / 1024 / 1024)}MB RSS`,
-    };
+      // --- Job queues (BullMQ) ---
+      if (redis) {
+        // BullMQ queues are reachable if Redis is up (verified above)
+        checks.queues = { status: "ok", detail: "BullMQ active (Redis-backed)" };
+      } else {
+        checks.queues = { status: "degraded", detail: "In-process fallback (no Redis)" };
+      }
 
-    // --- CPU usage ---
-    const cpu = process.cpuUsage();
-    const cpuTotalMs = (cpu.user + cpu.system) / 1000;
+      // --- Memory usage ---
+      const mem = process.memoryUsage();
+      const heapRatio = mem.heapUsed / mem.heapTotal;
+      const rssBytes = mem.rss;
+      checks.memory = {
+        status: heapRatio > 0.9 ? "warning" : "ok",
+        detail: `${Math.round(mem.heapUsed / 1024 / 1024)}MB / ${Math.round(mem.heapTotal / 1024 / 1024)}MB heap, ${Math.round(rssBytes / 1024 / 1024)}MB RSS`,
+      };
 
-    // --- Rate limiting status ---
-    const redisStatus = getRedisStatus();
-    const rateLimiting = {
-      mode: redisStatus.mode === "distributed" ? ("redis" as const) : ("in-memory" as const),
-      status: redisStatus.mode === "distributed" ? ("ok" as const) : ("degraded" as const),
-    };
+      // --- CPU usage ---
+      const cpu = process.cpuUsage();
+      const cpuTotalMs = (cpu.user + cpu.system) / 1000;
 
-    // --- Encryption ---
-    checks.phiEncryption = {
-      status: process.env.PHI_ENCRYPTION_KEY ? "ok" : "unconfigured",
-      detail: process.env.PHI_ENCRYPTION_KEY ? "AES-256-GCM active" : "PHI fields stored unencrypted",
-    };
+      // --- Rate limiting status ---
+      const redisStatus = getRedisStatus();
+      const rateLimiting = {
+        mode: redisStatus.mode === "distributed" ? ("redis" as const) : ("in-memory" as const),
+        status: redisStatus.mode === "distributed" ? ("ok" as const) : ("degraded" as const),
+      };
 
-    const statusCode = overall ? 200 : 503;
-    res.status(statusCode).json({
-      status: overall ? "healthy" : "degraded",
-      timestamp: new Date().toISOString(),
-      version: process.env.APP_VERSION || process.env.npm_package_version || "unknown",
-      environment: process.env.NODE_ENV || "development",
-      checks,
-      rate_limiting: rateLimiting,
-      uptime: Math.floor(process.uptime()),
-      startedAt: new Date(startedAt).toISOString(),
-      cpu: { totalMs: Math.round(cpuTotalMs) },
-    });
-  }));
+      // --- Encryption ---
+      checks.phiEncryption = {
+        status: process.env.PHI_ENCRYPTION_KEY ? "ok" : "unconfigured",
+        detail: process.env.PHI_ENCRYPTION_KEY ? "AES-256-GCM active" : "PHI fields stored unencrypted",
+      };
+
+      const statusCode = overall ? 200 : 503;
+      res.status(statusCode).json({
+        status: overall ? "healthy" : "degraded",
+        timestamp: new Date().toISOString(),
+        version: process.env.APP_VERSION || process.env.npm_package_version || "unknown",
+        environment: process.env.NODE_ENV || "development",
+        checks,
+        rate_limiting: rateLimiting,
+        uptime: Math.floor(process.uptime()),
+        startedAt: new Date(startedAt).toISOString(),
+        cpu: { totalMs: Math.round(cpuTotalMs) },
+      });
+    }),
+  );
 
   // ==================== READINESS CHECK (for orchestrators) ====================
 
@@ -144,14 +147,17 @@ export function registerHealthRoutes(app: Express): void {
    * Used by Kubernetes readinessProbe or load balancer health checks.
    * Stricter than /api/health — requires storage to be operational.
    */
-  app.get("/api/health/ready", asyncHandler(async (_req, res) => {
-    try {
-      await withTimeout(() => storage.listOrganizations(), 3000, "readiness");
-      res.status(200).json({ ready: true });
-    } catch {
-      res.status(503).json({ ready: false, reason: "Storage not available" });
-    }
-  }));
+  app.get(
+    "/api/health/ready",
+    asyncHandler(async (_req, res) => {
+      try {
+        await withTimeout(() => storage.listOrganizations(), 3000, "readiness");
+        res.status(200).json({ ready: true });
+      } catch {
+        res.status(503).json({ ready: false, reason: "Storage not available" });
+      }
+    }),
+  );
 
   // ==================== LIVENESS CHECK (for orchestrators) ====================
 
@@ -278,16 +284,22 @@ export function registerHealthRoutes(app: Express): void {
    * GET /api/health/faq-analytics?minCount=2&limit=50
    * Returns FAQ analytics for the authenticated user's org (top queries, knowledge base gaps).
    */
-  app.get("/api/health/faq-analytics", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
-    const orgId = req.orgId;
-    if (!orgId) throw new AppError(403, "Organization context required");
+  app.get(
+    "/api/health/faq-analytics",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const orgId = req.orgId;
+      if (!orgId) throw new AppError(403, "Organization context required");
 
-    const minCount = parseInt(req.query.minCount as string) || 2;
-    const limit = parseInt(req.query.limit as string) || 50;
+      const minCount = parseInt(req.query.minCount as string) || 2;
+      const limit = parseInt(req.query.limit as string) || 50;
 
-    const faqs = getFaqAnalytics(orgId, { minCount, limit });
-    const gaps = getKnowledgeBaseGaps(orgId, { minCount: 3, limit: 20 });
+      const faqs = getFaqAnalytics(orgId, { minCount, limit });
+      const gaps = getKnowledgeBaseGaps(orgId, { minCount: 3, limit: 20 });
 
-    res.json({ faqs, knowledgeBaseGaps: gaps });
-  }));
+      res.json({ faqs, knowledgeBaseGaps: gaps });
+    }),
+  );
 }

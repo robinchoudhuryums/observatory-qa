@@ -152,8 +152,12 @@ export function calculateDashboardMetrics(
       : 0;
 
   // Confidence data quality breakdown
-  let highConfidence = 0, mediumConfidence = 0, lowConfidence = 0, noConfidence = 0;
-  let confSum = 0, confCount = 0;
+  let highConfidence = 0,
+    mediumConfidence = 0,
+    lowConfidence = 0,
+    noConfidence = 0;
+  let confSum = 0,
+    confCount = 0;
   for (const a of analyses) {
     const conf = parseFloat(String(a.confidenceScore || ""));
     if (isNaN(conf) || conf === 0) {
@@ -199,7 +203,10 @@ export function calculateSentimentDistribution(
 /** Apply standard call filters (status, sentiment, employee) */
 export function applyCallFilters<
   T extends { status?: string; employeeId?: string; sentiment?: { overallSentiment?: string } },
->(calls: T[], filters: { status?: string; sentiment?: string; employee?: string; limit?: number; offset?: number }): T[] {
+>(
+  calls: T[],
+  filters: { status?: string; sentiment?: string; employee?: string; limit?: number; offset?: number },
+): T[] {
   let result = calls;
   if (filters.status) result = result.filter((c) => c.status === filters.status);
   if (filters.sentiment) result = result.filter((c) => c.sentiment?.overallSentiment === filters.sentiment);
@@ -258,9 +265,7 @@ export interface IStorage {
    * Postgres backend uses 3 aggregate queries (users GROUP BY, calls GROUP BY,
    * subscriptions IN) instead of 3N individual queries.
    */
-  getOrgsStatsBulk(
-    orgIds: string[],
-  ): Promise<
+  getOrgsStatsBulk(orgIds: string[]): Promise<
     Map<
       string,
       {
@@ -508,7 +513,10 @@ export interface IStorage {
   // Call revenue operations (org-scoped)
   createCallRevenue(orgId: string, revenue: InsertCallRevenue): Promise<CallRevenue>;
   getCallRevenue(orgId: string, callId: string): Promise<CallRevenue | undefined>;
-  listCallRevenues(orgId: string, filters?: { conversionStatus?: string; startDate?: string; endDate?: string }): Promise<CallRevenue[]>;
+  listCallRevenues(
+    orgId: string,
+    filters?: { conversionStatus?: string; startDate?: string; endDate?: string },
+  ): Promise<CallRevenue[]>;
   updateCallRevenue(orgId: string, callId: string, updates: Partial<CallRevenue>): Promise<CallRevenue | undefined>;
   getRevenueMetrics(
     orgId: string,

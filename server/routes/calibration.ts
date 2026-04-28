@@ -92,7 +92,12 @@ function computeICC(evaluations: Array<{ evaluatorId: string; performanceScore: 
 
 export function registerCalibrationRoutes(app: Express) {
   // Create a calibration session (manager+ only)
-  app.post("/api/calibration", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
+  app.post(
+    "/api/calibration",
+    requireAuth,
+    requireRole("manager"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -124,10 +129,16 @@ export function registerCalibrationRoutes(app: Express) {
         "Calibration session created",
       );
       res.json(session);
-    }));
+    }),
+  );
 
   // List calibration sessions
-  app.get("/api/calibration", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/calibration",
+    requireAuth,
+    requireRole("manager"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -167,7 +178,8 @@ export function registerCalibrationRoutes(app: Express) {
       );
 
       res.json(enriched);
-    }));
+    }),
+  );
 
   // Get a calibration session with all evaluations
   app.get(
@@ -177,64 +189,69 @@ export function registerCalibrationRoutes(app: Express) {
     injectOrgContext,
     validateUUIDParam(),
     asyncHandler(async (req, res) => {
-        const orgId = req.orgId;
-        if (!orgId) return res.status(403).json({ message: "Organization context required" });
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-        const session = await storage.getCalibrationSession(orgId, req.params.id);
-        if (!session) return res.status(404).json({ message: "Calibration session not found" });
+      const session = await storage.getCalibrationSession(orgId, req.params.id);
+      if (!session) return res.status(404).json({ message: "Calibration session not found" });
 
-        const evaluations = await storage.getCalibrationEvaluations(orgId, session.id);
-        const call = await storage.getCall(orgId, session.callId);
-        const analysis = await storage.getCallAnalysis(orgId, session.callId);
+      const evaluations = await storage.getCalibrationEvaluations(orgId, session.id);
+      const call = await storage.getCall(orgId, session.callId);
+      const analysis = await storage.getCallAnalysis(orgId, session.callId);
 
-        // Enrich evaluator names
-        const users = await storage.listUsersByOrg(orgId);
-        const userMap = new Map(users.map((u) => [u.id, u]));
+      // Enrich evaluator names
+      const users = await storage.listUsersByOrg(orgId);
+      const userMap = new Map(users.map((u) => [u.id, u]));
 
-        // Blind mode enforcement: hide other evaluators' scores until session is completed
-        const isBlind = session.blindMode && session.status !== "completed";
-        const userId = req.user!.id;
+      // Blind mode enforcement: hide other evaluators' scores until session is completed
+      const isBlind = session.blindMode && session.status !== "completed";
+      const userId = req.user!.id;
 
-        let visibleEvaluations = evaluations;
-        if (isBlind) {
-          // Only show the current user's own evaluation
-          visibleEvaluations = evaluations.filter((e) => e.evaluatorId === userId);
-        }
+      let visibleEvaluations = evaluations;
+      if (isBlind) {
+        // Only show the current user's own evaluation
+        visibleEvaluations = evaluations.filter((e) => e.evaluatorId === userId);
+      }
 
-        const enrichedEvaluations = visibleEvaluations.map((e) => ({
-          ...e,
-          evaluatorName: userMap.get(e.evaluatorId)?.name || "Unknown",
-        }));
+      const enrichedEvaluations = visibleEvaluations.map((e) => ({
+        ...e,
+        evaluatorName: userMap.get(e.evaluatorId)?.name || "Unknown",
+      }));
 
-        // Calculate variance and IRR metrics (only meaningful with 2+ evaluations)
-        const scores = evaluations.map((e) => e.performanceScore);
-        const scoreVariance = scores.length >= 2 ? computeStdDev(scores) : undefined;
-        const krippendorffAlpha = computeKrippendorffAlpha(evaluations);
-        const icc = computeICC(evaluations);
+      // Calculate variance and IRR metrics (only meaningful with 2+ evaluations)
+      const scores = evaluations.map((e) => e.performanceScore);
+      const scoreVariance = scores.length >= 2 ? computeStdDev(scores) : undefined;
+      const krippendorffAlpha = computeKrippendorffAlpha(evaluations);
+      const icc = computeICC(evaluations);
 
-        // In blind mode, hide aggregate stats until completed
-        const showStats = !isBlind;
+      // In blind mode, hide aggregate stats until completed
+      const showStats = !isBlind;
 
-        res.json({
-          ...session,
-          evaluations: enrichedEvaluations,
-          scoreVariance: showStats ? scoreVariance : undefined,
-          call,
-          aiScore: analysis?.performanceScore ? parseFloat(String(analysis.performanceScore)) : null,
-          facilitatorName: userMap.get(session.facilitatorId)?.name || "Unknown",
-          // Evaluator submission status (visible even in blind mode)
-          evaluationCount: evaluations.length,
-          expectedEvaluations: session.evaluatorIds.length,
-          // Statistical reliability metrics (hidden in blind mode)
-          krippendorffAlpha: showStats ? krippendorffAlpha : undefined,
-          icc: showStats ? icc : undefined,
-          isBlindActive: isBlind,
-        });
+      res.json({
+        ...session,
+        evaluations: enrichedEvaluations,
+        scoreVariance: showStats ? scoreVariance : undefined,
+        call,
+        aiScore: analysis?.performanceScore ? parseFloat(String(analysis.performanceScore)) : null,
+        facilitatorName: userMap.get(session.facilitatorId)?.name || "Unknown",
+        // Evaluator submission status (visible even in blind mode)
+        evaluationCount: evaluations.length,
+        expectedEvaluations: session.evaluatorIds.length,
+        // Statistical reliability metrics (hidden in blind mode)
+        krippendorffAlpha: showStats ? krippendorffAlpha : undefined,
+        icc: showStats ? icc : undefined,
+        isBlindActive: isBlind,
+      });
     }),
   );
 
   // Submit an evaluation for a calibration session
-  app.post("/api/calibration/:id/evaluate", requireAuth, injectOrgContext, validateUUIDParam(), asyncHandler(async (req, res) => {
+  app.post(
+    "/api/calibration/:id/evaluate",
+    requireAuth,
+    injectOrgContext,
+    validateUUIDParam(),
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -282,7 +299,8 @@ export function registerCalibrationRoutes(app: Express) {
       }
 
       logger.info({ orgId, sessionId: session.id, evaluatorId: req.user!.id }, "Calibration evaluation submitted");
-    }));
+    }),
+  );
 
   // Complete calibration session (set consensus score and notes)
   app.post(
@@ -292,28 +310,28 @@ export function registerCalibrationRoutes(app: Express) {
     injectOrgContext,
     validateUUIDParam(),
     asyncHandler(async (req, res) => {
-        const orgId = req.orgId;
-        if (!orgId) return res.status(403).json({ message: "Organization context required" });
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-        const session = await storage.getCalibrationSession(orgId, req.params.id);
-        if (!session) return res.status(404).json({ message: "Calibration session not found" });
+      const session = await storage.getCalibrationSession(orgId, req.params.id);
+      if (!session) return res.status(404).json({ message: "Calibration session not found" });
 
-        const { targetScore, consensusNotes } = req.body;
+      const { targetScore, consensusNotes } = req.body;
 
-        if (targetScore !== undefined && (typeof targetScore !== "number" || targetScore < 0 || targetScore > 10)) {
-          return res.status(400).json({ message: "targetScore must be a number between 0 and 10" });
-        }
+      if (targetScore !== undefined && (typeof targetScore !== "number" || targetScore < 0 || targetScore > 10)) {
+        return res.status(400).json({ message: "targetScore must be a number between 0 and 10" });
+      }
 
-        const updated = await storage.updateCalibrationSession(orgId, session.id, {
-          status: "completed",
-          targetScore,
-          consensusNotes,
-          completedAt: new Date().toISOString(),
-        });
+      const updated = await storage.updateCalibrationSession(orgId, session.id, {
+        status: "completed",
+        targetScore,
+        consensusNotes,
+        completedAt: new Date().toISOString(),
+      });
 
-        logger.info({ orgId, sessionId: session.id, targetScore }, "Calibration session completed");
-        res.json(updated);
-      }),
+      logger.info({ orgId, sessionId: session.id, targetScore }, "Calibration session completed");
+      res.json(updated);
+    }),
   );
 
   // Delete calibration session (manager+)
@@ -324,16 +342,21 @@ export function registerCalibrationRoutes(app: Express) {
     injectOrgContext,
     validateUUIDParam(),
     asyncHandler(async (req, res) => {
-        const orgId = req.orgId;
-        if (!orgId) return res.status(403).json({ message: "Organization context required" });
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-        await storage.deleteCalibrationSession(orgId, req.params.id);
-        res.json({ success: true });
-      }),
+      await storage.deleteCalibrationSession(orgId, req.params.id);
+      res.json({ success: true });
+    }),
   );
 
   // Get calibration analytics (score variance trends, evaluator alignment, IRR metrics)
-  app.get("/api/calibration/analytics", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/calibration/analytics",
+    requireAuth,
+    requireRole("manager"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -452,10 +475,16 @@ export function registerCalibrationRoutes(app: Express) {
         ...analytics,
         evaluatorStats: enrichedEvaluatorStats,
       });
-    }));
+    }),
+  );
 
   // Suggest calls for calibration (automated call selection)
-  app.get("/api/calibration/suggest-calls", requireAuth, requireRole("manager"), injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/calibration/suggest-calls",
+    requireAuth,
+    requireRole("manager"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId;
       if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
@@ -561,7 +590,8 @@ export function registerCalibrationRoutes(app: Express) {
           "Low/high outlier scores — verify extreme ratings",
         ],
       });
-    }));
+    }),
+  );
 
   // Export calibration report as CSV
   app.get(
@@ -571,76 +601,76 @@ export function registerCalibrationRoutes(app: Express) {
     injectOrgContext,
     validateUUIDParam(),
     asyncHandler(async (req, res) => {
-        const orgId = req.orgId;
-        if (!orgId) return res.status(403).json({ message: "Organization context required" });
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-        const session = await storage.getCalibrationSession(orgId, req.params.id);
-        if (!session) return res.status(404).json({ message: "Calibration session not found" });
+      const session = await storage.getCalibrationSession(orgId, req.params.id);
+      if (!session) return res.status(404).json({ message: "Calibration session not found" });
 
-        const evaluations = await storage.getCalibrationEvaluations(orgId, session.id);
-        const call = await storage.getCall(orgId, session.callId);
-        const analysis = await storage.getCallAnalysis(orgId, session.callId);
-        const users = await storage.listUsersByOrg(orgId);
-        const userMap = new Map(users.map((u) => [u.id, u]));
+      const evaluations = await storage.getCalibrationEvaluations(orgId, session.id);
+      const call = await storage.getCall(orgId, session.callId);
+      const analysis = await storage.getCallAnalysis(orgId, session.callId);
+      const users = await storage.listUsersByOrg(orgId);
+      const userMap = new Map(users.map((u) => [u.id, u]));
 
-        const scores = evaluations.map((e) => e.performanceScore);
-        const mean = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
-        const stdDev = computeStdDev(scores);
-        const alpha = computeKrippendorffAlpha(evaluations);
-        const iccVal = computeICC(evaluations);
-        const aiScore = analysis?.performanceScore ? parseFloat(String(analysis.performanceScore)) : null;
+      const scores = evaluations.map((e) => e.performanceScore);
+      const mean = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+      const stdDev = computeStdDev(scores);
+      const alpha = computeKrippendorffAlpha(evaluations);
+      const iccVal = computeICC(evaluations);
+      const aiScore = analysis?.performanceScore ? parseFloat(String(analysis.performanceScore)) : null;
 
-        // Build CSV
-        const lines: string[] = [];
-        lines.push("CALIBRATION SESSION REPORT");
-        lines.push("");
-        lines.push(`Title,"${(session.title || "").replace(/"/g, '""')}"`);
-        lines.push(`Session ID,${session.id}`);
-        lines.push(`Status,${session.status}`);
-        lines.push(`Call,"${(call?.fileName || session.callId).replace(/"/g, '""')}"`);
-        lines.push(`Call Category,${call?.callCategory || "N/A"}`);
-        lines.push(`Facilitator,"${(userMap.get(session.facilitatorId)?.name || "Unknown").replace(/"/g, '""')}"`);
-        lines.push(`Created,${session.createdAt || ""}`);
-        lines.push(`Completed,${session.completedAt || "N/A"}`);
-        lines.push("");
-        lines.push("SCORES SUMMARY");
-        lines.push(`AI Score,${aiScore !== null ? aiScore.toFixed(1) : "N/A"}`);
-        lines.push(`Consensus Score,${session.targetScore !== undefined ? session.targetScore.toFixed(1) : "N/A"}`);
-        lines.push(`Average Evaluator Score,${mean.toFixed(2)}`);
-        lines.push(`Standard Deviation,${stdDev.toFixed(2)}`);
-        lines.push(`Krippendorff Alpha,${alpha !== null ? alpha.toFixed(3) : "N/A"}`);
-        lines.push(`ICC,${iccVal !== null ? iccVal.toFixed(3) : "N/A"}`);
-        lines.push(`Evaluators,${evaluations.length} of ${session.evaluatorIds.length}`);
-        lines.push(`Blind Mode,${session.blindMode ? "Yes" : "No"}`);
-        lines.push("");
-        lines.push("EVALUATOR BREAKDOWN");
+      // Build CSV
+      const lines: string[] = [];
+      lines.push("CALIBRATION SESSION REPORT");
+      lines.push("");
+      lines.push(`Title,"${(session.title || "").replace(/"/g, '""')}"`);
+      lines.push(`Session ID,${session.id}`);
+      lines.push(`Status,${session.status}`);
+      lines.push(`Call,"${(call?.fileName || session.callId).replace(/"/g, '""')}"`);
+      lines.push(`Call Category,${call?.callCategory || "N/A"}`);
+      lines.push(`Facilitator,"${(userMap.get(session.facilitatorId)?.name || "Unknown").replace(/"/g, '""')}"`);
+      lines.push(`Created,${session.createdAt || ""}`);
+      lines.push(`Completed,${session.completedAt || "N/A"}`);
+      lines.push("");
+      lines.push("SCORES SUMMARY");
+      lines.push(`AI Score,${aiScore !== null ? aiScore.toFixed(1) : "N/A"}`);
+      lines.push(`Consensus Score,${session.targetScore !== undefined ? session.targetScore.toFixed(1) : "N/A"}`);
+      lines.push(`Average Evaluator Score,${mean.toFixed(2)}`);
+      lines.push(`Standard Deviation,${stdDev.toFixed(2)}`);
+      lines.push(`Krippendorff Alpha,${alpha !== null ? alpha.toFixed(3) : "N/A"}`);
+      lines.push(`ICC,${iccVal !== null ? iccVal.toFixed(3) : "N/A"}`);
+      lines.push(`Evaluators,${evaluations.length} of ${session.evaluatorIds.length}`);
+      lines.push(`Blind Mode,${session.blindMode ? "Yes" : "No"}`);
+      lines.push("");
+      lines.push("EVALUATOR BREAKDOWN");
+      lines.push(
+        "Evaluator,Score,Deviation from Consensus,Compliance,Customer Experience,Communication,Resolution,Notes",
+      );
+
+      for (const ev of evaluations) {
+        const name = (userMap.get(ev.evaluatorId)?.name || "Unknown").replace(/"/g, '""');
+        const target = session.targetScore ?? mean;
+        const deviation = (ev.performanceScore - target).toFixed(2);
+        const sub = ev.subScores || {};
+        const notes = (ev.notes || "").replace(/"/g, '""').replace(/\n/g, " ");
         lines.push(
-          "Evaluator,Score,Deviation from Consensus,Compliance,Customer Experience,Communication,Resolution,Notes",
+          `"${name}",${ev.performanceScore.toFixed(1)},${deviation},${sub.compliance ?? ""},${sub.customerExperience ?? ""},${sub.communication ?? ""},${sub.resolution ?? ""},"${notes}"`,
         );
+      }
 
-        for (const ev of evaluations) {
-          const name = (userMap.get(ev.evaluatorId)?.name || "Unknown").replace(/"/g, '""');
-          const target = session.targetScore ?? mean;
-          const deviation = (ev.performanceScore - target).toFixed(2);
-          const sub = ev.subScores || {};
-          const notes = (ev.notes || "").replace(/"/g, '""').replace(/\n/g, " ");
-          lines.push(
-            `"${name}",${ev.performanceScore.toFixed(1)},${deviation},${sub.compliance ?? ""},${sub.customerExperience ?? ""},${sub.communication ?? ""},${sub.resolution ?? ""},"${notes}"`,
-          );
-        }
+      if (session.consensusNotes) {
+        lines.push("");
+        lines.push("CONSENSUS NOTES");
+        lines.push(`"${session.consensusNotes.replace(/"/g, '""')}"`);
+      }
 
-        if (session.consensusNotes) {
-          lines.push("");
-          lines.push("CONSENSUS NOTES");
-          lines.push(`"${session.consensusNotes.replace(/"/g, '""')}"`);
-        }
-
-        const csv = lines.join("\n");
-        const safeTitle = (session.title || "calibration").replace(/[^a-zA-Z0-9-_]/g, "_").slice(0, 50);
-        res.setHeader("Content-Type", "text/csv; charset=utf-8");
-        res.setHeader("Content-Disposition", `attachment; filename="calibration-report-${safeTitle}.csv"`);
-        res.send(csv);
-      }),
+      const csv = lines.join("\n");
+      const safeTitle = (session.title || "calibration").replace(/[^a-zA-Z0-9-_]/g, "_").slice(0, 50);
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="calibration-report-${safeTitle}.csv"`);
+      res.send(csv);
+    }),
   );
 
   // Get evaluator certification status for all evaluators in the org
@@ -650,101 +680,101 @@ export function registerCalibrationRoutes(app: Express) {
     requireRole("manager"),
     injectOrgContext,
     asyncHandler(async (req, res) => {
-        const orgId = req.orgId;
-        if (!orgId) return res.status(403).json({ message: "Organization context required" });
+      const orgId = req.orgId;
+      if (!orgId) return res.status(403).json({ message: "Organization context required" });
 
-        const sessions = await storage.listCalibrationSessions(orgId, { status: "completed" });
-        const users = await storage.listUsersByOrg(orgId);
-        const userMap = new Map(users.map((u) => [u.id, u]));
+      const sessions = await storage.listCalibrationSessions(orgId, { status: "completed" });
+      const users = await storage.listUsersByOrg(orgId);
+      const userMap = new Map(users.map((u) => [u.id, u]));
 
-        // Aggregate per-evaluator stats
-        const stats: Record<
-          string,
-          {
-            evaluatorId: string;
-            evaluatorName: string;
-            sessionsParticipated: number;
-            avgDeviation: number;
-            deviations: number[];
-            lastSessionDate: string | null;
+      // Aggregate per-evaluator stats
+      const stats: Record<
+        string,
+        {
+          evaluatorId: string;
+          evaluatorName: string;
+          sessionsParticipated: number;
+          avgDeviation: number;
+          deviations: number[];
+          lastSessionDate: string | null;
+        }
+      > = {};
+
+      for (const session of sessions) {
+        const evaluations = await storage.getCalibrationEvaluations(orgId, session.id);
+        if (evaluations.length < 2) continue;
+
+        const scores = evaluations.map((e) => e.performanceScore);
+        const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
+        const target = session.targetScore ?? mean;
+
+        for (const ev of evaluations) {
+          if (!stats[ev.evaluatorId]) {
+            stats[ev.evaluatorId] = {
+              evaluatorId: ev.evaluatorId,
+              evaluatorName: userMap.get(ev.evaluatorId)?.name || "Unknown",
+              sessionsParticipated: 0,
+              avgDeviation: 0,
+              deviations: [],
+              lastSessionDate: null,
+            };
           }
-        > = {};
-
-        for (const session of sessions) {
-          const evaluations = await storage.getCalibrationEvaluations(orgId, session.id);
-          if (evaluations.length < 2) continue;
-
-          const scores = evaluations.map((e) => e.performanceScore);
-          const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
-          const target = session.targetScore ?? mean;
-
-          for (const ev of evaluations) {
-            if (!stats[ev.evaluatorId]) {
-              stats[ev.evaluatorId] = {
-                evaluatorId: ev.evaluatorId,
-                evaluatorName: userMap.get(ev.evaluatorId)?.name || "Unknown",
-                sessionsParticipated: 0,
-                avgDeviation: 0,
-                deviations: [],
-                lastSessionDate: null,
-              };
-            }
-            const s = stats[ev.evaluatorId];
-            const deviation = Math.abs(ev.performanceScore - target);
-            s.deviations.push(deviation);
-            s.sessionsParticipated++;
-            s.avgDeviation = s.deviations.reduce((a, b) => a + b, 0) / s.deviations.length;
-            const sessionDate = session.completedAt || session.createdAt || null;
-            if (sessionDate && (!s.lastSessionDate || sessionDate > s.lastSessionDate)) {
-              s.lastSessionDate = sessionDate;
-            }
+          const s = stats[ev.evaluatorId];
+          const deviation = Math.abs(ev.performanceScore - target);
+          s.deviations.push(deviation);
+          s.sessionsParticipated++;
+          s.avgDeviation = s.deviations.reduce((a, b) => a + b, 0) / s.deviations.length;
+          const sessionDate = session.completedAt || session.createdAt || null;
+          if (sessionDate && (!s.lastSessionDate || sessionDate > s.lastSessionDate)) {
+            s.lastSessionDate = sessionDate;
           }
         }
+      }
 
-        // Compute certification for each evaluator
-        const certifications = Object.values(stats).map((s) => {
-          const consistencyScore = Math.round(Math.max(0, Math.min(1, 1 - s.avgDeviation / 5)) * 100) / 100;
+      // Compute certification for each evaluator
+      const certifications = Object.values(stats).map((s) => {
+        const consistencyScore = Math.round(Math.max(0, Math.min(1, 1 - s.avgDeviation / 5)) * 100) / 100;
 
-          // Recent deviation trend (last 3 vs prior)
-          let trendDirection: "improving" | "declining" | "stable" = "stable";
-          if (s.deviations.length >= 6) {
-            const recent = s.deviations.slice(-3);
-            const prior = s.deviations.slice(-6, -3);
-            const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
-            const priorAvg = prior.reduce((a, b) => a + b, 0) / prior.length;
-            if (recentAvg < priorAvg - 0.3) trendDirection = "improving";
-            else if (recentAvg > priorAvg + 0.3) trendDirection = "declining";
-          }
+        // Recent deviation trend (last 3 vs prior)
+        let trendDirection: "improving" | "declining" | "stable" = "stable";
+        if (s.deviations.length >= 6) {
+          const recent = s.deviations.slice(-3);
+          const prior = s.deviations.slice(-6, -3);
+          const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
+          const priorAvg = prior.reduce((a, b) => a + b, 0) / prior.length;
+          if (recentAvg < priorAvg - 0.3) trendDirection = "improving";
+          else if (recentAvg > priorAvg + 0.3) trendDirection = "declining";
+        }
 
-          let status: "certified" | "probationary" | "needs_calibration" | "flagged";
-          if (s.sessionsParticipated >= 5 && s.avgDeviation < 1.0) {
-            status = "certified";
-          } else if (s.sessionsParticipated >= 3 && s.avgDeviation < 2.0) {
-            status = "probationary";
-          } else if (s.sessionsParticipated >= 3 && s.avgDeviation >= 2.0) {
-            status = "flagged";
-          } else {
-            status = "needs_calibration";
-          }
+        let status: "certified" | "probationary" | "needs_calibration" | "flagged";
+        if (s.sessionsParticipated >= 5 && s.avgDeviation < 1.0) {
+          status = "certified";
+        } else if (s.sessionsParticipated >= 3 && s.avgDeviation < 2.0) {
+          status = "probationary";
+        } else if (s.sessionsParticipated >= 3 && s.avgDeviation >= 2.0) {
+          status = "flagged";
+        } else {
+          status = "needs_calibration";
+        }
 
-          return {
-            evaluatorId: s.evaluatorId,
-            evaluatorName: s.evaluatorName,
-            certificationStatus: status,
-            consistencyScore,
-            sessionsParticipated: s.sessionsParticipated,
-            avgDeviation: Math.round(s.avgDeviation * 100) / 100,
-            trendDirection,
-            lastSessionDate: s.lastSessionDate,
-          };
-        });
+        return {
+          evaluatorId: s.evaluatorId,
+          evaluatorName: s.evaluatorName,
+          certificationStatus: status,
+          consistencyScore,
+          sessionsParticipated: s.sessionsParticipated,
+          avgDeviation: Math.round(s.avgDeviation * 100) / 100,
+          trendDirection,
+          lastSessionDate: s.lastSessionDate,
+        };
+      });
 
-        // Sort: flagged first, then needs_calibration, probationary, certified
-        const statusOrder = { flagged: 0, needs_calibration: 1, probationary: 2, certified: 3 };
-        certifications.sort((a, b) => statusOrder[a.certificationStatus] - statusOrder[b.certificationStatus]);
+      // Sort: flagged first, then needs_calibration, probationary, certified
+      const statusOrder = { flagged: 0, needs_calibration: 1, probationary: 2, certified: 3 };
+      certifications.sort((a, b) => statusOrder[a.certificationStatus] - statusOrder[b.certificationStatus]);
 
-        res.json(certifications);
-      }),
+      res.json(certifications);
+    }),
   );
 
   /**
@@ -795,7 +825,7 @@ export function registerCalibrationRoutes(app: Express) {
 
       // Collect evaluations for every session in parallel for audit summary
       const sessionDetails: Array<{
-        session: typeof sessionsInRange[number];
+        session: (typeof sessionsInRange)[number];
         evaluations: CalibrationEvaluation[];
         stdDev: number;
         krippendorff: number | null;
@@ -832,8 +862,7 @@ export function registerCalibrationRoutes(app: Express) {
       const iccs = sessionDetails.map((d) => d.icc).filter((a): a is number => a !== null);
       const orgAlpha =
         alphas.length > 0 ? Math.round((alphas.reduce((a, b) => a + b, 0) / alphas.length) * 1000) / 1000 : null;
-      const orgIcc =
-        iccs.length > 0 ? Math.round((iccs.reduce((a, b) => a + b, 0) / iccs.length) * 1000) / 1000 : null;
+      const orgIcc = iccs.length > 0 ? Math.round((iccs.reduce((a, b) => a + b, 0) / iccs.length) * 1000) / 1000 : null;
 
       // Aggregate evaluator certification stats across all sessions in range
       const evaluatorStats: Record<

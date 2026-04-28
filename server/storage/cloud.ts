@@ -60,7 +60,15 @@ import {
   type InsertCallAttribution,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
-import { type IStorage, type ObjectStorageClient, mapConcurrent, normalizeAnalysis, applyCallFilters, calculateDashboardMetrics, calculateSentimentDistribution } from "./types";
+import {
+  type IStorage,
+  type ObjectStorageClient,
+  mapConcurrent,
+  normalizeAnalysis,
+  applyCallFilters,
+  calculateDashboardMetrics,
+  calculateSentimentDistribution,
+} from "./types";
 import { logger } from "../services/logger";
 
 export class CloudStorage implements IStorage {
@@ -964,7 +972,10 @@ export class CloudStorage implements IStorage {
   async getCallRevenue(_orgId: string, _callId: string): Promise<CallRevenue | undefined> {
     return undefined;
   }
-  async listCallRevenues(_orgId: string, _filters?: { conversionStatus?: string; startDate?: string; endDate?: string }): Promise<CallRevenue[]> {
+  async listCallRevenues(
+    _orgId: string,
+    _filters?: { conversionStatus?: string; startDate?: string; endDate?: string },
+  ): Promise<CallRevenue[]> {
     return [];
   }
   async updateCallRevenue(
@@ -1143,7 +1154,13 @@ export class CloudStorage implements IStorage {
       deletePromises.push(this.client.deleteObject(`${prefix}/employees/${emp.id}.json`).catch(() => {}));
     }
     // Delete other org-scoped S3 objects (best-effort via prefix listing)
-    const subdirectories = ["coaching", "prompt-templates", "access-requests", "coaching-templates", "reference-documents"];
+    const subdirectories = [
+      "coaching",
+      "prompt-templates",
+      "access-requests",
+      "coaching-templates",
+      "reference-documents",
+    ];
     for (const subdir of subdirectories) {
       try {
         const keys = await this.client.listObjects(`${prefix}/${subdir}/`);

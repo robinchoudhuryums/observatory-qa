@@ -22,7 +22,11 @@ export function registerSuperAdminRoutes(app: Express): void {
    * Uses bulk storage aggregate (3 aggregate queries total) instead of the
    * old per-org loop (3 queries × N orgs = 3N). See Top-10 #5 fix.
    */
-  app.get("/api/super-admin/stats", requireAuth, requireSuperAdmin, asyncHandler(async (_req, res) => {
+  app.get(
+    "/api/super-admin/stats",
+    requireAuth,
+    requireSuperAdmin,
+    asyncHandler(async (_req, res) => {
       const orgs = await storage.listOrganizations();
       const stats = await storage.getOrgsStatsBulk(orgs.map((o) => o.id));
 
@@ -48,7 +52,8 @@ export function registerSuperAdminRoutes(app: Express): void {
         activeSubscriptions,
         orgsByStatus,
       });
-    }));
+    }),
+  );
 
   // ==================== ORGANIZATION MANAGEMENT ====================
 
@@ -59,7 +64,11 @@ export function registerSuperAdminRoutes(app: Express): void {
    * Uses bulk storage aggregate (3 aggregate queries total) instead of the
    * old per-org Promise.all pattern (3 queries × N orgs = 3N). See Top-10 #5 fix.
    */
-  app.get("/api/super-admin/organizations", requireAuth, requireSuperAdmin, asyncHandler(async (_req, res) => {
+  app.get(
+    "/api/super-admin/organizations",
+    requireAuth,
+    requireSuperAdmin,
+    asyncHandler(async (_req, res) => {
       const orgs = await storage.listOrganizations();
       const stats = await storage.getOrgsStatsBulk(orgs.map((o) => o.id));
 
@@ -90,13 +99,18 @@ export function registerSuperAdminRoutes(app: Express): void {
       });
 
       res.json(orgsWithStats);
-    }));
+    }),
+  );
 
   /**
    * GET /api/super-admin/organizations/:id
    * Get detailed information about a specific organization.
    */
-  app.get("/api/super-admin/organizations/:id", requireAuth, requireSuperAdmin, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/super-admin/organizations/:id",
+    requireAuth,
+    requireSuperAdmin,
+    asyncHandler(async (req, res) => {
       const org = await storage.getOrganization(req.params.id);
       if (!org) {
         return res.status(404).json({ message: "Organization not found" });
@@ -129,13 +143,18 @@ export function registerSuperAdminRoutes(app: Express): void {
           createdAt: u.createdAt,
         })),
       });
-    }));
+    }),
+  );
 
   /**
    * PATCH /api/super-admin/organizations/:id
    * Update an organization's status or settings (super admin only).
    */
-  app.patch("/api/super-admin/organizations/:id", requireAuth, requireSuperAdmin, asyncHandler(async (req, res) => {
+  app.patch(
+    "/api/super-admin/organizations/:id",
+    requireAuth,
+    requireSuperAdmin,
+    asyncHandler(async (req, res) => {
       const org = await storage.getOrganization(req.params.id);
       if (!org) {
         return res.status(404).json({ message: "Organization not found" });
@@ -176,7 +195,8 @@ export function registerSuperAdminRoutes(app: Express): void {
         "Super admin updated organization",
       );
       res.json(updated);
-    }));
+    }),
+  );
 
   /**
    * POST /api/super-admin/organizations/:id/impersonate
@@ -184,7 +204,11 @@ export function registerSuperAdminRoutes(app: Express): void {
    * This is a session-level flag — it does NOT permanently change the user.
    * Use DELETE /api/super-admin/impersonate to stop impersonating.
    */
-  app.post("/api/super-admin/organizations/:id/impersonate", requireAuth, requireSuperAdmin, asyncHandler(async (req, res) => {
+  app.post(
+    "/api/super-admin/organizations/:id/impersonate",
+    requireAuth,
+    requireSuperAdmin,
+    asyncHandler(async (req, res) => {
       const org = await storage.getOrganization(req.params.id);
       if (!org) {
         return res.status(404).json({ message: "Organization not found" });
@@ -214,13 +238,18 @@ export function registerSuperAdminRoutes(app: Express): void {
         orgSlug: org.slug,
         orgName: org.name,
       });
-    }));
+    }),
+  );
 
   /**
    * DELETE /api/super-admin/impersonate
    * Stop impersonating an organization and return to the super admin's own context.
    */
-  app.delete("/api/super-admin/impersonate", requireAuth, requireSuperAdmin, asyncHandler(async (req, res) => {
+  app.delete(
+    "/api/super-admin/impersonate",
+    requireAuth,
+    requireSuperAdmin,
+    asyncHandler(async (req, res) => {
       const session = req.session as any;
       const wasImpersonating = session.impersonatingOrgId;
 
@@ -246,7 +275,8 @@ export function registerSuperAdminRoutes(app: Express): void {
         "Super admin stopped org impersonation",
       );
       res.json({ message: "Stopped impersonating organization" });
-    }));
+    }),
+  );
 
   /**
    * POST /api/super-admin/unlock-account
@@ -254,7 +284,11 @@ export function registerSuperAdminRoutes(app: Express): void {
    * Use when an org admin is locked out and cannot wait for the 15-minute auto-expiry.
    * Requires: super_admin role. Every invocation is written to the tamper-evident audit log.
    */
-  app.post("/api/super-admin/unlock-account", requireAuth, requireSuperAdmin, asyncHandler(async (req, res) => {
+  app.post(
+    "/api/super-admin/unlock-account",
+    requireAuth,
+    requireSuperAdmin,
+    asyncHandler(async (req, res) => {
       const { username } = req.body as { username?: string };
       if (!username || typeof username !== "string") {
         return res.status(400).json({ message: "username is required", code: "OBS-VALID-001" });
@@ -274,7 +308,8 @@ export function registerSuperAdminRoutes(app: Express): void {
         "Super admin performed emergency account unlock",
       );
       res.json({ message: `Account '${username}' unlocked successfully` });
-    }));
+    }),
+  );
 
   // ==================== TENANT USAGE DASHBOARD ====================
 
@@ -283,7 +318,11 @@ export function registerSuperAdminRoutes(app: Express): void {
    * Per-org resource consumption aggregates for cost visibility and capacity planning.
    * Uses efficient SQL aggregates for PostgreSQL backends; falls back to per-org queries otherwise.
    */
-  app.get("/api/super-admin/usage", requireAuth, requireSuperAdmin, asyncHandler(async (_req, res) => {
+  app.get(
+    "/api/super-admin/usage",
+    requireAuth,
+    requireSuperAdmin,
+    asyncHandler(async (_req, res) => {
       const orgs = await storage.listOrganizations();
 
       // Bulk-fetch user/call/subscription stats to replace the per-org nested
@@ -355,7 +394,8 @@ export function registerSuperAdminRoutes(app: Express): void {
         orgs: orgsWithUsage,
         platformTotals,
       });
-    }));
+    }),
+  );
 
   // ==================== PER-ORG KEY ROTATION ====================
 
@@ -365,7 +405,11 @@ export function registerSuperAdminRoutes(app: Express): void {
    * Evicts the cached DEK so the next PHI access generates a new DEK via KMS.
    * For full rotation: also clears the stored encrypted DEK so a fresh one is generated.
    */
-  app.post("/api/super-admin/organizations/:id/rotate-key", requireAuth, requireSuperAdmin, asyncHandler(async (req, res) => {
+  app.post(
+    "/api/super-admin/organizations/:id/rotate-key",
+    requireAuth,
+    requireSuperAdmin,
+    asyncHandler(async (req, res) => {
       const org = await storage.getOrganization(req.params.id);
       if (!org) {
         return res.status(404).json({ message: "Organization not found" });
@@ -398,5 +442,6 @@ export function registerSuperAdminRoutes(app: Express): void {
         message: "Key rotated — next PHI access will generate a new DEK via KMS",
         orgId: org.id,
       });
-    }));
+    }),
+  );
 }

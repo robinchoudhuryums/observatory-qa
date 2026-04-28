@@ -120,9 +120,7 @@ export default function FileUpload() {
           if (event.lengthComputable) {
             const pct = Math.round((event.loaded / event.total) * 100);
             setUploadFiles((prev) =>
-              prev.map((f) =>
-                f.file === file ? { ...f, progress: pct, status: "uploading" as const } : f,
-              ),
+              prev.map((f) => (f.file === file ? { ...f, progress: pct, status: "uploading" as const } : f)),
             );
           }
         };

@@ -40,9 +40,7 @@ export async function runQuotaAlerts(storage: IStorage, orgs?: any[]): Promise<v
 
       // Get admin/manager users with email addresses
       const users = await storage.listUsersByOrg(org.id);
-      const recipients = users.filter(
-        (u) => (u.role === "admin" || u.role === "manager") && u.username?.includes("@"),
-      );
+      const recipients = users.filter((u) => (u.role === "admin" || u.role === "manager") && u.username?.includes("@"));
       if (recipients.length === 0) continue;
 
       const isExhausted = warnings.some((w) => w.pct >= 100);

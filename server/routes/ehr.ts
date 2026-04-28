@@ -62,85 +62,96 @@ export function registerEhrRoutes(app: Express): void {
   });
 
   // Get current EHR configuration (redacts sensitive fields)
-  app.get("/api/ehr/config", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
-    const org = await getCachedOrganization(req.orgId!);
-    const ehrConfig = (org?.settings as any)?.ehrConfig;
+  app.get(
+    "/api/ehr/config",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const org = await getCachedOrganization(req.orgId!);
+      const ehrConfig = (org?.settings as any)?.ehrConfig;
 
-    if (!ehrConfig) {
-      res.json({ configured: false });
-      return;
-    }
+      if (!ehrConfig) {
+        res.json({ configured: false });
+        return;
+      }
 
-    // Decrypt API key for admin display, redact for non-admins
-    const isAdmin = req.user?.role === "admin";
-    const decryptedKey = ehrConfig.apiKey ? decryptField(ehrConfig.apiKey) : undefined;
-    res.json({
-      configured: true,
-      system: ehrConfig.system,
-      baseUrl: ehrConfig.baseUrl,
-      apiKey: isAdmin ? decryptedKey : ehrConfig.apiKey ? "••••••••" : undefined,
-      options: ehrConfig.options,
-      enabled: ehrConfig.enabled,
-    });
-  }));
+      // Decrypt API key for admin display, redact for non-admins
+      const isAdmin = req.user?.role === "admin";
+      const decryptedKey = ehrConfig.apiKey ? decryptField(ehrConfig.apiKey) : undefined;
+      res.json({
+        configured: true,
+        system: ehrConfig.system,
+        baseUrl: ehrConfig.baseUrl,
+        apiKey: isAdmin ? decryptedKey : ehrConfig.apiKey ? "••••••••" : undefined,
+        options: ehrConfig.options,
+        enabled: ehrConfig.enabled,
+      });
+    }),
+  );
 
   // Configure EHR connection (admin only)
-  app.put("/api/ehr/config", requireAuth, injectOrgContext, requireRole("admin"), asyncHandler(async (req, res) => {
-    const { system, baseUrl, apiKey, options } = req.body;
+  app.put(
+    "/api/ehr/config",
+    requireAuth,
+    injectOrgContext,
+    requireRole("admin"),
+    asyncHandler(async (req, res) => {
+      const { system, baseUrl, apiKey, options } = req.body;
 
-    if (!system || !baseUrl) {
-      res.status(400).json({ message: "system and baseUrl are required" });
-      return;
-    }
+      if (!system || !baseUrl) {
+        res.status(400).json({ message: "system and baseUrl are required" });
+        return;
+      }
 
-    if (!isValidEhrBaseUrl(baseUrl)) {
-      res
-        .status(400)
-        .json({ message: "Invalid baseUrl. Must be a valid HTTPS URL pointing to an external EHR server." });
-      return;
-    }
+      if (!isValidEhrBaseUrl(baseUrl)) {
+        res
+          .status(400)
+          .json({ message: "Invalid baseUrl. Must be a valid HTTPS URL pointing to an external EHR server." });
+        return;
+      }
 
-    const adapter = getEhrAdapter(system);
-    if (!adapter) {
-      res.status(400).json({
-        message: `Unsupported EHR system: ${system}. Supported: ${getSupportedEhrSystems()
-          .map((s) => s.system)
-          .join(", ")}`,
+      const adapter = getEhrAdapter(system);
+      if (!adapter) {
+        res.status(400).json({
+          message: `Unsupported EHR system: ${system}. Supported: ${getSupportedEhrSystems()
+            .map((s) => s.system)
+            .join(", ")}`,
+        });
+        return;
+      }
+
+      const org = await getCachedOrganization(req.orgId!);
+      if (!org) {
+        res.status(404).json({ message: "Organization not found" });
+        return;
+      }
+
+      // Encrypt API key before storage (HIPAA: credentials at rest)
+      const ehrConfig: EhrConnectionConfig & { enabled: boolean } = {
+        system,
+        baseUrl,
+        apiKey: apiKey ? encryptField(apiKey) : undefined,
+        options: options || undefined,
+        enabled: true,
+      };
+
+      await storage.updateOrganization(req.orgId!, {
+        settings: { ...org.settings, ehrConfig } as any,
       });
-      return;
-    }
+      invalidateOrgCache(req.orgId!);
 
-    const org = await getCachedOrganization(req.orgId!);
-    if (!org) {
-      res.status(404).json({ message: "Organization not found" });
-      return;
-    }
+      logPhiAccess({
+        ...auditContext(req),
+        event: "org_settings_update",
+        resourceType: "organization",
+        resourceId: req.orgId!,
+        detail: `EHR configuration updated: system=${system}`,
+      });
 
-    // Encrypt API key before storage (HIPAA: credentials at rest)
-    const ehrConfig: EhrConnectionConfig & { enabled: boolean } = {
-      system,
-      baseUrl,
-      apiKey: apiKey ? encryptField(apiKey) : undefined,
-      options: options || undefined,
-      enabled: true,
-    };
-
-    await storage.updateOrganization(req.orgId!, {
-      settings: { ...org.settings, ehrConfig } as any,
-    });
-    invalidateOrgCache(req.orgId!);
-
-    logPhiAccess({
-      ...auditContext(req),
-      event: "org_settings_update",
-      resourceType: "organization",
-      resourceId: req.orgId!,
-      detail: `EHR configuration updated: system=${system}`,
-    });
-
-    logger.info({ orgId: req.orgId, system }, "EHR configuration updated");
-    res.json({ success: true, system, baseUrl });
-  }));
+      logger.info({ orgId: req.orgId, system }, "EHR configuration updated");
+      res.json({ success: true, system, baseUrl });
+    }),
+  );
 
   // Test EHR connection
   app.post("/api/ehr/test-connection", requireAuth, injectOrgContext, requireRole("admin"), async (req, res) => {
@@ -168,147 +179,168 @@ export function registerEhrRoutes(app: Express): void {
   });
 
   // Search patients in EHR
-  app.get("/api/ehr/patients", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
-    const org = await getCachedOrganization(req.orgId!);
-    const ehrConfig = (org?.settings as any)?.ehrConfig as EhrConnectionConfig | undefined;
+  app.get(
+    "/api/ehr/patients",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const org = await getCachedOrganization(req.orgId!);
+      const ehrConfig = (org?.settings as any)?.ehrConfig as EhrConnectionConfig | undefined;
 
-    if (!ehrConfig?.enabled) {
-      res.status(400).json({ message: "EHR integration not configured or disabled" });
-      return;
-    }
-
-    const adapter = getEhrAdapter(ehrConfig.system);
-    if (!adapter) {
-      res.status(400).json({ message: `No adapter for EHR system: ${ehrConfig.system}` });
-      return;
-    }
-
-    const { name, dob, phone } = req.query;
-    if (!name && !dob && !phone) {
-      res.status(400).json({ message: "At least one search parameter required: name, dob, or phone" });
-      return;
-    }
-
-    const patients = await adapter.searchPatients(await resolveConfig(ehrConfig), {
-      name: name as string,
-      dob: dob as string,
-      phone: phone as string,
-    });
-
-    logPhiAccess({
-      ...auditContext(req),
-      event: "ehr_patient_search",
-      resourceType: "ehr_patient",
-      detail: `Searched: ${name || dob || phone}`,
-    });
-
-    res.json(patients);
-  }));
-
-  // Get specific patient from EHR
-  app.get("/api/ehr/patients/:ehrPatientId", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
-    const org = await getCachedOrganization(req.orgId!);
-    const ehrConfig = (org?.settings as any)?.ehrConfig as EhrConnectionConfig | undefined;
-
-    if (!ehrConfig?.enabled) {
-      res.status(400).json({ message: "EHR integration not configured or disabled" });
-      return;
-    }
-
-    const adapter = getEhrAdapter(ehrConfig.system);
-    if (!adapter) {
-      res.status(400).json({ message: `No adapter for EHR system: ${ehrConfig.system}` });
-      return;
-    }
-
-    let patient;
-    try {
-      patient = await adapter.getPatient(await resolveConfig(ehrConfig), req.params.ehrPatientId);
-    } catch (err) {
-      if (err instanceof EhrError) {
-        const status = err.errorType === "auth" ? 502 : err.errorType === "network" || err.errorType === "timeout" ? 504 : 502;
-        res.status(status).json({ message: err.message, ehrErrorType: err.errorType, code: "OBS-EHR-ERROR" });
+      if (!ehrConfig?.enabled) {
+        res.status(400).json({ message: "EHR integration not configured or disabled" });
         return;
       }
-      throw err;
-    }
-    if (!patient) {
-      res.status(404).json({ message: "Patient not found" });
-      return;
-    }
 
-    logPhiAccess({
-      ...auditContext(req),
-      event: "ehr_patient_view",
-      resourceType: "ehr_patient",
-      resourceId: req.params.ehrPatientId,
-    });
+      const adapter = getEhrAdapter(ehrConfig.system);
+      if (!adapter) {
+        res.status(400).json({ message: `No adapter for EHR system: ${ehrConfig.system}` });
+        return;
+      }
 
-    res.json(patient);
-  }));
+      const { name, dob, phone } = req.query;
+      if (!name && !dob && !phone) {
+        res.status(400).json({ message: "At least one search parameter required: name, dob, or phone" });
+        return;
+      }
+
+      const patients = await adapter.searchPatients(await resolveConfig(ehrConfig), {
+        name: name as string,
+        dob: dob as string,
+        phone: phone as string,
+      });
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "ehr_patient_search",
+        resourceType: "ehr_patient",
+        detail: `Searched: ${name || dob || phone}`,
+      });
+
+      res.json(patients);
+    }),
+  );
+
+  // Get specific patient from EHR
+  app.get(
+    "/api/ehr/patients/:ehrPatientId",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const org = await getCachedOrganization(req.orgId!);
+      const ehrConfig = (org?.settings as any)?.ehrConfig as EhrConnectionConfig | undefined;
+
+      if (!ehrConfig?.enabled) {
+        res.status(400).json({ message: "EHR integration not configured or disabled" });
+        return;
+      }
+
+      const adapter = getEhrAdapter(ehrConfig.system);
+      if (!adapter) {
+        res.status(400).json({ message: `No adapter for EHR system: ${ehrConfig.system}` });
+        return;
+      }
+
+      let patient;
+      try {
+        patient = await adapter.getPatient(await resolveConfig(ehrConfig), req.params.ehrPatientId);
+      } catch (err) {
+        if (err instanceof EhrError) {
+          const status =
+            err.errorType === "auth" ? 502 : err.errorType === "network" || err.errorType === "timeout" ? 504 : 502;
+          res.status(status).json({ message: err.message, ehrErrorType: err.errorType, code: "OBS-EHR-ERROR" });
+          return;
+        }
+        throw err;
+      }
+      if (!patient) {
+        res.status(404).json({ message: "Patient not found" });
+        return;
+      }
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "ehr_patient_view",
+        resourceType: "ehr_patient",
+        resourceId: req.params.ehrPatientId,
+      });
+
+      res.json(patient);
+    }),
+  );
 
   // Get today's appointments from EHR
-  app.get("/api/ehr/appointments/today", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
-    const org = await getCachedOrganization(req.orgId!);
-    const ehrConfig = (org?.settings as any)?.ehrConfig as EhrConnectionConfig | undefined;
+  app.get(
+    "/api/ehr/appointments/today",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const org = await getCachedOrganization(req.orgId!);
+      const ehrConfig = (org?.settings as any)?.ehrConfig as EhrConnectionConfig | undefined;
 
-    if (!ehrConfig?.enabled) {
-      res.status(400).json({ message: "EHR integration not configured or disabled" });
-      return;
-    }
+      if (!ehrConfig?.enabled) {
+        res.status(400).json({ message: "EHR integration not configured or disabled" });
+        return;
+      }
 
-    const adapter = getEhrAdapter(ehrConfig.system);
-    if (!adapter) {
-      res.status(400).json({ message: `No adapter for EHR system: ${ehrConfig.system}` });
-      return;
-    }
+      const adapter = getEhrAdapter(ehrConfig.system);
+      if (!adapter) {
+        res.status(400).json({ message: `No adapter for EHR system: ${ehrConfig.system}` });
+        return;
+      }
 
-    const providerId = req.query.providerId as string | undefined;
-    const appointments = await adapter.getTodayAppointments(await resolveConfig(ehrConfig), providerId);
-    logPhiAccess({
-      ...auditContext(req),
-      event: "view_ehr_appointments",
-      resourceType: "ehr_appointment",
-      detail: `today's appointments${providerId ? ` for provider ${providerId}` : ""}`,
-    });
-    res.json(appointments);
-  }));
+      const providerId = req.query.providerId as string | undefined;
+      const appointments = await adapter.getTodayAppointments(await resolveConfig(ehrConfig), providerId);
+      logPhiAccess({
+        ...auditContext(req),
+        event: "view_ehr_appointments",
+        resourceType: "ehr_appointment",
+        detail: `today's appointments${providerId ? ` for provider ${providerId}` : ""}`,
+      });
+      res.json(appointments);
+    }),
+  );
 
   // Get appointments for a date range from EHR
-  app.get("/api/ehr/appointments", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
-    const org = await getCachedOrganization(req.orgId!);
-    const ehrConfig = (org?.settings as any)?.ehrConfig as EhrConnectionConfig | undefined;
+  app.get(
+    "/api/ehr/appointments",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const org = await getCachedOrganization(req.orgId!);
+      const ehrConfig = (org?.settings as any)?.ehrConfig as EhrConnectionConfig | undefined;
 
-    if (!ehrConfig?.enabled) {
-      res.status(400).json({ message: "EHR integration not configured or disabled" });
-      return;
-    }
+      if (!ehrConfig?.enabled) {
+        res.status(400).json({ message: "EHR integration not configured or disabled" });
+        return;
+      }
 
-    const adapter = getEhrAdapter(ehrConfig.system);
-    if (!adapter) {
-      res.status(400).json({ message: `No adapter for EHR system: ${ehrConfig.system}` });
-      return;
-    }
+      const adapter = getEhrAdapter(ehrConfig.system);
+      if (!adapter) {
+        res.status(400).json({ message: `No adapter for EHR system: ${ehrConfig.system}` });
+        return;
+      }
 
-    const { startDate, endDate, providerId } = req.query;
-    if (!startDate || !endDate) {
-      res.status(400).json({ message: "startDate and endDate query parameters required" });
-      return;
-    }
+      const { startDate, endDate, providerId } = req.query;
+      if (!startDate || !endDate) {
+        res.status(400).json({ message: "startDate and endDate query parameters required" });
+        return;
+      }
 
-    const appointments = await adapter.getAppointments(await resolveConfig(ehrConfig), {
-      startDate: startDate as string,
-      endDate: endDate as string,
-      providerId: providerId as string | undefined,
-    });
-    logPhiAccess({
-      ...auditContext(req),
-      event: "view_ehr_appointments",
-      resourceType: "ehr_appointment",
-      detail: `date range ${startDate}–${endDate}${providerId ? ` provider ${providerId}` : ""}`,
-    });
-    res.json(appointments);
-  }));
+      const appointments = await adapter.getAppointments(await resolveConfig(ehrConfig), {
+        startDate: startDate as string,
+        endDate: endDate as string,
+        providerId: providerId as string | undefined,
+      });
+      logPhiAccess({
+        ...auditContext(req),
+        event: "view_ehr_appointments",
+        resourceType: "ehr_appointment",
+        detail: `date range ${startDate}–${endDate}${providerId ? ` provider ${providerId}` : ""}`,
+      });
+      res.json(appointments);
+    }),
+  );
 
   // Push clinical note to EHR
   app.post(
@@ -318,107 +350,111 @@ export function registerEhrRoutes(app: Express): void {
     requireRole("manager", "admin"),
     asyncHandler(async (req, res) => {
       const org = await getCachedOrganization(req.orgId!);
-        const ehrConfig = (org?.settings as any)?.ehrConfig as EhrConnectionConfig | undefined;
+      const ehrConfig = (org?.settings as any)?.ehrConfig as EhrConnectionConfig | undefined;
 
-        if (!ehrConfig?.enabled) {
-          res.status(400).json({ message: "EHR integration not configured or disabled" });
-          return;
-        }
+      if (!ehrConfig?.enabled) {
+        res.status(400).json({ message: "EHR integration not configured or disabled" });
+        return;
+      }
 
-        const adapter = getEhrAdapter(ehrConfig.system);
-        if (!adapter) {
-          res.status(400).json({ message: `No adapter for EHR system: ${ehrConfig.system}` });
-          return;
-        }
+      const adapter = getEhrAdapter(ehrConfig.system);
+      if (!adapter) {
+        res.status(400).json({ message: `No adapter for EHR system: ${ehrConfig.system}` });
+        return;
+      }
 
-        // Get the clinical note
-        const analysis = (await storage.getCallAnalysis(req.orgId!, req.params.callId)) as any;
-        if (!analysis?.clinicalNote) {
-          res.status(404).json({ message: "No clinical note found for this encounter" });
-          return;
-        }
+      // Get the clinical note
+      const analysis = (await storage.getCallAnalysis(req.orgId!, req.params.callId)) as any;
+      if (!analysis?.clinicalNote) {
+        res.status(404).json({ message: "No clinical note found for this encounter" });
+        return;
+      }
 
-        // Require attestation before pushing to EHR
-        if (!analysis.clinicalNote.providerAttested) {
-          res.status(400).json({ message: "Clinical note must be attested before pushing to EHR" });
-          return;
-        }
+      // Require attestation before pushing to EHR
+      if (!analysis.clinicalNote.providerAttested) {
+        res.status(400).json({ message: "Clinical note must be attested before pushing to EHR" });
+        return;
+      }
 
-        // Require patient consent before sharing clinical data externally (HIPAA)
-        if (!analysis.clinicalNote.consentObtained) {
-          res.status(400).json({
-            message: "Patient consent must be recorded before pushing notes to EHR",
-            code: "OBS-CLINICAL-020",
-          });
-          return;
-        }
+      // Require patient consent before sharing clinical data externally (HIPAA)
+      if (!analysis.clinicalNote.consentObtained) {
+        res.status(400).json({
+          message: "Patient consent must be recorded before pushing notes to EHR",
+          code: "OBS-CLINICAL-020",
+        });
+        return;
+      }
 
-        const { ehrPatientId, ehrProviderId } = req.body;
-        if (!ehrPatientId) {
-          res.status(400).json({ message: "ehrPatientId is required to push note to EHR" });
-          return;
-        }
+      const { ehrPatientId, ehrProviderId } = req.body;
+      if (!ehrPatientId) {
+        res.status(400).json({ message: "ehrPatientId is required to push note to EHR" });
+        return;
+      }
 
-        // Decrypt PHI fields before formatting for EHR (stored encrypted at rest)
-        const cn = { ...analysis.clinicalNote };
-        const phiFields = ["subjective", "objective", "assessment", "hpiNarrative", "chiefComplaint"];
-        for (const f of phiFields) {
-          if (typeof cn[f] === "string") cn[f] = decryptField(cn[f]);
-        }
-        const noteContent = formatClinicalNoteForEhr(cn);
+      // Decrypt PHI fields before formatting for EHR (stored encrypted at rest)
+      const cn = { ...analysis.clinicalNote };
+      const phiFields = ["subjective", "objective", "assessment", "hpiNarrative", "chiefComplaint"];
+      for (const f of phiFields) {
+        if (typeof cn[f] === "string") cn[f] = decryptField(cn[f]);
+      }
+      const noteContent = formatClinicalNoteForEhr(cn);
 
-        const pushPayload = {
-          patientId: ehrPatientId,
-          providerId: ehrProviderId || "",
-          date: new Date().toISOString().split("T")[0]!,
+      const pushPayload = {
+        patientId: ehrPatientId,
+        providerId: ehrProviderId || "",
+        date: new Date().toISOString().split("T")[0]!,
+        noteType: cn.format || "soap",
+        content: noteContent,
+        procedureCodes: cn.cdtCodes || cn.cptCodes,
+        diagnosisCodes: cn.icd10Codes,
+      };
+
+      const result = await adapter.pushClinicalNote(await resolveConfig(ehrConfig), pushPayload);
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "ehr_note_push",
+        resourceType: "clinical_note",
+        resourceId: req.params.callId,
+        detail: `Pushed to ${ehrConfig.system}, patient: ${ehrPatientId}`,
+      });
+
+      if (result.success) {
+        logger.info({ callId: req.params.callId, ehrRecordId: result.ehrRecordId }, "Clinical note pushed to EHR");
+      } else {
+        // Push failed — enqueue for background retry with exponential backoff
+        const queued = await enqueueEhrNotePush({
+          orgId: req.orgId!,
+          callId: req.params.callId,
+          ehrPatientId,
+          ehrProviderId: ehrProviderId || undefined,
+          noteContent,
           noteType: cn.format || "soap",
-          content: noteContent,
           procedureCodes: cn.cdtCodes || cn.cptCodes,
           diagnosisCodes: cn.icd10Codes,
-        };
-
-        const result = await adapter.pushClinicalNote(await resolveConfig(ehrConfig), pushPayload);
-
-        logPhiAccess({
-          ...auditContext(req),
-          event: "ehr_note_push",
-          resourceType: "clinical_note",
-          resourceId: req.params.callId,
-          detail: `Pushed to ${ehrConfig.system}, patient: ${ehrPatientId}`,
+          queuedAt: new Date().toISOString(),
         });
 
-        if (result.success) {
-          logger.info({ callId: req.params.callId, ehrRecordId: result.ehrRecordId }, "Clinical note pushed to EHR");
-        } else {
-          // Push failed — enqueue for background retry with exponential backoff
-          const queued = await enqueueEhrNotePush({
-            orgId: req.orgId!,
-            callId: req.params.callId,
-            ehrPatientId,
-            ehrProviderId: ehrProviderId || undefined,
-            noteContent,
-            noteType: cn.format || "soap",
-            procedureCodes: cn.cdtCodes || cn.cptCodes,
-            diagnosisCodes: cn.icd10Codes,
-            queuedAt: new Date().toISOString(),
-          });
-
-          if (queued) {
-            logger.info({ callId: req.params.callId }, "EHR note push failed — queued for background retry");
-          }
-
-          // Return the failure result plus queued info — let the client show a warning
-          res.json({ ...result, retryQueued: queued });
-          return;
+        if (queued) {
+          logger.info({ callId: req.params.callId }, "EHR note push failed — queued for background retry");
         }
 
-        res.json(result);
+        // Return the failure result plus queued info — let the client show a warning
+        res.json({ ...result, retryQueued: queued });
+        return;
+      }
+
+      res.json(result);
     }),
   );
 
   // Get patient treatment plans from EHR
-  app.get("/api/ehr/patients/:ehrPatientId/treatment-plans", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
-    const org = await getCachedOrganization(req.orgId!);
+  app.get(
+    "/api/ehr/patients/:ehrPatientId/treatment-plans",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const org = await getCachedOrganization(req.orgId!);
       const ehrConfig = (org?.settings as any)?.ehrConfig as EhrConnectionConfig | undefined;
 
       if (!ehrConfig?.enabled) {
@@ -441,12 +477,18 @@ export function registerEhrRoutes(app: Express): void {
         resourceId: req.params.ehrPatientId,
       });
 
-    res.json(plans);
-  }));
+      res.json(plans);
+    }),
+  );
 
   // Disable EHR integration
-  app.delete("/api/ehr/config", requireAuth, injectOrgContext, requireRole("admin"), asyncHandler(async (req, res) => {
-    const org = await getCachedOrganization(req.orgId!);
+  app.delete(
+    "/api/ehr/config",
+    requireAuth,
+    injectOrgContext,
+    requireRole("admin"),
+    asyncHandler(async (req, res) => {
+      const org = await getCachedOrganization(req.orgId!);
       if (!org) {
         res.status(404).json({ message: "Organization not found" });
         return;
@@ -468,14 +510,19 @@ export function registerEhrRoutes(app: Express): void {
         detail: "EHR integration disabled",
       });
 
-    logger.info({ orgId: req.orgId }, "EHR integration disabled");
-    res.json({ success: true, message: "EHR integration disabled" });
-  }));
+      logger.info({ orgId: req.orgId }, "EHR integration disabled");
+      res.json({ success: true, message: "EHR integration disabled" });
+    }),
+  );
 
   // Get EHR prefill data for a patient (medications, allergies, recent visit history)
   // Used to pre-populate clinical note fields from EHR prior visit data
-  app.get("/api/ehr/patients/:ehrPatientId/prefill-data", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
-    const org = await getCachedOrganization(req.orgId!);
+  app.get(
+    "/api/ehr/patients/:ehrPatientId/prefill-data",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const org = await getCachedOrganization(req.orgId!);
       const ehrConfig = (org?.settings as any)?.ehrConfig;
 
       if (!ehrConfig?.enabled || !ehrConfig?.system) {
@@ -544,20 +591,26 @@ export function registerEhrRoutes(app: Express): void {
         allergies,
         chiefComplaintHistory: lastChiefComplaint ? [lastChiefComplaint] : [],
         demographicsNote,
-    });
-  }));
+      });
+    }),
+  );
 
   // Get EHR note push status for a call (pending retries, success/failure)
-  app.get("/api/ehr/push-status/:callId", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
-    const analysis = (await storage.getCallAnalysis(req.orgId!, req.params.callId)) as any;
-    if (!analysis) {
-      res.status(404).json({ message: "Call analysis not found" });
-      return;
-    }
+  app.get(
+    "/api/ehr/push-status/:callId",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const analysis = (await storage.getCallAnalysis(req.orgId!, req.params.callId)) as any;
+      if (!analysis) {
+        res.status(404).json({ message: "Call analysis not found" });
+        return;
+      }
 
-    const pushStatus = analysis.ehrPushStatus || null;
-    res.json({ callId: req.params.callId, pushStatus });
-  }));
+      const pushStatus = analysis.ehrPushStatus || null;
+      res.json({ callId: req.params.callId, pushStatus });
+    }),
+  );
 
   // Manually trigger a retry for a failed EHR note push
   app.post(
@@ -575,72 +628,76 @@ export function registerEhrRoutes(app: Express): void {
       }
 
       const analysis = (await storage.getCallAnalysis(req.orgId!, req.params.callId)) as any;
-        if (!analysis?.clinicalNote) {
-          res.status(404).json({ message: "No clinical note found for this encounter" });
-          return;
-        }
+      if (!analysis?.clinicalNote) {
+        res.status(404).json({ message: "No clinical note found for this encounter" });
+        return;
+      }
 
-        if (!analysis.clinicalNote.providerAttested || !analysis.clinicalNote.consentObtained) {
-          res.status(400).json({ message: "Note must be attested and patient consent obtained before pushing to EHR" });
-          return;
-        }
+      if (!analysis.clinicalNote.providerAttested || !analysis.clinicalNote.consentObtained) {
+        res.status(400).json({ message: "Note must be attested and patient consent obtained before pushing to EHR" });
+        return;
+      }
 
-        const { ehrPatientId, ehrProviderId } = req.body;
-        if (!ehrPatientId) {
-          res.status(400).json({ message: "ehrPatientId is required" });
-          return;
-        }
+      const { ehrPatientId, ehrProviderId } = req.body;
+      if (!ehrPatientId) {
+        res.status(400).json({ message: "ehrPatientId is required" });
+        return;
+      }
 
-        // Decrypt and format note content
-        const cn = { ...analysis.clinicalNote };
-        const phiFields = ["subjective", "objective", "assessment", "hpiNarrative", "chiefComplaint"];
-        for (const f of phiFields) {
-          if (typeof cn[f] === "string") cn[f] = decryptField(cn[f]);
-        }
-        const noteContent = formatClinicalNoteForEhr(cn);
+      // Decrypt and format note content
+      const cn = { ...analysis.clinicalNote };
+      const phiFields = ["subjective", "objective", "assessment", "hpiNarrative", "chiefComplaint"];
+      for (const f of phiFields) {
+        if (typeof cn[f] === "string") cn[f] = decryptField(cn[f]);
+      }
+      const noteContent = formatClinicalNoteForEhr(cn);
 
-        const queued = await enqueueEhrNotePush({
-          orgId: req.orgId!,
-          callId: req.params.callId,
-          ehrPatientId,
-          ehrProviderId: ehrProviderId || undefined,
-          noteContent,
+      const queued = await enqueueEhrNotePush({
+        orgId: req.orgId!,
+        callId: req.params.callId,
+        ehrPatientId,
+        ehrProviderId: ehrProviderId || undefined,
+        noteContent,
+        noteType: cn.format || "soap",
+        procedureCodes: cn.cdtCodes || cn.cptCodes,
+        diagnosisCodes: cn.icd10Codes,
+        queuedAt: new Date().toISOString(),
+      });
+
+      logPhiAccess({
+        ...auditContext(req),
+        event: "ehr_note_push",
+        resourceType: "clinical_note",
+        resourceId: req.params.callId,
+        detail: `Manual retry queued for ${ehrConfig.system}, patient: ${ehrPatientId}`,
+      });
+
+      if (queued) {
+        res.json({ success: true, message: "Note push queued for retry" });
+      } else {
+        // Queue unavailable — try synchronously
+        const adapter = getEhrAdapter(ehrConfig.system)!;
+        const result = await adapter.pushClinicalNote(await resolveConfig(ehrConfig), {
+          patientId: ehrPatientId,
+          providerId: ehrProviderId || "",
+          date: new Date().toISOString().split("T")[0]!,
           noteType: cn.format || "soap",
+          content: noteContent,
           procedureCodes: cn.cdtCodes || cn.cptCodes,
           diagnosisCodes: cn.icd10Codes,
-          queuedAt: new Date().toISOString(),
         });
-
-        logPhiAccess({
-          ...auditContext(req),
-          event: "ehr_note_push",
-          resourceType: "clinical_note",
-          resourceId: req.params.callId,
-          detail: `Manual retry queued for ${ehrConfig.system}, patient: ${ehrPatientId}`,
-        });
-
-        if (queued) {
-          res.json({ success: true, message: "Note push queued for retry" });
-        } else {
-          // Queue unavailable — try synchronously
-          const adapter = getEhrAdapter(ehrConfig.system)!;
-          const result = await adapter.pushClinicalNote(await resolveConfig(ehrConfig), {
-            patientId: ehrPatientId,
-            providerId: ehrProviderId || "",
-            date: new Date().toISOString().split("T")[0]!,
-            noteType: cn.format || "soap",
-            content: noteContent,
-            procedureCodes: cn.cdtCodes || cn.cptCodes,
-            diagnosisCodes: cn.icd10Codes,
-          });
-          res.json(result);
-        }
+        res.json(result);
+      }
     }),
   );
 
   // Match a call to an EHR appointment by time and provider
-  app.get("/api/ehr/match-appointment/:callId", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
-    const call = await storage.getCall(req.orgId!, req.params.callId);
+  app.get(
+    "/api/ehr/match-appointment/:callId",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const call = await storage.getCall(req.orgId!, req.params.callId);
       if (!call) {
         res.status(404).json({ message: "Call not found" });
         return;
@@ -668,8 +725,9 @@ export function registerEhrRoutes(app: Express): void {
         detail: `Appointment match attempt for call ${req.params.callId}`,
       });
 
-    res.json(match);
-  }));
+      res.json(match);
+    }),
+  );
 
   // Create appointment in EHR (bidirectional sync)
   app.post(
@@ -679,48 +737,48 @@ export function registerEhrRoutes(app: Express): void {
     requireRole("manager", "admin"),
     asyncHandler(async (req, res) => {
       const org = await getCachedOrganization(req.orgId!);
-        const ehrConfig = (org?.settings as any)?.ehrConfig as EhrConnectionConfig | undefined;
+      const ehrConfig = (org?.settings as any)?.ehrConfig as EhrConnectionConfig | undefined;
 
-        if (!ehrConfig?.enabled) {
-          res.status(400).json({ message: "EHR integration not configured or disabled" });
-          return;
-        }
+      if (!ehrConfig?.enabled) {
+        res.status(400).json({ message: "EHR integration not configured or disabled" });
+        return;
+      }
 
-        const adapter = getEhrAdapter(ehrConfig.system);
-        if (!adapter) {
-          res.status(400).json({ message: `No adapter for EHR system: ${ehrConfig.system}` });
-          return;
-        }
+      const adapter = getEhrAdapter(ehrConfig.system);
+      if (!adapter) {
+        res.status(400).json({ message: `No adapter for EHR system: ${ehrConfig.system}` });
+        return;
+      }
 
-        if (!adapter.createAppointment) {
-          res.status(400).json({ message: `${ehrConfig.system} adapter does not support appointment creation` });
-          return;
-        }
+      if (!adapter.createAppointment) {
+        res.status(400).json({ message: `${ehrConfig.system} adapter does not support appointment creation` });
+        return;
+      }
 
-        const { patientId, providerId, date, startTime, duration, procedures, notes } = req.body;
-        if (!patientId || !providerId || !date || !startTime) {
-          res.status(400).json({ message: "patientId, providerId, date, and startTime are required" });
-          return;
-        }
+      const { patientId, providerId, date, startTime, duration, procedures, notes } = req.body;
+      if (!patientId || !providerId || !date || !startTime) {
+        res.status(400).json({ message: "patientId, providerId, date, and startTime are required" });
+        return;
+      }
 
-        const result = await adapter.createAppointment(await resolveConfig(ehrConfig), {
-          patientId,
-          providerId,
-          date,
-          startTime,
-          duration: duration || 30,
-          procedures,
-          notes,
-        });
+      const result = await adapter.createAppointment(await resolveConfig(ehrConfig), {
+        patientId,
+        providerId,
+        date,
+        startTime,
+        duration: duration || 30,
+        procedures,
+        notes,
+      });
 
-        logPhiAccess({
-          ...auditContext(req),
-          event: "ehr_appointment_view",
-          resourceType: "ehr_appointment",
-          detail: `Appointment created for patient ${patientId}`,
-        });
+      logPhiAccess({
+        ...auditContext(req),
+        event: "ehr_appointment_view",
+        resourceType: "ehr_appointment",
+        detail: `Appointment created for patient ${patientId}`,
+      });
 
-        res.json(result);
+      res.json(result);
     }),
   );
 
@@ -732,60 +790,70 @@ export function registerEhrRoutes(app: Express): void {
     requireRole("manager", "admin"),
     asyncHandler(async (req, res) => {
       const org = await getCachedOrganization(req.orgId!);
-        const ehrConfig = (org?.settings as any)?.ehrConfig as EhrConnectionConfig | undefined;
+      const ehrConfig = (org?.settings as any)?.ehrConfig as EhrConnectionConfig | undefined;
 
-        if (!ehrConfig?.enabled) {
-          res.status(400).json({ message: "EHR integration not configured or disabled" });
-          return;
-        }
+      if (!ehrConfig?.enabled) {
+        res.status(400).json({ message: "EHR integration not configured or disabled" });
+        return;
+      }
 
-        const adapter = getEhrAdapter(ehrConfig.system);
-        if (!adapter) {
-          res.status(400).json({ message: `No adapter for EHR system: ${ehrConfig.system}` });
-          return;
-        }
+      const adapter = getEhrAdapter(ehrConfig.system);
+      if (!adapter) {
+        res.status(400).json({ message: `No adapter for EHR system: ${ehrConfig.system}` });
+        return;
+      }
 
-        if (!adapter.updateTreatmentPlan) {
-          res.status(400).json({ message: `${ehrConfig.system} adapter does not support treatment plan updates` });
-          return;
-        }
+      if (!adapter.updateTreatmentPlan) {
+        res.status(400).json({ message: `${ehrConfig.system} adapter does not support treatment plan updates` });
+        return;
+      }
 
-        const { status, notes, phaseUpdates } = req.body;
-        const result = await adapter.updateTreatmentPlan(await resolveConfig(ehrConfig), req.params.planId, {
-          status,
-          notes,
-          phaseUpdates,
-        });
+      const { status, notes, phaseUpdates } = req.body;
+      const result = await adapter.updateTreatmentPlan(await resolveConfig(ehrConfig), req.params.planId, {
+        status,
+        notes,
+        phaseUpdates,
+      });
 
-        logPhiAccess({
-          ...auditContext(req),
-          event: "ehr_treatment_plan_view",
-          resourceType: "ehr_treatment_plan",
-          resourceId: req.params.planId,
-          detail: `Treatment plan ${req.params.planId} updated`,
-        });
+      logPhiAccess({
+        ...auditContext(req),
+        event: "ehr_treatment_plan_view",
+        resourceType: "ehr_treatment_plan",
+        resourceId: req.params.planId,
+        detail: `Treatment plan ${req.params.planId} updated`,
+      });
 
-        res.json(result);
+      res.json(result);
     }),
   );
 
   // Get current EHR health status (from cached org settings, no live check)
-  app.get("/api/ehr/health", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
-    const org = await getCachedOrganization(req.orgId!);
-    const settings = org?.settings as any;
-    const healthStatus = settings?.ehrHealthStatus || null;
-    const ehrConfig = settings?.ehrConfig;
+  app.get(
+    "/api/ehr/health",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
+      const org = await getCachedOrganization(req.orgId!);
+      const settings = org?.settings as any;
+      const healthStatus = settings?.ehrHealthStatus || null;
+      const ehrConfig = settings?.ehrConfig;
 
-    res.json({
-      configured: !!ehrConfig?.enabled,
-      system: ehrConfig?.system || null,
-      health: healthStatus,
-    });
-  }));
+      res.json({
+        configured: !!ehrConfig?.enabled,
+        system: ehrConfig?.system || null,
+        health: healthStatus,
+      });
+    }),
+  );
 
   // Configure EHR credentials via AWS Secrets Manager ARN (admin only)
-  app.put("/api/ehr/config/secret-arn", requireAuth, injectOrgContext, requireRole("admin"), asyncHandler(async (req, res) => {
-    const { secretArn } = req.body;
+  app.put(
+    "/api/ehr/config/secret-arn",
+    requireAuth,
+    injectOrgContext,
+    requireRole("admin"),
+    asyncHandler(async (req, res) => {
+      const { secretArn } = req.body;
 
       if (!secretArn) {
         res.status(400).json({ message: "secretArn is required" });
@@ -836,9 +904,10 @@ export function registerEhrRoutes(app: Express): void {
         detail: "EHR credentials moved to AWS Secrets Manager",
       });
 
-    logger.info({ orgId: req.orgId }, "EHR credentials moved to Secrets Manager");
-    res.json({ success: true, message: "EHR credentials will now be fetched from AWS Secrets Manager" });
-  }));
+      logger.info({ orgId: req.orgId }, "EHR credentials moved to Secrets Manager");
+      res.json({ success: true, message: "EHR credentials will now be fetched from AWS Secrets Manager" });
+    }),
+  );
 }
 
 /**

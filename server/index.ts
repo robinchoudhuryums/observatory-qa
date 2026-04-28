@@ -352,7 +352,9 @@ app.use("/api/super-admin", distributedRateLimit(60 * 1000, 30) as any);
     if (process.env.SESSION_SECRET === "dev-secret")
       envErrors.push("SESSION_SECRET is set to 'dev-secret' — use a random 32+ character string in production");
     else if (process.env.SESSION_SECRET && process.env.SESSION_SECRET.length < 32)
-      envErrors.push(`SESSION_SECRET is too short (${process.env.SESSION_SECRET.length} chars) — must be at least 32 characters in production`);
+      envErrors.push(
+        `SESSION_SECRET is too short (${process.env.SESSION_SECRET.length} chars) — must be at least 32 characters in production`,
+      );
   }
 
   // PHI encryption (HIPAA requirement in production)
@@ -490,6 +492,8 @@ app.use("/api/super-admin", distributedRateLimit(60 * 1000, 30) as any);
         runAllDailyTasks,
         scheduleDaily,
         scheduleWeekly,
+        startScheduledReportsHourlyTick,
+        runScheduledReportsCatchUp,
       } = await import("./scheduled");
       const defaultRetentionDays = parseInt(process.env.RETENTION_DAYS || "90", 10);
       const dailyTaskOpts = { queuesReady, defaultRetentionDays };
@@ -506,6 +510,8 @@ app.use("/api/super-admin", distributedRateLimit(60 * 1000, 30) as any);
       const cancelDailyTasks = scheduleDaily(2, () => runAllDailyTasks(storage, dailyTaskOpts), "daily-tasks");
       // Weekly digest at Monday 8:00 UTC (dayOfWeek=1)
       const cancelWeeklyDigest = scheduleWeekly(1, 8, () => runWeeklyDigest(storage), "weekly-digest");
+      const cancelReportsTick = startScheduledReportsHourlyTick();
+      void runScheduledReportsCatchUp(storage);
 
       // Graceful shutdown with HTTP connection draining
       let isShuttingDown = false;
@@ -522,6 +528,7 @@ app.use("/api/super-admin", distributedRateLimit(60 * 1000, 30) as any);
         clearTimeout(quotaAlertStartupTimer);
         cancelDailyTasks();
         cancelWeeklyDigest();
+        cancelReportsTick();
 
         // Stop accepting new connections and drain existing ones
         server.close(() => {

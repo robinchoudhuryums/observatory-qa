@@ -37,10 +37,7 @@ import { redactTextForCategory } from "./phi-policy";
  * Returns the embedding vector (number[]). Same shape and dimensions as
  * `generateEmbedding`. The PHI redaction is invisible to the caller.
  */
-export async function generateQueryEmbedding(
-  queryText: string,
-  callCategory?: string | null,
-): Promise<number[]> {
+export async function generateQueryEmbedding(queryText: string, callCategory?: string | null): Promise<number[]> {
   const safeText = redactTextForCategory(queryText, callCategory);
   return generateEmbedding(safeText);
 }

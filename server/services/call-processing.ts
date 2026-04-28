@@ -43,7 +43,10 @@ const MAX_REF_DOC_CACHE_ENTRIES = 1_000;
 // Prompt template cache — avoids DB lookup on every call for the same org+category
 const PROMPT_TEMPLATE_CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_PROMPT_TEMPLATE_CACHE_ENTRIES = 500;
-const promptTemplateCache = new LruCache<any>({ maxSize: MAX_PROMPT_TEMPLATE_CACHE_ENTRIES, ttlMs: PROMPT_TEMPLATE_CACHE_TTL_MS });
+const promptTemplateCache = new LruCache<any>({
+  maxSize: MAX_PROMPT_TEMPLATE_CACHE_ENTRIES,
+  ttlMs: PROMPT_TEMPLATE_CACHE_TTL_MS,
+});
 
 type RefDocList = Array<{ name: string; category: string; extractedText?: string | null; id: string }>;
 
@@ -1025,13 +1028,17 @@ async function runAiAnalysis(
 
   try {
     const result = await withBedrockProtection(orgId, () =>
-      withRetry(() => aiProvider.analyzeCallTranscript(transcriptText, callId, callCategory, promptTemplate, {
-        transcriptConfidence,
-      }), {
-        retries: 2,
-        baseDelay: 2000,
-        label: `AI analysis for ${callId}`,
-      }),
+      withRetry(
+        () =>
+          aiProvider.analyzeCallTranscript(transcriptText, callId, callCategory, promptTemplate, {
+            transcriptConfidence,
+          }),
+        {
+          retries: 2,
+          baseDelay: 2000,
+          label: `AI analysis for ${callId}`,
+        },
+      ),
     );
     // Attach prompt version ID for audit trail (12-char SHA-256 prefix of rendered system prompt)
     try {

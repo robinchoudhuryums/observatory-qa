@@ -129,10 +129,7 @@ export function createReanalysisWorker(
         }
       }
 
-      logger.info(
-        { orgId, succeeded, failed, total: totalProcessed, requestedBy },
-        "Reanalysis worker: complete",
-      );
+      logger.info({ orgId, succeeded, failed, total: totalProcessed, requestedBy }, "Reanalysis worker: complete");
 
       return { succeeded, failed, total: totalProcessed };
     },

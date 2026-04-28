@@ -10,6 +10,8 @@ import { aiProvider } from "./ai-factory";
 import { buildAgentSummaryPrompt } from "./ai-provider";
 import { logger } from "./logger";
 import type { CallSummary, CoachingSession } from "@shared/schema";
+import { prepareCallSummariesForPrompt } from "./coaching-prompt";
+import { generateProgressivePlan, progressivePlanToActionPlan, type WeaknessContext } from "./coaching-progressive";
 
 // Default thresholds for auto-recommendations (can be overridden per-org via settings.coachingThresholds)
 const DEFAULT_THRESHOLDS = {
@@ -243,14 +245,17 @@ export async function generateCoachingPlan(orgId: string, sessionId: string): Pr
   if (recentCalls.length === 0) return null;
 
   const avgScore = average(recentCalls.map((c) => Number(c.analysis?.performanceScore) || 0));
-  const callSummaries = recentCalls.slice(0, 5).map((c) => ({
-    score: c.analysis?.performanceScore,
-    subScores: c.analysis?.subScores,
-    summary: c.analysis?.summary,
-    feedback: c.analysis?.feedback,
-    flags: c.analysis?.flags,
-    sentiment: c.sentiment?.overallSentiment,
-  }));
+  const callSummaries = prepareCallSummariesForPrompt(
+    recentCalls.slice(0, 5).map((c) => ({
+      score: c.analysis?.performanceScore,
+      subScores: c.analysis?.subScores,
+      summary: c.analysis?.summary,
+      feedback: c.analysis?.feedback,
+      flags: c.analysis?.flags,
+      sentiment: c.sentiment?.overallSentiment,
+    })),
+    null, // null = use default redact-by-policy; coaching is non-clinical
+  );
 
   const prompt = `You are a call center coaching expert. Generate a structured coaching action plan for the following agent.
 
@@ -440,6 +445,35 @@ export async function runAutomationRules(
               automationRuleId: rule.id,
               templateId: actions.templateId || null,
             } as any;
+
+            const conditions = rule.conditions as any;
+            const isRecurringPattern =
+              rule.triggerType === "trend_decline" ||
+              rule.triggerType === "consecutive_low_score" ||
+              rule.triggerType === "flag_recurring";
+
+            if (isRecurringPattern) {
+              const primary: WeaknessContext = {
+                dim: conditions.flagType || rule.triggerType,
+                label: rule.name,
+                avgScore: 0,
+                count: conditions.consecutiveCount ?? 3,
+              };
+              try {
+                const progressive = await generateProgressivePlan(orgId, employee.id, primary, {
+                  totalCallsAnalyzed: 20,
+                });
+                if (progressive) {
+                  sessionData.actionPlan = progressivePlanToActionPlan(progressive);
+                  sessionData.notes = progressive.notes;
+                }
+              } catch (err) {
+                logger.warn(
+                  { err, ruleId: rule.id, employeeId: employee.id },
+                  "Progressive plan generation failed — using template fallback",
+                );
+              }
+            }
 
             try {
               await storage.createCoachingSession(orgId, sessionData);

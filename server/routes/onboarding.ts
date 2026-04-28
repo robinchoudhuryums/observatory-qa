@@ -305,7 +305,11 @@ export function registerOnboardingRoutes(app: Express): void {
   );
 
   // --- Serve logo ---
-  app.get("/api/onboarding/logo/serve", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/onboarding/logo/serve",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const org = await storage.getOrganization(req.orgId!);
       const storagePath = (org?.settings?.branding as any)?.logoStoragePath;
       if (!storagePath || !objectStorage) {
@@ -330,7 +334,8 @@ export function registerOnboardingRoutes(app: Express): void {
       res.setHeader("Content-Type", mimeMap[ext] || "image/png");
       res.setHeader("Cache-Control", "public, max-age=3600");
       res.send(buffer);
-  }));
+    }),
+  );
 
   // --- Upload reference document ---
   app.post(
@@ -429,7 +434,11 @@ export function registerOnboardingRoutes(app: Express): void {
   );
 
   // --- List reference documents ---
-  app.get("/api/reference-documents", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/reference-documents",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const docs = await storage.listReferenceDocuments(req.orgId!);
       // Don't send extractedText in list response (can be large)
       res.json(
@@ -438,17 +447,28 @@ export function registerOnboardingRoutes(app: Express): void {
           extractedText: d.extractedText ? `[${d.extractedText.length} chars]` : undefined,
         })),
       );
-  }));
+    }),
+  );
 
   // --- Get reference document details ---
-  app.get("/api/reference-documents/:id", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/reference-documents/:id",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const doc = await storage.getReferenceDocument(req.orgId!, req.params.id);
       if (!doc) return res.status(404).json({ message: "Document not found" });
       res.json(doc);
-  }));
+    }),
+  );
 
   // --- Update reference document metadata ---
-  app.patch("/api/reference-documents/:id", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
+  app.patch(
+    "/api/reference-documents/:id",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const { name, category, description, appliesTo, isActive } = req.body;
       const updates: Record<string, unknown> = {};
       if (name) updates.name = name;
@@ -460,10 +480,16 @@ export function registerOnboardingRoutes(app: Express): void {
       const doc = await storage.updateReferenceDocument(req.orgId!, req.params.id, updates);
       if (!doc) return res.status(404).json({ message: "Document not found" });
       res.json(doc);
-  }));
+    }),
+  );
 
   // --- Delete reference document ---
-  app.delete("/api/reference-documents/:id", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
+  app.delete(
+    "/api/reference-documents/:id",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const doc = await storage.getReferenceDocument(req.orgId!, req.params.id);
       if (!doc) return res.status(404).json({ message: "Document not found" });
 
@@ -492,10 +518,15 @@ export function registerOnboardingRoutes(app: Express): void {
       await storage.deleteReferenceDocument(req.orgId!, req.params.id);
       invalidateRefDocCache(req.orgId!);
       res.json({ message: "Document deleted" });
-  }));
+    }),
+  );
 
   // --- RAG: Get indexing status for org's documents ---
-  app.get("/api/reference-documents/rag/status", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/reference-documents/rag/status",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
 
       // Check plan tier
@@ -537,7 +568,8 @@ export function registerOnboardingRoutes(app: Express): void {
       }
 
       res.json(result);
-  }));
+    }),
+  );
 
   // --- RAG: Re-index a specific document ---
   app.post(
@@ -546,36 +578,42 @@ export function registerOnboardingRoutes(app: Express): void {
     requireRole("admin"),
     injectOrgContext,
     asyncHandler(async (req, res) => {
-        const orgId = req.orgId!;
-        const doc = await storage.getReferenceDocument(orgId, req.params.id);
-        if (!doc) return res.status(404).json({ message: "Document not found" });
+      const orgId = req.orgId!;
+      const doc = await storage.getReferenceDocument(orgId, req.params.id);
+      if (!doc) return res.status(404).json({ message: "Document not found" });
 
-        if (!doc.extractedText || doc.extractedText.length === 0) {
-          return res.status(400).json({ message: "Document has no extracted text to index" });
-        }
+      if (!doc.extractedText || doc.extractedText.length === 0) {
+        return res.status(400).json({ message: "Document has no extracted text to index" });
+      }
 
-        // Reset indexing status
-        await storage.updateReferenceDocument(orgId, doc.id, { indexingStatus: "pending", indexingError: undefined });
+      // Reset indexing status
+      await storage.updateReferenceDocument(orgId, doc.id, { indexingStatus: "pending", indexingError: undefined });
 
-        await enqueueDocumentIndexing({
-          orgId,
-          documentId: doc.id,
-          extractedText: doc.extractedText,
-        });
+      await enqueueDocumentIndexing({
+        orgId,
+        documentId: doc.id,
+        extractedText: doc.extractedText,
+      });
 
-        res.json({ message: "Document re-indexing started", documentId: doc.id });
+      res.json({ message: "Document re-indexing started", documentId: doc.id });
     }),
   );
 
   // --- RAG: Search knowledge base (preview/test) ---
-  app.post("/api/reference-documents/rag/search", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.post(
+    "/api/reference-documents/rag/search",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
       const { query, topK, responseStyle: rawStyle } = req.body;
 
       // Response style configuration (adapted from UMS)
       const { RESPONSE_STYLE_CONFIG } = await import("../services/rag");
       type ResponseStyle = "concise" | "detailed" | "comprehensive";
-      const responseStyle: ResponseStyle = (["concise", "detailed", "comprehensive"].includes(rawStyle) ? rawStyle : "detailed") as ResponseStyle;
+      const responseStyle: ResponseStyle = (
+        ["concise", "detailed", "comprehensive"].includes(rawStyle) ? rawStyle : "detailed"
+      ) as ResponseStyle;
       const styleConfig = RESPONSE_STYLE_CONFIG[responseStyle];
 
       if (!query || typeof query !== "string") {
@@ -616,7 +654,9 @@ export function registerOnboardingRoutes(app: Express): void {
       }
 
       try {
-        const chunks = await searchRelevantChunks(db as any, orgId, query, activeDocIds, { topK: topK || styleConfig.topK });
+        const chunks = await searchRelevantChunks(db as any, orgId, query, activeDocIds, {
+          topK: topK || styleConfig.topK,
+        });
 
         res.json({
           chunks,
@@ -632,7 +672,8 @@ export function registerOnboardingRoutes(app: Express): void {
         }
         throw error;
       }
-  }));
+    }),
+  );
 
   // --- Document versioning: create a new version of a document ---
   app.post(
@@ -728,7 +769,11 @@ export function registerOnboardingRoutes(app: Express): void {
   );
 
   // --- Get version history for a document ---
-  app.get("/api/reference-documents/:id/versions", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/reference-documents/:id/versions",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
       const doc = await storage.getReferenceDocument(orgId, req.params.id);
       if (!doc) return res.status(404).json({ message: "Document not found" });
@@ -796,10 +841,15 @@ export function registerOnboardingRoutes(app: Express): void {
       // Sort by version descending
       versions.sort((a, b) => b.version - a.version);
       res.json(versions);
-  }));
+    }),
+  );
 
   // --- Chunk preview: view how a document was chunked ---
-  app.get("/api/reference-documents/:id/chunks", requireAuth, injectOrgContext, asyncHandler(async (req, res) => {
+  app.get(
+    "/api/reference-documents/:id/chunks",
+    requireAuth,
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
       const doc = await storage.getReferenceDocument(orgId, req.params.id);
       if (!doc) return res.status(404).json({ message: "Document not found" });
@@ -821,7 +871,8 @@ export function registerOnboardingRoutes(app: Express): void {
         documentName: doc.name,
         ...result,
       });
-  }));
+    }),
+  );
 
   // --- Knowledge base analytics ---
   app.get(
@@ -830,23 +881,28 @@ export function registerOnboardingRoutes(app: Express): void {
     requireRole("admin"),
     injectOrgContext,
     asyncHandler(async (req, res) => {
-        const orgId = req.orgId!;
+      const orgId = req.orgId!;
 
-        if (!process.env.DATABASE_URL) {
-          return res.status(503).json({ message: "Database not configured" });
-        }
+      if (!process.env.DATABASE_URL) {
+        return res.status(503).json({ message: "Database not configured" });
+      }
 
-        const { getDatabase } = await import("../db/index");
-        const db = getDatabase();
-        if (!db) return res.status(503).json({ message: "Database not available" });
+      const { getDatabase } = await import("../db/index");
+      const db = getDatabase();
+      if (!db) return res.status(503).json({ message: "Database not available" });
 
-        const analytics = await getKnowledgeBaseAnalytics(db as any, orgId);
-        res.json(analytics);
+      const analytics = await getKnowledgeBaseAnalytics(db as any, orgId);
+      res.json(analytics);
     }),
   );
 
   // --- Web URL source: crawl a URL and add as reference document ---
-  app.post("/api/reference-documents/url", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
+  app.post(
+    "/api/reference-documents/url",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const orgId = req.orgId!;
       const { url, name, category, description, appliesTo } = req.body;
 
@@ -966,10 +1022,16 @@ export function registerOnboardingRoutes(app: Express): void {
       });
 
       res.status(201).json(doc);
-  }));
+    }),
+  );
 
   // --- Mark onboarding as completed ---
-  app.post("/api/onboarding/complete", requireAuth, requireRole("admin"), injectOrgContext, asyncHandler(async (req, res) => {
+  app.post(
+    "/api/onboarding/complete",
+    requireAuth,
+    requireRole("admin"),
+    injectOrgContext,
+    asyncHandler(async (req, res) => {
       const org = await storage.getOrganization(req.orgId!);
       const settings = (org?.settings || {}) as Record<string, any>;
       const branding = (settings.branding || {}) as Record<string, any>;
@@ -987,5 +1049,6 @@ export function registerOnboardingRoutes(app: Express): void {
       });
 
       res.json({ message: "Onboarding marked as completed" });
-  }));
+    }),
+  );
 }

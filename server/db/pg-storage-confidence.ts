@@ -40,7 +40,12 @@ interface TopPerformerRow {
  * Apply confidence metrics overrides to a PostgresStorage instance.
  * Call this after constructing the storage instance.
  */
-export function applyConfidenceMetricsMixin(storage: PostgresStorage & { getDashboardMetrics: (orgId: string) => Promise<DashboardMetrics>; getTopPerformers: (orgId: string, limit?: number) => Promise<TopPerformer[]> }): void {
+export function applyConfidenceMetricsMixin(
+  storage: PostgresStorage & {
+    getDashboardMetrics: (orgId: string) => Promise<DashboardMetrics>;
+    getTopPerformers: (orgId: string, limit?: number) => Promise<TopPerformer[]>;
+  },
+): void {
   const originalGetDashboardMetrics = storage.getDashboardMetrics.bind(storage);
   const originalGetTopPerformers = storage.getTopPerformers.bind(storage);
 
