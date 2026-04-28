@@ -258,75 +258,59 @@ describe("Professional plan", () => {
   });
 });
 
-describe("getPriceId", () => {
-  // Import dynamically to test the stripe helper
-  it("returns null for free tier", async () => {
+describe("Plan limit semantics (production PLAN_DEFINITIONS)", () => {
+  it("free plan has a finite, non-zero call cap (so quota enforcement triggers)", () => {
+    const limit = PLAN_DEFINITIONS.free.limits.callsPerMonth;
+    assert.ok(limit > 0, "free should allow some calls");
+    assert.ok(limit !== -1, "free must NOT be unlimited");
+  });
+
+  it("enterprise plan has a high or unlimited (-1) call cap", () => {
+    const limit = PLAN_DEFINITIONS.enterprise.limits.callsPerMonth;
+    // Enterprise uses overage pricing rather than a hard cap; either large or unlimited is acceptable.
+    assert.ok(limit === -1 || limit >= 5000);
+  });
+
+  it("paid plans have a higher call cap than free", () => {
+    const free = PLAN_DEFINITIONS.free.limits.callsPerMonth;
+    for (const tier of ["starter", "professional", "enterprise"] as PlanTier[]) {
+      const limit = PLAN_DEFINITIONS[tier].limits.callsPerMonth;
+      const isHigher = limit === -1 || limit > free;
+      assert.ok(isHigher, `${tier} should allow more calls than free`);
+    }
+  });
+});
+
+describe("Price ID resolution (production getPriceId)", () => {
+  it("returns null for free tier on both intervals", async () => {
     const { getPriceId } = await import("../server/services/stripe.js");
     assert.strictEqual(getPriceId("free", "monthly"), null);
     assert.strictEqual(getPriceId("free", "yearly"), null);
   });
 
-  it("returns null when env vars not set for a tier", async () => {
+  it("looks up the env-var slot for the requested tier+interval", async () => {
     const { getPriceId } = await import("../server/services/stripe.js");
-    // Without env vars set, all should return null
-    const result = getPriceId("professional", "monthly");
-    // If env var not set, returns null
-    if (!process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY) {
-      assert.strictEqual(result, null);
+    const SENTINEL = "price_test_sentinel_starter_monthly";
+    const prev = process.env.STRIPE_PRICE_STARTER_MONTHLY;
+    process.env.STRIPE_PRICE_STARTER_MONTHLY = SENTINEL;
+    try {
+      assert.strictEqual(getPriceId("starter", "monthly"), SENTINEL);
+      // Different interval must NOT pick up the monthly env slot
+      assert.notStrictEqual(getPriceId("starter", "yearly"), SENTINEL);
+    } finally {
+      if (prev === undefined) delete process.env.STRIPE_PRICE_STARTER_MONTHLY;
+      else process.env.STRIPE_PRICE_STARTER_MONTHLY = prev;
     }
   });
-});
 
-describe("Quota enforcement logic", () => {
-  it("allows usage under limit", () => {
-    const limit = 50;
-    const used = 30;
-    const allowed = used < limit;
-    assert.ok(allowed);
-  });
-
-  it("blocks usage at limit", () => {
-    const limit = 50;
-    const used = 50;
-    const allowed = used < limit;
-    assert.ok(!allowed);
-  });
-
-  it("allows unlimited (-1) usage", () => {
-    const limit = -1;
-    const used = 999999;
-    const allowed = limit === -1 || used < limit;
-    assert.ok(allowed);
-  });
-
-  it("correctly identifies current billing period", () => {
-    const now = new Date();
-    const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    assert.ok(periodStart <= now);
-    assert.ok(periodStart.getDate() === 1);
-  });
-});
-
-describe("Price ID resolution", () => {
-  it("maps tier + interval to lookup key", () => {
-    const tier: PlanTier = "starter";
-    const interval = "monthly";
-    const key = `${tier}_${interval}`;
-    assert.strictEqual(key, "starter_monthly");
-  });
-
-  it("generates correct keys for all combinations", () => {
-    const expected = [
-      "starter_monthly", "starter_yearly",
-      "professional_monthly", "professional_yearly",
-      "enterprise_monthly", "enterprise_yearly",
-    ];
-    const actual: string[] = [];
-    for (const tier of ["starter", "professional", "enterprise"] as PlanTier[]) {
-      for (const interval of ["monthly", "yearly"]) {
-        actual.push(`${tier}_${interval}`);
-      }
+  it("returns null when the env slot is unset", async () => {
+    const { getPriceId } = await import("../server/services/stripe.js");
+    const prev = process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY;
+    delete process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY;
+    try {
+      assert.strictEqual(getPriceId("professional", "yearly"), null);
+    } finally {
+      if (prev !== undefined) process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY = prev;
     }
-    assert.deepStrictEqual(actual, expected);
   });
 });

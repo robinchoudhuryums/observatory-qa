@@ -32,24 +32,38 @@ const WEBHOOK_URL = ENV_WEBHOOK_URL;
 const WEBHOOK_PLATFORM = ENV_WEBHOOK_PLATFORM;
 const WEBHOOK_EVENTS = ENV_WEBHOOK_EVENTS;
 
+/**
+ * Pure config merge — picks org settings over env defaults. Exported for testing
+ * the precedence rules without going through storage.
+ */
+export function mergeWebhookConfig(
+  orgSettings: { webhookUrl?: string; webhookPlatform?: "slack" | "teams"; webhookEvents?: string[] } | undefined,
+  envDefaults: { url: string | undefined; platform: "slack" | "teams"; events: string[] },
+): { url: string | undefined; platform: "slack" | "teams"; events: string[] } {
+  return {
+    url: orgSettings?.webhookUrl || envDefaults.url,
+    platform: orgSettings?.webhookPlatform || envDefaults.platform,
+    events:
+      orgSettings?.webhookEvents && orgSettings.webhookEvents.length > 0
+        ? orgSettings.webhookEvents
+        : envDefaults.events,
+  };
+}
+
 /** Resolve webhook config for an org: org settings override env vars. */
 async function resolveOrgWebhookConfig(orgId?: string): Promise<{
   url: string | undefined;
   platform: "slack" | "teams";
   events: string[];
 }> {
-  if (!orgId) return { url: WEBHOOK_URL, platform: WEBHOOK_PLATFORM, events: WEBHOOK_EVENTS };
+  const envDefaults = { url: WEBHOOK_URL, platform: WEBHOOK_PLATFORM, events: WEBHOOK_EVENTS };
+  if (!orgId) return envDefaults;
   try {
     const org = await storage.getOrganization(orgId);
-    const s = org?.settings;
-    return {
-      url: s?.webhookUrl || WEBHOOK_URL,
-      platform: s?.webhookPlatform || WEBHOOK_PLATFORM,
-      events: s?.webhookEvents && s.webhookEvents.length > 0 ? s.webhookEvents : WEBHOOK_EVENTS,
-    };
+    return mergeWebhookConfig(org?.settings, envDefaults);
   } catch (err) {
     logger.warn({ err, orgId }, "Failed to resolve org webhook config, using defaults");
-    return { url: WEBHOOK_URL, platform: WEBHOOK_PLATFORM, events: WEBHOOK_EVENTS };
+    return envDefaults;
   }
 }
 
@@ -128,11 +142,21 @@ function getChannelUrl(channel?: string): string | undefined {
 // --- Public API ---
 
 /**
+ * Pure flag-vs-event matcher — exported for testing without env coupling.
+ * A flag matches if it is exactly an allowed event OR is prefixed `${event}:`
+ * (the prefix form supports composite flags like `agent_misconduct:verbal_abuse`).
+ */
+export function matchFlagsAgainstEvents(flags: string[], allowedEvents: string[]): boolean {
+  if (flags.length === 0 || allowedEvents.length === 0) return false;
+  return flags.some((flag) => allowedEvents.some((event) => flag === event || flag.startsWith(`${event}:`)));
+}
+
+/**
  * Check if any flags match the configured notification events.
  */
 function shouldNotify(flags: string[]): boolean {
-  if (!WEBHOOK_URL || flags.length === 0) return false;
-  return flags.some((flag) => WEBHOOK_EVENTS.some((event) => flag === event || flag.startsWith(`${event}:`)));
+  if (!WEBHOOK_URL) return false;
+  return matchFlagsAgainstEvents(flags, WEBHOOK_EVENTS);
 }
 
 /**
@@ -251,7 +275,7 @@ export async function sendDigestNotification(digest: {
 
 // --- Slack payload builders ---
 
-function buildSlackCallPayload(notification: CallNotification): Record<string, unknown> {
+export function buildSlackCallPayload(notification: CallNotification): Record<string, unknown> {
   const { callId, flags, performanceScore, agentName, fileName, summary } = notification;
   const flagLabels = formatFlagLabels(flags);
   const emoji = flags.includes("exceptional_call") ? "star" : "warning";
@@ -344,7 +368,7 @@ function buildSlackDigest(
 
 // --- Teams payload builders ---
 
-function buildTeamsCallPayload(notification: CallNotification): Record<string, unknown> {
+export function buildTeamsCallPayload(notification: CallNotification): Record<string, unknown> {
   const { callId, flags, performanceScore, agentName, fileName, summary } = notification;
   const flagLabels = formatFlagLabels(flags);
   const scoreText = performanceScore != null ? `${performanceScore.toFixed(1)}/10` : "N/A";
@@ -445,7 +469,7 @@ function convertToTeamsFormat(payload: SlackNotificationPayload): Record<string,
 
 // --- Helpers ---
 
-function formatFlagLabels(flags: string[]): string[] {
+export function formatFlagLabels(flags: string[]): string[] {
   return flags.map((f) => {
     if (f === "low_score") return "Low Score";
     if (f === "exceptional_call") return "Exceptional Call";

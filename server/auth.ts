@@ -21,8 +21,10 @@ const scryptAsync = promisify(scrypt) as (
 // Uses Redis (via ephemeralSet/ephemeralGet) when available for cross-instance
 // consistency. Falls back to in-memory automatically when Redis is unavailable.
 // Redis keys auto-expire via TTL — no manual cleanup or eviction needed.
-const MAX_FAILED_ATTEMPTS = 5;
-const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
+export const MAX_FAILED_ATTEMPTS = 5;
+export const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
+// HIPAA: 15-minute idle timeout (addressable requirement, standard in healthcare)
+export const SESSION_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 const LOGIN_ATTEMPT_TTL_MS = LOCKOUT_DURATION_MS * 2; // Auto-expire stale entries
 const LOGIN_ATTEMPT_PREFIX = "login-attempts";
 
@@ -50,14 +52,14 @@ async function setLoginRecord(username: string, record: LoginAttemptRecord): Pro
   await ephemeralSet(LOGIN_ATTEMPT_PREFIX, username, JSON.stringify(record), ttl);
 }
 
-async function isAccountLocked(username: string): Promise<boolean> {
+export async function isAccountLocked(username: string): Promise<boolean> {
   const record = await getLoginRecord(username);
   if (!record?.lockedUntil) return false;
   if (Date.now() > record.lockedUntil) return false;
   return true;
 }
 
-async function recordFailedAttempt(username: string): Promise<void> {
+export async function recordFailedAttempt(username: string): Promise<void> {
   const record = (await getLoginRecord(username)) || { count: 0, lastAttempt: 0 };
   record.count++;
   record.lastAttempt = Date.now();
@@ -289,9 +291,6 @@ export async function setupAuth(app: Express) {
       logger.warn(msg);
     }
   }
-
-  // HIPAA: 15-minute idle timeout (addressable requirement, standard in healthcare)
-  const SESSION_IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
 
   // Prefer Redis session store (distributed, survives restarts)
   // Falls back to MemoryStore if Redis unavailable
