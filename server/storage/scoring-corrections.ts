@@ -18,6 +18,10 @@ import {
 import type { Database } from "../db/index";
 import { logger } from "../services/logger";
 
+// Re-export types from @shared/schema so consumers can import them from this
+// module — keeps the public API self-contained.
+export type { ScoringCorrectionRow, InsertScoringCorrection };
+
 let ddlEnsured = false;
 
 export async function ensureScoringCorrectionsTable(db: Database): Promise<void> {
