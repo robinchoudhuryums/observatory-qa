@@ -21,6 +21,10 @@ import {
 import type { Database } from "../db/index";
 import { logger } from "../services/logger";
 
+// Re-export types from @shared/schema so consumers can import them from this
+// module — keeps the public API self-contained.
+export type { ScheduledReportRow, InsertScheduledReport, ScheduledReportConfigRow, InsertScheduledReportConfig };
+
 let ddlEnsured = false;
 
 export async function ensureScheduledReportTables(db: Database): Promise<void> {
