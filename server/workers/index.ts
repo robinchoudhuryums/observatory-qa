@@ -20,6 +20,7 @@ import { createUsageWorker } from "./usage.worker";
 import { createReanalysisWorker } from "./reanalysis.worker";
 import { createIndexingWorker } from "./indexing.worker";
 import { createEhrNotePushWorker } from "./ehr-note-push.worker";
+import { createSimulatedCallWorker } from "./simulated-call.worker";
 import { startEhrHealthMonitor } from "../services/ehr/health-monitor";
 import type { Worker } from "bullmq";
 
@@ -109,6 +110,11 @@ async function main() {
   const ehrNotePushWorker = createEhrNotePushWorker(connection, getStorage);
   workers.push(ehrNotePushWorker);
   logger.info("EHR note push retry worker started");
+
+  // 6. Simulated call generation worker (TTS pipeline + ffmpeg assembly)
+  const simulatedCallWorker = createSimulatedCallWorker(connection);
+  workers.push(simulatedCallWorker);
+  logger.info("Simulated call generation worker started");
 
   // Start EHR health monitor (periodic connection checks + alerting)
   const healthMonitorInterval = startEhrHealthMonitor();

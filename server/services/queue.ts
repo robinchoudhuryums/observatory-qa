@@ -50,6 +50,11 @@ export interface DocumentIndexingJob {
   extractedText: string;
 }
 
+export interface SimulatedCallGenerationJob {
+  orgId: string;
+  simulatedCallId: string;
+}
+
 // Dead letter queue job type — captures permanently failed jobs for admin review
 export interface DeadLetterJob {
   originalQueue: string;
@@ -86,6 +91,7 @@ let usageQueue: Queue<UsageMeteringJob> | null = null;
 let indexingQueue: Queue<DocumentIndexingJob> | null = null;
 let deadLetterQueue: Queue<DeadLetterJob> | null = null;
 let ehrNotePushQueue: Queue<EhrNotePushJob> | null = null;
+let simulatedCallQueue: Queue<SimulatedCallGenerationJob> | null = null;
 
 // Connection config
 let connection: ConnectionOptions | null = null;
@@ -186,6 +192,18 @@ export function initQueues(): boolean {
       },
     });
 
+    // Simulated call generation queue — TTS rendering + ffmpeg assembly is
+    // long-running and IO-heavy. 1 retry is enough; permanent failures
+    // surface via the row's status=failed + error fields.
+    simulatedCallQueue = new Queue<SimulatedCallGenerationJob>("simulated-call-generation", {
+      ...defaultOpts,
+      defaultJobOptions: {
+        ...defaultOpts.defaultJobOptions,
+        attempts: 2,
+        backoff: { type: "exponential", delay: 10_000 },
+      },
+    });
+
     logger.info("BullMQ queues initialized (including dead letter queue and EHR note push queue)");
     return true;
   } catch (error) {
@@ -222,6 +240,43 @@ export function getDeadLetterQueue(): Queue<DeadLetterJob> | null {
 
 export function getEhrNotePushQueue(): Queue<EhrNotePushJob> | null {
   return ehrNotePushQueue;
+}
+
+export function getSimulatedCallQueue(): Queue<SimulatedCallGenerationJob> | null {
+  return simulatedCallQueue;
+}
+
+/**
+ * Enqueue a simulated-call row for TTS rendering. Falls back to in-process
+ * execution when queues are unavailable so dev environments without Redis
+ * still see end-to-end generation.
+ *
+ * Fire-and-forget — the row's status field is the source of truth for the
+ * UI; errors during in-process generation flip it to "failed".
+ */
+export async function enqueueSimulatedCallGeneration(job: SimulatedCallGenerationJob): Promise<void> {
+  if (simulatedCallQueue) {
+    try {
+      await simulatedCallQueue.add("generate", job, {
+        jobId: `sim-${job.simulatedCallId}`, // Deduplicate
+      });
+      logger.info({ simulatedCallId: job.simulatedCallId, orgId: job.orgId }, "Simulated call job enqueued");
+    } catch (error) {
+      logger.error({ err: error, simulatedCallId: job.simulatedCallId }, "Failed to enqueue simulated call job");
+    }
+    return;
+  }
+  logger.info({ simulatedCallId: job.simulatedCallId }, "Generating simulated call in-process (no queue)");
+  try {
+    const { generateSimulatedCall } = await import("./simulated-call-generator");
+    // Don't await — the request that enqueued this should not block on the
+    // full TTS pipeline. The row's status field surfaces progress.
+    generateSimulatedCall(job.orgId, job.simulatedCallId).catch((err) =>
+      logger.error({ err, simulatedCallId: job.simulatedCallId }, "In-process simulated call generation failed"),
+    );
+  } catch (error) {
+    logger.error({ err: error, simulatedCallId: job.simulatedCallId }, "In-process simulated call generation failed");
+  }
 }
 
 /**
@@ -424,6 +479,7 @@ export async function closeQueues(): Promise<void> {
     indexingQueue,
     deadLetterQueue,
     ehrNotePushQueue,
+    simulatedCallQueue,
   ];
   await Promise.all(queues.filter(Boolean).map((q) => q!.close()));
   audioQueue = null;
@@ -432,5 +488,7 @@ export async function closeQueues(): Promise<void> {
   usageQueue = null;
   indexingQueue = null;
   deadLetterQueue = null;
+  ehrNotePushQueue = null;
+  simulatedCallQueue = null;
   logger.info("BullMQ queues closed");
 }
