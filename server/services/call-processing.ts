@@ -23,55 +23,35 @@ import { notifyFlaggedCall } from "./notifications";
 import { onCallAnalysisComplete } from "./proactive-alerts";
 import { trackUsage } from "./queue";
 import { logger } from "./logger";
-import { searchRelevantChunks, formatRetrievedContext, incrementRetrievalCounts, scanAndRedactOutput } from "./rag";
 import { encryptField } from "./phi-encryption";
 import { calibrateAnalysis } from "./scoring-calibration";
-import { validateClinicalNote, sanitizeStylePreferences } from "./clinical-validation";
+import { validateClinicalNote } from "./clinical-validation";
 import { estimateBedrockCost, estimateAssemblyAICost } from "./cost-estimation";
 import { safeFloat, withRetry } from "../utils/helpers";
-import { PLAN_DEFINITIONS, type PlanTier, type UsageRecord, type OrgSettings } from "@shared/schema";
-import type { PromptTemplateConfig } from "./ai-provider";
+import { type UsageRecord, type OrgSettings } from "@shared/schema";
 import type { AssemblyAIResponse, TranscriptionOptions } from "./assemblyai";
+import {
+  loadPromptTemplate,
+  invalidateRefDocCache as _invalidateRefDocCache,
+  type RAGCitation,
+} from "./call-processing/prompt-template";
+import {
+  computeConfidence,
+  enforceServerFlags,
+  type ConfidenceResult,
+  type AnalysisThresholds,
+} from "./call-processing/confidence-scoring";
 
-// ==================== REFERENCE DOC CACHE (LRU) ====================
+// Re-export public symbols so existing import sites in routes/calls.ts,
+// routes/onboarding.ts, and any tests keep working without churn.
+export const invalidateRefDocCache = _invalidateRefDocCache;
+export { computeConfidence, enforceServerFlags };
+export type { RAGCitation, ConfidenceResult, AnalysisThresholds };
 
-import { LruCache } from "../utils/lru-cache";
-
-const REF_DOC_CACHE_TTL_MS = 5 * 60 * 1000;
-const MAX_REF_DOC_CACHE_ENTRIES = 1_000;
-
-// Prompt template cache — avoids DB lookup on every call for the same org+category
-const PROMPT_TEMPLATE_CACHE_TTL_MS = 5 * 60 * 1000;
-const MAX_PROMPT_TEMPLATE_CACHE_ENTRIES = 500;
-const promptTemplateCache = new LruCache<any>({
-  maxSize: MAX_PROMPT_TEMPLATE_CACHE_ENTRIES,
-  ttlMs: PROMPT_TEMPLATE_CACHE_TTL_MS,
-});
-
-type RefDocList = Array<{ name: string; category: string; extractedText?: string | null; id: string }>;
-
-const refDocCache = new LruCache<RefDocList>({ maxSize: MAX_REF_DOC_CACHE_ENTRIES, ttlMs: REF_DOC_CACHE_TTL_MS });
-
-/** Invalidate cached reference docs for an org (call on doc upload/delete) */
-export function invalidateRefDocCache(orgId: string): void {
-  // Delete all cache entries for this org: both the base key and category-specific keys
-  // (e.g., "orgId", "orgId:appointment", "orgId:complaint", etc.)
-  refDocCache.delete(orgId);
-  refDocCache.deleteByPrefix(`${orgId}:`);
-}
-
-async function getCachedRefDocs(orgId: string, callCategory: string) {
-  const cacheKey = `${orgId}:${callCategory}`;
-  const cached = refDocCache.get(cacheKey);
-  if (cached) return cached;
-
-  const docs = await storage.getReferenceDocumentsForCategory(orgId, callCategory);
-  refDocCache.set(cacheKey, docs as RefDocList);
-  return docs;
-}
-
-// Prune expired cache entries periodically
-setInterval(() => refDocCache.prune(), 5 * 60 * 1000).unref();
+/** Categories that get clinical-note generation. Mirrors the list inside
+ *  `prompt-template.ts`; the pipeline checks it directly to flag missing
+ *  clinical notes in the post-AI step. */
+const CLINICAL_CATEGORIES = ["clinical_encounter", "telemedicine", "dental_encounter", "dental_consultation"];
 
 // ==================== FILE CLEANUP ====================
 
@@ -83,97 +63,6 @@ export async function cleanupFile(filePath: string): Promise<void> {
   } catch (error) {
     logger.error({ err: error }, "Failed to cleanup file");
   }
-}
-
-// ==================== CLINICAL CATEGORIES ====================
-
-const CLINICAL_CATEGORIES = ["clinical_encounter", "telemedicine", "dental_encounter", "dental_consultation"];
-
-// ==================== CONFIDENCE SCORING ====================
-
-export interface ConfidenceResult {
-  score: number;
-  factors: {
-    transcriptConfidence: number;
-    wordCount: number;
-    callDurationSeconds: number;
-    transcriptLength: number;
-    aiAnalysisCompleted: boolean;
-    overallScore: number;
-  };
-}
-
-export function computeConfidence(
-  transcriptConfidence: number,
-  wordCount: number,
-  callDuration: number,
-  hasAiAnalysis: boolean,
-): ConfidenceResult {
-  // Use words-per-minute density to normalize for call type:
-  // A short 30-second procedural call with 40 words is dense and valid,
-  // while a 5-minute call with 10 words suggests audio/transcription issues.
-  const wpm = callDuration > 0 ? (wordCount / callDuration) * 60 : 0;
-  // Normal speech: 100-180 WPM. Below 30 WPM is suspicious.
-  const densityConfidence = Math.min(wpm / 80, 1);
-  const wordConfidence = Math.min(wordCount / 30, 1); // Lower threshold (30 vs 50) for procedural calls
-  const durationConfidence = callDuration > 15 ? 1 : callDuration / 15; // Lower threshold (15s vs 30s)
-  // When AI analysis fails, scores are all defaults (5.0) — confidence should
-  // reflect that results are unreliable. 0.0 gives a hard 25% penalty.
-  const aiConfidence = hasAiAnalysis ? 1 : 0;
-
-  const score =
-    transcriptConfidence * 0.35 +
-    wordConfidence * 0.15 +
-    densityConfidence * 0.1 +
-    durationConfidence * 0.15 +
-    aiConfidence * 0.25;
-
-  return {
-    score,
-    factors: {
-      transcriptConfidence: Math.round(transcriptConfidence * 100) / 100,
-      wordCount,
-      callDurationSeconds: callDuration,
-      transcriptLength: 0, // Set by caller
-      aiAnalysisCompleted: hasAiAnalysis,
-      overallScore: Math.round(score * 100) / 100,
-    },
-  };
-}
-
-// ==================== FLAG ENFORCEMENT ====================
-
-/** Configurable thresholds for server-side flag enforcement. Per-org overrides via org.settings.analysisThresholds. */
-export interface AnalysisThresholds {
-  lowConfidence: number; // Below this confidence → "low_confidence" flag (default: 0.7)
-  lowScore: number; // At or below this score → "low_score" flag (default: 2.0)
-  exceptionalScore: number; // At or above this score → "exceptional_call" flag (default: 9.0)
-}
-
-const DEFAULT_THRESHOLDS: AnalysisThresholds = {
-  lowConfidence: 0.7,
-  lowScore: 2.0,
-  exceptionalScore: 9.0,
-};
-
-export function enforceServerFlags(
-  existingFlags: string[],
-  confidenceScore: number,
-  performanceScore: number,
-  thresholds?: Partial<AnalysisThresholds>,
-): string[] {
-  const t = { ...DEFAULT_THRESHOLDS, ...thresholds };
-  const flags = [...existingFlags];
-  if (confidenceScore < t.lowConfidence && !flags.includes("low_confidence")) {
-    flags.push("low_confidence");
-  }
-  if (performanceScore > 0 && performanceScore <= t.lowScore && !flags.includes("low_score")) {
-    flags.push("low_score");
-  }
-  if (performanceScore >= t.exceptionalScore && !flags.includes("exceptional_call")) {
-    flags.push("exceptional_call");
-  }
-  return flags;
 }
 
 // ==================== EMPLOYEE AUTO-ASSIGNMENT ====================
@@ -273,180 +162,6 @@ export function mapClinicalNote(rawNote: any): any {
     quadrants: rawNote.quadrants,
     periodontalFindings: rawNote.periodontal_findings,
     treatmentPhases: rawNote.treatment_phases,
-  };
-}
-
-// ==================== PROMPT TEMPLATE LOADING ====================
-
-interface PromptTemplateResult {
-  template: PromptTemplateConfig | undefined;
-  citations: RAGCitation[] | null;
-}
-
-async function loadPromptTemplate(
-  orgId: string,
-  callId: string,
-  callCategory: string | undefined,
-  userId: string | undefined,
-  clinicalSpecialty: string | undefined,
-  noteFormat: string | undefined,
-  transcriptText: string | undefined,
-): Promise<PromptTemplateResult> {
-  let template: PromptTemplateConfig | undefined;
-
-  // Load custom prompt template by category (cached to avoid DB hit per call)
-  if (callCategory) {
-    const cacheKey = `${orgId}:${callCategory}`;
-    const cached = promptTemplateCache.get(cacheKey);
-    if (cached !== undefined) {
-      template = cached ? { ...cached } : undefined;
-    } else {
-      try {
-        const tmpl = await storage.getPromptTemplateByCategory(orgId, callCategory);
-        if (tmpl) {
-          template = {
-            evaluationCriteria: tmpl.evaluationCriteria,
-            requiredPhrases: tmpl.requiredPhrases,
-            scoringWeights: tmpl.scoringWeights,
-            additionalInstructions: tmpl.additionalInstructions,
-          };
-          logger.info({ callId, templateName: tmpl.name }, "Using custom prompt template");
-        }
-        promptTemplateCache.set(cacheKey, template || null);
-      } catch (err) {
-        logger.warn({ callId, err }, "Failed to load prompt template (using defaults)");
-      }
-    }
-  }
-
-  // Inject clinical metadata
-  if (callCategory && CLINICAL_CATEGORIES.includes(callCategory)) {
-    if (!template) template = {};
-    if (clinicalSpecialty) template.clinicalSpecialty = clinicalSpecialty;
-    if (noteFormat) {
-      if (!template.providerStylePreferences) template.providerStylePreferences = {};
-      template.providerStylePreferences.noteFormat = noteFormat;
-    }
-
-    // Load provider style preferences
-    try {
-      const org = await storage.getOrganization(orgId);
-      const providerPrefs = userId && (org?.settings as any)?.providerStylePreferences?.[userId];
-      if (providerPrefs) {
-        const sanitized = sanitizeStylePreferences(providerPrefs);
-        template.providerStylePreferences = sanitized as any;
-        if (sanitized.defaultSpecialty) {
-          template.clinicalSpecialty = sanitized.defaultSpecialty as string;
-        }
-        logger.info({ callId, userId }, "Injecting sanitized provider style preferences");
-      }
-    } catch (err) {
-      logger.warn({ callId, err }, "Failed to load provider preferences (continuing without)");
-    }
-  }
-
-  // Load reference documents (RAG or full-text)
-  let citations: RAGCitation[] | null = null;
-  try {
-    const refDocs = await getCachedRefDocs(orgId, callCategory || "");
-    const docsWithText = refDocs.filter((d) => d.extractedText && d.extractedText.length > 0);
-
-    if (docsWithText.length > 0) {
-      if (!template) template = {};
-      const refResult = await loadReferenceContext(orgId, callId, docsWithText, transcriptText);
-      template.referenceDocuments = refResult.documents;
-      citations = refResult.citations;
-    }
-  } catch (err) {
-    logger.warn({ callId, err }, "Failed to load reference documents (continuing without)");
-  }
-
-  return { template, citations };
-}
-
-/** RAG citations stored in confidenceFactors */
-export interface RAGCitation {
-  chunkId: string;
-  documentId: string;
-  documentName: string;
-  chunkIndex: number;
-  score: number;
-}
-
-/** Result of loading reference context — includes both documents and RAG citations */
-interface ReferenceContextResult {
-  documents: Array<{ name: string; category: string; text: string }>;
-  citations: RAGCitation[] | null;
-}
-
-async function loadReferenceContext(
-  orgId: string,
-  callId: string,
-  docsWithText: Array<{ name: string; category: string; extractedText?: string | null; id: string }>,
-  transcriptText: string | undefined,
-): Promise<ReferenceContextResult> {
-  // Check RAG eligibility
-  let useRag = false;
-  try {
-    const sub = await storage.getSubscription(orgId);
-    const tier = (sub?.planTier as PlanTier) || "free";
-    const plan = PLAN_DEFINITIONS[tier];
-    useRag = plan?.limits?.ragEnabled === true;
-  } catch (err) {
-    logger.debug({ err, orgId }, "Failed to check RAG eligibility");
-  }
-
-  if (useRag && process.env.DATABASE_URL && transcriptText) {
-    try {
-      const { getDatabase } = await import("../db/index");
-      const db = getDatabase();
-      if (db) {
-        const docIds = docsWithText.map((d) => d.id);
-        const queryText = transcriptText.slice(0, 2000);
-        const chunks = await searchRelevantChunks(db as any, orgId, queryText, docIds, { topK: 6 });
-
-        if (chunks.length > 0) {
-          const ragContext = formatRetrievedContext(chunks);
-          logger.info({ callId, chunkCount: chunks.length }, "RAG: injecting relevant chunks");
-
-          const citations: RAGCitation[] = chunks.map((c) => ({
-            chunkId: c.id,
-            documentId: c.documentId,
-            documentName: c.documentName,
-            chunkIndex: c.chunkIndex,
-            score: Math.round(c.score * 1000) / 1000,
-          }));
-
-          // Increment retrieval counts at document + chunk level (fire-and-forget)
-          incrementRetrievalCounts(
-            db as any,
-            chunks.map((c) => c.documentId),
-            chunks.map((c) => c.id),
-          ).catch((err) => {
-            logger.debug({ err }, "Failed to increment retrieval counts");
-          });
-
-          // Scan RAG context for PHI before injecting into prompt
-          const { text: scannedContext, phiDetected } = scanAndRedactOutput(ragContext, { orgId, queryId: callId });
-          if (phiDetected) {
-            logger.warn({ callId, orgId }, "PHI detected in RAG retrieval context — redacted");
-          }
-          return {
-            documents: [{ name: "Retrieved Knowledge Base Context", category: "rag_retrieval", text: scannedContext }],
-            citations,
-          };
-        }
-      }
-    } catch (err) {
-      logger.warn({ callId, err }, "RAG retrieval failed, falling back to full-text");
-    }
-  }
-
-  // Fallback to full-text injection
-  logger.info({ callId, docCount: docsWithText.length }, "Injecting reference documents (full-text)");
-  return {
-    documents: docsWithText.map((d) => ({ name: d.name, category: d.category, text: d.extractedText! })),
-    citations: null,
   };
 }
 
