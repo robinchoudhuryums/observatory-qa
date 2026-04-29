@@ -346,6 +346,37 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
+      # Diagnostic: boot the prod build for 25s with the same env Playwright
+      # will use, capture stdout+stderr, and tail it. If startup fails, we see
+      # the actual error instead of a silent "Exit code: 1" from Playwright's
+      # webServer wrapper. `|| true` keeps the step non-fatal — a failing
+      # startup here is what we WANT to surface, not a job-killer; the real
+      # gate is the E2E step below.
+      - name: Pre-flight production startup (diagnostic)
+        run: |
+          set +e
+          (timeout 25 npm run start > /tmp/preflight.log 2>&1) &
+          BOOT_PID=$!
+          wait $BOOT_PID
+          EXIT=$?
+          echo "===== preflight exit code: $EXIT ====="
+          echo "===== preflight log (last 200 lines) ====="
+          tail -200 /tmp/preflight.log || true
+          echo "===== end preflight log ====="
+          # Don't fail the job here — let the E2E step be the gate.
+          exit 0
+        env:
+          NODE_ENV: production
+          PORT: "5000"
+          DISABLE_SECURE_COOKIE: "true"
+          SESSION_SECRET: e2e-test-secret-ci-only-32plus-chars-required
+          ASSEMBLYAI_API_KEY: test-key-ci
+          AUTH_USERS: "admin:admin123:admin:Test Admin:default,viewer:viewer123:viewer:Test Viewer:default"
+          PHI_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+          DATABASE_URL: postgresql://observatory:observatory@localhost:5432/observatory_e2e
+          STORAGE_BACKEND: postgres
+          REDIS_URL: redis://localhost:6379
+
       - name: Run E2E tests (PostgreSQL-backed)
         run: npm run test:e2e
         env:

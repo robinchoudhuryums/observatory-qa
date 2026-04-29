@@ -24,6 +24,12 @@ export default defineConfig({
         port: 5000,
         timeout: 90_000,
         reuseExistingServer: false,
+        // Pipe webServer stdout/stderr into Playwright's output so a startup
+        // crash surfaces in CI logs instead of just "Exit code: 1". Without
+        // this, Playwright's default (stdout: "ignore") swallows pino logs
+        // and any process.exit reason becomes invisible.
+        stdout: "pipe",
+        stderr: "pipe",
         env: {
           NODE_ENV: "production",
           PORT: "5000",
