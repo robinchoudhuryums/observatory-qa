@@ -62,6 +62,13 @@ export const orgSettingsSchema = z.object({
   // Per-org SSO session max age (hours). Overrides the platform 8-hour max.
   // SSO users must re-authenticate after this many hours regardless of activity.
   ssoSessionMaxHours: z.number().min(1).max(72).optional(),
+  // Per-org absolute session max age (hours) for ALL users (not just SSO).
+  // Default fallback when unset is 6h (NIST SP 800-66 Rev. 2 healthcare guidance
+  // recommends 4-6h). Capped at 24h. Tightening sessions raises re-auth friction
+  // but reduces window of exposure for stolen session cookies — appropriate for
+  // PHI-handling roles. The smaller of `sessionAbsoluteMaxHours` and
+  // `ssoSessionMaxHours` always wins for SSO users.
+  sessionAbsoluteMaxHours: z.number().min(1).max(24).optional(),
   // IDP SLO (Single Logout) endpoint — enables sync logout
   ssoLogoutUrl: z.string().url().optional(),
   // Certificate expiry (ISO date string, auto-computed from ssoCertificate PEM on save)
