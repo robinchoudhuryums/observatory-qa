@@ -58,11 +58,25 @@ export interface TtsResult {
   latencyMs: number;
 }
 
+/** Default 429-retry schedule. Exponential backoff with ±20% jitter on top. */
+const DEFAULT_RETRY_DELAYS_MS = [1000, 2000, 4000];
+
+export interface ElevenLabsClientOptions {
+  /**
+   * Override the retry-delay schedule. Production should use the default
+   * (1s/2s/4s); tests pass a tiny schedule (e.g. `[1, 1, 1]`) to keep the
+   * suite fast without losing coverage of the retry path.
+   */
+  retryDelaysMs?: number[];
+}
+
 export class ElevenLabsClient {
   private apiKey: string;
+  private retryDelaysMs: number[];
 
-  constructor() {
+  constructor(options: ElevenLabsClientOptions = {}) {
     this.apiKey = process.env.ELEVENLABS_API_KEY || "";
+    this.retryDelaysMs = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
     if (!this.apiKey) {
       logger.warn("ELEVENLABS_API_KEY is not set — Simulated Call Generator TTS will fail when invoked");
     }
@@ -149,12 +163,14 @@ export class ElevenLabsClient {
       }
     };
 
-    const RETRY_DELAYS_MS = [1000, 2000, 4000];
     let res = await attempt();
-    for (let i = 0; res.status === 429 && i < RETRY_DELAYS_MS.length; i++) {
-      const base = RETRY_DELAYS_MS[i];
+    for (let i = 0; res.status === 429 && i < this.retryDelaysMs.length; i++) {
+      const base = this.retryDelaysMs[i];
       const jitter = base * 0.2 * (Math.random() * 2 - 1); // ±20%
-      const delay = Math.max(250, Math.round(base + jitter));
+      // Floor at min(250ms, base) so tests with sub-250ms schedules still work,
+      // but production never undershoots a sensible minimum delay.
+      const minDelay = Math.min(250, Math.max(1, base));
+      const delay = Math.max(minDelay, Math.round(base + jitter));
       logger.warn(
         { voiceId: options.voiceId, attempt: i + 1, delayMs: delay },
         "ElevenLabs 429 — retrying with backoff",

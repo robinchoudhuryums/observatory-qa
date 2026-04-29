@@ -84,14 +84,14 @@ describe("ElevenLabsClient.isAvailable", () => {
   it("reports false when the API key is missing", async () => {
     delete process.env.ELEVENLABS_API_KEY;
     const { ElevenLabsClient } = await import("../server/services/elevenlabs-client.js");
-    const client = new ElevenLabsClient();
+    const client = new ElevenLabsClient({ retryDelaysMs: [1, 1, 1] });
     assert.equal(client.isAvailable, false);
   });
 
   it("reports true when the API key is set", async () => {
     process.env.ELEVENLABS_API_KEY = "fake-key-for-testing";
     const { ElevenLabsClient } = await import("../server/services/elevenlabs-client.js");
-    const client = new ElevenLabsClient();
+    const client = new ElevenLabsClient({ retryDelaysMs: [1, 1, 1] });
     assert.equal(client.isAvailable, true);
   });
 });
@@ -115,7 +115,7 @@ describe("ElevenLabsClient.textToSpeech — error paths", () => {
   it("throws when API key is missing", async () => {
     delete process.env.ELEVENLABS_API_KEY;
     const { ElevenLabsClient } = await import("../server/services/elevenlabs-client.js");
-    const client = new ElevenLabsClient();
+    const client = new ElevenLabsClient({ retryDelaysMs: [1, 1, 1] });
     await assert.rejects(
       () => client.textToSpeech({ voiceId: "v1", text: "hi" }),
       /ELEVENLABS_API_KEY is not set/,
@@ -126,7 +126,7 @@ describe("ElevenLabsClient.textToSpeech — error paths", () => {
     globalThis.fetch = async () =>
       new Response("Forbidden", { status: 403, statusText: "Forbidden" });
     const { ElevenLabsClient } = await import("../server/services/elevenlabs-client.js");
-    const client = new ElevenLabsClient();
+    const client = new ElevenLabsClient({ retryDelaysMs: [1, 1, 1] });
     await assert.rejects(
       () => client.textToSpeech({ voiceId: "v1", text: "hi" }),
       /ElevenLabs TTS failed: 403/,
@@ -146,7 +146,7 @@ describe("ElevenLabsClient.textToSpeech — error paths", () => {
     };
 
     const { ElevenLabsClient } = await import("../server/services/elevenlabs-client.js");
-    const client = new ElevenLabsClient();
+    const client = new ElevenLabsClient({ retryDelaysMs: [1, 1, 1] });
     const result = await client.textToSpeech({ voiceId: "v1", text: "hello world" });
 
     assert.equal(calls, 3, "should retry twice then succeed on third attempt");
@@ -163,7 +163,7 @@ describe("ElevenLabsClient.textToSpeech — error paths", () => {
     };
 
     const { ElevenLabsClient } = await import("../server/services/elevenlabs-client.js");
-    const client = new ElevenLabsClient();
+    const client = new ElevenLabsClient({ retryDelaysMs: [1, 1, 1] });
     await assert.rejects(
       () => client.textToSpeech({ voiceId: "v1", text: "hi" }),
       /ElevenLabs TTS failed: 429/,
