@@ -1059,10 +1059,7 @@ export class MemStorage implements IStorage {
     return row?.orgId === orgId ? row : undefined;
   }
 
-  async listSimulatedCalls(
-    orgId: string,
-    filters?: { status?: string; limit?: number },
-  ): Promise<SimulatedCall[]> {
+  async listSimulatedCalls(orgId: string, filters?: { status?: string; limit?: number }): Promise<SimulatedCall[]> {
     const all = Array.from(this.simulatedCalls.values())
       .filter((c) => c.orgId === orgId)
       .filter((c) => !filters?.status || c.status === filters.status)

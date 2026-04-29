@@ -479,11 +479,7 @@ export interface IStorage {
   createSimulatedCall(orgId: string, call: InsertSimulatedCall): Promise<SimulatedCall>;
   getSimulatedCall(orgId: string, id: string): Promise<SimulatedCall | undefined>;
   listSimulatedCalls(orgId: string, filters?: { status?: string; limit?: number }): Promise<SimulatedCall[]>;
-  updateSimulatedCall(
-    orgId: string,
-    id: string,
-    updates: Partial<SimulatedCall>,
-  ): Promise<SimulatedCall | undefined>;
+  updateSimulatedCall(orgId: string, id: string, updates: Partial<SimulatedCall>): Promise<SimulatedCall | undefined>;
   deleteSimulatedCall(orgId: string, id: string): Promise<void>;
 
   // Spend tracking / usage records (org-scoped)
