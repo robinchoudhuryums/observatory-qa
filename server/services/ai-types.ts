@@ -65,7 +65,7 @@ export interface AIAnalysisProvider {
     promptTemplate?: PromptTemplateConfig,
     options?: { transcriptConfidence?: number },
   ): Promise<CallAnalysis>;
-  generateText?(prompt: string): Promise<string>;
+  generateText?(prompt: string, maxTokens?: number): Promise<string>;
 }
 
 export interface PromptTemplateConfig {

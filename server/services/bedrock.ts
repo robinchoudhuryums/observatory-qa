@@ -124,7 +124,7 @@ export class BedrockProvider implements AIAnalysisProvider {
     return this.credentials !== null;
   }
 
-  async generateText(prompt: string): Promise<string> {
+  async generateText(prompt: string, maxTokens = 2048): Promise<string> {
     await this.ensureCredentials();
     if (!this.credentials || !this.client) {
       throw new Error("Bedrock provider not configured — no AWS credentials available");
@@ -144,7 +144,7 @@ export class BedrockProvider implements AIAnalysisProvider {
         const command = new ConverseCommand({
           modelId: this.model,
           messages: [{ role: "user", content: [{ text: prompt }] }],
-          inferenceConfig: { temperature: 0.4, maxTokens: 2048 },
+          inferenceConfig: { temperature: 0.4, maxTokens },
         });
 
         const result = await this.client.send(command, { abortSignal: controller.signal });
