@@ -141,6 +141,9 @@ export default function Sidebar() {
   });
   // Tracks whether the plan-aware collapse defaults have been applied (runs once when plan loads)
   const planCollapseAppliedRef = useRef(false);
+  // Focus management for the mobile drawer (a11y: focus trap + restore + Escape).
+  const sidebarRef = useRef<HTMLElement>(null);
+  const hamburgerRef = useRef<HTMLButtonElement>(null);
 
   // Initialize Clinical section as collapsed for non-clinical orgs
   const { data: orgData } = useOrganization();
@@ -167,6 +170,49 @@ export default function Sidebar() {
   useEffect(() => {
     setMobileOpen(false);
   }, [location]);
+
+  // Mobile drawer: Escape-to-close + focus trap + focus restore.
+  // Only active while mobileOpen is true. Skipped on desktop (md:) viewports
+  // since the sidebar is statically positioned and not modal there.
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const drawer = sidebarRef.current;
+    if (!drawer) return;
+
+    const FOCUSABLE_SELECTOR =
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+    // Move focus into the drawer so screen readers announce it and Tab stays inside.
+    const focusables = drawer.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+    focusables[0]?.focus();
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMobileOpen(false);
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const els = drawer.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+      if (els.length === 0) return;
+      const first = els[0];
+      const last = els[els.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      // Return focus to the trigger so keyboard users land where they started.
+      hamburgerRef.current?.focus();
+    };
+  }, [mobileOpen]);
 
   const toggleDarkMode = () => {
     const next = !isDark;
@@ -398,17 +444,35 @@ export default function Sidebar() {
     <>
       {/* Mobile hamburger button */}
       <button
+        ref={hamburgerRef}
         onClick={() => setMobileOpen(true)}
         className="fixed top-4 left-4 z-50 p-2 rounded-lg bg-card border border-border shadow-md md:hidden"
-        aria-label="Open menu"
+        aria-label="Open navigation menu"
+        aria-expanded={mobileOpen}
+        aria-controls="primary-navigation"
       >
         <RiMenuLine className="w-5 h-5" />
       </button>
 
       {/* Mobile overlay */}
-      {mobileOpen && <div className="fixed inset-0 bg-black/30 z-40 md:hidden" onClick={() => setMobileOpen(false)} />}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/30 z-40 md:hidden"
+          onClick={() => setMobileOpen(false)}
+          aria-hidden="true"
+        />
+      )}
 
       <aside
+        ref={sidebarRef}
+        id="primary-navigation"
+        // The drawer is modal only on mobile (md: breakpoint hides the
+        // overlay/transform), so the dialog semantics only need to apply
+        // when actually open in the mobile viewport. Setting role="dialog"
+        // unconditionally would mis-announce the desktop sidebar.
+        role={mobileOpen ? "dialog" : undefined}
+        aria-modal={mobileOpen ? true : undefined}
+        aria-label={mobileOpen ? "Navigation menu" : undefined}
         className={cn(
           "w-64 sidebar-container flex flex-col",
           "fixed inset-y-0 left-0 z-50 transition-transform duration-200 md:relative md:translate-x-0",

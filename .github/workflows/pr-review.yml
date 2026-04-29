@@ -69,6 +69,17 @@ jobs:
             echo "count=0" >> "$GITHUB_OUTPUT"
           fi
 
+      # Unit tests MUST run before the main-branch ESLint baseline below, which
+      # overwrites the working tree with main's contents to count warnings.
+      # If that step's stash-pop fails (silently — `2>/dev/null || true`), the
+      # PR tree is left in a half-main-half-PR state and tests start failing
+      # against code that isn't actually being reviewed. That mis-reporting
+      # caused "Unit Tests :x:" comments on PRs whose tests passed cleanly.
+      - name: Unit tests
+        id: tests
+        continue-on-error: true
+        run: npm run test
+
       - name: ESLint (main branch baseline)
         id: main_warnings
         run: |
@@ -96,11 +107,6 @@ jobs:
           # Restore PR branch
           git checkout - 2>/dev/null || true
           git stash pop 2>/dev/null || true
-
-      - name: Unit tests
-        id: tests
-        continue-on-error: true
-        run: npm run test
 
   # ---------------------------------------------------------------------------
   # Job: Security and secrets check on changed files
