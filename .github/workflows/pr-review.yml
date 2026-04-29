@@ -165,8 +165,13 @@ jobs:
               FINDINGS=$((FINDINGS + 1))
             fi
 
-            # Connection strings with passwords
-            if grep -lI 'postgresql://[^:]*:[^@]*@' "$FILE" 2>/dev/null; then
+            # Connection strings with passwords.
+            # Exclude localhost / 127.0.0.1 / 0.0.0.0 hosts — credentials baked
+            # into those only work on the dev's own machine (e.g. docker-compose
+            # test fixtures, npm scripts that wrap them) and are not secrets.
+            if grep -EI 'postgresql://[^:]*:[^@]*@' "$FILE" 2>/dev/null \
+                | grep -vEI '@(localhost|127\.0\.0\.1|0\.0\.0\.0)(:|/|$)' \
+                | grep -q .; then
               case "$FILE" in
                 *.example|*.md|*test*) ;; # Allow in examples/tests
                 *) DETAIL="$DETAIL\n- DB connection string in \`$FILE\`"
