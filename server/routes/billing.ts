@@ -1,6 +1,7 @@
 /**
  * Billing routes: subscription management, Stripe checkout/webhooks, usage/quota.
  */
+import type Stripe from "stripe";
 import type { Express, Request, Response, NextFunction } from "express";
 import { storage } from "../storage";
 import { requireAuth, requireRole, injectOrgContext, invalidateOrgCache } from "../auth";
@@ -21,8 +22,18 @@ import {
   reportSeatUsage,
   reportCallOverage,
 } from "../services/stripe";
-import { sendEmail, buildPaymentFailedEmail, buildTrialEndingEmail, buildQuotaAlertEmail } from "../services/email";
+import { sendEmail, buildQuotaAlertEmail } from "../services/email";
 import { PLAN_DEFINITIONS, PLAN_TIERS, type PlanTier, type Subscription } from "@shared/schema";
+import {
+  handleCheckoutSessionCompleted,
+  handleSubscriptionUpdated,
+  handleSubscriptionDeleted,
+  handleInvoicePaymentFailed,
+  handleInvoicePaid,
+  handleTrialWillEnd,
+  DUNNING_GRACE_PERIOD_DAYS,
+  WEBHOOK_DEDUP_TTL_MS,
+} from "./billing-webhook-handlers";
 
 // ============================================================================
 // Quota Enforcement Middleware
@@ -160,12 +171,6 @@ export function requirePlanFeature(feature: keyof import("@shared/schema").PlanL
     }
   };
 }
-
-/** Grace period after a payment failure before hard-blocking the account (days) */
-const DUNNING_GRACE_PERIOD_DAYS = 7;
-
-/** Stripe webhook idempotency TTL — events older than this are no longer deduplicated. */
-const WEBHOOK_DEDUP_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /**
  * Middleware to block requests when subscription is past_due or canceled.
@@ -777,225 +782,24 @@ export function registerBillingRoutes(app: Express): void {
 
     try {
       switch (event.type) {
-        case "checkout.session.completed": {
-          const session = event.data.object as any;
-          const orgId = session.metadata?.orgId;
-          if (!orgId) break;
-
-          // Retrieve full subscription from Stripe
-          if (session.subscription) {
-            const stripeSub = await stripe.subscriptions.retrieve(session.subscription as string);
-            const subData = stripeSub as any;
-            const items: any[] = subData.items?.data || [];
-
-            // The flat-rate item is the one whose price is NOT metered
-            const flatItem = items.find((i: any) => i.price?.recurring?.usage_type !== "metered") || items[0];
-            // Identify metered items by matching against known price env vars
-            const seatsItem = findItemByKnownPriceId(items, [
-              process.env.STRIPE_PRICE_STARTER_SEATS,
-              process.env.STRIPE_PRICE_PROFESSIONAL_SEATS,
-            ]);
-            const overageItem = findItemByKnownPriceId(items, [
-              process.env.STRIPE_PRICE_STARTER_OVERAGE,
-              process.env.STRIPE_PRICE_PROFESSIONAL_OVERAGE,
-              process.env.STRIPE_PRICE_ENTERPRISE_OVERAGE,
-            ]);
-
-            const priceId = flatItem?.price?.id;
-            const tier = resolveTierFromPriceId(priceId);
-            const interval = flatItem?.price?.recurring?.interval === "year" ? "yearly" : "monthly";
-            const stripeSeatsItemId = seatsItem?.id;
-            const stripeOverageItemId = overageItem?.id;
-            const isTrialing = subData.status === "trialing";
-
-            await storage.upsertSubscription(orgId, {
-              orgId,
-              planTier: tier,
-              status: isTrialing ? "trialing" : "active",
-              stripeCustomerId: session.customer as string,
-              stripeSubscriptionId: stripeSub.id,
-              stripePriceId: priceId,
-              stripeSeatsItemId,
-              stripeOverageItemId,
-              billingInterval: interval,
-              currentPeriodStart: new Date(subData.current_period_start * 1000).toISOString(),
-              currentPeriodEnd: new Date(subData.current_period_end * 1000).toISOString(),
-              cancelAtPeriodEnd: false,
-            });
-            logger.info(
-              {
-                orgId,
-                tier,
-                interval,
-                hasSeatMeter: !!stripeSeatsItemId,
-                hasOverageMeter: !!stripeOverageItemId,
-                isTrialing,
-              },
-              "Subscription activated via checkout",
-            );
-
-            // Report initial seat count for metered billing
-            if (stripeSeatsItemId) {
-              try {
-                const plan = PLAN_DEFINITIONS[tier];
-                const users = await storage.listUsersByOrg(orgId);
-                const additionalSeats = Math.max(0, users.length - plan.limits.baseSeats);
-                await reportSeatUsage(stripe, stripeSeatsItemId, additionalSeats);
-                logger.info({ orgId, additionalSeats }, "Initial seat usage reported");
-              } catch (err) {
-                logger.warn({ err, orgId }, "Failed to report initial seat usage (non-fatal)");
-              }
-            }
-          }
+        case "checkout.session.completed":
+          await handleCheckoutSessionCompleted(stripe, event.data.object as Stripe.Checkout.Session);
           break;
-        }
-
-        case "customer.subscription.updated": {
-          const stripeSub = event.data.object as any;
-          const orgId = stripeSub.metadata?.orgId;
-          if (!orgId) break;
-
-          // Find the flat-rate item (not metered) — same logic as checkout.session.completed.
-          // Using items.data[0] is wrong when metered items (seats, overage) exist.
-          const subItems: any[] = stripeSub.items?.data || [];
-          const flatItem = subItems.find((i: any) => i.price?.recurring?.usage_type !== "metered") || subItems[0];
-          const priceId = flatItem?.price?.id;
-          const tier = resolveTierFromPriceId(priceId);
-          const interval = flatItem?.price?.recurring?.interval === "year" ? "yearly" : "monthly";
-
-          // Sync metered item IDs — these can change when the subscription is modified in Stripe
-          const updSeatsItem = findItemByKnownPriceId(subItems, [
-            process.env.STRIPE_PRICE_STARTER_SEATS,
-            process.env.STRIPE_PRICE_PROFESSIONAL_SEATS,
-          ]);
-          const updOverageItem = findItemByKnownPriceId(subItems, [
-            process.env.STRIPE_PRICE_STARTER_OVERAGE,
-            process.env.STRIPE_PRICE_PROFESSIONAL_OVERAGE,
-            process.env.STRIPE_PRICE_ENTERPRISE_OVERAGE,
-          ]);
-
-          const statusMap: Record<string, string> = {
-            active: "active",
-            past_due: "past_due",
-            canceled: "canceled",
-            trialing: "trialing",
-            incomplete: "incomplete",
-          };
-
-          await storage.updateSubscription(orgId, {
-            planTier: tier,
-            status: (statusMap[stripeSub.status] || stripeSub.status) as any,
-            stripePriceId: priceId,
-            stripeSeatsItemId: updSeatsItem?.id || undefined,
-            stripeOverageItemId: updOverageItem?.id || undefined,
-            billingInterval: interval as any,
-            currentPeriodStart: new Date(stripeSub.current_period_start * 1000).toISOString(),
-            currentPeriodEnd: new Date(stripeSub.current_period_end * 1000).toISOString(),
-            cancelAtPeriodEnd: stripeSub.cancel_at_period_end || false,
-          });
-          logger.info(
-            { orgId, tier, status: stripeSub.status, hasSeatMeter: !!updSeatsItem, hasOverageMeter: !!updOverageItem },
-            "Subscription updated",
-          );
+        case "customer.subscription.updated":
+          await handleSubscriptionUpdated(event.data.object as Stripe.Subscription);
           break;
-        }
-
-        case "customer.subscription.deleted": {
-          const stripeSub = event.data.object as any;
-          const orgId = stripeSub.metadata?.orgId;
-          if (!orgId) break;
-
-          // Preserve customer ID so the org can re-subscribe without creating a new customer.
-          // Clear metered item IDs since the subscription (and its items) no longer exist.
-          const existingSub = await storage.getSubscription(orgId);
-          await storage.upsertSubscription(orgId, {
-            orgId,
-            planTier: "free",
-            status: "canceled",
-            stripeCustomerId: existingSub?.stripeCustomerId || stripeSub.customer,
-            stripeSubscriptionId: undefined,
-            stripeSeatsItemId: undefined,
-            stripeOverageItemId: undefined,
-            billingInterval: "monthly",
-            cancelAtPeriodEnd: false,
-          });
-          // Suspend org access on subscription cancellation — enforced by injectOrgContext gate.
-          // Admins can contact support to reactivate or resubscribe.
-          await storage.updateOrganization(orgId, { status: "suspended" } as any);
-          invalidateOrgCache(orgId);
-          logger.info({ orgId }, "Subscription canceled — org suspended, reverted to free");
+        case "customer.subscription.deleted":
+          await handleSubscriptionDeleted(event.data.object as Stripe.Subscription);
           break;
-        }
-
-        case "invoice.payment_failed": {
-          const invoice = event.data.object as any;
-          const customerId = invoice.customer;
-          if (!customerId) break;
-
-          const sub = await storage.getSubscriptionByStripeCustomerId(customerId);
-          if (sub) {
-            const now = new Date();
-            // Only set pastDueAt on the first failure (don't reset on retries)
-            const pastDueAt = sub.pastDueAt || now.toISOString();
-            await storage.updateSubscription(sub.orgId, { status: "past_due", pastDueAt });
-            logger.warn({ orgId: sub.orgId, pastDueAt }, "Invoice payment failed — status set to past_due");
-
-            // Send dunning email to admin
-            try {
-              const org = await storage.getOrganization(sub.orgId);
-              const adminUsers = await storage.listUsersByOrg(sub.orgId);
-              const admin = adminUsers.find((u) => u.role === "admin");
-              if (admin?.username && org) {
-                const baseUrl = process.env.APP_BASE_URL || "https://app.observatory-qa.com";
-                const email = buildPaymentFailedEmail(org.name, DUNNING_GRACE_PERIOD_DAYS, baseUrl);
-                email.to = admin.username;
-                await sendEmail(email);
-              }
-            } catch (emailErr) {
-              logger.warn({ err: emailErr, orgId: sub.orgId }, "Failed to send payment failed email (non-fatal)");
-            }
-          }
+        case "invoice.payment_failed":
+          await handleInvoicePaymentFailed(event.data.object as Stripe.Invoice);
           break;
-        }
-
-        case "invoice.paid": {
-          const invoice = event.data.object as any;
-          const customerId = invoice.customer;
-          if (!customerId) break;
-
-          // Re-activate subscription if it was past_due, clear pastDueAt
-          const sub = await storage.getSubscriptionByStripeCustomerId(customerId);
-          if (sub && sub.status === "past_due") {
-            await storage.updateSubscription(sub.orgId, { status: "active", pastDueAt: undefined });
-            logger.info({ orgId: sub.orgId }, "Invoice paid — subscription re-activated from past_due");
-          }
+        case "invoice.paid":
+          await handleInvoicePaid(event.data.object as Stripe.Invoice);
           break;
-        }
-
-        case "customer.subscription.trial_will_end": {
-          const stripeSub = event.data.object as any;
-          const orgId = stripeSub.metadata?.orgId;
-          if (orgId) {
-            const trialEnd = new Date(stripeSub.trial_end * 1000);
-            logger.info({ orgId, trialEnd: trialEnd.toISOString() }, "Trial ending soon");
-            // Send trial ending email to admin
-            try {
-              const org = await storage.getOrganization(orgId);
-              const adminUsers = await storage.listUsersByOrg(orgId);
-              const admin = adminUsers.find((u: any) => u.role === "admin");
-              if (admin?.username && org) {
-                const baseUrl = process.env.APP_BASE_URL || "https://app.observatory-qa.com";
-                const email = buildTrialEndingEmail(org.name, trialEnd, baseUrl);
-                email.to = admin.username;
-                await sendEmail(email);
-              }
-            } catch (emailErr) {
-              logger.warn({ err: emailErr, orgId }, "Failed to send trial ending email (non-fatal)");
-            }
-          }
+        case "customer.subscription.trial_will_end":
+          await handleTrialWillEnd(event.data.object as Stripe.Subscription);
           break;
-        }
-
         default:
           logger.debug({ type: event.type }, "Unhandled Stripe event");
       }
@@ -1006,40 +810,4 @@ export function registerBillingRoutes(app: Express): void {
       res.status(500).json({ message: "Webhook processing failed" });
     }
   });
-}
-
-/**
- * Find a Stripe subscription item whose price.id matches one of the given known price IDs.
- * Used to reliably distinguish seats vs overage metered items (rather than by position).
- */
-function findItemByKnownPriceId(items: any[], knownIds: (string | undefined)[]): any | undefined {
-  const validIds = knownIds.filter(Boolean) as string[];
-  return items.find((i: any) => validIds.includes(i.price?.id));
-}
-
-/** Reverse-lookup a plan tier from a Stripe price ID */
-function resolveTierFromPriceId(priceId?: string): PlanTier {
-  if (!priceId) return "free";
-
-  const priceMap: Record<string, PlanTier> = {};
-  const starterM = process.env.STRIPE_PRICE_STARTER_MONTHLY;
-  const starterY = process.env.STRIPE_PRICE_STARTER_YEARLY;
-  const proM = process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY;
-  const proY = process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY;
-  const entM = process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY;
-  const entY = process.env.STRIPE_PRICE_ENTERPRISE_YEARLY;
-
-  if (starterM) priceMap[starterM] = "starter";
-  if (starterY) priceMap[starterY] = "starter";
-  if (proM) priceMap[proM] = "professional";
-  if (proY) priceMap[proY] = "professional";
-  if (entM) priceMap[entM] = "enterprise";
-  if (entY) priceMap[entY] = "enterprise";
-
-  const resolved = priceMap[priceId];
-  if (!resolved) {
-    logger.error({ priceId }, "Unknown Stripe price ID — cannot resolve to plan tier, defaulting to free");
-    return "free";
-  }
-  return resolved;
 }

@@ -17,6 +17,11 @@ import {
   isStripeConfigured,
   constructWebhookEvent,
 } from "../server/services/stripe.js";
+import {
+  resolveTierFromPriceId,
+  findItemByKnownPriceId,
+  DUNNING_GRACE_PERIOD_DAYS,
+} from "../server/routes/billing-webhook-handlers.js";
 import { PLAN_DEFINITIONS, type PlanTier } from "../shared/schema.js";
 
 // ============================================================================
@@ -207,31 +212,32 @@ describe("Plan billing consistency", () => {
 // ============================================================================
 
 describe("Webhook subscription event handling", () => {
-  // Simulates the logic used in billing.ts for tier resolution
-  function resolveTierFromPriceId(priceId: string | undefined, priceMap: Record<string, PlanTier>): PlanTier {
-    if (!priceId) return "free";
-    return priceMap[priceId] || "free";
-  }
-
-  function findItemByKnownPriceId(items: Array<{ price?: { id?: string } }>, knownIds: (string | undefined)[]): { id: string } | undefined {
-    const validIds = knownIds.filter(Boolean) as string[];
-    return items.find((i) => validIds.includes(i.price?.id || "")) as any;
-  }
-
   it("resolves tier from price ID correctly", () => {
-    const priceMap: Record<string, PlanTier> = {
-      "price_starter_m": "starter",
-      "price_pro_m": "professional",
-      "price_ent_m": "enterprise",
+    const saved = {
+      starter: process.env.STRIPE_PRICE_STARTER_MONTHLY,
+      pro: process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY,
+      ent: process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY,
     };
-    assert.strictEqual(resolveTierFromPriceId("price_starter_m", priceMap), "starter");
-    assert.strictEqual(resolveTierFromPriceId("price_pro_m", priceMap), "professional");
-    assert.strictEqual(resolveTierFromPriceId("price_ent_m", priceMap), "enterprise");
+    process.env.STRIPE_PRICE_STARTER_MONTHLY = "price_starter_m";
+    process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY = "price_pro_m";
+    process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY = "price_ent_m";
+    try {
+      assert.strictEqual(resolveTierFromPriceId("price_starter_m"), "starter");
+      assert.strictEqual(resolveTierFromPriceId("price_pro_m"), "professional");
+      assert.strictEqual(resolveTierFromPriceId("price_ent_m"), "enterprise");
+    } finally {
+      if (saved.starter !== undefined) process.env.STRIPE_PRICE_STARTER_MONTHLY = saved.starter;
+      else delete process.env.STRIPE_PRICE_STARTER_MONTHLY;
+      if (saved.pro !== undefined) process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY = saved.pro;
+      else delete process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY;
+      if (saved.ent !== undefined) process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY = saved.ent;
+      else delete process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY;
+    }
   });
 
   it("defaults to free for unknown price IDs", () => {
-    assert.strictEqual(resolveTierFromPriceId("price_unknown", {}), "free");
-    assert.strictEqual(resolveTierFromPriceId(undefined, {}), "free");
+    assert.strictEqual(resolveTierFromPriceId("price_definitely_not_set"), "free");
+    assert.strictEqual(resolveTierFromPriceId(undefined), "free");
   });
 
   it("finds metered items by known price IDs", () => {
@@ -431,27 +437,27 @@ describe("Grace period calculation", () => {
     assert.strictEqual(pastDueAt2, "2026-04-01T00:00:00Z", "pastDueAt preserved on subsequent failures");
   });
 
-  it("grace period is 7 days", () => {
-    const GRACE_DAYS = 7;
+  it("grace period is exactly DUNNING_GRACE_PERIOD_DAYS days after pastDueAt", () => {
     const pastDueAt = new Date("2026-04-01T00:00:00Z");
-    const graceEnd = new Date(pastDueAt.getTime() + GRACE_DAYS * 24 * 60 * 60 * 1000);
-    assert.strictEqual(graceEnd.toISOString(), "2026-04-08T00:00:00.000Z");
+    const graceEnd = new Date(pastDueAt.getTime() + DUNNING_GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000);
+    const expectedDay = 1 + DUNNING_GRACE_PERIOD_DAYS;
+    assert.strictEqual(graceEnd.toISOString(), `2026-04-0${expectedDay}T00:00:00.000Z`);
   });
 
   it("within grace period allows access", () => {
-    const GRACE_DAYS = 7;
     const pastDueAt = new Date("2026-04-05T00:00:00Z");
-    const now = new Date("2026-04-10T00:00:00Z"); // 5 days in
+    // Sample halfway through the grace window
+    const now = new Date(pastDueAt.getTime() + Math.floor(DUNNING_GRACE_PERIOD_DAYS / 2) * 24 * 60 * 60 * 1000);
     const daysOverdue = (now.getTime() - pastDueAt.getTime()) / (24 * 60 * 60 * 1000);
-    assert.ok(daysOverdue < GRACE_DAYS, "5 days < 7 day grace");
+    assert.ok(daysOverdue < DUNNING_GRACE_PERIOD_DAYS, `${daysOverdue}d < ${DUNNING_GRACE_PERIOD_DAYS}d grace`);
   });
 
   it("past grace period blocks access", () => {
-    const GRACE_DAYS = 7;
     const pastDueAt = new Date("2026-04-01T00:00:00Z");
-    const now = new Date("2026-04-10T00:00:00Z"); // 9 days in
+    // Sample two full days past the grace window
+    const now = new Date(pastDueAt.getTime() + (DUNNING_GRACE_PERIOD_DAYS + 2) * 24 * 60 * 60 * 1000);
     const daysOverdue = (now.getTime() - pastDueAt.getTime()) / (24 * 60 * 60 * 1000);
-    assert.ok(daysOverdue > GRACE_DAYS, "9 days > 7 day grace");
+    assert.ok(daysOverdue > DUNNING_GRACE_PERIOD_DAYS, `${daysOverdue}d > ${DUNNING_GRACE_PERIOD_DAYS}d grace`);
   });
 });
 
