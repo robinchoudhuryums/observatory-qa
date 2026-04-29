@@ -1197,6 +1197,43 @@ export const businessAssociateAgreements = pgTable(
   ],
 );
 
+// --- SIMULATED CALLS (synthetic/training calls generated via TTS) ---
+// Multi-tenant lift of CA's single-tenant simulated_calls table: every row
+// carries org_id and references organizations(id). sent_to_analysis_call_id
+// links a generated call to the analysis Call row created when the audio is
+// fed back through the regular pipeline.
+export const simulatedCalls = pgTable(
+  "simulated_calls",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organizations.id),
+    title: varchar("title", { length: 500 }).notNull(),
+    scenario: text("scenario"),
+    qualityTier: varchar("quality_tier", { length: 50 }),
+    equipment: varchar("equipment", { length: 255 }),
+    status: varchar("status", { length: 30 }).notNull().default("pending"),
+    script: jsonb("script").notNull(),
+    config: jsonb("config").notNull(),
+    audioS3Key: varchar("audio_s3_key", { length: 500 }),
+    audioFormat: varchar("audio_format", { length: 20 }).default("mp3"),
+    durationSeconds: integer("duration_seconds"),
+    ttsCharCount: integer("tts_char_count").default(0),
+    estimatedCost: real("estimated_cost").default(0),
+    error: text("error"),
+    createdBy: varchar("created_by", { length: 255 }).notNull(),
+    sentToAnalysisCallId: text("sent_to_analysis_call_id"),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (t) => [
+    index("simulated_calls_org_idx").on(t.orgId),
+    index("simulated_calls_org_status_idx").on(t.orgId, t.status),
+    index("simulated_calls_org_created_idx").on(t.orgId, t.createdAt),
+  ],
+);
+
 export { performanceSnapshots } from "@shared/schema/snapshots";
 export { scheduledReports, scheduledReportConfigs } from "@shared/schema/scheduled-reports";
 export { callTags, annotations } from "@shared/schema/call-tags";

@@ -60,6 +60,8 @@ import {
   type InsertCallAttribution,
   type CallShare,
   type InsertCallShare,
+  type SimulatedCall,
+  type InsertSimulatedCall,
 } from "@shared/schema";
 import { randomUUID, randomBytes, createHash } from "crypto";
 import {
@@ -1019,6 +1021,73 @@ export class MemStorage implements IStorage {
   async deleteABTest(orgId: string, id: string): Promise<void> {
     const test = this.abTests.get(id);
     if (test?.orgId === orgId) this.abTests.delete(id);
+  }
+
+  // --- Simulated calls (TTS-generated training/calibration calls) ---
+  private simulatedCalls = new Map<string, SimulatedCall>();
+
+  async createSimulatedCall(orgId: string, call: InsertSimulatedCall): Promise<SimulatedCall> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const record: SimulatedCall = {
+      id,
+      orgId,
+      title: call.title,
+      scenario: call.scenario,
+      qualityTier: call.qualityTier,
+      equipment: call.equipment,
+      status: "pending",
+      script: call.script,
+      config: call.config,
+      audioS3Key: null,
+      audioFormat: "mp3",
+      durationSeconds: null,
+      ttsCharCount: 0,
+      estimatedCost: 0,
+      error: null,
+      createdBy: call.createdBy,
+      sentToAnalysisCallId: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.simulatedCalls.set(id, record);
+    return record;
+  }
+
+  async getSimulatedCall(orgId: string, id: string): Promise<SimulatedCall | undefined> {
+    const row = this.simulatedCalls.get(id);
+    return row?.orgId === orgId ? row : undefined;
+  }
+
+  async listSimulatedCalls(orgId: string, filters?: { status?: string; limit?: number }): Promise<SimulatedCall[]> {
+    const all = Array.from(this.simulatedCalls.values())
+      .filter((c) => c.orgId === orgId)
+      .filter((c) => !filters?.status || c.status === filters.status)
+      .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+    return filters?.limit ? all.slice(0, filters.limit) : all;
+  }
+
+  async updateSimulatedCall(
+    orgId: string,
+    id: string,
+    updates: Partial<SimulatedCall>,
+  ): Promise<SimulatedCall | undefined> {
+    const existing = await this.getSimulatedCall(orgId, id);
+    if (!existing) return undefined;
+    const updated: SimulatedCall = {
+      ...existing,
+      ...updates,
+      id,
+      orgId,
+      updatedAt: new Date().toISOString(),
+    };
+    this.simulatedCalls.set(id, updated);
+    return updated;
+  }
+
+  async deleteSimulatedCall(orgId: string, id: string): Promise<void> {
+    const row = this.simulatedCalls.get(id);
+    if (row?.orgId === orgId) this.simulatedCalls.delete(id);
   }
 
   // --- Spend tracking / usage records ---

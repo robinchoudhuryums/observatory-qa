@@ -785,6 +785,41 @@ export async function syncSchema(_dbArg: Database): Promise<void> {
       .catch(() => {});
     await addRlsPolicy(db, "ab_tests").catch((e) => logger.warn({ err: e }, "RLS setup skipped for ab_tests"));
 
+    // --- Simulated Calls (TTS-generated training/calibration calls) ---
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS simulated_calls (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL REFERENCES organizations(id),
+        title VARCHAR(500) NOT NULL,
+        scenario TEXT,
+        quality_tier VARCHAR(50),
+        equipment VARCHAR(255),
+        status VARCHAR(30) NOT NULL DEFAULT 'pending',
+        script JSONB NOT NULL,
+        config JSONB NOT NULL,
+        audio_s3_key VARCHAR(500),
+        audio_format VARCHAR(20) DEFAULT 'mp3',
+        duration_seconds INTEGER,
+        tts_char_count INTEGER DEFAULT 0,
+        estimated_cost REAL DEFAULT 0,
+        error TEXT,
+        created_by VARCHAR(255) NOT NULL,
+        sent_to_analysis_call_id TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS simulated_calls_org_idx ON simulated_calls (org_id)`);
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS simulated_calls_org_status_idx ON simulated_calls (org_id, status)`,
+    );
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS simulated_calls_org_created_idx ON simulated_calls (org_id, created_at)`,
+    );
+    await addRlsPolicy(db, "simulated_calls").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for simulated_calls"),
+    );
+
     // --- Spend Records ---
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS spend_records (
