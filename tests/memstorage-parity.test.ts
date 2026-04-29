@@ -180,6 +180,37 @@ describe("MemStorage parity — deleteOrgData scope", () => {
     assert.equal(filesAfter.length, 0, "audio buffer must be cleared by deleteOrgData");
   });
 
+  it("clears simulatedCalls (regression: PR #94 added the table; deleteOrgData missed it)", async () => {
+    const s = new MemStorage();
+    const validScript = {
+      title: "Test",
+      qualityTier: "acceptable" as const,
+      voices: { agent: "v_a", customer: "v_c" },
+      turns: [{ speaker: "agent" as const, text: "hi" }],
+    };
+    await s.createSimulatedCall(ORG_A, {
+      orgId: ORG_A,
+      title: "A-org sim",
+      script: validScript,
+      config: { circumstances: [] } as never,
+      createdBy: "tester",
+    });
+    await s.createSimulatedCall(ORG_B, {
+      orgId: ORG_B,
+      title: "B-org sim",
+      script: validScript,
+      config: { circumstances: [] } as never,
+      createdBy: "tester",
+    });
+
+    await s.deleteOrgData(ORG_A);
+
+    const aSims = await s.listSimulatedCalls(ORG_A);
+    const bSims = await s.listSimulatedCalls(ORG_B);
+    assert.equal(aSims.length, 0, "org A's simulated calls must be gone");
+    assert.equal(bSims.length, 1, "org B's simulated calls must be untouched");
+  });
+
   it("does not touch other orgs' data", async () => {
     const s = new MemStorage();
     const callA = await s.createCall(ORG_A, { status: "completed" } as any);

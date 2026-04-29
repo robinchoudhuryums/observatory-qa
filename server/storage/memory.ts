@@ -1706,6 +1706,12 @@ export class MemStorage implements IStorage {
     for (const [id, t] of Array.from(this.abTests.entries())) {
       if (t.orgId === orgId) this.abTests.delete(id);
     }
+    // Delete simulated calls (TTS-rendered training/QA rows). PG cleans
+    // simulated_calls in deleteOrgData; mirroring here keeps GDPR purge
+    // behavior consistent across backends.
+    for (const [id, s] of Array.from(this.simulatedCalls.entries())) {
+      if (s.orgId === orgId) this.simulatedCalls.delete(id);
+    }
     // Delete usage records (array-based)
     this.usageRecords = this.usageRecords.filter((r) => r.orgId !== orgId);
     // Delete feedbacks
