@@ -28,8 +28,13 @@ RUN npm prune --production
 # --- Production Stage ---
 FROM node:20-slim AS production
 
-# Install tini for proper PID 1 signal forwarding (graceful shutdown)
-RUN apt-get update && apt-get install -y --no-install-recommends tini \
+# Patch OS packages on top of the slim base (clears the fix-available CVEs
+# Trivy flags) and install tini for proper PID 1 signal forwarding.
+# `apt-get upgrade` keeps us reproducible-per-base-image without pinning
+# every individual package, which would be much more maintenance churn.
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends tini \
     && rm -rf /var/lib/apt/lists/*
 
 # Security: run as non-root user

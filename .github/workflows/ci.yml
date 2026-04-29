@@ -228,6 +228,11 @@ jobs:
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
         with:
           context: .
+          # Always pull the latest base image so we don't reuse a stale
+          # cached `node:20-slim` digest with fixable OS-package CVEs that
+          # Trivy would then block on. The `apt-get upgrade` in the
+          # Dockerfile production stage handles the rest.
+          pull: true
           # Always build for local scanning; only push to GHCR on main pushes.
           # `load: true` makes the image available to the local Docker daemon
           # so the Trivy step below can scan it by tag without a registry round-trip.
