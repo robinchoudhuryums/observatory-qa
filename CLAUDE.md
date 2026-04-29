@@ -61,6 +61,7 @@ npm run test           # Run tests (tsx --test tests/*.test.ts)
 npm run test:coverage  # Run tests with c8 coverage (text + lcov → coverage/)
 npm run test:e2e       # Run Playwright E2E tests (requires dev server running)
 npm run test:e2e:ui    # Open Playwright interactive UI
+npm run test:e2e:pg    # E2E against real PostgreSQL + Redis (uses docker-compose.test.yml — brings up services, runs E2E with PG env, tears down)
 npm run lint           # ESLint (server, shared, client)
 npm run lint:fix       # ESLint with auto-fix
 npm run format         # Prettier write
@@ -359,9 +360,15 @@ server/db/                   # PostgreSQL (Drizzle ORM)
   index.ts                   #   Database connection initialization
   migrate.ts                 #   Migration runner
   migrate-audit-chain.ts     #   One-time audit hash chain recomputation (run after F37 timestamp fix deploy)
-  pg-storage.ts              #   PostgresStorage core (org/user/employee/call CRUD, dashboards, search, audio, coaching, refs, subscriptions, RLS helpers)
-  pg-storage-features.ts     #   PostgresStorage feature methods via prototype mixin (A/B tests, LMS, gamification, revenue, calibration, marketing, BAA, provider templates, deleteOrg)
+  pg-storage.ts              #   PostgresStorage core (org/user/employee/call CRUD, dashboards, search, audio, coaching, refs, subscriptions, RLS helpers). Calls `bindPrototype()` at the bottom to flush mixin assignments
+  pg-storage-features.ts     #   PostgresStorage feature methods via prototype mixin (A/B tests, gamification, BAA, provider templates, deleteOrg, etc.). Imports P/db/blob from ./pg-storage/_shared
   pg-storage-confidence.ts   #   PostgresStorage confidence metrics mixin (overrides getDashboardMetrics/getTopPerformers for avgConfidence, dataQuality breakdown)
+  pg-storage/                # Per-domain prototype mixin files (split out from pg-storage-features.ts)
+    _shared.ts               #     Buffered Proxy `P` + `bindPrototype()` flush helper (see Common Gotchas — required to dodge esbuild's circular-init crash)
+    calibration.ts           #     Calibration session/evaluation methods
+    lms.ts                   #     LMS module/path/progress methods
+    marketing.ts             #     Marketing campaign/attribution methods
+    revenue.ts               #     Call revenue + attribution-stage methods
   sync-schema.ts             #   Idempotent schema sync on startup (CREATE IF NOT EXISTS)
 
 server/workers/              # BullMQ worker processes (run separately)
@@ -427,7 +434,7 @@ tests/e2e/                   # Playwright E2E tests (11 spec files)
 Every data entity has an `orgId` field. All storage methods take `orgId` as the first parameter. Data isolation is enforced at the storage layer — no method can access data without specifying the org.
 
 **Schemas in `shared/schema.ts`**:
-- `Organization` — id, name, slug, status, industryType, settings (departments, subTeams, branding, AI config, quotas, ehrConfig, providerStylePreferences). SSO settings: `ssoProvider` (saml|oidc), `ssoEntityId`, `ssoSignOnUrl`, `ssoCertificate`, `ssoEnforced`, `ssoGroupRoleMap` (group→role map), `ssoGroupAttribute`, `ssoSessionMaxHours`, `ssoLogoutUrl`, `ssoCertificateExpiry` (auto-computed), `ssoNewCertificate` (rotation dual-cert), `ssoNewCertificateExpiry`. OIDC: `oidcDiscoveryUrl`, `oidcClientId`, `oidcClientSecret`. SCIM: `scimEnabled`, `scimTokenHash`, `scimTokenPrefix`. MFA: `mfaRequired`, `mfaGracePeriodDays` (default 7), `mfaRequiredEnabledAt`.
+- `Organization` — id, name, slug, status, industryType, settings (departments, subTeams, branding, AI config, quotas, ehrConfig, providerStylePreferences). SSO settings: `ssoProvider` (saml|oidc), `ssoEntityId`, `ssoSignOnUrl`, `ssoCertificate`, `ssoEnforced`, `ssoGroupRoleMap` (group→role map), `ssoGroupAttribute`, `ssoSessionMaxHours`, `ssoLogoutUrl`, `ssoCertificateExpiry` (auto-computed), `ssoNewCertificate` (rotation dual-cert), `ssoNewCertificateExpiry`. OIDC: `oidcDiscoveryUrl`, `oidcClientId`, `oidcClientSecret`. SCIM: `scimEnabled`, `scimTokenHash`, `scimTokenPrefix`. MFA: `mfaRequired`, `mfaGracePeriodDays` (default 7), `mfaRequiredEnabledAt`. Session: `sessionAbsoluteMaxHours` (1–24, falls back to `DEFAULT_SESSION_ABSOLUTE_MAX_HOURS` = 6h in `server/auth.ts` per NIST SP 800-66 Rev. 2 healthcare guidance) — overrides the default per-org via `getEffectiveSessionMaxMs()`.
 - `User` — id, orgId, username, passwordHash, name, role, mfaEnabled, mfaSecret (encrypted), mfaBackupCodes[], webauthnCredentials[] (credentialId/publicKey/counter/transports/name), mfaTrustedDevices[] (tokenHash/name/expiresAt), mfaEnrollmentDeadline
 - `Employee` — id, orgId, name, email, role, initials, status, subTeam
 - `Call` — id, orgId, employeeId, fileName, status, duration, callCategory, tags
@@ -1557,7 +1564,8 @@ Server serves both API and static frontend from the same process.
 - **GDPR purge is irreversible**: `deleteOrgData()` deletes employees, calls, and users but preserves the org record (status=deleted) for audit trail. The session is destroyed immediately after purge. Backups should be the recovery path
 - **AssemblyAI webhook verification**: `POST /api/webhooks/assemblyai` checks `X-Assembly-Webhook-Token` header against `ASSEMBLYAI_WEBHOOK_SECRET` (falls back to `SESSION_SECRET`). Register this endpoint as the webhook URL in your AssemblyAI account
 - **SCIM `listOrganizations()` scan**: SCIM auth scans all orgs to match the token hash. This is fine at current scale. For >1000 orgs, add a dedicated `scim_token_hash` index on the `organizations` table.
-- **OIDC state uses Redis when available**: OIDC `state` → `{ orgSlug, nonce }` is stored via `ephemeralSet`/`ephemeralConsume` from `redis.ts`, which uses Redis when available and falls back to in-memory. 10-minute TTL. Multi-instance safe when Redis is configured.
+- **OIDC state uses atomic SET NX**: OIDC `state` → `{ orgSlug, nonce }` is stored via `ephemeralSetNx` from `redis.ts` (Redis `SET NX PX`, in-memory fallback) — single atomic call, no TOCTOU window between check and set. 10-minute TTL. Multi-instance safe when Redis is configured. Same pattern as Stripe webhook event dedup. State collision (with 128-bit randomness, statistically impossible) returns 500 `Failed to start OIDC flow`.
+- **Upload dedup uses atomic SET NX**: `acquireUploadLock`/`releaseUploadLock` in `routes/helpers.ts` use `ephemeralSetNx`/`ephemeralDel` (`upload-lock` prefix) to prevent TOCTOU races between concurrent same-org uploads with the same file hash. 30-second TTL. Atomic — no window between dedup check and lock acquire.
 - **JWKS cache is in-memory per instance**: The `jwksCache` Map caches IDP public keys for 1 hour. Multi-instance deployments each maintain their own cache — this is fine since JWKS is public.
 - **WebAuthn rpID must match origin**: The `rpID` (relying party ID) in WebAuthn is derived from the hostname (e.g. `observatory-qa.com`). It must match what the browser sees. In development, `localhost` works. Behind a reverse proxy, ensure the correct hostname is used. The `expectedOrigin` (full URL) must also match exactly.
 - **WebAuthn challenge stored in session**: `req.session.webauthnChallenge` holds the current registration or authentication challenge. Sessions must be persistent (Redis or DB-backed) across the two WebAuthn round-trips. In-memory sessions will lose the challenge.
@@ -1576,6 +1584,8 @@ Server serves both API and static frontend from the same process.
 - **`checkApiKeyScope()` is a no-op for session auth**: The middleware checks `req.apiKeyScopes` and returns `next()` immediately if it's undefined — which it is for all session-authenticated requests. This means scope checks are additive, not breaking, for existing session-based flows.
 - **`GET /api/coaching/my` match priority**: Matches caller's employee record first by email (exact match on `employee.email === user.username`), then by display name (`employee.name === user.name`). If multiple name matches exist, returns 409 to avoid returning the wrong employee's sessions.
 - **Check WORK_LOG.md before auditing**: Detailed branch history of all completed audit and implementation work is in `WORK_LOG.md`. Check it before starting new audit sessions to avoid re-investigating resolved issues. The critical invariants from past fixes are captured in the Invariant Library (INV-01 through INV-23) below.
+- **PG pool skips SSL on loopback hosts**: `initDatabase()` in `server/db/index.ts` requires SSL when `NODE_ENV=production`, but carves out `localhost` / `127.0.0.1` / `0.0.0.0` hosts. Real production deployments never connect to the database over loopback plain TCP, so the carve-out can't weaken a real prod posture. Required for the CI E2E job and `npm run test:e2e:pg` to run prod-mode builds against local plain-TCP postgres. Non-loopback hosts (RDS, Neon, Render PG, etc.) still require SSL with cert verification by default; `DB_SSL_REJECT_UNAUTHORIZED=false` remains the escape hatch for managed DBs with self-signed certs.
+- **PostgresStorage prototype mixin uses buffered Proxy**: `server/db/pg-storage.ts` side-effect-imports `pg-storage-features.ts`, which side-effect-imports per-domain mixin files in `server/db/pg-storage/` (calibration, lms, marketing, revenue). esbuild hoists ALL ESM imports to the top of the bundled `__init` wrapper, so the mixin chain runs BEFORE the `class PostgresStorage` declaration in pg-storage.ts itself — synchronously reading `PostgresStorage.prototype` from a mixin file crashes the bundled prod server with `TypeError: Cannot read properties of undefined (reading 'prototype')`. tsx (dev/unit tests) masks this; only the bundled prod path with PG storage actually loaded triggers it. Fix: `_shared.ts` exports `P` as a Proxy that buffers `P.method = fn` assignments in an internal map; `pg-storage.ts` flushes the buffer onto the real prototype via `bindPrototype(PostgresStorage.prototype)` at the very bottom of its body (after the class declaration AND the side-effect mixin import). When adding new mixin files: import `P`, `db`, `blob` from `./pg-storage/_shared`, never reference `PostgresStorage` value-side, never read `.prototype` synchronously.
 
 ## Open Follow-On Items
 
@@ -1588,7 +1598,7 @@ Items marked ✅ were completed in a later session.
 - ~105 remaining catch blocks across 29 route files — confirmed intentional (file cleanup, non-blocking notifications, PHI decryption fallbacks)
 - Live session Maps have no hard cap (11 unbounded Maps; all cleared on session cleanup)
 - `request-metrics.ts` key growth bounded by `req.route?.path` but falls back to `req.path` (raw URL with IDs)
-- Missing `htmlFor`/`id` pairing on multiple form labels (a11y)
+- Missing `htmlFor`/`id` pairing on remaining form labels: auth.tsx, invite-accept.tsx (settings tabs Invitations/Users/Billing + mobile sidebar focus trap done in PR #99)
 - `useIsMobile` returns false on first render causing layout shift on mobile
 
 ### Feature Gaps — UI needed for existing backend features
@@ -1608,7 +1618,6 @@ Items marked ✅ were completed in a later session.
 - Bedrock empty-content metric: per-model counter of empty responses for content-filter debugging
 - Per-org circuit breaker state should be exposed in admin health dashboard
 - Auto-retry visibility: no metric for age of oldest unsuccessfully-deleted S3 key
-- `ephemeralSetNx` adoption: OIDC state, upload dedup could use the same atomic primitive
 - Scheduled task timeout env override: expose `SCHEDULED_TASK_TIMEOUT_MS` for ops tuning
 - `getOrgUsageSummary` bulk variant for super-admin usage dashboard
 - Scheduled task duration metrics: `durationMs` logs → Prometheus histograms
@@ -1707,7 +1716,6 @@ Longer-term improvements identified during codebase audits. Work on these increm
 ### Security
 | Priority | Item | Effort | Impact | Notes |
 |----------|------|--------|--------|-------|
-| MEDIUM | **Session absolute max configurable** | 0.5 days | Medium — NIST compliance | 8-hour absolute max exceeds NIST 4-6h recommendation for healthcare. Make configurable per-org via org settings (default 6h). Sprint 2 |
 | MEDIUM | **CSP `unsafe-inline` for styles** | 5 days | Medium — prevents CSS injection | Required by Recharts inline styles + Framer Motion transforms. Fix: extract Recharts styles to CSS classes, use Framer Motion's CSS transform option. Large effort due to chart component refactoring. Sprint 3+ |
 | LOW | **Error message information disclosure** | 1 day | Low | Some routes expose underlying error messages. Audit all `catch` blocks for message leakage. Sprint 3+ |
 
@@ -1723,22 +1731,21 @@ Longer-term improvements identified during codebase audits. Work on these increm
 ### Testing
 | Priority | Item | Effort | Impact | Notes |
 |----------|------|--------|--------|-------|
-| HIGH | **Tautological test cleanup** | 2 days | High — false confidence elimination | `rbac.test.ts`, `input-validation.test.ts`, `billing.test.ts`, `webhook-retry.test.ts` redefine constants locally instead of importing from production code. Tests pass even if production changes. Fix: import from source modules and test actual behavior. Sprint 1 |
-| HIGH | **Stripe webhook verification tests** | 1 day | High — critical billing path untested | No tests for webhook signature verification, subscription lifecycle events, or idempotency. Fix: add tests using Stripe's test webhooks with mock signatures. Sprint 1 |
+| MEDIUM | **Tautological test cleanup (remaining)** | 1 day | Medium — false confidence elimination | `tests/http-integration.test.ts` deleted in PR #98 (10 tautological tests removed). Verify the 4 originally-named files (`rbac.test.ts`, `input-validation.test.ts`, `billing.test.ts`, `webhook-retry.test.ts`) no longer redefine production constants — INV-18 suggests rbac.test.ts is fixed; the rest unconfirmed. Sprint 2 |
 | MEDIUM | **HTTP integration test suite** | 3 days | High — fills unit↔E2E gap | No HTTP-level tests against real Express server. Gap between mocked unit tests and browser E2E. Fix: add supertest-based tests that start the Express app against MemStorage, covering auth flows, CSRF, rate limiting, org isolation. Sprint 2 |
-| MEDIUM | **E2E against PostgreSQL** | 2 days | Medium — catches PG-specific bugs | E2E runs against MemStorage. Race conditions, RLS, transaction behavior untested. Fix: docker-compose test profile with PG + pgvector. Sprint 2-3 |
 | MEDIUM | **Rate limiter enforcement tests** | 0.5 days | Medium — security validation | Rate limiting is only tested for header presence (E2E relaxes to 500 limit). No test proves actual blocking behavior. Fix: unit test the in-memory rate limiter with real request counts. Sprint 2 |
 
 ### DevOps / Infrastructure
 | Priority | Item | Effort | Impact | Notes |
 |----------|------|--------|--------|-------|
+| HIGH | **deploy/ec2/ scaffolding modernization** | 1 day | High — blocks staging deploy | Stale CallAnalyzer-era scaffolding: uses `callanalyzer` paths/user/service throughout, `user-data.sh` doesn't bootstrap PostgreSQL+pgvector or Redis (both required at runtime), no systemd unit for `npm run workers`, `deploy.sh` pre-flight only checks `ASSEMBLYAI_API_KEY`+`SESSION_SECRET` (production startup also requires `PHI_ENCRYPTION_KEY`=64-hex, `SESSION_SECRET`≥32 chars, and `DATABASE_URL` when `STORAGE_BACKEND=postgres`). README architecture diagram says `Caddy → Node.js → S3 / Bedrock / AssemblyAI`, missing PG + Redis. Plan: rename `callanalyzer` → `observatory-qa` everywhere, install PG16+pgvector+Redis7 in user-data.sh, add observatory-qa-workers.service unit, tighten deploy.sh pre-flight to match runtime env validation, update README + Caddyfile request_body limit (50MB → 100MB to match multer). Required before first staging deploy. Sprint 1 |
 | MEDIUM | **Move live session state to Redis or sticky sessions** | 2 days | Medium — enables multi-instance for clinical | 1 remaining in-memory subsystem: live sessions (live-session.ts) with 11 Maps holding WebSocket connections and streaming state. These are inherently process-local (can't serialize connections to Redis). Solution: sticky session routing for clinical live sessions in multi-instance deployments. Email OTP, OIDC state, loginAttempts, Stripe webhook dedup, and rate limiting are already Redis-backed. Sprint 2-3 |
 | MEDIUM | **Canary deployment** | 3 days | Medium — reduces deployment risk | All production traffic switches immediately. Fix: add health-check gated traffic shifting in deploy.sh (10% → 50% → 100% with rollback). Sprint 3 |
 
 ### UI/UX
 | Priority | Item | Effort | Impact | Notes |
 |----------|------|--------|--------|-------|
-| HIGH | **Accessibility audit with axe-core** | 2 days | Medium — compliance + usability | Missing `htmlFor`/`id` pairing on auth.tsx, invite-accept.tsx, settings tabs. Mobile sidebar lacks focus trap. 404 page uses hardcoded colors instead of theme. Fix: add axe-core to E2E, fix all critical/serious violations. Sprint 1-2 |
+| MEDIUM | **Accessibility audit with axe-core (remaining)** | 1 day | Medium — compliance + usability | Settings tabs (Invitations/Users/Billing) htmlFor/id pairing + mobile sidebar focus trap done in PR #99. Still TODO: wire axe-core into E2E pipeline, fix 404 page hardcoded colors, fix auth.tsx/invite-accept.tsx remaining htmlFor gaps. Sprint 2 |
 | MEDIUM | **AudioRecorder blob URL leak** | 0.5 days | Low — memory leak | Cleanup effect uses stale closure for `audioUrl`. Fix: use ref to track latest URL for unmount cleanup. Sprint 2 |
 | MEDIUM | **`useIsMobile` SSR flash** | 0.5 days | Low — mobile UX | Returns `false` on first render causing layout shift. Fix: initialize with synchronous `window.innerWidth` check. Sprint 2 |
 | MEDIUM | **Keyboard shortcuts in contenteditable** | 0.5 days | Low — editor UX | Shortcuts fire in contenteditable elements and open modals. Fix: check `contenteditable` attr and `[role=dialog]` ancestors. Sprint 2 |
@@ -1761,19 +1768,19 @@ Architecture & Code Quality, Storage & Data Integrity, Security & HIPAA Complian
 ### Subsystems
 ```
 Core Platform & Infrastructure:
-  server/index.ts, server/vite.ts, server/utils.ts, server/logger.ts, server/types.d.ts, server/middleware/correlation-id.ts, server/middleware/tracing.ts, server/middleware/error-handler.ts, server/middleware/validate.ts, server/middleware/waf.ts, server/services/websocket.ts, server/services/queue.ts, server/services/redis.ts, server/services/logger.ts, server/services/sentry.ts, server/services/telemetry.ts, server/services/dashboard-cache.ts, server/services/error-codes.ts, server/services/aws-credentials.ts, server/services/s3.ts, server/utils/helpers.ts, server/utils/lru-cache.ts, server/utils/request-metrics.ts, server/routes/index.ts, server/routes/helpers.ts, server/routes/health.ts
+  server/index.ts, server/vite.ts, server/utils.ts, server/logger.ts, server/types.d.ts, server/middleware/correlation-id.ts, server/middleware/tracing.ts, server/middleware/error-handler.ts, server/middleware/validate.ts, server/middleware/waf.ts, server/middleware/csrf.ts, server/middleware/rate-limit.ts, server/services/websocket.ts, server/services/queue.ts, server/services/redis.ts, server/services/logger.ts, server/services/sentry.ts, server/services/telemetry.ts, server/services/dashboard-cache.ts, server/services/error-codes.ts, server/services/aws-credentials.ts, server/services/s3.ts, server/utils/helpers.ts, server/utils/lru-cache.ts, server/utils/request-metrics.ts, server/utils/resilience.ts, server/routes/index.ts, server/routes/helpers.ts, server/routes/health.ts
 
 Storage Layer & Database:
-  server/storage/types.ts, server/storage/index.ts, server/storage/memory.ts, server/storage/cloud.ts, server/db/index.ts, server/db/schema.ts, server/db/pg-storage.ts, server/db/pg-storage-features.ts, server/db/pg-storage-confidence.ts, server/db/sync-schema.ts, server/db/migrate.ts, server/db/migrate-audit-chain.ts, shared/schema/org.ts, shared/schema/calls.ts, shared/schema/billing.ts, shared/schema/features.ts
+  server/storage/types.ts, server/storage/index.ts, server/storage/memory.ts, server/storage/cloud.ts, server/storage/call-tags.ts, server/storage/scheduled-reports.ts, server/storage/scoring-corrections.ts, server/storage/snapshots.ts, server/db/index.ts, server/db/schema.ts, server/db/pg-storage.ts, server/db/pg-storage-features.ts, server/db/pg-storage-confidence.ts, server/db/pg-storage/_shared.ts, server/db/pg-storage/calibration.ts, server/db/pg-storage/lms.ts, server/db/pg-storage/marketing.ts, server/db/pg-storage/revenue.ts, server/db/sync-schema.ts, server/db/migrate.ts, server/db/migrate-audit-chain.ts, shared/schema/org.ts, shared/schema/calls.ts, shared/schema/billing.ts, shared/schema/features.ts, shared/schema/call-tags.ts, shared/schema/scheduled-reports.ts, shared/schema/scoring-corrections.ts, shared/schema/snapshots.ts
 
 Auth, Security & HIPAA:
-  server/auth.ts, server/services/phi-encryption.ts, server/services/org-encryption.ts, server/services/audit-log.ts, server/services/incident-response.ts, server/utils/phi-redactor.ts, server/utils/url-validation.ts, server/utils/ai-guardrails.ts, server/routes/auth.ts, server/routes/mfa.ts, server/routes/sso.ts, server/routes/scim.ts, server/routes/oauth.ts, server/routes/password-reset.ts, server/routes/api-keys.ts, server/routes/registration.ts, server/routes/access.ts, server/routes/baa.ts, server/routes/admin-security.routes.ts, server/scheduled/audit-chain-verify.ts
+  server/auth.ts, server/services/phi-encryption.ts, server/services/org-encryption.ts, server/services/audit-log.ts, server/services/incident-response.ts, server/services/phi-policy.ts, server/utils/phi-redactor.ts, server/utils/url-validation.ts, server/utils/ai-guardrails.ts, server/routes/auth.ts, server/routes/mfa.ts, server/routes/sso.ts, server/routes/scim.ts, server/routes/oauth.ts, server/routes/password-reset.ts, server/routes/api-keys.ts, server/routes/registration.ts, server/routes/access.ts, server/routes/baa.ts, server/routes/admin-security.routes.ts, server/scheduled/audit-chain-verify.ts
 
 Call Analysis Pipeline:
-  server/services/call-processing.ts, server/services/assemblyai.ts, server/services/assemblyai-realtime.ts, server/services/ai-factory.ts, server/services/ai-provider.ts, server/services/ai-prompts.ts, server/services/ai-types.ts, server/services/bedrock.ts, server/services/bedrock-batch.ts, server/services/auto-calibration.ts, server/services/cost-estimation.ts, server/services/scoring-calibration.ts, server/services/call-clustering.ts, server/routes/calls.ts, server/routes/call-insights.ts, server/routes/ab-testing.ts, server/routes/assemblyai-webhook.ts
+  server/services/call-processing.ts, server/services/assemblyai.ts, server/services/assemblyai-realtime.ts, server/services/ai-factory.ts, server/services/ai-provider.ts, server/services/ai-prompts.ts, server/services/ai-types.ts, server/services/bedrock.ts, server/services/bedrock-batch.ts, server/services/auto-calibration.ts, server/services/cost-estimation.ts, server/services/scoring-calibration.ts, server/services/call-clustering.ts, server/services/circumstance-modifiers.ts, server/services/disfluency.ts, server/services/script-rewriter.ts, server/services/simulated-call-generator.ts, server/services/sub-score-badges.ts, server/services/elevenlabs-client.ts, server/routes/calls.ts, server/routes/call-insights.ts, server/routes/ab-testing.ts, server/routes/assemblyai-webhook.ts, server/routes/call-tags.ts, server/routes/simulated-calls.ts
 
 RAG Knowledge Base:
-  server/services/rag.ts, server/services/chunker.ts, server/services/embeddings.ts, server/services/embedding-provider.ts, server/services/rag-worker.ts, server/services/rag-trace.ts, server/services/faq-analytics.ts
+  server/services/rag.ts, server/services/chunker.ts, server/services/embeddings.ts, server/services/embeddings-rag.ts, server/services/embedding-provider.ts, server/services/rag-worker.ts, server/services/rag-trace.ts, server/services/faq-analytics.ts
 
 Clinical Documentation:
   server/routes/clinical.ts, server/routes/clinical-compliance.routes.ts, server/routes/clinical-analytics.routes.ts, server/routes/live-session.ts, server/routes/insurance-narratives.ts, server/routes/patient-journey.ts, server/services/clinical-templates.ts, server/services/clinical-validation.ts, server/services/clinical-extraction.ts, server/services/style-learning.ts, server/services/fhir.ts
@@ -1782,16 +1789,16 @@ EHR Integration:
   server/services/ehr/index.ts, server/services/ehr/types.ts, server/services/ehr/request.ts, server/services/ehr/secrets-manager.ts, server/services/ehr/health-monitor.ts, server/services/ehr/appointment-matcher.ts, server/services/ehr/open-dental.ts, server/services/ehr/eaglesoft.ts, server/services/ehr/dentrix.ts, server/services/ehr/fhir-r4.ts, server/services/ehr/mock.ts, server/routes/ehr.ts, server/workers/ehr-note-push.worker.ts
 
 Coaching, Gamification & LMS:
-  server/routes/coaching.ts, server/routes/calibration.ts, server/routes/gamification.ts, server/routes/lms.ts, server/services/coaching-engine.ts, server/services/proactive-alerts.ts, server/services/performance-snapshots.ts, server/services/scheduled-reports.ts, server/scheduled/coaching-tasks.ts
+  server/routes/coaching.ts, server/routes/calibration.ts, server/routes/gamification.ts, server/routes/lms.ts, server/services/coaching-engine.ts, server/services/coaching-progressive.ts, server/services/coaching-prompt.ts, server/services/proactive-alerts.ts, server/services/performance-snapshots.ts, server/services/scheduled-reports.ts, server/scheduled/coaching-tasks.ts
 
 Billing & Revenue:
-  server/routes/billing.ts, server/routes/spend-tracking.ts, server/routes/revenue.ts, server/services/stripe.ts, server/scheduled/trial-downgrade.ts, server/scheduled/quota-alerts.ts
+  server/routes/billing.ts, server/routes/billing-webhook-handlers.ts, server/routes/spend-tracking.ts, server/routes/revenue.ts, server/services/stripe.ts, server/scheduled/trial-downgrade.ts, server/scheduled/quota-alerts.ts
 
 Admin & Platform Operations:
-  server/routes/admin.ts, server/routes/super-admin.ts, server/routes/dashboard.ts, server/routes/insights.ts, server/routes/reports.ts, server/routes/export.ts, server/routes/employees.ts, server/routes/feedback.ts, server/routes/onboarding.ts, server/routes/marketing.ts, server/routes/benchmarks.ts, server/routes/emails.ts, server/services/email.ts, server/services/notifications.ts, server/services/telephony-ingestion.ts
+  server/routes/admin.ts, server/routes/super-admin.ts, server/routes/dashboard.ts, server/routes/insights.ts, server/routes/reports.ts, server/routes/export.ts, server/routes/employees.ts, server/routes/feedback.ts, server/routes/onboarding.ts, server/routes/marketing.ts, server/routes/benchmarks.ts, server/routes/emails.ts, server/routes/scoring-corrections.ts, server/services/email.ts, server/services/notifications.ts, server/services/telephony-ingestion.ts, server/services/scoring-feedback.ts, server/services/scoring-feedback-alerts.ts, server/services/scoring-feedback-context.ts, server/services/scoring-feedback-regression.ts
 
 Workers & Scheduled Tasks:
-  server/workers/index.ts, server/workers/retention.worker.ts, server/workers/reanalysis.worker.ts, server/workers/indexing.worker.ts, server/workers/usage.worker.ts, server/scheduled/index.ts, server/scheduled/scheduler.ts, server/scheduled/retention.ts, server/scheduled/weekly-digest.ts, server/scheduled/post-processing-reconciliation.ts
+  server/workers/index.ts, server/workers/retention.worker.ts, server/workers/reanalysis.worker.ts, server/workers/indexing.worker.ts, server/workers/usage.worker.ts, server/workers/simulated-call.worker.ts, server/scheduled/index.ts, server/scheduled/scheduler.ts, server/scheduled/retention.ts, server/scheduled/weekly-digest.ts, server/scheduled/post-processing-reconciliation.ts, server/scheduled/scheduled-reports-tick.ts, server/scheduled/scoring-quality-tasks.ts
 
 Frontend (UI/UX):
   client/src/App.tsx, client/src/main.tsx, client/src/pages/, client/src/components/, client/src/hooks/, client/src/lib/
