@@ -23,3 +23,20 @@ export function estimateBedrockCost(model: string, inputTokens: number, outputTo
 export function estimateAssemblyAICost(durationSeconds: number): number {
   return durationSeconds * 0.0000472;
 }
+
+/**
+ * Estimate ElevenLabs TTS cost per character.
+ *
+ * Standard tier is $0.30 per 1000 characters → $0.0003/char. Override
+ * via `ELEVENLABS_COST_PER_CHAR` env var when on a different tier
+ * (Creator, Pro, Scale, Business each have lower per-character rates).
+ *
+ * Used by the Simulated Call Generator to attribute per-org TTS spend
+ * into `usage_records`.
+ */
+export function estimateElevenLabsCost(characterCount: number): number {
+  const perChar = Number(process.env.ELEVENLABS_COST_PER_CHAR);
+  const rate = Number.isFinite(perChar) && perChar > 0 ? perChar : 0.0003;
+  // 4 decimals — keeps the value JSON-stable for usage_record diffs.
+  return Math.round(characterCount * rate * 10000) / 10000;
+}

@@ -1262,6 +1262,10 @@ SCORE_CALIBRATION_SPREAD        # Target score spread
 SCORE_LOW_THRESHOLD             # Low score threshold for flagging
 SCORE_HIGH_THRESHOLD            # High score threshold for flagging
 
+# ─── Simulated Call Generator (ElevenLabs TTS) ───────────────────────
+ELEVENLABS_API_KEY              # ElevenLabs API key — required for the Simulated Call Generator
+ELEVENLABS_COST_PER_CHAR        # Optional override of per-char rate (default 0.0003 = $0.30/1000 chars, standard tier)
+
 # ─── Application ─────────────────────────────────────────────────────
 APP_BASE_URL                    # Application base URL (for email links, e.g. https://app.observatory-qa.com)
 REANALYSIS_CONCURRENCY          # Concurrent reanalysis jobs (default: 3)
