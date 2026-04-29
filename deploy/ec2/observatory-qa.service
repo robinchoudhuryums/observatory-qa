@@ -1,0 +1,59 @@
+# Observatory QA — main app systemd unit
+# Install to: /etc/systemd/system/observatory-qa.service
+#
+# Commands:
+#   sudo systemctl enable observatory-qa   # Start on boot
+#   sudo systemctl start observatory-qa    # Start now
+#   sudo systemctl status observatory-qa   # Check status
+#   sudo journalctl -u observatory-qa -f   # Tail logs
+#
+# The BullMQ worker process runs in a separate unit
+# (observatory-qa-workers.service) — both share the same .env file.
+
+[Unit]
+Description=Observatory QA — main HTTP server (Express + WebSocket)
+After=network-online.target postgresql.service redis.service
+Wants=network-online.target postgresql.service redis.service
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=observatory-qa
+Group=observatory-qa
+WorkingDirectory=/opt/observatory-qa
+ExecStart=/usr/bin/node dist/index.js
+Restart=always
+RestartSec=5
+
+# Environment
+Environment=NODE_ENV=production
+Environment=PORT=5000
+EnvironmentFile=/opt/observatory-qa/.env
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/observatory-qa
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Resource limits — sized for t3.small (2GB total).
+# Leaves headroom for PostgreSQL (~250MB), Redis (~100MB), workers (600M
+# cap in observatory-qa-workers.service), and OS file cache.
+# On t3.micro (1GB), drop MemoryMax to 500M and expect occasional OOM
+# kills under concurrent load.
+LimitNOFILE=65535
+MemoryMax=800M
+
+# Logging (goes to journald → accessible via journalctl)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=observatory-qa
+
+[Install]
+WantedBy=multi-user.target

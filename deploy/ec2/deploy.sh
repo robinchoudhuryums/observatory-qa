@@ -3,21 +3,26 @@
 # Run this on the EC2 instance to pull latest code and redeploy.
 #
 # Usage:
-#   ssh ec2-user@YOUR_IP "sudo /opt/callanalyzer/deploy/ec2/deploy.sh"
+#   ssh ec2-user@YOUR_IP "sudo /opt/observatory-qa/deploy/ec2/deploy.sh"
 #   OR from the instance:
-#   sudo /opt/callanalyzer/deploy/ec2/deploy.sh [BRANCH] [SHA]
-#   sudo /opt/callanalyzer/deploy/ec2/deploy.sh --force [BRANCH] [SHA]
+#   sudo /opt/observatory-qa/deploy/ec2/deploy.sh [BRANCH] [SHA]
+#   sudo /opt/observatory-qa/deploy/ec2/deploy.sh --force [BRANCH] [SHA]
 #
 # Flags:
-#   --force    Skip pre-flight env var checks (use with caution)
+#   --force    Skip pre-flight env var checks (use with caution — production
+#              startup will still reject missing/invalid PHI_ENCRYPTION_KEY,
+#              SESSION_SECRET, or DATABASE_URL, so --force only suppresses
+#              the noisy script-level error)
 
 set -euo pipefail
 
-APP_DIR="/opt/callanalyzer"
-APP_USER="callanalyzer"
-LOG_FILE="/var/log/callanalyzer-deploy.log"
+APP_DIR="/opt/observatory-qa"
+APP_USER="observatory-qa"
+APP_SERVICE="observatory-qa"
+WORKERS_SERVICE="observatory-qa-workers"
+LOG_FILE="/var/log/observatory-qa-deploy.log"
 SNAPSHOT_DIR="/tmp/observatory-backups"
-PREVIOUS_SHA_FILE="/opt/observatory/previous-sha"
+PREVIOUS_SHA_FILE="/opt/observatory-qa/.previous-sha"
 HEALTH_URL="http://localhost:5000/api/health"
 HEALTH_MAX_RETRIES=10
 HEALTH_RETRY_INTERVAL=5
@@ -65,44 +70,97 @@ if [ ! -f "$ENV_FILE" ]; then
     die ".env file not found at $ENV_FILE — copy deploy/ec2/.env.example and fill in required values."
 fi
 
-# Verify critical env vars are set (not empty)
-REQUIRED_VARS=(ASSEMBLYAI_API_KEY SESSION_SECRET)
-MISSING_VARS=()
-for VAR in "${REQUIRED_VARS[@]}"; do
-    if ! grep -qE "^${VAR}=.+" "$ENV_FILE"; then
-        MISSING_VARS+=("$VAR")
-    fi
-done
+# Pre-flight env validation. This mirrors the runtime checks in
+# server/index.ts so we fail fast on the deploy host instead of letting
+# the production server start, exit(1), and leave the user staring at a
+# half-deployed instance. Each check has a clear error message naming the
+# missing/invalid variable.
+#
+# `--force` suppresses these checks but the runtime validators inside
+# server/index.ts still apply, so a forced deploy of a misconfigured .env
+# will simply fail later in `systemctl start observatory-qa`.
 
-if [ ${#MISSING_VARS[@]} -gt 0 ]; then
+ERRORS=()
+
+# Helper: extract a value from .env, stripping optional double quotes.
+get_env() {
+    local var="$1"
+    grep -E "^${var}=" "$ENV_FILE" 2>/dev/null | head -n 1 | cut -d= -f2- | tr -d '"' || true
+}
+
+# 1. ASSEMBLYAI_API_KEY — non-empty
+ASSEMBLY_KEY=$(get_env ASSEMBLYAI_API_KEY)
+if [ -z "$ASSEMBLY_KEY" ]; then
+    ERRORS+=("ASSEMBLYAI_API_KEY is missing or empty (required for transcription)")
+fi
+
+# 2. SESSION_SECRET — non-empty AND ≥ 32 chars (server/index.ts rejects shorter
+#    in production; cookie signing security requires reasonable entropy)
+SESSION=$(get_env SESSION_SECRET)
+if [ -z "$SESSION" ]; then
+    ERRORS+=("SESSION_SECRET is missing or empty (required for cookie signing)")
+elif [ "${#SESSION}" -lt 32 ]; then
+    ERRORS+=("SESSION_SECRET is too short (${#SESSION} chars) — production requires at least 32. Generate with: openssl rand -hex 32")
+fi
+
+# 3. PHI_ENCRYPTION_KEY — exactly 64 hex chars (AES-256-GCM key length)
+PHI_KEY=$(get_env PHI_ENCRYPTION_KEY)
+if [ -z "$PHI_KEY" ]; then
+    ERRORS+=("PHI_ENCRYPTION_KEY is missing — production refuses to start without it (HIPAA: PHI must never be stored unencrypted)")
+elif [ "${#PHI_KEY}" -ne 64 ]; then
+    ERRORS+=("PHI_ENCRYPTION_KEY must be exactly 64 hex chars (got ${#PHI_KEY}). Generate with: openssl rand -hex 32")
+elif ! [[ "$PHI_KEY" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    ERRORS+=("PHI_ENCRYPTION_KEY contains non-hex characters — must be 64 chars in [0-9a-fA-F]")
+fi
+
+# 4. DATABASE_URL — required when STORAGE_BACKEND=postgres (the recommended
+#    production backend; the staging deploy hard-codes this)
+STORAGE=$(get_env STORAGE_BACKEND)
+DB_URL=$(get_env DATABASE_URL)
+if [ "$STORAGE" = "postgres" ] && [ -z "$DB_URL" ]; then
+    ERRORS+=("DATABASE_URL is missing but STORAGE_BACKEND=postgres — server/index.ts will exit(1) on startup")
+fi
+
+# 5. REDIS_URL — non-fatal warning. Required for distributed sessions /
+#    rate-limit / queues. Production sets REQUIRE_REDIS=true to make this
+#    fatal at runtime; we mirror that here.
+REQUIRE_REDIS=$(get_env REQUIRE_REDIS)
+REDIS=$(get_env REDIS_URL)
+if [ "$REQUIRE_REDIS" = "true" ] && [ -z "$REDIS" ]; then
+    ERRORS+=("REDIS_URL is missing but REQUIRE_REDIS=true — server/index.ts will exit(1) on startup")
+fi
+
+if [ ${#ERRORS[@]} -gt 0 ]; then
     if [ "$FORCE_DEPLOY" = true ]; then
-        log "WARNING: Missing required env vars (--force flag set, continuing):"
-        for VAR in "${MISSING_VARS[@]}"; do
-            log "    - $VAR"
+        log "WARNING: --force flag set, continuing despite ${#ERRORS[@]} pre-flight error(s):"
+        for E in "${ERRORS[@]}"; do
+            log "    - $E"
         done
+        log "NOTE: server/index.ts performs the same checks at startup — a forced deploy will likely fail there."
     else
-        log "ERROR: These required env vars are missing or empty in .env:"
-        for VAR in "${MISSING_VARS[@]}"; do
-            log "    - $VAR"
+        log "ERROR: pre-flight env validation failed (${#ERRORS[@]} issue(s)):"
+        for E in "${ERRORS[@]}"; do
+            log "    - $E"
         done
-        die "Aborting deploy. Set the vars above or use --force to skip this check."
+        die "Aborting deploy. Fix the issues above in $ENV_FILE, or use --force to bypass (not recommended)."
     fi
 fi
 
-# Verify production-recommended vars (warn only, never fatal)
-RECOMMENDED_VARS=(DATABASE_URL REDIS_URL PHI_ENCRYPTION_KEY)
-for VAR in "${RECOMMENDED_VARS[@]}"; do
-    if ! grep -qE "^${VAR}=.+" "$ENV_FILE"; then
-        log "WARNING: Recommended env var $VAR is not set"
+# 6. Soft warnings for recommended-but-optional vars
+for OPT in S3_BUCKET APP_BASE_URL; do
+    if [ -z "$(get_env "$OPT")" ]; then
+        log "WARN: $OPT is not set — see deploy/ec2/README.md for the impact"
     fi
 done
 
-# Verify the service unit exists
-if ! systemctl list-unit-files callanalyzer.service &>/dev/null; then
-    log "WARNING: callanalyzer.service unit not found — restart may fail"
-fi
+# Verify both service units exist
+for SVC in "${APP_SERVICE}.service" "${WORKERS_SERVICE}.service"; do
+    if ! systemctl list-unit-files "$SVC" &>/dev/null; then
+        log "WARNING: $SVC unit not found in /etc/systemd/system — restart may fail. Re-copy from ${APP_DIR}/deploy/ec2/."
+    fi
+done
 
-log "Pre-flight checks passed"
+log "Pre-flight checks passed (${#ERRORS[@]} hard errors, see WARNs above for soft issues)"
 
 cd "$APP_DIR"
 
@@ -184,17 +242,22 @@ build_and_restart() {
     sudo -u "$APP_USER" npm prune --production \
         || { log "WARNING: npm prune failed during $label (non-fatal)"; }
 
-    log "--- Restarting Observatory QA ($label) ---"
-    systemctl restart callanalyzer \
-        || { log "ERROR: systemctl restart failed during $label"; return 1; }
+    log "--- Restarting Observatory QA ($label) — main + workers ---"
+    # Restart both units. The main HTTP server is the gating health check
+    # (workers only enqueue/consume background jobs); failing the workers
+    # restart is logged but doesn't block the deploy.
+    systemctl restart "$APP_SERVICE" \
+        || { log "ERROR: systemctl restart $APP_SERVICE failed during $label"; return 1; }
+    systemctl restart "$WORKERS_SERVICE" \
+        || { log "WARN: systemctl restart $WORKERS_SERVICE failed during $label (background jobs paused; HTTP traffic unaffected)"; }
 
-    # Give the service a moment to start before health checking
+    # Give the main service a moment to start before health checking
     sleep 3
 
-    # Verify the process is at least running
-    if ! systemctl is-active --quiet callanalyzer; then
-        log "ERROR: callanalyzer service is not active after restart ($label)"
-        journalctl -u callanalyzer --no-pager -n 30 2>>"$LOG_FILE" || true
+    # Verify the main process is at least running
+    if ! systemctl is-active --quiet "$APP_SERVICE"; then
+        log "ERROR: $APP_SERVICE service is not active after restart ($label)"
+        journalctl -u "$APP_SERVICE" --no-pager -n 30 2>>"$LOG_FILE" || true
         return 1
     fi
 
@@ -213,7 +276,7 @@ perform_rollback() {
     log "Rollback target: $rollback_sha"
 
     # Log the rollback event with full context
-    local rollback_log="/var/log/callanalyzer-rollback-events.log"
+    local rollback_log="/var/log/observatory-qa-rollback-events.log"
     {
         echo "---"
         echo "timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -230,7 +293,7 @@ perform_rollback() {
     # Checkout the previous good version
     if ! sudo -u "$APP_USER" git checkout "$rollback_sha" 2>>"$LOG_FILE"; then
         log "FATAL: Could not checkout rollback SHA $rollback_sha — manual intervention required"
-        log "  Run: sudo /opt/callanalyzer/deploy/ec2/rollback.sh $rollback_sha"
+        log "  Run: sudo /opt/observatory-qa/deploy/ec2/rollback.sh $rollback_sha"
         return 1
     fi
 
@@ -239,7 +302,7 @@ perform_rollback() {
     # Rebuild at the rollback SHA
     if ! build_and_restart "rollback"; then
         log "FATAL: Build or restart failed during rollback — manual intervention required"
-        log "  Journals: journalctl -u callanalyzer -n 50 --no-pager"
+        log "  Journals: journalctl -u observatory-qa -n 50 --no-pager"
         return 1
     fi
 
@@ -253,7 +316,7 @@ perform_rollback() {
         return 0
     else
         log "FATAL: Rolled-back version also failing health checks — manual intervention required"
-        log "  Journals: journalctl -u callanalyzer -n 50 --no-pager"
+        log "  Journals: journalctl -u observatory-qa -n 50 --no-pager"
         if [ -n "$SNAPSHOT_FILE" ] && [ -f "$SNAPSHOT_FILE" ]; then
             log "  DB snapshot available: $SNAPSHOT_FILE"
         fi
@@ -315,7 +378,7 @@ else
     log "Health check failed after deploy — attempting automatic rollback"
     if [ "$PREV_SHA" != "unknown" ]; then
         if perform_rollback "$PREV_SHA"; then
-            die "Deploy health check failed but rollback succeeded. Service is running at $PREV_SHA. Investigate: journalctl -u callanalyzer --since '30 min ago'"
+            die "Deploy health check failed but rollback succeeded. Service is running at $PREV_SHA. Investigate: journalctl -u observatory-qa --since '30 min ago'"
         else
             die "Deploy health check failed AND rollback failed. Manual intervention required."
         fi
@@ -329,7 +392,8 @@ fi
 log_section "Deploy complete"
 log "  Deployed SHA:  $DEPLOYED_SHA"
 log "  Previous SHA:  $PREV_SHA"
-log "  Service:       $(systemctl is-active callanalyzer)"
+log "  Main service:  $(systemctl is-active "$APP_SERVICE")"
+log "  Workers:       $(systemctl is-active "$WORKERS_SERVICE")"
 log ""
-log "  To roll back:  sudo /opt/callanalyzer/deploy/ec2/rollback.sh $PREV_SHA"
+log "  To roll back:  sudo /opt/observatory-qa/deploy/ec2/rollback.sh $PREV_SHA"
 log "  Full log:      $LOG_FILE"

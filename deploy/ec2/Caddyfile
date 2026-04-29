@@ -30,9 +30,12 @@
         format json
     }
 
-    # Request size limit (50MB for audio uploads)
+    # Request size limit. Must accommodate the largest audio file the app
+    # will accept — multer is configured for 100MB in
+    # server/routes/helpers.ts. Caddy must NOT cap below that or uploads
+    # silently fail at the proxy with 413 Request Entity Too Large.
     request_body {
-        max_size 50MB
+        max_size 100MB
     }
 }
 
