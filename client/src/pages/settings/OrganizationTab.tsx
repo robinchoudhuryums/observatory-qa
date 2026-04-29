@@ -143,13 +143,23 @@ export default function OrganizationTab() {
           <form onSubmit={handleSave} className="space-y-5">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium text-foreground">Email Domain</label>
-                <Input value={emailDomain} onChange={(e) => setEmailDomain(e.target.value)} placeholder="company.com" />
+                <label className="text-sm font-medium text-foreground" htmlFor="org-email-domain">
+                  Email Domain
+                </label>
+                <Input
+                  id="org-email-domain"
+                  value={emailDomain}
+                  onChange={(e) => setEmailDomain(e.target.value)}
+                  placeholder="company.com"
+                />
                 <p className="text-xs text-muted-foreground mt-1">Used for user email validation.</p>
               </div>
               <div>
-                <label className="text-sm font-medium text-foreground">Data Retention (days)</label>
+                <label className="text-sm font-medium text-foreground" htmlFor="org-retention-days">
+                  Data Retention (days)
+                </label>
                 <Input
+                  id="org-retention-days"
                   type="number"
                   value={retentionDays}
                   onChange={(e) => setRetentionDays(e.target.value)}
@@ -161,8 +171,11 @@ export default function OrganizationTab() {
             </div>
 
             <div>
-              <label className="text-sm font-medium text-foreground">Departments</label>
+              <label className="text-sm font-medium text-foreground" htmlFor="org-departments">
+                Departments
+              </label>
               <Input
+                id="org-departments"
                 value={departments}
                 onChange={(e) => setDepartments(e.target.value)}
                 placeholder="Sales, Support, Billing"
@@ -171,8 +184,11 @@ export default function OrganizationTab() {
             </div>
 
             <div>
-              <label className="text-sm font-medium text-foreground">Call Categories</label>
+              <label className="text-sm font-medium text-foreground" htmlFor="org-call-categories">
+                Call Categories
+              </label>
               <Input
+                id="org-call-categories"
                 value={callCategories}
                 onChange={(e) => setCallCategories(e.target.value)}
                 placeholder="inbound, outbound, internal"
@@ -182,8 +198,11 @@ export default function OrganizationTab() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium text-foreground">Max Calls / Day</label>
+                <label className="text-sm font-medium text-foreground" htmlFor="org-max-calls-per-day">
+                  Max Calls / Day
+                </label>
                 <Input
+                  id="org-max-calls-per-day"
                   type="number"
                   value={maxCallsPerDay}
                   onChange={(e) => setMaxCallsPerDay(e.target.value)}
@@ -193,8 +212,11 @@ export default function OrganizationTab() {
                 <p className="text-xs text-muted-foreground mt-1">Daily upload quota.</p>
               </div>
               <div>
-                <label className="text-sm font-medium text-foreground">Max Storage (MB)</label>
+                <label className="text-sm font-medium text-foreground" htmlFor="org-max-storage-mb">
+                  Max Storage (MB)
+                </label>
                 <Input
+                  id="org-max-storage-mb"
                   type="number"
                   value={maxStorageMb}
                   onChange={(e) => setMaxStorageMb(e.target.value)}
@@ -227,8 +249,11 @@ export default function OrganizationTab() {
         <CardContent>
           <form onSubmit={handleSave} className="space-y-4">
             <div>
-              <label className="text-sm font-medium text-foreground">Webhook URL</label>
+              <label className="text-sm font-medium text-foreground" htmlFor="webhook-url">
+                Webhook URL
+              </label>
               <Input
+                id="webhook-url"
                 value={webhookUrl}
                 onChange={(e) => setWebhookUrl(e.target.value)}
                 placeholder="https://hooks.slack.com/services/..."
@@ -238,9 +263,11 @@ export default function OrganizationTab() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium text-foreground">Platform</label>
+                <label className="text-sm font-medium text-foreground" htmlFor="webhook-platform">
+                  Platform
+                </label>
                 <Select value={webhookPlatform} onValueChange={(v) => setWebhookPlatform(v as "slack" | "teams")}>
-                  <SelectTrigger>
+                  <SelectTrigger id="webhook-platform">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -250,8 +277,11 @@ export default function OrganizationTab() {
                 </Select>
               </div>
               <div>
-                <label className="text-sm font-medium text-foreground">Event Types</label>
+                <label className="text-sm font-medium text-foreground" htmlFor="webhook-events">
+                  Event Types
+                </label>
                 <Input
+                  id="webhook-events"
                   value={webhookEvents}
                   onChange={(e) => setWebhookEvents(e.target.value)}
                   placeholder="low_score, agent_misconduct, exceptional_call"
@@ -290,9 +320,11 @@ export default function OrganizationTab() {
             <form onSubmit={handleSave} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-medium text-foreground">SSO Provider</label>
+                  <label className="text-sm font-medium text-foreground" htmlFor="sso-provider">
+                    SSO Provider
+                  </label>
                   <Select value={ssoProvider || ""} onValueChange={(v) => setSsoProvider(v as "saml" | "oidc" | "")}>
-                    <SelectTrigger>
+                    <SelectTrigger id="sso-provider">
                       <SelectValue placeholder="Select provider..." />
                     </SelectTrigger>
                     <SelectContent>
@@ -302,8 +334,11 @@ export default function OrganizationTab() {
                   </Select>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-foreground">Entity ID / Client ID</label>
+                  <label className="text-sm font-medium text-foreground" htmlFor="sso-entity-id">
+                    Entity ID / Client ID
+                  </label>
                   <Input
+                    id="sso-entity-id"
                     value={ssoEntityId}
                     onChange={(e) => setSsoEntityId(e.target.value)}
                     placeholder="https://idp.example.com/entity"
@@ -311,8 +346,11 @@ export default function OrganizationTab() {
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium text-foreground">Sign-On URL</label>
+                <label className="text-sm font-medium text-foreground" htmlFor="sso-sign-on-url">
+                  Sign-On URL
+                </label>
                 <Input
+                  id="sso-sign-on-url"
                   value={ssoSignOnUrl}
                   onChange={(e) => setSsoSignOnUrl(e.target.value)}
                   placeholder="https://idp.example.com/sso/saml"
@@ -321,8 +359,11 @@ export default function OrganizationTab() {
                 <p className="text-xs text-muted-foreground mt-1">IdP login URL for redirect-based authentication.</p>
               </div>
               <div>
-                <label className="text-sm font-medium text-foreground">Certificate (PEM)</label>
+                <label className="text-sm font-medium text-foreground" htmlFor="sso-certificate">
+                  Certificate (PEM)
+                </label>
                 <Textarea
+                  id="sso-certificate"
                   value={ssoCertificate}
                   onChange={(e) => setSsoCertificate(e.target.value)}
                   placeholder="-----BEGIN CERTIFICATE-----&#10;..."
