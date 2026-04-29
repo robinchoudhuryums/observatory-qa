@@ -490,23 +490,25 @@ export class MemStorage implements IStorage {
       employeeStats.set(call.employeeId, stats);
     }
     const orgEmployees = Array.from(this.employees.values()).filter((e) => e.orgId === orgId);
-    return orgEmployees
-      .map((emp) => {
-        const stats = employeeStats.get(emp.id) || { totalScore: 0, callCount: 0 };
-        return {
-          id: emp.id,
-          name: emp.name,
-          role: emp.role,
-          avgPerformanceScore:
-            stats.callCount > 0 ? Math.round((stats.totalScore / stats.callCount) * 100) / 100 : null,
-          totalCalls: stats.callCount,
-        };
-      })
-      // Min-call floor: matches PG's HAVING count(*) >= MIN_CALLS_FOR_TOP_PERFORMER_RANKING
-      // so dev (MemStorage) and prod (PostgresStorage) agree on who appears here.
-      .filter((p) => p.totalCalls >= MIN_CALLS_FOR_TOP_PERFORMER_RANKING)
-      .sort((a, b) => (b.avgPerformanceScore || 0) - (a.avgPerformanceScore || 0))
-      .slice(0, limit);
+    return (
+      orgEmployees
+        .map((emp) => {
+          const stats = employeeStats.get(emp.id) || { totalScore: 0, callCount: 0 };
+          return {
+            id: emp.id,
+            name: emp.name,
+            role: emp.role,
+            avgPerformanceScore:
+              stats.callCount > 0 ? Math.round((stats.totalScore / stats.callCount) * 100) / 100 : null,
+            totalCalls: stats.callCount,
+          };
+        })
+        // Min-call floor: matches PG's HAVING count(*) >= MIN_CALLS_FOR_TOP_PERFORMER_RANKING
+        // so dev (MemStorage) and prod (PostgresStorage) agree on who appears here.
+        .filter((p) => p.totalCalls >= MIN_CALLS_FOR_TOP_PERFORMER_RANKING)
+        .sort((a, b) => (b.avgPerformanceScore || 0) - (a.avgPerformanceScore || 0))
+        .slice(0, limit)
+    );
   }
 
   async searchCalls(orgId: string, query: string): Promise<CallWithDetails[]> {
