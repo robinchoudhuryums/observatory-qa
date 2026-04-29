@@ -18,6 +18,7 @@ import { isPhiEncryptionEnabled } from "./services/phi-encryption";
 import { wafMiddleware } from "./middleware/waf";
 import { correlationIdMiddleware } from "./middleware/correlation-id";
 import { tracingMiddleware } from "./middleware/tracing";
+import { csrfMiddleware } from "./middleware/csrf";
 import { initSentry, sentryErrorMiddleware, flushSentry } from "./services/sentry";
 // PLAN_DEFINITIONS and PlanTier moved to scheduled task modules
 
@@ -192,79 +193,8 @@ app.use((req, res, next) => {
 });
 
 // CSRF protection: double-submit cookie pattern
-// State-changing API requests must include X-CSRF-Token header matching the csrf cookie
-import { randomBytes, timingSafeEqual } from "crypto";
-
-function parseCookie(req: Request, name: string): string | undefined {
-  const header = req.headers.cookie || "";
-  const match = header
-    .split(";")
-    .map((s) => s.trim())
-    .find((s) => s.startsWith(`${name}=`));
-  return match ? match.slice(name.length + 1) : undefined;
-}
-
-app.use((req, res, next) => {
-  // Set CSRF cookie on all responses if not already present
-  if (!parseCookie(req, "csrf-token")) {
-    const token = randomBytes(32).toString("hex");
-    res.cookie("csrf-token", token, {
-      httpOnly: false, // Must be readable by JS to send in header
-      sameSite: "strict",
-      secure: process.env.NODE_ENV === "production" && !process.env.DISABLE_SECURE_COOKIE,
-      path: "/",
-    });
-  }
-
-  // Skip CSRF checks for safe methods and non-API routes
-  if (["GET", "HEAD", "OPTIONS"].includes(req.method) || !req.path.startsWith("/api")) {
-    return next();
-  }
-
-  // Skip CSRF for Stripe webhooks (uses its own signature verification)
-  if (req.path === "/api/billing/webhook") return next();
-
-  // Skip CSRF for API key authenticated requests (no browser session).
-  // Only skip when the request carries a properly-formatted Bearer token that
-  // will be validated by apiKeyAuth middleware. Checking for the specific prefix
-  // prevents attackers from bypassing CSRF with an arbitrary header value while
-  // the session cookie authenticates the request.
-  const authHeader = req.headers.authorization;
-  if (authHeader?.startsWith("Bearer obs_k_")) return next();
-
-  // Skip CSRF for SCIM endpoints (use their own Bearer token auth, not browser sessions)
-  if (req.path.startsWith("/api/scim/")) return next();
-
-  // Skip CSRF for SSO callbacks (POST from IDP, not browser-initiated)
-  if (req.path.startsWith("/api/auth/sso/callback")) return next();
-
-  // Skip CSRF for AssemblyAI webhooks (verified via token header)
-  if (req.path === "/api/webhooks/assemblyai") return next();
-
-  // Skip CSRF for login/register/forgot-password (pre-auth, no session yet)
-  const csrfExemptPaths = [
-    "/api/auth/login",
-    "/api/auth/register",
-    "/api/auth/forgot-password",
-    "/api/auth/reset-password",
-  ];
-  if (csrfExemptPaths.includes(req.path)) return next();
-
-  // Verify CSRF token
-  const cookieToken = parseCookie(req, "csrf-token");
-  const headerToken = req.headers["x-csrf-token"] as string | undefined;
-  if (
-    !cookieToken ||
-    !headerToken ||
-    cookieToken.length !== headerToken.length ||
-    !timingSafeEqual(Buffer.from(cookieToken), Buffer.from(headerToken))
-  ) {
-    res.status(403).json({ message: "Invalid or missing CSRF token", code: "OBS-AUTH-CSRF" });
-    return;
-  }
-
-  next();
-});
+// CSRF (double-submit cookie). See server/middleware/csrf.ts.
+app.use(csrfMiddleware);
 
 // HIPAA: Audit logging middleware - logs all API access with user identity but never PHI
 app.use((req, res, next) => {
