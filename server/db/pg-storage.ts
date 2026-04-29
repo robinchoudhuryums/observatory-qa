@@ -2580,3 +2580,10 @@ export class PostgresStorage {
 
 // Side-effect import: attaches feature methods to PostgresStorage.prototype
 import "./pg-storage-features";
+
+// Flush mixin methods buffered by pg-storage/_shared.ts onto the real prototype.
+// Must run AFTER the class declaration above and AFTER the mixin side-effect
+// import — see _shared.ts header for why this can't happen at mixin-module-body
+// time under esbuild's hoisted-imports bundle layout.
+import { bindPrototype } from "./pg-storage/_shared";
+bindPrototype(PostgresStorage.prototype);

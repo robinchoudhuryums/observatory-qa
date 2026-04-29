@@ -37,19 +37,35 @@ export async function initDatabase(): Promise<Database | null> {
 
   try {
     const maxConnections = parseInt(process.env.DB_POOL_MAX || "50", 10);
+    // HIPAA: Force SSL in production.
+    // rejectUnauthorized defaults to true for proper certificate verification.
+    // Set DB_SSL_REJECT_UNAUTHORIZED=false only for managed databases (e.g., Neon, Render)
+    // that use self-signed certificates not in the system CA store.
+    //
+    // Exception: loopback hosts (localhost / 127.0.0.1 / 0.0.0.0) — these only
+    // exist in CI E2E and dev fixtures, where the local Postgres is plain TCP
+    // and forcing SSL would fail the handshake. Real production deployments
+    // never connect to the database over loopback plain TCP, so the carve-out
+    // can't weaken a real prod posture.
+    let sslConfig: pg.PoolConfig["ssl"] = undefined;
+    if (process.env.NODE_ENV === "production") {
+      let isLoopback = false;
+      try {
+        const host = new URL(databaseUrl).hostname;
+        isLoopback = host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0";
+      } catch {
+        /* malformed URL — fall through to require SSL, pool will surface the parse error */
+      }
+      if (!isLoopback) {
+        sslConfig = { rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== "false" };
+      }
+    }
     pool = new pg.Pool({
       connectionString: databaseUrl,
       max: Math.min(Math.max(maxConnections, 5), 200),
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000,
-      // HIPAA: Force SSL in production.
-      // rejectUnauthorized defaults to true for proper certificate verification.
-      // Set DB_SSL_REJECT_UNAUTHORIZED=false only for managed databases (e.g., Neon, Render)
-      // that use self-signed certificates not in the system CA store.
-      ssl:
-        process.env.NODE_ENV === "production"
-          ? { rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== "false" }
-          : undefined,
+      ssl: sslConfig,
     });
 
     // Verify the connection

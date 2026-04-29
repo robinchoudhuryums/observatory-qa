@@ -24,6 +24,12 @@ export default defineConfig({
         port: 5000,
         timeout: 90_000,
         reuseExistingServer: false,
+        // Pipe webServer stdout/stderr into Playwright's output so a startup
+        // crash surfaces in CI logs instead of just "Exit code: 1". Without
+        // this, Playwright's default (stdout: "ignore") swallows pino logs
+        // and any process.exit reason becomes invisible.
+        stdout: "pipe",
+        stderr: "pipe",
         env: {
           NODE_ENV: "production",
           PORT: "5000",
@@ -33,6 +39,14 @@ export default defineConfig({
           AUTH_USERS: "admin:admin123:admin:Test Admin:default,viewer:viewer123:viewer:Test Viewer:default",
           PHI_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
           E2E_TESTING: "true",
+          // Forward PG/Redis env vars from CI runner into the webServer.
+          // When unset, the server falls back to MemStorage + in-memory ratelimit
+          // (current behavior). When set, the server runs against real PostgreSQL
+          // — this is the path the e2e-postgres CI job exercises so we catch
+          // RLS, transaction, and PG-only bugs before they hit production.
+          ...(process.env.DATABASE_URL ? { DATABASE_URL: process.env.DATABASE_URL } : {}),
+          ...(process.env.STORAGE_BACKEND ? { STORAGE_BACKEND: process.env.STORAGE_BACKEND } : {}),
+          ...(process.env.REDIS_URL ? { REDIS_URL: process.env.REDIS_URL } : {}),
         },
       }
     : undefined,
