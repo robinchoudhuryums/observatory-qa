@@ -8,7 +8,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, csrfFetch } from "@/lib/queryClient";
-import type { ClinicalNote } from "@shared/schema";
 import {
   RiStethoscopeLine,
   RiShieldCheckLine,
@@ -20,7 +19,6 @@ import {
   RiCloseLine,
   RiPulseLine,
   RiMessage2Line,
-  RiInformationLine,
   RiFileCopyLine,
   RiArrowDownSLine,
   RiArrowUpSLine,
@@ -30,64 +28,11 @@ import {
   RiListCheck2,
   RiPrinterLine,
   RiInputMethodLine,
-  RiHistoryLine,
 } from "@remixicon/react";
-
-interface QualityFeedbackEntry {
-  rating: number;
-  comment?: string;
-  improvementAreas?: string[];
-  ratedBy?: string;
-  ratedAt?: string;
-}
-
-interface CallWithClinical {
-  id: string;
-  fileName?: string;
-  status: string;
-  duration?: number;
-  callCategory?: string;
-  uploadedAt?: string;
-  analysis?: {
-    summary?: string;
-    clinicalNote?: ClinicalNote & {
-      attestedBy?: string;
-      attestedAt?: string;
-      consentRecordedBy?: string;
-      consentRecordedAt?: string;
-      editHistory?: Array<{ editedBy: string; editedAt: string; fieldsChanged: string[] }>;
-      validationWarnings?: string[];
-      weightedCompleteness?: number;
-      sectionDepth?: Record<string, "empty" | "minimal" | "adequate" | "thorough">;
-      qualityFeedback?: QualityFeedbackEntry[];
-    };
-  };
-  employee?: { name: string };
-}
-
-// --- Editable Section Card ---
-// SectionCard extracted to @/components/lib/section-card for reuse across pages
 import { SectionCard } from "@/components/lib/section-card";
-
-// --- Format label helper ---
-function formatLabel(format: string): string {
-  const labels: Record<string, string> = {
-    soap: "SOAP",
-    dap: "DAP",
-    birp: "BIRP",
-    hpi_focused: "HPI-Focused",
-    procedure_note: "Procedure Note",
-    progress_note: "Progress Note",
-    dental_exam: "Dental Exam",
-    dental_operative: "Dental Operative",
-    dental_perio: "Periodontal",
-    dental_endo: "Endodontic",
-    dental_ortho_progress: "Ortho Progress",
-    dental_surgery: "Oral Surgery",
-    dental_treatment_plan: "Treatment Plan",
-  };
-  return labels[format] || format.toUpperCase();
-}
+import { formatLabel, openPrintWindow } from "./clinical-notes/helpers";
+import { MissingSectionsCard, ValidationNotesCard, EditHistoryCard, QualityFeedbackCard } from "./clinical-notes/cards";
+import type { CallWithClinical } from "./clinical-notes/types";
 
 export default function ClinicalNotesPage() {
   const [, params] = useRoute("/clinical/notes/:id");
@@ -306,34 +251,8 @@ export default function ClinicalNotesPage() {
   };
 
   const handlePrint = () => {
-    const printContent = printRef.current;
-    if (!printContent) return;
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) return;
-    // Sanitize title to prevent injection via employee name
-    const safeTitle = (call?.employee?.name || "Patient").replace(/[<>&"']/g, "");
-    const doc = printWindow.document;
-    doc.open();
-    doc.write(`<html><head><title>Clinical Note — ${safeTitle}</title>
-      <style>
-        body { font-family: system-ui, -apple-system, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; font-size: 14px; }
-        h1 { font-size: 20px; border-bottom: 2px solid #333; padding-bottom: 8px; }
-        h2 { font-size: 16px; margin-top: 20px; color: #333; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
-        .meta { color: #666; font-size: 12px; margin-bottom: 20px; }
-        .draft { background: #fff3cd; border: 1px solid #ffc107; padding: 8px 12px; border-radius: 4px; margin: 10px 0; font-weight: bold; }
-        .codes { display: flex; gap: 8px; flex-wrap: wrap; }
-        .code { background: #f0f0f0; padding: 2px 8px; border-radius: 4px; font-family: monospace; font-size: 12px; }
-        ul { padding-left: 20px; }
-        p { line-height: 1.6; }
-        @media print { .no-print { display: none; } }
-      </style></head><body></body></html>`);
-    // Use deep clone instead of innerHTML to prevent XSS from note content
-    const cloned = printContent.cloneNode(true) as HTMLElement;
-    doc.body.appendChild(cloned);
-    const printScript = doc.createElement("script");
-    printScript.textContent = "window.print(); window.close();";
-    doc.body.appendChild(printScript);
-    doc.close();
+    if (!printRef.current) return;
+    openPrintWindow(printRef.current, call?.employee?.name);
   };
 
   if (isLoading) {
@@ -1059,45 +978,9 @@ export default function ClinicalNotesPage() {
         )}
       </div>
 
-      {/* Missing Sections */}
-      {cn.missingSections && cn.missingSections.length > 0 && (
-        <Card className="border-amber-200">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base text-amber-700 dark:text-amber-300">Missing Documentation</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {cn.missingSections.map((section, i) => (
-                <Badge key={i} variant="outline" className="text-amber-600 border-amber-300">
-                  {section}
-                </Badge>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      <MissingSectionsCard missingSections={cn.missingSections} />
 
-      {/* Validation Warnings (from server-side code/format validation) */}
-      {(cn.validationWarnings?.length ?? 0) > 0 && (
-        <Card className="border-blue-200 print:hidden">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base text-blue-700 dark:text-blue-300 flex items-center gap-2">
-              <RiInformationLine className="w-4 h-4" />
-              Validation Notes
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="text-sm space-y-1 text-blue-700 dark:text-blue-300">
-              {cn.validationWarnings!.map((warning, i) => (
-                <li key={i} className="flex items-start gap-2">
-                  <span className="text-blue-400 mt-0.5">&#8226;</span>
-                  {warning}
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      )}
+      <ValidationNotesCard validationWarnings={cn.validationWarnings} />
 
       {/* Differential Diagnoses */}
       {cn.differentialDiagnoses && cn.differentialDiagnoses.length > 0 && (
@@ -1110,103 +993,21 @@ export default function ClinicalNotesPage() {
         </SectionCard>
       )}
 
-      {/* Edit History */}
-      {call.analysis?.clinicalNote?.editHistory?.length && call.analysis.clinicalNote.editHistory.length > 0 && (
-        <Card className="print:hidden">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base text-muted-foreground flex items-center gap-2">
-              <RiHistoryLine className="w-4 h-4" />
-              Edit History
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-1">
-              {call.analysis.clinicalNote.editHistory.map((edit, i) => (
-                <div key={i} className="text-xs text-muted-foreground flex gap-2">
-                  <span>{new Date(edit.editedAt).toLocaleString()}</span>
-                  <span>—</span>
-                  <span>
-                    {edit.editedBy} edited {edit.fieldsChanged.join(", ")}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      <EditHistoryCard editHistory={call.analysis?.clinicalNote?.editHistory} />
 
-      {/* Quality Feedback — Post-attestation note quality rating */}
       {cn.providerAttested && !editing && (
-        <Card className="print:hidden">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base flex items-center gap-2">
-              <RiStethoscopeLine className="w-4 h-4 text-primary" />
-              AI Note Quality Feedback
-            </CardTitle>
-            <CardDescription className="text-xs">
-              Rate how well the AI-generated note matched the encounter
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {cn.qualityFeedback && cn.qualityFeedback.length > 0 && (
-              <div className="mb-3 space-y-1">
-                {cn.qualityFeedback.map((fb, i) => (
-                  <div key={i} className="text-xs text-muted-foreground flex items-center gap-2">
-                    <span className="font-mono">
-                      {"★".repeat(fb.rating)}
-                      {"☆".repeat(5 - fb.rating)}
-                    </span>
-                    <span>— {fb.ratedBy}</span>
-                    {fb.comment && <span className="italic">"{fb.comment}"</span>}
-                  </div>
-                ))}
-              </div>
-            )}
-            {showFeedback ? (
-              <div className="space-y-3">
-                <div>
-                  <p className="text-xs font-medium mb-1">Rating</p>
-                  <div className="flex gap-1">
-                    {[1, 2, 3, 4, 5].map((star) => (
-                      <button
-                        key={star}
-                        onClick={() => setFeedbackRating(star)}
-                        className={`text-xl ${star <= feedbackRating ? "text-amber-500" : "text-gray-300"} hover:text-amber-400`}
-                      >
-                        ★
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <p className="text-xs font-medium mb-1">Comment (optional)</p>
-                  <Input
-                    value={feedbackComment}
-                    onChange={(e) => setFeedbackComment(e.target.value)}
-                    placeholder="What could be improved?"
-                    className="text-sm h-8"
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    onClick={() => feedbackMutation.mutate()}
-                    disabled={feedbackRating === 0 || feedbackMutation.isPending}
-                  >
-                    {feedbackMutation.isPending ? "Submitting..." : "Submit"}
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setShowFeedback(false)}>
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <Button size="sm" variant="outline" onClick={() => setShowFeedback(true)}>
-                Rate Note Quality
-              </Button>
-            )}
-          </CardContent>
-        </Card>
+        <QualityFeedbackCard
+          qualityFeedback={cn.qualityFeedback}
+          showFeedback={showFeedback}
+          onShowFeedback={() => setShowFeedback(true)}
+          onCancelFeedback={() => setShowFeedback(false)}
+          rating={feedbackRating}
+          onRatingChange={setFeedbackRating}
+          comment={feedbackComment}
+          onCommentChange={setFeedbackComment}
+          onSubmit={() => feedbackMutation.mutate()}
+          isSubmitting={feedbackMutation.isPending}
+        />
       )}
     </div>
   );
