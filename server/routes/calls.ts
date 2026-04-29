@@ -312,7 +312,9 @@ export function registerCallRoutes(app: Express): void {
         // Acquire a short-lived lock on this file hash to prevent TOCTOU race:
         // two concurrent uploads with the same file can both pass the duplicate
         // check above, then both create calls. The lock ensures only one wins.
-        const lockKey = `upload-lock:${req.orgId}:${fileHash}`;
+        // The "upload-lock:" namespace prefix is added inside acquireUploadLock
+        // via ephemeralSetNx; we just supply the composite identity key.
+        const lockKey = `${req.orgId}:${fileHash}`;
         const lockAcquired = await acquireUploadLock(lockKey);
         if (!lockAcquired) {
           await cleanupFile(req.file.path);
