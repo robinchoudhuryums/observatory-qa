@@ -28,9 +28,23 @@ RUN npm prune --production
 # --- Production Stage ---
 FROM node:20-slim AS production
 
-# Install tini for proper PID 1 signal forwarding (graceful shutdown)
-RUN apt-get update && apt-get install -y --no-install-recommends tini \
+# Patch OS packages on top of the slim base (clears the fix-available CVEs
+# Trivy flags) and install tini for proper PID 1 signal forwarding.
+# `apt-get upgrade` keeps us reproducible-per-base-image without pinning
+# every individual package, which would be much more maintenance churn.
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends tini \
     && rm -rf /var/lib/apt/lists/*
+
+# Remove npm from the production image. The runtime only invokes
+# `node dist/index.js` (see ENTRYPOINT/CMD below) and the `node -e fetch(...)`
+# healthcheck — npm itself isn't called at runtime. The bundled npm ships its
+# own pinned copy of `tar` and other internal deps that Trivy will flag for
+# CVEs even though they're never executed in production. Removing npm
+# eliminates that supply-chain surface entirely.
+RUN rm -rf /usr/local/lib/node_modules/npm \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx
 
 # Security: run as non-root user
 RUN groupadd --system appuser && useradd --system --gid appuser appuser

@@ -1400,7 +1400,7 @@ Automated pipeline runs on push to `main` and all PRs:
 | **Type Check & Tests** | `tsc` + unit tests with c8 coverage | Blocks build |
 | **Security Audit** | `npm audit --audit-level=high` + secret scanning (AWS keys, private keys, API tokens) | Blocks deploy |
 | **Build** | Vite frontend + esbuild backend, artifact verified | Requires lint + test |
-| **Docker** | Multi-stage build, pushes to GHCR on main | Requires lint + test |
+| **Docker** | Multi-stage build + Trivy image scan (fails on critical/high CVEs) | Requires lint + test + security; gates the deploy |
 | **E2E Tests** | Playwright Chromium against production build | Requires build |
 | **Quality Gate** | Explicit gate requiring all above jobs | Blocks all deploys |
 | **Deploy Staging** | Auto on main push via Render deploy hook + health check | Requires quality gate |
@@ -1729,7 +1729,6 @@ Longer-term improvements identified during codebase audits. Work on these increm
 | Priority | Item | Effort | Impact | Notes |
 |----------|------|--------|--------|-------|
 | MEDIUM | **Move live session state to Redis or sticky sessions** | 2 days | Medium — enables multi-instance for clinical | 1 remaining in-memory subsystem: live sessions (live-session.ts) with 11 Maps holding WebSocket connections and streaming state. These are inherently process-local (can't serialize connections to Redis). Solution: sticky session routing for clinical live sessions in multi-instance deployments. Email OTP, OIDC state, loginAttempts, Stripe webhook dedup, and rate limiting are already Redis-backed. Sprint 2-3 |
-| MEDIUM | **Container image scanning** | 1 day | Medium — supply chain security | No SAST/DAST or container scanning. Fix: add Trivy scan on Docker build step. Sprint 2 |
 | MEDIUM | **Canary deployment** | 3 days | Medium — reduces deployment risk | All production traffic switches immediately. Fix: add health-check gated traffic shifting in deploy.sh (10% → 50% → 100% with rollback). Sprint 3 |
 
 ### UI/UX
