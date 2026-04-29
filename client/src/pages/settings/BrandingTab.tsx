@@ -77,16 +77,26 @@ export default function BrandingTab() {
         <CardContent>
           <form onSubmit={handleSave} className="space-y-5">
             <div>
-              <label className="text-sm font-medium text-foreground">Application Name</label>
-              <Input value={appName} onChange={(e) => setAppName(e.target.value)} placeholder="Observatory" />
+              <label className="text-sm font-medium text-foreground" htmlFor="branding-app-name">
+                Application Name
+              </label>
+              <Input
+                id="branding-app-name"
+                value={appName}
+                onChange={(e) => setAppName(e.target.value)}
+                placeholder="Observatory"
+              />
               <p className="text-xs text-muted-foreground mt-1">
                 Displayed in the sidebar, login page, and report headers.
               </p>
             </div>
 
             <div>
-              <label className="text-sm font-medium text-foreground">Logo URL</label>
+              <label className="text-sm font-medium text-foreground" htmlFor="branding-logo-url">
+                Logo URL
+              </label>
               <Input
+                id="branding-logo-url"
                 value={logoUrl}
                 onChange={(e) => setLogoUrl(e.target.value)}
                 placeholder="https://example.com/logo.png"
@@ -98,13 +108,17 @@ export default function BrandingTab() {
             </div>
 
             <div>
-              <label className="text-sm font-medium text-foreground">Primary Color</label>
+              <label className="text-sm font-medium text-foreground" htmlFor="branding-primary-color">
+                Primary Color
+              </label>
               <div className="flex gap-3 items-center">
                 <input
+                  id="branding-primary-color"
                   type="color"
                   value={primaryColor || "#3b82f6"}
                   onChange={(e) => setPrimaryColor(e.target.value)}
                   className="w-10 h-10 rounded border border-border cursor-pointer"
+                  aria-label="Primary color picker"
                 />
                 <Input
                   value={primaryColor}

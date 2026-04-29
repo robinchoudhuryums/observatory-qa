@@ -281,8 +281,11 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                   Organization Details
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-foreground">Organization Name</label>
+                  <label className="text-sm font-medium text-foreground" htmlFor="reg-org-name">
+                    Organization Name
+                  </label>
                   <Input
+                    id="reg-org-name"
                     value={regOrgName}
                     onChange={(e) => {
                       setRegOrgName(e.target.value);
@@ -299,8 +302,11 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-foreground">Organization Slug</label>
+                  <label className="text-sm font-medium text-foreground" htmlFor="reg-org-slug">
+                    Organization Slug
+                  </label>
                   <Input
+                    id="reg-org-slug"
                     value={regOrgSlug}
                     onChange={(e) => setRegOrgSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
                     placeholder="acme-healthcare"
@@ -314,9 +320,11 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                   </p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-foreground">Industry</label>
+                  <label className="text-sm font-medium text-foreground" htmlFor="reg-industry">
+                    Industry
+                  </label>
                   <Select value={regIndustryType} onValueChange={setRegIndustryType}>
-                    <SelectTrigger>
+                    <SelectTrigger id="reg-industry">
                       <SelectValue placeholder="Select your industry (optional)" />
                     </SelectTrigger>
                     <SelectContent>
@@ -335,12 +343,23 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                   Your Account
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-foreground">Your Full Name</label>
-                  <Input value={regName} onChange={(e) => setRegName(e.target.value)} placeholder="Jane Doe" required />
+                  <label className="text-sm font-medium text-foreground" htmlFor="reg-name">
+                    Your Full Name
+                  </label>
+                  <Input
+                    id="reg-name"
+                    value={regName}
+                    onChange={(e) => setRegName(e.target.value)}
+                    placeholder="Jane Doe"
+                    required
+                  />
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-foreground">Username</label>
+                  <label className="text-sm font-medium text-foreground" htmlFor="reg-username">
+                    Username
+                  </label>
                   <Input
+                    id="reg-username"
                     value={regUsername}
                     onChange={(e) => setRegUsername(e.target.value)}
                     placeholder="jdoe"
@@ -349,11 +368,14 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-foreground">Password</label>
+                  <label className="text-sm font-medium text-foreground" htmlFor="reg-password">
+                    Password
+                  </label>
                   <p className="text-xs text-muted-foreground mb-1.5">
                     Minimum 8 characters. Use a mix of letters, numbers, and symbols for a strong password.
                   </p>
                   <Input
+                    id="reg-password"
                     type="password"
                     value={regPassword}
                     onChange={(e) => setRegPassword(e.target.value)}

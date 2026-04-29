@@ -162,8 +162,11 @@ export default function ApiKeysTab() {
                 className="space-y-4"
               >
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground">Key Name</label>
+                  <label className="text-xs font-medium text-muted-foreground" htmlFor="api-key-name">
+                    Key Name
+                  </label>
                   <Input
+                    id="api-key-name"
                     value={keyName}
                     onChange={(e) => setKeyName(e.target.value)}
                     placeholder="Production API"
@@ -171,8 +174,10 @@ export default function ApiKeysTab() {
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground">Permissions</label>
-                  <div className="flex gap-2 mt-1">
+                  <span id="api-key-perms-label" className="text-xs font-medium text-muted-foreground">
+                    Permissions
+                  </span>
+                  <div className="flex gap-2 mt-1" role="group" aria-labelledby="api-key-perms-label">
                     {["read", "write", "admin"].map((perm) => (
                       <Button
                         key={perm}
@@ -180,6 +185,7 @@ export default function ApiKeysTab() {
                         size="sm"
                         variant={keyPerms.includes(perm) ? "default" : "outline"}
                         onClick={() => togglePerm(perm)}
+                        aria-pressed={keyPerms.includes(perm)}
                       >
                         {perm}
                       </Button>
@@ -190,8 +196,11 @@ export default function ApiKeysTab() {
                   </p>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground">Expiry (days, optional)</label>
+                  <label className="text-xs font-medium text-muted-foreground" htmlFor="api-key-expiry">
+                    Expiry (days, optional)
+                  </label>
                   <Input
+                    id="api-key-expiry"
                     type="number"
                     value={keyExpiryDays}
                     onChange={(e) => setKeyExpiryDays(e.target.value)}

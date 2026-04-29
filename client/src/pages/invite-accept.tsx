@@ -115,12 +115,23 @@ export default function InviteAcceptPage({ token, onComplete }: InviteAcceptProp
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="text-sm font-medium text-foreground">Full Name</label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your full name" required />
+              <label className="text-sm font-medium text-foreground" htmlFor="invite-name">
+                Full Name
+              </label>
+              <Input
+                id="invite-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Your full name"
+                required
+              />
             </div>
             <div>
-              <label className="text-sm font-medium text-foreground">Username</label>
+              <label className="text-sm font-medium text-foreground" htmlFor="invite-username">
+                Username
+              </label>
               <Input
+                id="invite-username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="Choose a username"
@@ -129,8 +140,11 @@ export default function InviteAcceptPage({ token, onComplete }: InviteAcceptProp
               />
             </div>
             <div>
-              <label className="text-sm font-medium text-foreground">Password</label>
+              <label className="text-sm font-medium text-foreground" htmlFor="invite-password">
+                Password
+              </label>
               <Input
+                id="invite-password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}

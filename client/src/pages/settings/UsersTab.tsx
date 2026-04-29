@@ -140,8 +140,11 @@ export default function UsersTab() {
                 className="grid grid-cols-2 gap-4"
               >
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground">Username</label>
+                  <label className="text-xs font-medium text-muted-foreground" htmlFor="new-user-username">
+                    Username
+                  </label>
                   <Input
+                    id="new-user-username"
                     value={newUsername}
                     onChange={(e) => setNewUsername(e.target.value)}
                     placeholder="jdoe"
@@ -149,12 +152,23 @@ export default function UsersTab() {
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground">Full Name</label>
-                  <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Jane Doe" required />
+                  <label className="text-xs font-medium text-muted-foreground" htmlFor="new-user-name">
+                    Full Name
+                  </label>
+                  <Input
+                    id="new-user-name"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    placeholder="Jane Doe"
+                    required
+                  />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground">Password</label>
+                  <label className="text-xs font-medium text-muted-foreground" htmlFor="new-user-password">
+                    Password
+                  </label>
                   <Input
+                    id="new-user-password"
                     type="password"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
@@ -164,9 +178,11 @@ export default function UsersTab() {
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground">Role</label>
+                  <label className="text-xs font-medium text-muted-foreground" htmlFor="new-user-role">
+                    Role
+                  </label>
                   <Select value={newRole} onValueChange={setNewRole}>
-                    <SelectTrigger>
+                    <SelectTrigger id="new-user-role">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
