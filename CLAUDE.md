@@ -138,7 +138,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/websocket.test.ts` — WebSocket infrastructure
   - `tests/bedrock-rate-limit.test.ts` — Bedrock rate limiting and circuit breaker
   - `tests/health-endpoints.test.ts` — Health check endpoints
-  - `tests/http-integration.test.ts` — HTTP-level integration tests
+  - `tests/http-integration-app.test.ts` — Full-stack HTTP tests against real Express + production middleware (CSRF, setupAuth, RBAC, session cookies)
   - `tests/input-validation.test.ts` — Input validation edge cases
   - `tests/external-api-failures.test.ts` — External API failure handling
   - `tests/newer-routes.test.ts` — Newer feature route tests
