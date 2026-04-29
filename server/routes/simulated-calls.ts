@@ -25,7 +25,13 @@ import { asyncHandler } from "../middleware/error-handler";
 import { validateUUIDParam } from "./helpers";
 import { ERROR_CODES, errorResponse } from "../services/error-codes";
 import { logger } from "../services/logger";
+import { enqueueSimulatedCallGeneration } from "../services/queue";
+import { processAudioFile, cleanupFile } from "../services/call-processing";
 import { simulatedCallScriptSchema, simulatedCallConfigSchema, simulatedCallStatusSchema } from "@shared/schema";
+import { createHash } from "node:crypto";
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import os from "node:os";
 
 const validateId = validateUUIDParam("id");
 
@@ -124,9 +130,10 @@ export function registerSimulatedCallRoutes(app: Express): void {
   );
 
   // ── Create ────────────────────────────────────────────────────────
-  // The row is persisted with status=pending; PR #4c will pick it up
-  // and run the actual TTS pipeline. Until then this endpoint is a
-  // no-op end-to-end (rows accumulate but never flip to ready).
+  // Persists the row at status=pending and enqueues the generation job.
+  // The worker (or in-process fallback when Redis isn't configured) flips
+  // status through generating → ready/failed asynchronously; the response
+  // returns the pending row immediately.
   app.post(
     "/api/simulated-calls",
     requireAuth,
@@ -153,8 +160,98 @@ export function registerSimulatedCallRoutes(app: Express): void {
         createdBy: req.user?.username ?? "unknown",
       });
 
-      logger.info({ orgId, simulatedCallId: created.id, title: created.title }, "Simulated call created");
+      // Fire-and-forget — generation runs in background (queue or in-process).
+      enqueueSimulatedCallGeneration({ orgId, simulatedCallId: created.id }).catch((err) =>
+        logger.error({ err, simulatedCallId: created.id }, "Failed to enqueue simulated call generation"),
+      );
+
+      logger.info({ orgId, simulatedCallId: created.id, title: created.title }, "Simulated call created and enqueued");
       res.status(201).json(created);
+    }),
+  );
+
+  // ── Send to analysis ──────────────────────────────────────────────
+  // Feeds the rendered audio back through the regular call pipeline:
+  // creates a normal Call row, hands the audio buffer + temp file to
+  // processAudioFile() (which transcribes + analyzes), and links the
+  // resulting callId back onto the simulated call row.
+  app.post(
+    "/api/simulated-calls/:id/send-to-analysis",
+    requireAuth,
+    requireRole("manager"),
+    injectOrgContext,
+    requireActiveSubscription(),
+    requirePlanFeature("simulatedCallsEnabled", PLAN_GATE_MESSAGE),
+    validateId,
+    asyncHandler(async (req, res) => {
+      const orgId = req.orgId!;
+      const sim = await storage.getSimulatedCall(orgId, req.params.id);
+      if (!sim) {
+        res.status(404).json(errorResponse(ERROR_CODES.SIMULATED_CALL_NOT_FOUND, "Simulated call not found"));
+        return;
+      }
+      if (sim.status !== "ready") {
+        res
+          .status(409)
+          .json(errorResponse(ERROR_CODES.SIMULATED_CALL_NOT_READY, `Cannot send to analysis (status=${sim.status})`));
+        return;
+      }
+      if (!sim.audioS3Key) {
+        res
+          .status(404)
+          .json(errorResponse(ERROR_CODES.SIMULATED_CALL_AUDIO_MISSING, "Audio key missing for ready call"));
+        return;
+      }
+
+      const audio = await storage.downloadAudio(orgId, sim.audioS3Key);
+      if (!audio) {
+        res.status(404).json(errorResponse(ERROR_CODES.SIMULATED_CALL_AUDIO_MISSING, "Audio could not be retrieved"));
+        return;
+      }
+
+      // Spool to a temp file — processAudioFile reads from disk for the
+      // AssemblyAI upload step.
+      const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "simulated-call-analysis-"));
+      const fileName = `simulated-${sim.id}.mp3`;
+      const filePath = path.join(tmpDir, fileName);
+      await fs.writeFile(filePath, audio);
+      const fileHash = createHash("sha256").update(audio).digest("hex");
+
+      try {
+        const call = await storage.createCall(orgId, {
+          orgId,
+          fileName,
+          filePath,
+          fileHash,
+          status: "processing",
+          callCategory: undefined,
+          tags: ["simulated"],
+        });
+
+        // Fire-and-forget — pipeline takes minutes; client polls /api/calls/:id.
+        processAudioFile({
+          orgId,
+          callId: call.id,
+          filePath,
+          audioBuffer: audio,
+          originalName: fileName,
+          mimeType: "audio/mpeg",
+          callCategory: undefined,
+          userId: req.user?.id,
+        }).catch((err) => {
+          logger.error({ err, callId: call.id, simulatedCallId: sim.id }, "Simulated-call analysis pipeline failed");
+          cleanupFile(filePath).catch(() => {});
+          fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+        });
+
+        await storage.updateSimulatedCall(orgId, sim.id, { sentToAnalysisCallId: call.id });
+        logger.info({ orgId, simulatedCallId: sim.id, callId: call.id }, "Simulated call sent to analysis pipeline");
+        res.status(202).json({ callId: call.id, simulatedCallId: sim.id });
+      } catch (err) {
+        // Clean up temp on synchronous failure (createCall et al).
+        await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+        throw err;
+      }
     }),
   );
 
