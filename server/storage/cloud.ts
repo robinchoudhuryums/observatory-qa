@@ -58,6 +58,8 @@ import {
   type InsertMarketingCampaign,
   type CallAttribution,
   type InsertCallAttribution,
+  type SimulatedCall,
+  type InsertSimulatedCall,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import {
@@ -889,6 +891,25 @@ export class CloudStorage implements IStorage {
     return undefined;
   }
   async deleteABTest(_orgId: string, _id: string): Promise<void> {}
+
+  // --- Simulated calls (not supported in cloud storage) ---
+  async createSimulatedCall(_orgId: string, _call: InsertSimulatedCall): Promise<SimulatedCall> {
+    throw new Error("Simulated calls require PostgreSQL or in-memory storage");
+  }
+  async getSimulatedCall(_orgId: string, _id: string): Promise<SimulatedCall | undefined> {
+    return undefined;
+  }
+  async listSimulatedCalls(_orgId: string, _filters?: { status?: string; limit?: number }): Promise<SimulatedCall[]> {
+    return [];
+  }
+  async updateSimulatedCall(
+    _orgId: string,
+    _id: string,
+    _updates: Partial<SimulatedCall>,
+  ): Promise<SimulatedCall | undefined> {
+    return undefined;
+  }
+  async deleteSimulatedCall(_orgId: string, _id: string): Promise<void> {}
 
   // --- Spend tracking (not supported in cloud storage) ---
   async createUsageRecord(_orgId: string, _record: UsageRecord): Promise<void> {}

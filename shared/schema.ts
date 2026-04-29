@@ -7,3 +7,4 @@ export * from "./schema/snapshots";
 export * from "./schema/scheduled-reports";
 export * from "./schema/call-tags";
 export * from "./schema/scoring-corrections";
+export * from "./simulated-call-schema";

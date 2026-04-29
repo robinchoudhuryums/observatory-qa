@@ -57,10 +57,13 @@ import type {
   CallAttribution,
   InsertCallAttribution,
   CallWithDetails,
+  SimulatedCall,
+  InsertSimulatedCall,
 } from "@shared/schema";
 
 // Row types inferred from Drizzle schema — used to type mapper function parameters
 type ABTestRow = typeof tables.abTests.$inferSelect;
+type SimulatedCallRow = typeof tables.simulatedCalls.$inferSelect;
 type LearningModuleRow = typeof tables.learningModules.$inferSelect;
 type LearningPathRow = typeof tables.learningPaths.$inferSelect;
 type LearningProgressRow = typeof tables.learningProgress.$inferSelect;
@@ -177,6 +180,109 @@ function mapABTest(row: ABTestRow): ABTest {
     createdBy: row.createdBy,
     createdAt: toISOString(row.createdAt),
     batchId: row.batchId || undefined,
+  };
+}
+
+// --- Simulated calls (stored in simulated_calls table) ---
+P.createSimulatedCall = async function (orgId: string, call: InsertSimulatedCall): Promise<SimulatedCall> {
+  const id = randomUUID();
+  const [row] = await db(this)
+    .insert(tables.simulatedCalls)
+    .values({
+      id,
+      orgId,
+      title: call.title,
+      scenario: call.scenario || null,
+      qualityTier: call.qualityTier || null,
+      equipment: call.equipment || null,
+      status: "pending",
+      script: call.script,
+      config: call.config,
+      createdBy: call.createdBy,
+    })
+    .returning();
+  return mapSimulatedCall(row);
+};
+
+P.getSimulatedCall = async function (orgId: string, id: string): Promise<SimulatedCall | undefined> {
+  const [row] = await db(this)
+    .select()
+    .from(tables.simulatedCalls)
+    .where(and(eq(tables.simulatedCalls.orgId, orgId), eq(tables.simulatedCalls.id, id)));
+  return row ? mapSimulatedCall(row) : undefined;
+};
+
+P.listSimulatedCalls = async function (
+  orgId: string,
+  filters?: { status?: string; limit?: number },
+): Promise<SimulatedCall[]> {
+  const conditions = [eq(tables.simulatedCalls.orgId, orgId)];
+  if (filters?.status) conditions.push(eq(tables.simulatedCalls.status, filters.status));
+  const rows = await db(this)
+    .select()
+    .from(tables.simulatedCalls)
+    .where(and(...conditions))
+    .orderBy(desc(tables.simulatedCalls.createdAt))
+    .limit(Math.min(filters?.limit ?? QUERY_HARD_CAP, QUERY_HARD_CAP));
+  return rows.map((r) => mapSimulatedCall(r));
+};
+
+P.updateSimulatedCall = async function (
+  orgId: string,
+  id: string,
+  updates: Partial<SimulatedCall>,
+): Promise<SimulatedCall | undefined> {
+  const values: Record<string, any> = { updatedAt: new Date() };
+  if (updates.status !== undefined) values.status = updates.status;
+  if (updates.audioS3Key !== undefined) values.audioS3Key = updates.audioS3Key;
+  if (updates.audioFormat !== undefined) values.audioFormat = updates.audioFormat;
+  if (updates.durationSeconds !== undefined) values.durationSeconds = updates.durationSeconds;
+  if (updates.ttsCharCount !== undefined) values.ttsCharCount = updates.ttsCharCount;
+  if (updates.estimatedCost !== undefined) values.estimatedCost = updates.estimatedCost;
+  if (updates.error !== undefined) values.error = updates.error;
+  if (updates.sentToAnalysisCallId !== undefined) values.sentToAnalysisCallId = updates.sentToAnalysisCallId;
+  if (updates.script !== undefined) values.script = updates.script;
+  if (updates.config !== undefined) values.config = updates.config;
+  if (updates.title !== undefined) values.title = updates.title;
+  if (updates.scenario !== undefined) values.scenario = updates.scenario;
+  if (updates.qualityTier !== undefined) values.qualityTier = updates.qualityTier;
+  if (updates.equipment !== undefined) values.equipment = updates.equipment;
+
+  const [row] = await db(this)
+    .update(tables.simulatedCalls)
+    .set(values)
+    .where(and(eq(tables.simulatedCalls.orgId, orgId), eq(tables.simulatedCalls.id, id)))
+    .returning();
+  return row ? mapSimulatedCall(row) : undefined;
+};
+
+P.deleteSimulatedCall = async function (orgId: string, id: string): Promise<void> {
+  await db(this)
+    .delete(tables.simulatedCalls)
+    .where(and(eq(tables.simulatedCalls.orgId, orgId), eq(tables.simulatedCalls.id, id)));
+};
+
+function mapSimulatedCall(row: SimulatedCallRow): SimulatedCall {
+  return {
+    id: row.id,
+    orgId: row.orgId,
+    title: row.title,
+    scenario: row.scenario,
+    qualityTier: row.qualityTier,
+    equipment: row.equipment,
+    status: row.status as SimulatedCall["status"],
+    script: row.script as SimulatedCall["script"],
+    config: row.config as SimulatedCall["config"],
+    audioS3Key: row.audioS3Key,
+    audioFormat: row.audioFormat,
+    durationSeconds: row.durationSeconds,
+    ttsCharCount: row.ttsCharCount,
+    estimatedCost: row.estimatedCost,
+    error: row.error,
+    createdBy: row.createdBy,
+    sentToAnalysisCallId: row.sentToAnalysisCallId,
+    createdAt: toISOString(row.createdAt),
+    updatedAt: toISOString(row.updatedAt),
   };
 }
 
@@ -772,6 +878,8 @@ P.deleteOrgData = async function (
     await tx.execute(sql`DELETE FROM spend_records WHERE org_id = ${orgId}`);
     // 8. Delete live sessions
     await tx.execute(sql`DELETE FROM live_sessions WHERE org_id = ${orgId}`);
+    // 8b. Delete simulated calls (before calls — sent_to_analysis_call_id may reference)
+    await tx.execute(sql`DELETE FROM simulated_calls WHERE org_id = ${orgId}`);
     // 9. Delete calls (cascades: transcripts, sentiment_analyses, call_analyses via FK CASCADE)
     const callsResult = await tx.execute(sql`DELETE FROM calls WHERE org_id = ${orgId}`);
     const callsDeleted = (callsResult as { rowCount?: number }).rowCount ?? 0;

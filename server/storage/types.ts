@@ -66,6 +66,8 @@ import {
   type CoachingAnalytics,
   type CallShare,
   type InsertCallShare,
+  type SimulatedCall,
+  type InsertSimulatedCall,
 } from "@shared/schema";
 
 /**
@@ -472,6 +474,17 @@ export interface IStorage {
   getAllABTests(orgId: string): Promise<ABTest[]>;
   updateABTest(orgId: string, id: string, updates: Partial<ABTest>): Promise<ABTest | undefined>;
   deleteABTest(orgId: string, id: string): Promise<void>;
+
+  // Simulated call operations (org-scoped, TTS-generated training/calibration calls)
+  createSimulatedCall(orgId: string, call: InsertSimulatedCall): Promise<SimulatedCall>;
+  getSimulatedCall(orgId: string, id: string): Promise<SimulatedCall | undefined>;
+  listSimulatedCalls(orgId: string, filters?: { status?: string; limit?: number }): Promise<SimulatedCall[]>;
+  updateSimulatedCall(
+    orgId: string,
+    id: string,
+    updates: Partial<SimulatedCall>,
+  ): Promise<SimulatedCall | undefined>;
+  deleteSimulatedCall(orgId: string, id: string): Promise<void>;
 
   // Spend tracking / usage records (org-scoped)
   createUsageRecord(orgId: string, record: UsageRecord): Promise<void>;
