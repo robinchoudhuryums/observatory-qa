@@ -228,11 +228,60 @@ jobs:
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
         with:
           context: .
+          # Always build for local scanning; only push to GHCR on main pushes.
+          # `load: true` makes the image available to the local Docker daemon
+          # so the Trivy step below can scan it by tag without a registry round-trip.
+          load: true
           push: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Pick the first tag from the metadata step for Trivy to scan. On PRs
+      # this is the SHA tag; on main pushes it's the SHA tag too (latest is
+      # appended after, so the array starts with SHA).
+      - name: Resolve scan target tag
+        id: scan_tag
+        run: |
+          TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n 1)
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Scanning $TAG"
+
+      # Trivy supply-chain / OS-package vulnerability scan. Fails the job on
+      # any CRITICAL or HIGH severity finding (mirrors the npm audit gate in
+      # the PR review workflow). Moderate/low issues are reported but don't
+      # block — those flow through the weekly dependency-check report instead.
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@6e7b7d1fd3e4fef0c5fa8cce1229c54b2c9bd0d8 # v0.24.0
+        with:
+          image-ref: ${{ steps.scan_tag.outputs.tag }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+          vuln-type: os,library
+
+      # Emit SARIF for the GitHub Security tab even when the gate blocks.
+      # `if: always()` ensures uploads happen on failure (the table run above
+      # exits non-zero); without it we'd lose the report.
+      - name: Generate Trivy SARIF for Security tab
+        if: always()
+        uses: aquasecurity/trivy-action@6e7b7d1fd3e4fef0c5fa8cce1229c54b2c9bd0d8 # v0.24.0
+        with:
+          image-ref: ${{ steps.scan_tag.outputs.tag }}
+          format: sarif
+          output: trivy-results.sarif
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH,MEDIUM
+          vuln-type: os,library
+
+      - name: Upload Trivy SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@b56ba49b26e50535fa1e7f7db0f4f7b4bf65d80d # v3.28.10
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-image-scan
 
 # ---------------------------------------------------------------------------
 # Job: E2E tests — runs Playwright against the production build artifact
@@ -288,7 +337,7 @@ jobs:
   quality-gate:
     name: Quality Gate
     runs-on: ubuntu-latest
-    needs: [lint, test, security, build, e2e]
+    needs: [lint, test, security, build, docker, e2e]
     steps:
       - name: All quality checks passed
         run: |
@@ -301,6 +350,7 @@ jobs:
           echo "  - Unit tests"
           echo "  - Security audit (high/critical)"
           echo "  - Build (frontend + backend)"
+          echo "  - Docker build + Trivy image scan (critical/high)"
           echo "  - E2E tests (Playwright / Chromium)"
           echo "============================================"
           echo "  SHA:   ${{ github.sha }}"
