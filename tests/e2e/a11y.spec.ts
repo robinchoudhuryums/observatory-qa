@@ -12,6 +12,12 @@
  * that often require design conversation. Failing the suite on those would
  * make the gate noisy. Critical/serious are the bugs that block users.
  *
+ * Why not waitForLoadState("networkidle"): the dashboard/transcripts pages
+ * fire periodic polling and websocket heartbeats that prevent the network
+ * from ever idling, so `networkidle` reliably hits the 60s test timeout.
+ * `domcontentloaded` plus an explicit settle delay is enough — axe runs
+ * against the rendered DOM, not the network state.
+ *
  * To run locally: `npm run test:e2e -- a11y.spec.ts` (requires dev server).
  */
 import AxeBuilder from "@axe-core/playwright";
@@ -25,6 +31,12 @@ interface ViolationSummary {
   helpUrl: string;
   nodeCount: number;
   exampleSelector?: string;
+}
+
+async function settle(page: Page): Promise<void> {
+  await page.waitForLoadState("domcontentloaded");
+  // Brief settle for client-side route transitions / data fetches to render.
+  await page.waitForTimeout(500);
 }
 
 async function runAxe(page: Page): Promise<ViolationSummary[]> {
@@ -69,19 +81,19 @@ function assertNoCriticalOrSerious(violations: ViolationSummary[], page: string)
 test.describe("a11y — public pages", () => {
   test("landing page has no critical/serious violations", async ({ page }) => {
     await page.goto("/");
-    await page.waitForLoadState("networkidle");
+    await settle(page);
     assertNoCriticalOrSerious(await runAxe(page), "landing");
   });
 
   test("auth (login) page has no critical/serious violations", async ({ page }) => {
     await page.goto("/auth");
-    await page.waitForLoadState("networkidle");
+    await settle(page);
     assertNoCriticalOrSerious(await runAxe(page), "auth");
   });
 
   test("auth registration form (toggle to register) has no critical/serious violations", async ({ page }) => {
     await page.goto("/auth");
-    await page.waitForLoadState("networkidle");
+    await settle(page);
     // Toggle to registration form. The button text varies; try common selectors.
     const registerToggle = page
       .getByRole("button", { name: /register|sign up|create.*account/i })
@@ -95,7 +107,7 @@ test.describe("a11y — public pages", () => {
 
   test("404 page has no critical/serious violations", async ({ page }) => {
     await page.goto("/this-route-does-not-exist-9f7e2c");
-    await page.waitForLoadState("networkidle");
+    await settle(page);
     assertNoCriticalOrSerious(await runAxe(page), "404");
   });
 });
@@ -105,25 +117,25 @@ test.describe("a11y — public pages", () => {
 adminTest.describe("a11y — authenticated pages", () => {
   adminTest("dashboard has no critical/serious violations", async ({ page }) => {
     await page.goto("/dashboard");
-    await page.waitForLoadState("networkidle");
+    await settle(page);
     assertNoCriticalOrSerious(await runAxe(page), "dashboard");
   });
 
   adminTest("settings page has no critical/serious violations", async ({ page }) => {
     await page.goto("/settings");
-    await page.waitForLoadState("networkidle");
+    await settle(page);
     assertNoCriticalOrSerious(await runAxe(page), "settings");
   });
 
   adminTest("transcripts page has no critical/serious violations", async ({ page }) => {
     await page.goto("/transcripts");
-    await page.waitForLoadState("networkidle");
+    await settle(page);
     assertNoCriticalOrSerious(await runAxe(page), "transcripts");
   });
 
   adminTest("admin page has no critical/serious violations", async ({ page }) => {
     await page.goto("/admin");
-    await page.waitForLoadState("networkidle");
+    await settle(page);
     assertNoCriticalOrSerious(await runAxe(page), "admin");
   });
 });
