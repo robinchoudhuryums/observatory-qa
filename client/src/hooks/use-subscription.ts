@@ -40,6 +40,7 @@ export function useSubscription() {
     hasPrioritySupport: planLimits.prioritySupport,
     hasRag: planLimits.ragEnabled,
     hasAbTesting: planLimits.abTestingEnabled,
+    hasSimulatedCalls: planLimits.simulatedCallsEnabled,
     hasSso: planLimits.ssoEnabled,
     hasCustomTemplates: planLimits.customPromptTemplates,
   };

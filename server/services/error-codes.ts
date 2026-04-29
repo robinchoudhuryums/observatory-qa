@@ -60,6 +60,11 @@ export const ERROR_CODES = {
   // PHI / Encryption errors
   PHI_DECRYPTION_FAILED: "OBS-PHI-001",
 
+  // Simulated call errors
+  SIMULATED_CALL_NOT_FOUND: "OBS-SIM-001",
+  SIMULATED_CALL_NOT_READY: "OBS-SIM-002",
+  SIMULATED_CALL_AUDIO_MISSING: "OBS-SIM-003",
+
   // General errors
   INTERNAL_ERROR: "OBS-GEN-001",
   RATE_LIMITED: "OBS-GEN-002",
