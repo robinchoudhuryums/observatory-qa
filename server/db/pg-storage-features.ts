@@ -25,10 +25,15 @@ import "./pg-storage/revenue";
 import { eq, and, desc, sql, inArray, gte, lte } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import * as tables from "./schema";
-import { PostgresStorage, toISOString, QUERY_HARD_CAP } from "./pg-storage";
+// Note: we used to import `PostgresStorage` here and synchronously read its
+// `.prototype`. That crashes under esbuild's hoisted-import bundle layout —
+// the class declaration in pg-storage.ts has not yet executed when this
+// module's body runs. The buffered `P` from ./pg-storage/_shared is used
+// instead; see _shared.ts for the full rationale.
+import { toISOString, QUERY_HARD_CAP } from "./pg-storage";
+import { P, db, blob } from "./pg-storage/_shared";
 import { normalizeAnalysis } from "../storage";
 import { logger } from "../services/logger";
-import type { Database } from "./index";
 import type {
   ABTest,
   InsertABTest,
@@ -73,22 +78,7 @@ type ProviderTemplateRow = typeof tables.providerTemplates.$inferSelect;
 type BaaRow = typeof tables.businessAssociateAgreements.$inferSelect;
 
 // toISOString and QUERY_HARD_CAP imported from pg-storage.ts (single source of truth)
-
-/** Type-safe access to the protected db field. */
-function db(self: PostgresStorage): Database {
-  return self["db"];
-}
-
-/** Type-safe access to the protected blobClient field. */
-function blob(self: PostgresStorage): PostgresStorage["blobClient"] {
-  return self["blobClient"];
-}
-
-// We use `const P = PostgresStorage.prototype` as a shorthand for
-// assigning methods. TypeScript sees the assignments and infers types
-// from the IStorage interface already declared on the class.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- prototype extension pattern requires any
-const P = PostgresStorage.prototype as any;
+// P, db, blob are imported from ./pg-storage/_shared above (see header comment).
 
 // ==================== Mappers (local to this file) ====================
 // These are pure row→domain transformers used by the methods below.
