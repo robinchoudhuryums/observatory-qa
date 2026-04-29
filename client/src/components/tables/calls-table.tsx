@@ -343,7 +343,7 @@ export default function CallsTable() {
             </Button>
           )}
           <Select value={statusFilter} onValueChange={handleFilterChange(setStatusFilter)}>
-            <SelectTrigger className="w-40" data-testid="status-filter">
+            <SelectTrigger className="w-40" data-testid="status-filter" aria-label="Filter by status">
               <SelectValue placeholder="All Statuses" />
             </SelectTrigger>
             <SelectContent>
@@ -354,7 +354,7 @@ export default function CallsTable() {
             </SelectContent>
           </Select>
           <Select value={employeeFilter} onValueChange={handleFilterChange(setEmployeeFilter)}>
-            <SelectTrigger className="w-40" data-testid="employee-filter">
+            <SelectTrigger className="w-40" data-testid="employee-filter" aria-label="Filter by employee">
               <SelectValue placeholder="All Employees" />
             </SelectTrigger>
             <SelectContent>
@@ -367,7 +367,7 @@ export default function CallsTable() {
             </SelectContent>
           </Select>
           <Select value={sentimentFilter} onValueChange={handleFilterChange(setSentimentFilter)}>
-            <SelectTrigger className="w-40" data-testid="sentiment-filter">
+            <SelectTrigger className="w-40" data-testid="sentiment-filter" aria-label="Filter by sentiment">
               <SelectValue placeholder="All Sentiment" />
             </SelectTrigger>
             <SelectContent>
@@ -378,7 +378,7 @@ export default function CallsTable() {
             </SelectContent>
           </Select>
           <Select value={scoreFilter} onValueChange={handleFilterChange(setScoreFilter)}>
-            <SelectTrigger className="w-40" data-testid="score-filter">
+            <SelectTrigger className="w-40" data-testid="score-filter" aria-label="Filter by score">
               <SelectValue placeholder="All Scores" />
             </SelectTrigger>
             <SelectContent>
@@ -389,7 +389,7 @@ export default function CallsTable() {
             </SelectContent>
           </Select>
           <Select value={flagFilter} onValueChange={handleFilterChange(setFlagFilter)}>
-            <SelectTrigger className="w-40" data-testid="flag-filter">
+            <SelectTrigger className="w-40" data-testid="flag-filter" aria-label="Filter by flag">
               <SelectValue placeholder="All Flags" />
             </SelectTrigger>
             <SelectContent>
