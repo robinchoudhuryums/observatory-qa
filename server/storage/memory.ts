@@ -62,7 +62,13 @@ import {
   type InsertCallShare,
 } from "@shared/schema";
 import { randomUUID, randomBytes, createHash } from "crypto";
-import { type IStorage, applyCallFilters, calculateDashboardMetrics, calculateSentimentDistribution } from "./types";
+import {
+  type IStorage,
+  applyCallFilters,
+  calculateDashboardMetrics,
+  calculateSentimentDistribution,
+  MIN_CALLS_FOR_TOP_PERFORMER_RANKING,
+} from "./types";
 
 /**
  * In-memory storage fallback for when cloud credentials are not configured.
@@ -359,10 +365,16 @@ export class MemStorage implements IStorage {
     const s = this.callShares.get(id);
     if (s?.orgId === orgId) this.callShares.delete(id);
   }
-  async deleteExpiredCallShares(_orgId: string): Promise<void> {
+  async deleteExpiredCallShares(orgId: string): Promise<void> {
+    // Tenant-scoped expiry sweep: only delete expired shares belonging to the
+    // requested org. Mirrors PostgresStorage's `WHERE org_id = ${orgId}` clause
+    // so a single org's retention job doesn't accidentally purge another org's
+    // valid (or merely expired-but-someone-else's) shares in dev.
     const now = new Date();
     for (const [id, s] of Array.from(this.callShares.entries())) {
-      if (new Date(s.expiresAt) < now) this.callShares.delete(id);
+      if (s.orgId === orgId && new Date(s.expiresAt) < now) {
+        this.callShares.delete(id);
+      }
     }
   }
 
@@ -490,15 +502,29 @@ export class MemStorage implements IStorage {
           totalCalls: stats.callCount,
         };
       })
-      .filter((p) => p.totalCalls > 0)
+      // Min-call floor: matches PG's HAVING count(*) >= MIN_CALLS_FOR_TOP_PERFORMER_RANKING
+      // so dev (MemStorage) and prod (PostgresStorage) agree on who appears here.
+      .filter((p) => p.totalCalls >= MIN_CALLS_FOR_TOP_PERFORMER_RANKING)
       .sort((a, b) => (b.avgPerformanceScore || 0) - (a.avgPerformanceScore || 0))
       .slice(0, limit);
   }
 
   async searchCalls(orgId: string, query: string): Promise<CallWithDetails[]> {
+    // Mirror PostgresStorage's search scope: transcript text + analysis summary
+    // + analysis topics. Dev (MemStorage) used to only search transcript text,
+    // which silently masked summary/topic-only matches in dev environments.
     const allCalls = await this.getCallsWithDetails(orgId);
     const lowerQuery = query.toLowerCase();
-    return allCalls.filter((call) => call.transcript?.text?.toLowerCase().includes(lowerQuery));
+    return allCalls.filter((call) => {
+      if (call.transcript?.text?.toLowerCase().includes(lowerQuery)) return true;
+      const analysis = call.analysis;
+      if (analysis?.summary?.toLowerCase().includes(lowerQuery)) return true;
+      const topics = analysis?.topics;
+      if (Array.isArray(topics) && topics.some((t) => typeof t === "string" && t.toLowerCase().includes(lowerQuery))) {
+        return true;
+      }
+      return false;
+    });
   }
 
   // --- Access request operations (org-scoped) ---
@@ -1664,6 +1690,15 @@ export class MemStorage implements IStorage {
     }
     // Delete usage events (array-based)
     this.usageEvents = this.usageEvents.filter((e) => e.orgId !== orgId);
+    // Delete live clinical sessions (PG cleans live_sessions in deleteOrgData)
+    for (const [id, s] of Array.from(this.liveSessions.entries())) {
+      if (s.orgId === orgId) this.liveSessions.delete(id);
+    }
+    // Delete audio buffers for this org. Keys are `${orgId}/audio/${callId}/${fileName}`,
+    // so the orgId-prefix sweep is exact (no risk of cross-org collision).
+    for (const key of Array.from(this.audioFiles.keys())) {
+      if (key.startsWith(`${orgId}/`)) this.audioFiles.delete(key);
+    }
     return { employeesDeleted, callsDeleted, usersDeleted };
   }
 

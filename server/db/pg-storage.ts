@@ -81,7 +81,7 @@ import type {
   InsertCallShare,
 } from "@shared/schema";
 import * as tables from "./schema";
-import { normalizeAnalysis } from "../storage";
+import { normalizeAnalysis, MIN_CALLS_FOR_TOP_PERFORMER_RANKING } from "../storage";
 
 // JSONB field types — typed casts in mappers (replaces `as any` with documented types)
 // These mirror the Zod schemas in shared/schema but are plain TS for the DB layer.
@@ -1131,9 +1131,11 @@ export class PostgresStorage {
   }
 
   async getTopPerformers(orgId: string, limit = 3): Promise<TopPerformer[]> {
-    // Single query: JOIN calls → analyses → employees, aggregate in SQL
-    // HAVING count(*) >= 5 prevents employees with 1-2 calls from dominating the leaderboard
-    const MIN_CALLS_FOR_RANKING = 5;
+    // Single query: JOIN calls → analyses → employees, aggregate in SQL.
+    // HAVING count(*) >= MIN_CALLS_FOR_TOP_PERFORMER_RANKING prevents employees
+    // with 1-2 calls from dominating the leaderboard. The same threshold is
+    // applied in MemStorage so dev/prod agree on rankings.
+    const MIN_CALLS_FOR_RANKING = MIN_CALLS_FOR_TOP_PERFORMER_RANKING;
     const rows = await this.db
       .select({
         employeeId: tables.calls.employeeId,

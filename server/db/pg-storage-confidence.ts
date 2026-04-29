@@ -13,6 +13,7 @@ import { sql, eq, and } from "drizzle-orm";
 import * as tables from "./schema";
 import type { DashboardMetrics, TopPerformer } from "@shared/schema";
 import type { PostgresStorage } from "./pg-storage";
+import { MIN_CALLS_FOR_TOP_PERFORMER_RANKING } from "../storage";
 
 /** Shape returned by the confidence dashboard metrics raw SQL query. */
 interface ConfidenceMetricsRow {
@@ -85,7 +86,7 @@ export function applyConfidenceMetricsMixin(
 
   storage.getTopPerformers = async function (orgId: string, limit = 3): Promise<TopPerformer[]> {
     const db = (this as unknown as PostgresStorage)["db"];
-    const MIN_CALLS_FOR_RANKING = 5;
+    const MIN_CALLS_FOR_RANKING = MIN_CALLS_FOR_TOP_PERFORMER_RANKING;
     const rows = await db
       .select({
         employeeId: tables.calls.employeeId,
