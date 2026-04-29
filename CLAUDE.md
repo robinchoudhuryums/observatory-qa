@@ -1428,6 +1428,7 @@ Runs on all pull requests:
 - Lint + type check + unit tests
 - ESLint warning regression detection (compares PR against main branch)
 - Secret scanning on changed files only
+- `npm audit` — fails the PR check on any new `critical` or `high` vulnerability (`moderate`/`low` surface in the weekly dependency report instead)
 - PR size check (warns if > 500 lines changed, fails if > 2000)
 - Auto-labels PRs based on changed files (`security`, `frontend`, `backend`, `database`, `tests`, `ci-cd`, `docs`)
 - Posts PR comment with results summary
@@ -1728,7 +1729,6 @@ Longer-term improvements identified during codebase audits. Work on these increm
 | Priority | Item | Effort | Impact | Notes |
 |----------|------|--------|--------|-------|
 | MEDIUM | **Move live session state to Redis or sticky sessions** | 2 days | Medium — enables multi-instance for clinical | 1 remaining in-memory subsystem: live sessions (live-session.ts) with 11 Maps holding WebSocket connections and streaming state. These are inherently process-local (can't serialize connections to Redis). Solution: sticky session routing for clinical live sessions in multi-instance deployments. Email OTP, OIDC state, loginAttempts, Stripe webhook dedup, and rate limiting are already Redis-backed. Sprint 2-3 |
-| MEDIUM | **Dependency audit on PRs** | 0.5 days | Medium — vulnerability detection | Weekly-only check; critical vulns can ship for days. Fix: add `npm audit --audit-level=high` to PR review workflow. Sprint 2 |
 | MEDIUM | **Container image scanning** | 1 day | Medium — supply chain security | No SAST/DAST or container scanning. Fix: add Trivy scan on Docker build step. Sprint 2 |
 | MEDIUM | **Canary deployment** | 3 days | Medium — reduces deployment risk | All production traffic switches immediately. Fix: add health-check gated traffic shifting in deploy.sh (10% → 50% → 100% with rollback). Sprint 3 |
 
