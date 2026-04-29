@@ -517,8 +517,34 @@ export async function setupAuth(app: Express) {
   });
 }
 
-// HIPAA: 8-hour absolute session maximum regardless of activity
-const SESSION_ABSOLUTE_MAX_MS = 8 * 60 * 60 * 1000;
+// HIPAA: default absolute session maximum, regardless of activity. NIST
+// SP 800-66 Rev. 2 healthcare guidance recommends 4-6 hours; we default to 6h
+// (was 8h previously) and let orgs tighten further via OrgSettings.
+// `sessionAbsoluteMaxHours` (1-24h, validated in shared/schema/org.ts).
+export const DEFAULT_SESSION_ABSOLUTE_MAX_HOURS = 6;
+const DEFAULT_SESSION_ABSOLUTE_MAX_MS = DEFAULT_SESSION_ABSOLUTE_MAX_HOURS * 60 * 60 * 1000;
+
+/**
+ * Resolve the effective absolute-session-max for a request. Returns the
+ * org's `sessionAbsoluteMaxHours` if set (clamped 1-24h), else the
+ * platform default. Org lookup failures fall back to the default rather
+ * than failing closed — the caller's existing org-status gate handles
+ * suspension separately.
+ */
+async function getEffectiveSessionMaxMs(orgId: string | undefined): Promise<number> {
+  if (!orgId) return DEFAULT_SESSION_ABSOLUTE_MAX_MS;
+  try {
+    const org = await getCachedOrganization(orgId);
+    const hours = (org?.settings as any)?.sessionAbsoluteMaxHours;
+    if (typeof hours === "number" && hours >= 1 && hours <= 24) {
+      return hours * 60 * 60 * 1000;
+    }
+  } catch {
+    // Defer to default; the SSO check below has its own org-lookup error path
+    // that fails closed when relevant.
+  }
+  return DEFAULT_SESSION_ABSOLUTE_MAX_MS;
+}
 
 // Middleware to require authentication on API routes
 export const requireAuth: RequestHandler = async (req, res, next) => {
@@ -533,9 +559,11 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
     session.createdAt = Date.now();
   }
 
-  // Enforce absolute session timeout (8 hours from login — platform-wide HIPAA requirement)
+  // Enforce absolute session timeout. Default is 6h (NIST healthcare guidance);
+  // orgs can tighten to as low as 1h via `sessionAbsoluteMaxHours`.
   const sessionAge = Date.now() - session.createdAt;
-  if (sessionAge > SESSION_ABSOLUTE_MAX_MS) {
+  const maxMs = await getEffectiveSessionMaxMs(req.user?.orgId);
+  if (sessionAge > maxMs) {
     req.logout(() => {
       req.session?.destroy(() => {});
     });
