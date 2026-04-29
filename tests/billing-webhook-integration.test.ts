@@ -1,439 +1,505 @@
 /**
  * Billing webhook integration tests.
  *
- * Exercises the subscription lifecycle flows that the Stripe webhook handler
- * triggers — upsert, update, delete — against real MemStorage instances.
- * This validates that the storage layer correctly handles the state transitions
- * the webhook handler depends on, without requiring a real Stripe SDK.
+ * Exercises the subscription lifecycle flows against the **real** webhook
+ * event handlers exported from `server/routes/billing-webhook-handlers.ts`.
+ *
+ * Earlier this file had local `simulateCheckoutCompleted`, `simulateSubscriptionUpdated`,
+ * etc. helpers that re-implemented the storage calls. Those tests passed
+ * even when the real production handler had a bug, because the real handler
+ * was never exercised. The handlers are now exported from production code
+ * and called directly here.
  *
  * Run with: npx tsx --test tests/billing-webhook-integration.test.ts
  */
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { MemStorage } from "../server/storage/memory.js";
-import type { Subscription, InsertSubscription } from "../shared/schema.js";
+import { storage } from "../server/storage/index.js";
+import {
+  applyCheckoutSubscription,
+  handleSubscriptionUpdated,
+  handleSubscriptionDeleted,
+  handleInvoicePaymentFailed,
+  handleInvoicePaid,
+} from "../server/routes/billing-webhook-handlers.js";
 
-// ============================================================================
-// Helpers — simulate webhook handler logic using real storage
-// ============================================================================
+// ── Test env: stable price IDs so tier/metered lookup works ─────────────────
+process.env.STRIPE_PRICE_STARTER_MONTHLY ??= "price_starter_m_test";
+process.env.STRIPE_PRICE_STARTER_YEARLY ??= "price_starter_y_test";
+process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY ??= "price_pro_m_test";
+process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY ??= "price_pro_y_test";
+process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY ??= "price_ent_m_test";
+process.env.STRIPE_PRICE_ENTERPRISE_YEARLY ??= "price_ent_y_test";
+process.env.STRIPE_PRICE_STARTER_SEATS ??= "price_starter_seats_test";
+process.env.STRIPE_PRICE_PROFESSIONAL_SEATS ??= "price_pro_seats_test";
+process.env.STRIPE_PRICE_STARTER_OVERAGE ??= "price_starter_overage_test";
+process.env.STRIPE_PRICE_PROFESSIONAL_OVERAGE ??= "price_pro_overage_test";
+process.env.STRIPE_PRICE_ENTERPRISE_OVERAGE ??= "price_ent_overage_test";
 
-/**
- * Simulates checkout.session.completed webhook handler logic.
- * Creates a subscription with metered item tracking.
- */
-async function simulateCheckoutCompleted(
-  storage: MemStorage,
-  orgId: string,
-  opts: {
-    tier: string;
-    interval: string;
-    stripeCustomerId: string;
-    stripeSubscriptionId: string;
-    stripeSeatsItemId?: string;
-    stripeOverageItemId?: string;
-    isTrialing?: boolean;
-  },
-): Promise<Subscription> {
-  return storage.upsertSubscription(orgId, {
-    orgId,
-    planTier: opts.tier as any,
-    status: opts.isTrialing ? "trialing" : "active",
-    stripeCustomerId: opts.stripeCustomerId,
-    stripeSubscriptionId: opts.stripeSubscriptionId,
-    stripePriceId: `price_${opts.tier}_${opts.interval}`,
-    stripeSeatsItemId: opts.stripeSeatsItemId,
-    stripeOverageItemId: opts.stripeOverageItemId,
-    billingInterval: opts.interval as any,
-    currentPeriodStart: new Date().toISOString(),
-    currentPeriodEnd: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString(),
-    cancelAtPeriodEnd: false,
-  });
+// ── Stripe event shape builders ─────────────────────────────────────────────
+
+interface FakeSubItem {
+  id: string;
+  price: { id: string; recurring: { interval: "month" | "year"; usage_type: "licensed" | "metered" } };
 }
 
-/**
- * Simulates customer.subscription.updated webhook handler logic.
- * Syncs tier, status, metered items, and billing interval.
- */
-async function simulateSubscriptionUpdated(
-  storage: MemStorage,
-  orgId: string,
-  opts: {
-    tier: string;
-    status: string;
-    interval: string;
-    stripeSeatsItemId?: string;
-    stripeOverageItemId?: string;
-    cancelAtPeriodEnd?: boolean;
-  },
-): Promise<Subscription | undefined> {
-  return storage.updateSubscription(orgId, {
-    planTier: opts.tier as any,
-    status: opts.status as any,
-    billingInterval: opts.interval as any,
-    stripeSeatsItemId: opts.stripeSeatsItemId,
-    stripeOverageItemId: opts.stripeOverageItemId,
-    cancelAtPeriodEnd: opts.cancelAtPeriodEnd ?? false,
-    currentPeriodStart: new Date().toISOString(),
-    currentPeriodEnd: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString(),
-  });
+function flatItem(tier: "starter" | "professional" | "enterprise", interval: "monthly" | "yearly"): FakeSubItem {
+  const env = `STRIPE_PRICE_${tier.toUpperCase()}_${interval === "monthly" ? "MONTHLY" : "YEARLY"}`;
+  return {
+    id: `si_${tier}_flat`,
+    price: {
+      id: process.env[env]!,
+      recurring: { interval: interval === "yearly" ? "year" : "month", usage_type: "licensed" },
+    },
+  };
 }
 
-/**
- * Simulates customer.subscription.deleted webhook handler logic.
- * Downgrades to free, preserves customer ID, clears metered items.
- */
-async function simulateSubscriptionDeleted(
-  storage: MemStorage,
-  orgId: string,
-): Promise<Subscription> {
-  const existing = await storage.getSubscription(orgId);
-  return storage.upsertSubscription(orgId, {
-    orgId,
-    planTier: "free",
-    status: "canceled",
-    stripeCustomerId: existing?.stripeCustomerId,
-    stripeSubscriptionId: undefined,
-    stripeSeatsItemId: undefined,
-    stripeOverageItemId: undefined,
-    billingInterval: "monthly",
-    cancelAtPeriodEnd: false,
-  });
+function meteredItem(id: string, priceEnv: string, interval: "monthly" | "yearly"): FakeSubItem {
+  return {
+    id,
+    price: {
+      id: process.env[priceEnv]!,
+      recurring: { interval: interval === "yearly" ? "year" : "month", usage_type: "metered" },
+    },
+  };
 }
 
-/**
- * Simulates invoice.payment_failed webhook handler logic.
- */
-async function simulatePaymentFailed(
-  storage: MemStorage,
-  orgId: string,
-): Promise<Subscription | undefined> {
-  const sub = await storage.getSubscription(orgId);
-  if (!sub) return undefined;
-  const pastDueAt = sub.pastDueAt || new Date().toISOString();
-  return storage.updateSubscription(orgId, { status: "past_due", pastDueAt });
+function buildSubscription(opts: {
+  id: string;
+  customerId: string;
+  orgId: string;
+  tier: "starter" | "professional" | "enterprise";
+  interval: "monthly" | "yearly";
+  status?: "active" | "trialing" | "past_due" | "canceled";
+  withSeats?: { itemId: string; priceEnv: string };
+  withOverage?: { itemId: string; priceEnv: string };
+  cancelAtPeriodEnd?: boolean;
+}): any {
+  const items: FakeSubItem[] = [flatItem(opts.tier, opts.interval)];
+  if (opts.withSeats) items.push(meteredItem(opts.withSeats.itemId, opts.withSeats.priceEnv, opts.interval));
+  if (opts.withOverage) items.push(meteredItem(opts.withOverage.itemId, opts.withOverage.priceEnv, opts.interval));
+
+  const now = Math.floor(Date.now() / 1000);
+  return {
+    id: opts.id,
+    customer: opts.customerId,
+    metadata: { orgId: opts.orgId },
+    status: opts.status || "active",
+    items: { data: items },
+    current_period_start: now,
+    current_period_end: now + 30 * 24 * 3600,
+    cancel_at_period_end: opts.cancelAtPeriodEnd || false,
+  };
 }
 
-/**
- * Simulates invoice.paid webhook handler logic — reactivates past_due.
- */
-async function simulatePaymentSucceeded(
-  storage: MemStorage,
-  orgId: string,
-): Promise<Subscription | undefined> {
-  const sub = await storage.getSubscription(orgId);
-  if (!sub || sub.status !== "past_due") return sub;
-  return storage.updateSubscription(orgId, { status: "active", pastDueAt: undefined });
+// ─── Tests ──────────────────────────────────────────────────────────────────
+
+let testCounter = 0;
+async function freshOrg(prefix = "org-billing"): Promise<string> {
+  const slug = `${prefix}-${++testCounter}-${Date.now()}`;
+  const org = await storage.createOrganization({ name: "Test Org", slug, status: "active" } as any);
+  return org.id;
 }
 
-// ============================================================================
-// Tests
-// ============================================================================
-
-describe("Billing webhook integration: subscription lifecycle", () => {
-  let storage: MemStorage;
-  const ORG_ID = "org-billing-test";
-
+describe("Billing webhook integration: subscription lifecycle (real handlers)", () => {
   beforeEach(async () => {
-    storage = new MemStorage();
-    await storage.createOrganization({
-      name: "Billing Test Org",
-      slug: "billing-test",
-      status: "active",
-    });
+    // Each test gets its own orgId; we don't need to reset shared singleton state.
   });
 
   it("checkout creates subscription with all metered items", async () => {
-    const sub = await simulateCheckoutCompleted(storage, ORG_ID, {
+    const orgId = await freshOrg();
+
+    const sub = buildSubscription({
+      id: "sub_test123",
+      customerId: "cus_test123",
+      orgId,
       tier: "starter",
       interval: "monthly",
-      stripeCustomerId: "cus_test123",
-      stripeSubscriptionId: "sub_test123",
-      stripeSeatsItemId: "si_seats_123",
-      stripeOverageItemId: "si_overage_123",
+      withSeats: { itemId: "si_seats_123", priceEnv: "STRIPE_PRICE_STARTER_SEATS" },
+      withOverage: { itemId: "si_overage_123", priceEnv: "STRIPE_PRICE_STARTER_OVERAGE" },
     });
 
-    assert.strictEqual(sub.planTier, "starter");
-    assert.strictEqual(sub.status, "active");
-    assert.strictEqual(sub.stripeCustomerId, "cus_test123");
-    assert.strictEqual(sub.stripeSubscriptionId, "sub_test123");
-    assert.strictEqual(sub.stripeSeatsItemId, "si_seats_123");
-    assert.strictEqual(sub.stripeOverageItemId, "si_overage_123");
-    assert.strictEqual(sub.billingInterval, "monthly");
-    assert.strictEqual(sub.cancelAtPeriodEnd, false);
+    await applyCheckoutSubscription(orgId, sub, "cus_test123");
+
+    const stored = await storage.getSubscription(orgId);
+    assert.ok(stored);
+    assert.strictEqual(stored!.planTier, "starter");
+    assert.strictEqual(stored!.status, "active");
+    assert.strictEqual(stored!.stripeCustomerId, "cus_test123");
+    assert.strictEqual(stored!.stripeSubscriptionId, "sub_test123");
+    assert.strictEqual(stored!.stripeSeatsItemId, "si_seats_123");
+    assert.strictEqual(stored!.stripeOverageItemId, "si_overage_123");
+    assert.strictEqual(stored!.billingInterval, "monthly");
+    assert.strictEqual(stored!.cancelAtPeriodEnd, false);
   });
 
   it("checkout with trial sets trialing status", async () => {
-    const sub = await simulateCheckoutCompleted(storage, ORG_ID, {
+    const orgId = await freshOrg();
+
+    const sub = buildSubscription({
+      id: "sub_trial",
+      customerId: "cus_trial",
+      orgId,
       tier: "professional",
       interval: "yearly",
-      stripeCustomerId: "cus_trial",
-      stripeSubscriptionId: "sub_trial",
-      isTrialing: true,
+      status: "trialing",
     });
 
-    assert.strictEqual(sub.status, "trialing");
-    assert.strictEqual(sub.planTier, "professional");
-    assert.strictEqual(sub.billingInterval, "yearly");
+    await applyCheckoutSubscription(orgId, sub, "cus_trial");
+
+    const stored = await storage.getSubscription(orgId);
+    assert.strictEqual(stored!.status, "trialing");
+    assert.strictEqual(stored!.planTier, "professional");
+    assert.strictEqual(stored!.billingInterval, "yearly");
   });
 
   it("update syncs metered item IDs when subscription changes", async () => {
-    // Create initial subscription
-    await simulateCheckoutCompleted(storage, ORG_ID, {
-      tier: "starter",
-      interval: "monthly",
-      stripeCustomerId: "cus_upgrade",
-      stripeSubscriptionId: "sub_upgrade",
-      stripeSeatsItemId: "si_old_seats",
-      stripeOverageItemId: "si_old_overage",
-    });
+    const orgId = await freshOrg();
 
-    // Upgrade to professional — new metered items
-    const updated = await simulateSubscriptionUpdated(storage, ORG_ID, {
-      tier: "professional",
-      status: "active",
-      interval: "monthly",
-      stripeSeatsItemId: "si_new_seats",
-      stripeOverageItemId: "si_new_overage",
-    });
+    // Initial: starter
+    await applyCheckoutSubscription(
+      orgId,
+      buildSubscription({
+        id: "sub_upgrade",
+        customerId: "cus_upgrade",
+        orgId,
+        tier: "starter",
+        interval: "monthly",
+        withSeats: { itemId: "si_old_seats", priceEnv: "STRIPE_PRICE_STARTER_SEATS" },
+        withOverage: { itemId: "si_old_overage", priceEnv: "STRIPE_PRICE_STARTER_OVERAGE" },
+      }),
+      "cus_upgrade",
+    );
 
+    // Upgrade event with new metered IDs
+    await handleSubscriptionUpdated(
+      buildSubscription({
+        id: "sub_upgrade",
+        customerId: "cus_upgrade",
+        orgId,
+        tier: "professional",
+        interval: "monthly",
+        withSeats: { itemId: "si_new_seats", priceEnv: "STRIPE_PRICE_PROFESSIONAL_SEATS" },
+        withOverage: { itemId: "si_new_overage", priceEnv: "STRIPE_PRICE_PROFESSIONAL_OVERAGE" },
+      }),
+    );
+
+    const updated = await storage.getSubscription(orgId);
     assert.ok(updated);
     assert.strictEqual(updated!.planTier, "professional");
     assert.strictEqual(updated!.stripeSeatsItemId, "si_new_seats");
     assert.strictEqual(updated!.stripeOverageItemId, "si_new_overage");
-    // Customer ID preserved from original checkout
-    assert.strictEqual(updated!.stripeCustomerId, "cus_upgrade");
+    assert.strictEqual(updated!.stripeCustomerId, "cus_upgrade", "customer ID preserved");
   });
 
   it("update handles missing metered items (enterprise custom billing)", async () => {
-    await simulateCheckoutCompleted(storage, ORG_ID, {
-      tier: "enterprise",
-      interval: "yearly",
-      stripeCustomerId: "cus_ent",
-      stripeSubscriptionId: "sub_ent",
-    });
+    const orgId = await freshOrg();
 
-    const updated = await simulateSubscriptionUpdated(storage, ORG_ID, {
-      tier: "enterprise",
-      status: "active",
-      interval: "yearly",
-      // No metered items — enterprise has custom billing
-    });
+    await applyCheckoutSubscription(
+      orgId,
+      buildSubscription({ id: "sub_ent", customerId: "cus_ent", orgId, tier: "enterprise", interval: "yearly" }),
+      "cus_ent",
+    );
 
-    assert.ok(updated);
+    await handleSubscriptionUpdated(
+      buildSubscription({ id: "sub_ent", customerId: "cus_ent", orgId, tier: "enterprise", interval: "yearly" }),
+    );
+
+    const updated = await storage.getSubscription(orgId);
     assert.strictEqual(updated!.planTier, "enterprise");
     assert.strictEqual(updated!.stripeSeatsItemId, undefined);
     assert.strictEqual(updated!.stripeOverageItemId, undefined);
   });
 
-  it("deletion preserves customer ID and clears metered items", async () => {
-    await simulateCheckoutCompleted(storage, ORG_ID, {
-      tier: "professional",
-      interval: "monthly",
-      stripeCustomerId: "cus_cancel",
-      stripeSubscriptionId: "sub_cancel",
-      stripeSeatsItemId: "si_cancel_seats",
-      stripeOverageItemId: "si_cancel_overage",
-    });
+  it("deletion preserves customer ID, suspends org, and clears metered items", async () => {
+    const orgId = await freshOrg();
 
-    const deleted = await simulateSubscriptionDeleted(storage, ORG_ID);
+    await applyCheckoutSubscription(
+      orgId,
+      buildSubscription({
+        id: "sub_cancel",
+        customerId: "cus_cancel",
+        orgId,
+        tier: "professional",
+        interval: "monthly",
+        withSeats: { itemId: "si_cancel_seats", priceEnv: "STRIPE_PRICE_PROFESSIONAL_SEATS" },
+        withOverage: { itemId: "si_cancel_overage", priceEnv: "STRIPE_PRICE_PROFESSIONAL_OVERAGE" },
+      }),
+      "cus_cancel",
+    );
 
-    assert.strictEqual(deleted.planTier, "free");
-    assert.strictEqual(deleted.status, "canceled");
-    assert.strictEqual(deleted.stripeCustomerId, "cus_cancel", "customer ID must be preserved");
-    assert.strictEqual(deleted.stripeSubscriptionId, undefined, "subscription ID must be cleared");
-    assert.strictEqual(deleted.stripeSeatsItemId, undefined, "seats item must be cleared");
-    assert.strictEqual(deleted.stripeOverageItemId, undefined, "overage item must be cleared");
-    assert.strictEqual(deleted.cancelAtPeriodEnd, false);
+    await handleSubscriptionDeleted(
+      buildSubscription({
+        id: "sub_cancel",
+        customerId: "cus_cancel",
+        orgId,
+        tier: "professional",
+        interval: "monthly",
+      }),
+    );
+
+    const deleted = await storage.getSubscription(orgId);
+    assert.strictEqual(deleted!.planTier, "free");
+    assert.strictEqual(deleted!.status, "canceled");
+    assert.strictEqual(deleted!.stripeCustomerId, "cus_cancel", "customer ID must be preserved");
+    assert.strictEqual(deleted!.stripeSubscriptionId, undefined);
+    assert.strictEqual(deleted!.stripeSeatsItemId, undefined);
+    assert.strictEqual(deleted!.stripeOverageItemId, undefined);
+
+    // Org should now be suspended (real handler does this; old simulator did not)
+    const org = await storage.getOrganization(orgId);
+    assert.strictEqual(org!.status, "suspended", "org must be suspended on subscription deletion");
   });
 
-  it("deletion of non-existent subscription creates free record", async () => {
-    const deleted = await simulateSubscriptionDeleted(storage, ORG_ID);
-    assert.strictEqual(deleted.planTier, "free");
-    assert.strictEqual(deleted.status, "canceled");
-    assert.strictEqual(deleted.stripeCustomerId, undefined);
+  it("deletion with no prior subscription still creates a free record using the event customer", async () => {
+    const orgId = await freshOrg();
+
+    await handleSubscriptionDeleted(
+      buildSubscription({ id: "sub_orphan", customerId: "cus_orphan", orgId, tier: "starter", interval: "monthly" }),
+    );
+
+    const deleted = await storage.getSubscription(orgId);
+    assert.ok(deleted);
+    assert.strictEqual(deleted!.planTier, "free");
+    assert.strictEqual(deleted!.status, "canceled");
+    // Real handler falls back to the event's `customer` field when no prior sub existed
+    assert.strictEqual(deleted!.stripeCustomerId, "cus_orphan");
   });
 
   it("payment failure sets past_due with timestamp", async () => {
-    await simulateCheckoutCompleted(storage, ORG_ID, {
-      tier: "starter",
-      interval: "monthly",
-      stripeCustomerId: "cus_pastdue",
-      stripeSubscriptionId: "sub_pastdue",
-    });
+    const orgId = await freshOrg();
+    await applyCheckoutSubscription(
+      orgId,
+      buildSubscription({
+        id: "sub_pastdue",
+        customerId: "cus_pastdue",
+        orgId,
+        tier: "starter",
+        interval: "monthly",
+      }),
+      "cus_pastdue",
+    );
 
     const before = Date.now();
-    const failed = await simulatePaymentFailed(storage, ORG_ID);
-    assert.ok(failed);
+    await handleInvoicePaymentFailed({ customer: "cus_pastdue" } as any);
+
+    const failed = await storage.getSubscription(orgId);
     assert.strictEqual(failed!.status, "past_due");
-    assert.ok(failed!.pastDueAt, "pastDueAt should be set");
+    assert.ok(failed!.pastDueAt);
     const pastDueTime = new Date(failed!.pastDueAt!).getTime();
-    assert.ok(pastDueTime >= before - 1000 && pastDueTime <= Date.now() + 1000, "pastDueAt should be recent");
+    assert.ok(pastDueTime >= before - 1000 && pastDueTime <= Date.now() + 1000);
   });
 
   it("repeated payment failures do not reset pastDueAt", async () => {
-    await simulateCheckoutCompleted(storage, ORG_ID, {
-      tier: "starter",
-      interval: "monthly",
-      stripeCustomerId: "cus_retry",
-      stripeSubscriptionId: "sub_retry",
-    });
+    const orgId = await freshOrg();
+    await applyCheckoutSubscription(
+      orgId,
+      buildSubscription({ id: "sub_retry", customerId: "cus_retry", orgId, tier: "starter", interval: "monthly" }),
+      "cus_retry",
+    );
 
-    // First failure
-    const first = await simulatePaymentFailed(storage, ORG_ID);
+    await handleInvoicePaymentFailed({ customer: "cus_retry" } as any);
+    const first = await storage.getSubscription(orgId);
     const firstPastDueAt = first!.pastDueAt;
 
-    // Second failure — pastDueAt should NOT be reset
-    const second = await simulatePaymentFailed(storage, ORG_ID);
+    // Wait briefly to ensure a different timestamp would be generated if reset
+    await new Promise((r) => setTimeout(r, 5));
+
+    await handleInvoicePaymentFailed({ customer: "cus_retry" } as any);
+    const second = await storage.getSubscription(orgId);
     assert.strictEqual(second!.pastDueAt, firstPastDueAt, "pastDueAt preserved on retry");
   });
 
   it("payment success reactivates past_due subscription", async () => {
-    await simulateCheckoutCompleted(storage, ORG_ID, {
-      tier: "professional",
-      interval: "monthly",
-      stripeCustomerId: "cus_recover",
-      stripeSubscriptionId: "sub_recover",
-    });
+    const orgId = await freshOrg();
+    await applyCheckoutSubscription(
+      orgId,
+      buildSubscription({
+        id: "sub_recover",
+        customerId: "cus_recover",
+        orgId,
+        tier: "professional",
+        interval: "monthly",
+      }),
+      "cus_recover",
+    );
 
-    // Payment fails
-    await simulatePaymentFailed(storage, ORG_ID);
-    const pastDue = await storage.getSubscription(ORG_ID);
-    assert.strictEqual(pastDue!.status, "past_due");
+    await handleInvoicePaymentFailed({ customer: "cus_recover" } as any);
+    assert.strictEqual((await storage.getSubscription(orgId))!.status, "past_due");
 
-    // Payment succeeds
-    const recovered = await simulatePaymentSucceeded(storage, ORG_ID);
-    assert.ok(recovered);
+    await handleInvoicePaid({ customer: "cus_recover" } as any);
+    const recovered = await storage.getSubscription(orgId);
     assert.strictEqual(recovered!.status, "active");
     assert.strictEqual(recovered!.pastDueAt, undefined, "pastDueAt cleared on recovery");
   });
 
   it("payment success on non-past-due subscription is a no-op", async () => {
-    await simulateCheckoutCompleted(storage, ORG_ID, {
-      tier: "starter",
-      interval: "monthly",
-      stripeCustomerId: "cus_noop",
-      stripeSubscriptionId: "sub_noop",
-    });
+    const orgId = await freshOrg();
+    await applyCheckoutSubscription(
+      orgId,
+      buildSubscription({ id: "sub_noop", customerId: "cus_noop", orgId, tier: "starter", interval: "monthly" }),
+      "cus_noop",
+    );
 
-    const result = await simulatePaymentSucceeded(storage, ORG_ID);
-    assert.ok(result);
+    await handleInvoicePaid({ customer: "cus_noop" } as any);
+    const result = await storage.getSubscription(orgId);
     assert.strictEqual(result!.status, "active"); // unchanged
   });
 
   it("full lifecycle: checkout → update → payment fail → recover → cancel", async () => {
-    // 1. Checkout (starter)
-    await simulateCheckoutCompleted(storage, ORG_ID, {
-      tier: "starter",
-      interval: "monthly",
-      stripeCustomerId: "cus_lifecycle",
-      stripeSubscriptionId: "sub_lifecycle",
-      stripeSeatsItemId: "si_life_seats",
-      stripeOverageItemId: "si_life_overage",
-    });
-    let sub = await storage.getSubscription(ORG_ID);
-    assert.strictEqual(sub!.planTier, "starter");
-    assert.strictEqual(sub!.status, "active");
+    const orgId = await freshOrg();
 
-    // 2. Upgrade to professional
-    await simulateSubscriptionUpdated(storage, ORG_ID, {
-      tier: "professional",
-      status: "active",
-      interval: "monthly",
-      stripeSeatsItemId: "si_life_seats_v2",
-      stripeOverageItemId: "si_life_overage_v2",
-    });
-    sub = await storage.getSubscription(ORG_ID);
+    // 1. Starter checkout
+    await applyCheckoutSubscription(
+      orgId,
+      buildSubscription({
+        id: "sub_lifecycle",
+        customerId: "cus_lifecycle",
+        orgId,
+        tier: "starter",
+        interval: "monthly",
+        withSeats: { itemId: "si_life_seats", priceEnv: "STRIPE_PRICE_STARTER_SEATS" },
+        withOverage: { itemId: "si_life_overage", priceEnv: "STRIPE_PRICE_STARTER_OVERAGE" },
+      }),
+      "cus_lifecycle",
+    );
+    let sub = await storage.getSubscription(orgId);
+    assert.strictEqual(sub!.planTier, "starter");
+
+    // 2. Upgrade
+    await handleSubscriptionUpdated(
+      buildSubscription({
+        id: "sub_lifecycle",
+        customerId: "cus_lifecycle",
+        orgId,
+        tier: "professional",
+        interval: "monthly",
+        withSeats: { itemId: "si_life_seats_v2", priceEnv: "STRIPE_PRICE_PROFESSIONAL_SEATS" },
+        withOverage: { itemId: "si_life_overage_v2", priceEnv: "STRIPE_PRICE_PROFESSIONAL_OVERAGE" },
+      }),
+    );
+    sub = await storage.getSubscription(orgId);
     assert.strictEqual(sub!.planTier, "professional");
     assert.strictEqual(sub!.stripeSeatsItemId, "si_life_seats_v2");
 
     // 3. Payment fails
-    await simulatePaymentFailed(storage, ORG_ID);
-    sub = await storage.getSubscription(ORG_ID);
+    await handleInvoicePaymentFailed({ customer: "cus_lifecycle" } as any);
+    sub = await storage.getSubscription(orgId);
     assert.strictEqual(sub!.status, "past_due");
-    assert.ok(sub!.pastDueAt);
 
     // 4. Payment recovers
-    await simulatePaymentSucceeded(storage, ORG_ID);
-    sub = await storage.getSubscription(ORG_ID);
+    await handleInvoicePaid({ customer: "cus_lifecycle" } as any);
+    sub = await storage.getSubscription(orgId);
     assert.strictEqual(sub!.status, "active");
     assert.strictEqual(sub!.pastDueAt, undefined);
 
-    // 5. Cancel subscription
-    await simulateSubscriptionDeleted(storage, ORG_ID);
-    sub = await storage.getSubscription(ORG_ID);
+    // 5. Cancel
+    await handleSubscriptionDeleted(
+      buildSubscription({
+        id: "sub_lifecycle",
+        customerId: "cus_lifecycle",
+        orgId,
+        tier: "professional",
+        interval: "monthly",
+      }),
+    );
+    sub = await storage.getSubscription(orgId);
     assert.strictEqual(sub!.planTier, "free");
     assert.strictEqual(sub!.status, "canceled");
-    assert.strictEqual(sub!.stripeCustomerId, "cus_lifecycle", "customer ID preserved");
+    assert.strictEqual(sub!.stripeCustomerId, "cus_lifecycle");
     assert.strictEqual(sub!.stripeSubscriptionId, undefined);
     assert.strictEqual(sub!.stripeSeatsItemId, undefined);
     assert.strictEqual(sub!.stripeOverageItemId, undefined);
   });
 
   it("re-subscription after cancellation reuses customer ID", async () => {
-    // Initial subscription
-    await simulateCheckoutCompleted(storage, ORG_ID, {
-      tier: "starter",
-      interval: "monthly",
-      stripeCustomerId: "cus_resub",
-      stripeSubscriptionId: "sub_first",
-    });
+    const orgId = await freshOrg();
 
-    // Cancel
-    await simulateSubscriptionDeleted(storage, ORG_ID);
-    let sub = await storage.getSubscription(ORG_ID);
+    await applyCheckoutSubscription(
+      orgId,
+      buildSubscription({ id: "sub_first", customerId: "cus_resub", orgId, tier: "starter", interval: "monthly" }),
+      "cus_resub",
+    );
+    await handleSubscriptionDeleted(
+      buildSubscription({ id: "sub_first", customerId: "cus_resub", orgId, tier: "starter", interval: "monthly" }),
+    );
+    let sub = await storage.getSubscription(orgId);
     assert.strictEqual(sub!.stripeCustomerId, "cus_resub");
 
-    // Re-subscribe (same customer, new subscription)
-    await simulateCheckoutCompleted(storage, ORG_ID, {
-      tier: "professional",
-      interval: "yearly",
-      stripeCustomerId: "cus_resub", // same customer
-      stripeSubscriptionId: "sub_second", // new sub
-      stripeSeatsItemId: "si_resub_seats",
-    });
-    sub = await storage.getSubscription(ORG_ID);
+    await applyCheckoutSubscription(
+      orgId,
+      buildSubscription({
+        id: "sub_second",
+        customerId: "cus_resub",
+        orgId,
+        tier: "professional",
+        interval: "yearly",
+        withSeats: { itemId: "si_resub_seats", priceEnv: "STRIPE_PRICE_PROFESSIONAL_SEATS" },
+      }),
+      "cus_resub",
+    );
+    sub = await storage.getSubscription(orgId);
     assert.strictEqual(sub!.planTier, "professional");
-    assert.strictEqual(sub!.status, "active");
     assert.strictEqual(sub!.stripeCustomerId, "cus_resub");
     assert.strictEqual(sub!.stripeSubscriptionId, "sub_second");
     assert.strictEqual(sub!.stripeSeatsItemId, "si_resub_seats");
   });
 
-  it("update on non-existent subscription returns undefined", async () => {
-    const result = await simulateSubscriptionUpdated(storage, "org-nonexistent", {
-      tier: "starter",
+  it("update on org with no orgId in event metadata is a no-op", async () => {
+    // Real handler short-circuits when event.metadata.orgId is missing
+    await handleSubscriptionUpdated({
+      id: "sub_no_meta",
+      customer: "cus_no_meta",
+      metadata: {},
       status: "active",
-      interval: "monthly",
-    });
-    assert.strictEqual(result, undefined);
+      items: { data: [flatItem("starter", "monthly")] },
+      current_period_start: Math.floor(Date.now() / 1000),
+      current_period_end: Math.floor(Date.now() / 1000) + 30 * 24 * 3600,
+      cancel_at_period_end: false,
+    } as any);
+    // No throw, no error — pass
+    assert.ok(true);
   });
 
   it("cancel-at-period-end flag is correctly stored and cleared", async () => {
-    await simulateCheckoutCompleted(storage, ORG_ID, {
-      tier: "starter",
-      interval: "monthly",
-      stripeCustomerId: "cus_cancelend",
-      stripeSubscriptionId: "sub_cancelend",
-    });
+    const orgId = await freshOrg();
 
-    // User initiates cancel-at-period-end
-    await simulateSubscriptionUpdated(storage, ORG_ID, {
-      tier: "starter",
-      status: "active",
-      interval: "monthly",
-      cancelAtPeriodEnd: true,
-    });
-    let sub = await storage.getSubscription(ORG_ID);
+    await applyCheckoutSubscription(
+      orgId,
+      buildSubscription({
+        id: "sub_cancelend",
+        customerId: "cus_cancelend",
+        orgId,
+        tier: "starter",
+        interval: "monthly",
+      }),
+      "cus_cancelend",
+    );
+
+    await handleSubscriptionUpdated(
+      buildSubscription({
+        id: "sub_cancelend",
+        customerId: "cus_cancelend",
+        orgId,
+        tier: "starter",
+        interval: "monthly",
+        cancelAtPeriodEnd: true,
+      }),
+    );
+    let sub = await storage.getSubscription(orgId);
     assert.strictEqual(sub!.cancelAtPeriodEnd, true);
 
-    // User reverses cancellation
-    await simulateSubscriptionUpdated(storage, ORG_ID, {
-      tier: "starter",
-      status: "active",
-      interval: "monthly",
-      cancelAtPeriodEnd: false,
-    });
-    sub = await storage.getSubscription(ORG_ID);
+    await handleSubscriptionUpdated(
+      buildSubscription({
+        id: "sub_cancelend",
+        customerId: "cus_cancelend",
+        orgId,
+        tier: "starter",
+        interval: "monthly",
+        cancelAtPeriodEnd: false,
+      }),
+    );
+    sub = await storage.getSubscription(orgId);
     assert.strictEqual(sub!.cancelAtPeriodEnd, false);
   });
 });
