@@ -106,71 +106,71 @@ describe("Performance snapshots", () => {
 
 describe("SSRF URL validation", () => {
   it("rejects localhost", async () => {
-    const { validateUrlForSSRF } = await import("../server/utils/url-validator.js");
-    const result = await validateUrlForSSRF("http://localhost:8080/webhook", { requireHttps: false, skipDnsCheck: true });
+    const { validateUrl } = await import("../server/utils/url-validation.js");
+    const result = validateUrl("http://localhost:8080/webhook");
     assert.equal(result.valid, false);
-    assert.ok(result.error!.includes("blocked"));
+    assert.ok(result.reason!.includes("blocked"));
   });
 
   it("rejects 127.0.0.1", async () => {
-    const { validateUrlForSSRF } = await import("../server/utils/url-validator.js");
-    const result = await validateUrlForSSRF("http://127.0.0.1/webhook", { requireHttps: false, skipDnsCheck: true });
+    const { validateUrl } = await import("../server/utils/url-validation.js");
+    const result = validateUrl("http://127.0.0.1/webhook");
     assert.equal(result.valid, false);
   });
 
   it("rejects AWS metadata endpoint", async () => {
-    const { validateUrlForSSRF } = await import("../server/utils/url-validator.js");
-    const result = await validateUrlForSSRF("http://169.254.169.254/latest/meta-data/", { requireHttps: false, skipDnsCheck: true });
+    const { validateUrl } = await import("../server/utils/url-validation.js");
+    const result = validateUrl("http://169.254.169.254/latest/meta-data/");
     assert.equal(result.valid, false);
   });
 
   it("rejects private IP ranges (10.x.x.x)", async () => {
-    const { _testExports } = await import("../server/utils/url-validator.js");
-    assert.ok(_testExports.isPrivateOrReservedIP("10.0.0.1"));
-    assert.ok(_testExports.isPrivateOrReservedIP("10.255.255.255"));
+    const { isBlockedIp } = await import("../server/utils/url-validation.js");
+    assert.ok(isBlockedIp("10.0.0.1"));
+    assert.ok(isBlockedIp("10.255.255.255"));
   });
 
   it("rejects private IP ranges (192.168.x.x)", async () => {
-    const { _testExports } = await import("../server/utils/url-validator.js");
-    assert.ok(_testExports.isPrivateOrReservedIP("192.168.1.1"));
+    const { isBlockedIp } = await import("../server/utils/url-validation.js");
+    assert.ok(isBlockedIp("192.168.1.1"));
   });
 
   it("rejects private IP ranges (172.16-31.x.x)", async () => {
-    const { _testExports } = await import("../server/utils/url-validator.js");
-    assert.ok(_testExports.isPrivateOrReservedIP("172.16.0.1"));
-    assert.ok(_testExports.isPrivateOrReservedIP("172.31.255.255"));
-    assert.ok(!_testExports.isPrivateOrReservedIP("172.32.0.1")); // Outside range
+    const { isBlockedIp } = await import("../server/utils/url-validation.js");
+    assert.ok(isBlockedIp("172.16.0.1"));
+    assert.ok(isBlockedIp("172.31.255.255"));
+    assert.ok(!isBlockedIp("172.32.0.1")); // Outside range
   });
 
   it("rejects .local and .internal suffixes", async () => {
-    const { validateUrlForSSRF } = await import("../server/utils/url-validator.js");
-    const local = await validateUrlForSSRF("http://myservice.local/api", { requireHttps: false, skipDnsCheck: true });
+    const { validateUrl } = await import("../server/utils/url-validation.js");
+    const local = validateUrl("http://myservice.local/api");
     assert.equal(local.valid, false);
-    const internal = await validateUrlForSSRF("http://db.internal:5432", { requireHttps: false, skipDnsCheck: true });
+    const internal = validateUrl("http://db.internal:5432");
     assert.equal(internal.valid, false);
   });
 
   it("rejects non-http protocols", async () => {
-    const { validateUrlForSSRF } = await import("../server/utils/url-validator.js");
-    const result = await validateUrlForSSRF("ftp://example.com/file", { skipDnsCheck: true });
+    const { validateUrl } = await import("../server/utils/url-validation.js");
+    const result = validateUrl("ftp://example.com/file");
     assert.equal(result.valid, false);
   });
 
   it("rejects invalid URLs", async () => {
-    const { validateUrlForSSRF } = await import("../server/utils/url-validator.js");
-    const result = await validateUrlForSSRF("not-a-url");
+    const { validateUrl } = await import("../server/utils/url-validation.js");
+    const result = validateUrl("not-a-url");
     assert.equal(result.valid, false);
-    assert.ok(result.error!.includes("Invalid URL"));
+    assert.ok(result.reason!.includes("Malformed") || result.reason!.includes("Invalid"));
   });
 
   it("accepts valid public HTTPS URLs (skip DNS)", async () => {
-    const { validateUrlForSSRF } = await import("../server/utils/url-validator.js");
-    const result = await validateUrlForSSRF("https://hooks.slack.com/services/T123/B456", { skipDnsCheck: true });
+    const { validateUrl } = await import("../server/utils/url-validation.js");
+    const result = validateUrl("https://hooks.slack.com/services/T123/B456");
     assert.equal(result.valid, true);
   });
 
   it("isUrlSafe sync check works", async () => {
-    const { isUrlSafe } = await import("../server/utils/url-validator.js");
+    const { isUrlSafe } = await import("../server/utils/url-validation.js");
     assert.equal(isUrlSafe("https://example.com/webhook"), true);
     assert.equal(isUrlSafe("http://localhost:8080"), false);
     assert.equal(isUrlSafe("http://10.0.0.1/api"), false);
@@ -179,27 +179,27 @@ describe("SSRF URL validation", () => {
   });
 
   it("rejects IPv6 loopback", async () => {
-    const { _testExports } = await import("../server/utils/url-validator.js");
-    assert.ok(_testExports.isPrivateOrReservedIP("::1"));
-    assert.ok(_testExports.isPrivateOrReservedIP("fe80::1"));
+    const { isBlockedIp } = await import("../server/utils/url-validation.js");
+    assert.ok(isBlockedIp("::1"));
+    assert.ok(isBlockedIp("fe80::1"));
   });
 
   it("rejects link-local addresses", async () => {
-    const { _testExports } = await import("../server/utils/url-validator.js");
-    assert.ok(_testExports.isPrivateOrReservedIP("169.254.1.1"));
+    const { isBlockedIp } = await import("../server/utils/url-validation.js");
+    assert.ok(isBlockedIp("169.254.1.1"));
   });
 
   it("rejects multicast addresses", async () => {
-    const { _testExports } = await import("../server/utils/url-validator.js");
-    assert.ok(_testExports.isPrivateOrReservedIP("224.0.0.1"));
-    assert.ok(_testExports.isPrivateOrReservedIP("239.255.255.255"));
+    const { isBlockedIp } = await import("../server/utils/url-validation.js");
+    assert.ok(isBlockedIp("224.0.0.1"));
+    assert.ok(isBlockedIp("239.255.255.255"));
   });
 
   it("allows public IPs", async () => {
-    const { _testExports } = await import("../server/utils/url-validator.js");
-    assert.ok(!_testExports.isPrivateOrReservedIP("8.8.8.8"));
-    assert.ok(!_testExports.isPrivateOrReservedIP("1.1.1.1"));
-    assert.ok(!_testExports.isPrivateOrReservedIP("104.16.132.229"));
+    const { isBlockedIp } = await import("../server/utils/url-validation.js");
+    assert.ok(!isBlockedIp("8.8.8.8"));
+    assert.ok(!isBlockedIp("1.1.1.1"));
+    assert.ok(!isBlockedIp("104.16.132.229"));
   });
 });
 

@@ -1,18 +1,44 @@
 /**
- * URL Validation Utility — SSRF Prevention
+ * URL validation for SSRF (Server-Side Request Forgery) prevention.
  *
- * Validates URLs to prevent Server-Side Request Forgery (SSRF) attacks.
- * Rejects URLs pointing to internal/private networks, cloud metadata endpoints,
- * and non-HTTP protocols. Resolves hostnames to IPs and checks the resolved
- * address against blocked ranges.
+ * One canonical place for SSRF checks. Used by webhook delivery, audit-log
+ * exporters, EHR adapters, SSO URLs, RAG URL ingestion — anywhere we make a
+ * request to a user-supplied URL.
+ *
+ * Protection layers:
+ *   1. Protocol enforcement (http/https only)
+ *   2. URL length cap
+ *   3. Hostname blocklist (loopback, cloud metadata, reserved suffixes)
+ *   4. Private/reserved IP range blocking (RFC 1918, RFC 6598, link-local,
+ *      loopback, multicast, IETF reserved, TEST-NETs)
+ *   5. DNS resolution check (prevents DNS rebinding) — `validateAndNormalizeUrl`
  */
-
 import dns from "node:dns";
 
 const MAX_URL_LENGTH = 2048;
 
-// ── Private / reserved IPv4 ranges ────────────────────────────────────────
+// ── Blocked hostnames (cloud metadata + loopback strings) ────────────────────
+const BLOCKED_HOSTNAMES = new Set([
+  "localhost",
+  "127.0.0.1",
+  "0.0.0.0",
+  "[::1]",
+  "::1",
+  // AWS metadata
+  "169.254.169.254",
+  "169.254.169.250",
+  // GCP metadata
+  "metadata.google.internal",
+  "metadata.google.com",
+  "metadata.goog",
+  "instance-data",
+  // Alibaba Cloud metadata
+  "100.100.100.200",
+]);
 
+const BLOCKED_SUFFIXES = [".local", ".internal", ".localhost", ".example"];
+
+// ── IPv4 range blocking (numeric comparison) ─────────────────────────────────
 interface Ipv4Range {
   start: number;
   end: number;
@@ -24,41 +50,58 @@ function ipv4ToNum(ip: string): number {
 }
 
 const BLOCKED_IPV4_RANGES: Ipv4Range[] = [
-  { start: ipv4ToNum("0.0.0.0"), end: ipv4ToNum("0.255.255.255") },
-  { start: ipv4ToNum("10.0.0.0"), end: ipv4ToNum("10.255.255.255") },
-  { start: ipv4ToNum("127.0.0.0"), end: ipv4ToNum("127.255.255.255") },
-  { start: ipv4ToNum("169.254.0.0"), end: ipv4ToNum("169.254.255.255") },
-  { start: ipv4ToNum("172.16.0.0"), end: ipv4ToNum("172.31.255.255") },
-  { start: ipv4ToNum("192.168.0.0"), end: ipv4ToNum("192.168.255.255") },
+  { start: ipv4ToNum("0.0.0.0"), end: ipv4ToNum("0.255.255.255") }, // "this" network
+  { start: ipv4ToNum("10.0.0.0"), end: ipv4ToNum("10.255.255.255") }, // RFC 1918
+  { start: ipv4ToNum("100.64.0.0"), end: ipv4ToNum("100.127.255.255") }, // RFC 6598 CGNAT
+  { start: ipv4ToNum("127.0.0.0"), end: ipv4ToNum("127.255.255.255") }, // loopback
+  { start: ipv4ToNum("169.254.0.0"), end: ipv4ToNum("169.254.255.255") }, // link-local
+  { start: ipv4ToNum("172.16.0.0"), end: ipv4ToNum("172.31.255.255") }, // RFC 1918
+  { start: ipv4ToNum("192.0.0.0"), end: ipv4ToNum("192.0.0.255") }, // IETF assignments
+  { start: ipv4ToNum("192.168.0.0"), end: ipv4ToNum("192.168.255.255") }, // RFC 1918
+  { start: ipv4ToNum("198.51.100.0"), end: ipv4ToNum("198.51.100.255") }, // TEST-NET-2
+  { start: ipv4ToNum("203.0.113.0"), end: ipv4ToNum("203.0.113.255") }, // TEST-NET-3
+  { start: ipv4ToNum("224.0.0.0"), end: ipv4ToNum("239.255.255.255") }, // multicast
+  { start: ipv4ToNum("240.0.0.0"), end: ipv4ToNum("255.255.255.255") }, // reserved
 ];
 
-const BLOCKED_HOSTNAMES = new Set(["metadata.google.internal", "metadata.google.com", "instance-data"]);
+function isValidIpv4(ip: string): boolean {
+  const parts = ip.split(".");
+  if (parts.length !== 4) return false;
+  return parts.every((p) => /^\d{1,3}$/.test(p) && Number(p) <= 255);
+}
 
 function isBlockedIpv4(ip: string): boolean {
-  const parts = ip.split(".");
-  if (parts.length !== 4 || !parts.every((p) => /^\d{1,3}$/.test(p))) return false;
+  if (!isValidIpv4(ip)) return false;
   const num = ipv4ToNum(ip);
   return BLOCKED_IPV4_RANGES.some((r) => num >= r.start && num <= r.end);
 }
 
 function isBlockedIpv6(ip: string): boolean {
   if (ip === "::1" || ip === "::") return true;
-  if (ip.startsWith("fe80:")) return true;
-  if (ip.startsWith("fc00:") || ip.startsWith("fd00:")) return true;
+  if (/^fe80:/i.test(ip)) return true; // link-local
+  if (/^fc00:/i.test(ip) || /^fd/i.test(ip)) return true; // unique-local
   const v4Mapped = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
   if (v4Mapped) return isBlockedIpv4(v4Mapped[1]);
   return false;
 }
 
-function isBlockedIp(ip: string): boolean {
+/** Returns true if the IP literal falls in any blocked range. */
+export function isBlockedIp(ip: string): boolean {
   return isBlockedIpv4(ip) || isBlockedIpv6(ip);
 }
+
+// ── Public validation API ────────────────────────────────────────────────────
 
 export interface UrlValidationResult {
   valid: boolean;
   reason?: string;
 }
 
+/**
+ * Synchronous SSRF pre-flight check (no DNS). Validates protocol, hostname,
+ * and IP-literal hosts. For full DNS-rebinding-safe validation, follow up
+ * with `validateAndNormalizeUrl` before issuing the actual request.
+ */
 export function validateUrl(urlString: string): UrlValidationResult {
   if (!urlString || typeof urlString !== "string") {
     return { valid: false, reason: "URL is required" };
@@ -77,19 +120,33 @@ export function validateUrl(urlString: string): UrlValidationResult {
   }
   const hostname = parsed.hostname.toLowerCase();
   if (!hostname) return { valid: false, reason: "URL must include a hostname" };
-  if (BLOCKED_HOSTNAMES.has(hostname)) return { valid: false, reason: "Blocked hostname (cloud metadata)" };
-  if (hostname === "localhost" || hostname.endsWith(".local") || hostname.endsWith(".internal")) {
-    return { valid: false, reason: "URLs pointing to local/internal hosts are not allowed" };
+  if (BLOCKED_HOSTNAMES.has(hostname)) {
+    return { valid: false, reason: "URL targets a blocked host (loopback or cloud metadata endpoint)" };
   }
-  if (hostname === "[::1]" || hostname === "::1") {
-    return { valid: false, reason: "URLs pointing to loopback addresses are not allowed" };
+  for (const suffix of BLOCKED_SUFFIXES) {
+    if (hostname.endsWith(suffix)) {
+      return { valid: false, reason: `URL hostname cannot end with ${suffix}` };
+    }
   }
   if (isBlockedIp(hostname)) {
-    return { valid: false, reason: "URLs pointing to private/internal networks are not allowed" };
+    return { valid: false, reason: "URL targets a private/reserved IP range" };
   }
   return { valid: true };
 }
 
+/**
+ * Convenience boolean wrapper used by call sites that don't need the reason.
+ */
+export function isUrlSafe(urlString: string): boolean {
+  return validateUrl(urlString).valid;
+}
+
+/**
+ * Async SSRF check that also resolves the hostname and verifies the resolved
+ * IP is not in a blocked range — defends against DNS rebinding.
+ *
+ * Returns the canonicalized URL string. Throws on any check failure.
+ */
 export async function validateAndNormalizeUrl(urlString: string): Promise<string> {
   const result = validateUrl(urlString);
   if (!result.valid) throw new Error(result.reason ?? "Invalid URL");

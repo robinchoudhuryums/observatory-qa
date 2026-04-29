@@ -318,8 +318,7 @@ server/middleware/           # Express middleware
 
 server/utils/                # Shared server utilities
   helpers.ts                 #   Pure utility functions (safeFloat, safeInt, withRetry, parseDateParam, parsePagination) — safe to import from services layer
-  url-validation.ts          #   SSRF prevention: blocks private IPs, cloud metadata, non-HTTP protocols (legacy, see also url-validator.ts)
-  url-validator.ts           #   Comprehensive SSRF URL validation: protocol enforcement, hostname blocklist, private IP blocking, DNS rebinding prevention
+  url-validation.ts          #   Canonical SSRF URL validation: validateUrl (sync, no DNS), validateAndNormalizeUrl (async, DNS rebinding-safe), isUrlSafe, isBlockedIp. Blocks RFC 1918 + RFC 6598 + link-local + loopback + multicast + reserved IPv4/IPv6 + cloud metadata hostnames
   ai-guardrails.ts           #   Prompt injection detection (25 patterns + NFKD Unicode normalization + HTML entity decoding + comment stripping), output safety checks, 10KB input truncation
   phi-redactor.ts            #   PHI regex scrubber (SSN, phone, email, MRN, addresses, NPI, FHIR UUIDs, encounter IDs; preserves clinical codes)
   request-metrics.ts         #   In-memory per-route latency percentiles (p50/p95/p99, 10-min window)
@@ -1582,7 +1581,6 @@ Items marked ✅ were completed in a later session.
 - ~379 `as any` casts across 68 server files (the 82 in pg-storage.ts have been refactored away via typed mappers)
 - 250 ESLint `no-unused-vars` warnings
 - ~105 remaining catch blocks across 29 route files — confirmed intentional (file cleanup, non-blocking notifications, PHI decryption fallbacks)
-- Duplicate URL validation utilities (`url-validation.ts` + `url-validator.ts`) — should be merged
 - Live session Maps have no hard cap (11 unbounded Maps; all cleared on session cleanup)
 - `request-metrics.ts` key growth bounded by `req.route?.path` but falls back to `req.path` (raw URL with IDs)
 - Missing `htmlFor`/`id` pairing on multiple form labels (a11y)
@@ -1695,7 +1693,6 @@ Longer-term improvements identified during codebase audits. Work on these increm
 | Priority | Item | Effort | Impact | Notes |
 |----------|------|--------|--------|-------|
 | LOW | **Storage layer type safety (remaining)** | 1 day | Low — mostly structural | Prior audits reduced `as any` from ~200 to 3 genuine casts. Typed row types (`$inferSelect`), JSONB field types, and typed mappers are in place. Remaining: (1) `pg-storage-features.ts` prototype extension pattern (`P = prototype as any` — 74 methods, structural, can't be fixed without file restructuring), (2) `rawRows()` helper uses generic `T` but callers don't annotate yet, (3) `as unknown as Database` for Drizzle transaction type mismatch (3 locations, unfixable without Drizzle upstream change). Low priority — diminishing returns |
-| MEDIUM | **Consolidate URL validation utilities** | 0.5 days | Low — reduces confusion | `url-validation.ts` (used by 3 files) and `url-validator.ts` (used only by tests) have overlapping SSRF checks. Merge the best checks from both into `url-validation.ts`, update the 15 test imports in `remaining-adaptations.test.ts`, delete `url-validator.ts`. Sprint 2 |
 | MEDIUM | **Large file decomposition (remaining)** | 3 days | Medium — improves navigability | 14 files still >1000 LOC. Server: `memory.ts` (1.6K → split by domain), `sync-schema.ts` (1.5K → split by table group), `rag.ts` (1.3K → extract synonym/query modules), `call-processing.ts` (1.2K → extract pipeline steps). Client: `transcript-viewer.tsx` (1.3K → extract correction UI), `clinical-notes.tsx` (1.2K → extract print/amendment), `reports.tsx` (1.2K → extract chart sections). Sprint 2-3 |
 | MEDIUM | **MemStorage parity with PostgresStorage** | 2 days | Medium — prevents dev/prod divergence | Key behavioral gaps: `searchCalls` only searches transcript text (PG also searches summaries+topics), `getTopPerformers` has no min-calls threshold (PG requires 5), `deleteOrgData` misses ~15 collections, `deleteExpiredCallShares` ignores orgId. Fix the 4 highest-impact gaps. Sprint 2 |
 | LOW | **290 ESLint `no-unused-vars` warnings** | 1 day | Low — reduces CI noise | Spread across ~100 files, mostly unused function params. Prefix with `_` or remove. Can be done incrementally. Sprint 3+ |
@@ -1767,7 +1764,7 @@ Storage Layer & Database:
   server/storage/types.ts, server/storage/index.ts, server/storage/memory.ts, server/storage/cloud.ts, server/db/index.ts, server/db/schema.ts, server/db/pg-storage.ts, server/db/pg-storage-features.ts, server/db/pg-storage-confidence.ts, server/db/sync-schema.ts, server/db/migrate.ts, server/db/migrate-audit-chain.ts, shared/schema/org.ts, shared/schema/calls.ts, shared/schema/billing.ts, shared/schema/features.ts
 
 Auth, Security & HIPAA:
-  server/auth.ts, server/services/phi-encryption.ts, server/services/org-encryption.ts, server/services/audit-log.ts, server/services/incident-response.ts, server/utils/phi-redactor.ts, server/utils/url-validation.ts, server/utils/url-validator.ts, server/utils/ai-guardrails.ts, server/routes/auth.ts, server/routes/mfa.ts, server/routes/sso.ts, server/routes/scim.ts, server/routes/oauth.ts, server/routes/password-reset.ts, server/routes/api-keys.ts, server/routes/registration.ts, server/routes/access.ts, server/routes/baa.ts, server/routes/admin-security.routes.ts, server/scheduled/audit-chain-verify.ts
+  server/auth.ts, server/services/phi-encryption.ts, server/services/org-encryption.ts, server/services/audit-log.ts, server/services/incident-response.ts, server/utils/phi-redactor.ts, server/utils/url-validation.ts, server/utils/ai-guardrails.ts, server/routes/auth.ts, server/routes/mfa.ts, server/routes/sso.ts, server/routes/scim.ts, server/routes/oauth.ts, server/routes/password-reset.ts, server/routes/api-keys.ts, server/routes/registration.ts, server/routes/access.ts, server/routes/baa.ts, server/routes/admin-security.routes.ts, server/scheduled/audit-chain-verify.ts
 
 Call Analysis Pipeline:
   server/services/call-processing.ts, server/services/assemblyai.ts, server/services/assemblyai-realtime.ts, server/services/ai-factory.ts, server/services/ai-provider.ts, server/services/ai-prompts.ts, server/services/ai-types.ts, server/services/bedrock.ts, server/services/bedrock-batch.ts, server/services/auto-calibration.ts, server/services/cost-estimation.ts, server/services/scoring-calibration.ts, server/services/call-clustering.ts, server/routes/calls.ts, server/routes/call-insights.ts, server/routes/ab-testing.ts, server/routes/assemblyai-webhook.ts
