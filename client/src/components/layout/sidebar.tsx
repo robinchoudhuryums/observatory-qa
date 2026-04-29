@@ -47,6 +47,7 @@ import {
   RiMegaphoneLine,
   RiSettings3Line,
   RiArrowDownSLine,
+  RiVoiceprintLine,
 } from "@remixicon/react";
 
 type NavItem = {
@@ -79,6 +80,13 @@ const managementNav: NavItem[] = [
     name: "Calibration",
     href: "/calibration",
     icon: RiScales3Line,
+    requireRole: ["manager", "admin"],
+    minPlan: "professional",
+  },
+  {
+    name: "Simulated Calls",
+    href: "/simulated-calls",
+    icon: RiVoiceprintLine,
     requireRole: ["manager", "admin"],
     minPlan: "professional",
   },

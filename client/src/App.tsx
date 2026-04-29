@@ -59,6 +59,7 @@ const AuthPage = lazy(() => import("@/pages/auth"));
 const LandingPage = lazy(() => import("@/pages/landing"));
 const InviteAcceptPage = lazy(() => import("@/pages/invite-accept"));
 const ABTestingPage = lazy(() => import("@/pages/ab-testing"));
+const SimulatedCallsPage = lazy(() => import("@/pages/simulated-calls"));
 const SpendTrackingPage = lazy(() => import("@/pages/spend-tracking"));
 const ClinicalDashboardPage = lazy(() => import("@/pages/clinical-dashboard"));
 const ClinicalUploadPage = lazy(() => import("@/pages/clinical-upload"));
@@ -340,6 +341,17 @@ function Router() {
                     <AnimatedPage>
                       <ProtectedRoute minRole="admin">
                         <ABTestingPage />
+                      </ProtectedRoute>
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/simulated-calls">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <ProtectedRoute minRole="manager">
+                        <SimulatedCallsPage />
                       </ProtectedRoute>
                     </AnimatedPage>
                   </ErrorBoundary>

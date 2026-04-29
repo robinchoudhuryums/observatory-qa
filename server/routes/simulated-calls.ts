@@ -27,6 +27,8 @@ import { ERROR_CODES, errorResponse } from "../services/error-codes";
 import { logger } from "../services/logger";
 import { enqueueSimulatedCallGeneration } from "../services/queue";
 import { processAudioFile, cleanupFile } from "../services/call-processing";
+import { elevenLabsClient } from "../services/elevenlabs-client";
+import { LruCache } from "../utils/lru-cache";
 import { simulatedCallScriptSchema, simulatedCallConfigSchema, simulatedCallStatusSchema } from "@shared/schema";
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
@@ -50,8 +52,38 @@ export const listSimulatedCallsQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(200).optional(),
 });
 
+// Cache the ElevenLabs voices list for 1h. Voices are platform-wide so the
+// same list is fine across orgs; only one entry is ever stored.
+const voicesCache = new LruCache<unknown>({ maxSize: 1, ttlMs: 60 * 60 * 1000 });
+const VOICES_CACHE_KEY = "elevenlabs-voices";
+
 export function registerSimulatedCallRoutes(app: Express): void {
   const PLAN_GATE_MESSAGE = "Simulated calls require a Professional or Enterprise plan";
+
+  // ── Voice picker source ──────────────────────────────────────────
+  // Proxy to the ElevenLabs /voices endpoint with a process-wide cache so
+  // the script-builder modal can populate voice dropdowns without a key
+  // round-trip every time. Returns 503 when ELEVENLABS_API_KEY is unset.
+  app.get(
+    "/api/simulated-calls/voices",
+    requireAuth,
+    requireRole("manager"),
+    injectOrgContext,
+    asyncHandler(async (_req, res) => {
+      const cached = voicesCache.get(VOICES_CACHE_KEY);
+      if (cached) {
+        res.json(cached);
+        return;
+      }
+      if (!elevenLabsClient.isAvailable) {
+        res.status(503).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "ElevenLabs is not configured"));
+        return;
+      }
+      const voices = await elevenLabsClient.listVoices();
+      voicesCache.set(VOICES_CACHE_KEY, voices);
+      res.json(voices);
+    }),
+  );
 
   // ── List ──────────────────────────────────────────────────────────
   app.get(
