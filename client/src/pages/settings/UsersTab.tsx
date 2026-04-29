@@ -235,23 +235,44 @@ export default function UsersTab() {
 
                   {editingId === user.id ? (
                     <div className="flex-1 grid grid-cols-3 gap-3">
-                      <Input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Name" />
-                      <Select value={editRole} onValueChange={setEditRole}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="viewer">Viewer</SelectItem>
-                          <SelectItem value="manager">Manager</SelectItem>
-                          <SelectItem value="admin">Admin</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Input
-                        type="password"
-                        value={editPassword}
-                        onChange={(e) => setEditPassword(e.target.value)}
-                        placeholder="New password (optional)"
-                      />
+                      <div>
+                        <label htmlFor={`edit-user-name-${user.id}`} className="sr-only">
+                          Name
+                        </label>
+                        <Input
+                          id={`edit-user-name-${user.id}`}
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          placeholder="Name"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor={`edit-user-role-${user.id}`} className="sr-only">
+                          Role
+                        </label>
+                        <Select value={editRole} onValueChange={setEditRole}>
+                          <SelectTrigger id={`edit-user-role-${user.id}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="viewer">Viewer</SelectItem>
+                            <SelectItem value="manager">Manager</SelectItem>
+                            <SelectItem value="admin">Admin</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <label htmlFor={`edit-user-password-${user.id}`} className="sr-only">
+                          New password (optional)
+                        </label>
+                        <Input
+                          id={`edit-user-password-${user.id}`}
+                          type="password"
+                          value={editPassword}
+                          onChange={(e) => setEditPassword(e.target.value)}
+                          placeholder="New password (optional)"
+                        />
+                      </div>
                       <div className="col-span-3 flex gap-2">
                         <Button size="sm" onClick={() => handleUpdate(user.id)} disabled={updateMutation.isPending}>
                           Save

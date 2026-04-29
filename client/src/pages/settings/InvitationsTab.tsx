@@ -94,24 +94,35 @@ export default function InvitationsTab() {
             }}
             className="flex gap-3 mb-6"
           >
-            <Input
-              type="email"
-              value={inviteEmail}
-              onChange={(e) => setInviteEmail(e.target.value)}
-              placeholder="colleague@company.com"
-              required
-              className="flex-1"
-            />
-            <Select value={inviteRole} onValueChange={setInviteRole}>
-              <SelectTrigger className="w-32">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="viewer">Viewer</SelectItem>
-                <SelectItem value="manager">Manager</SelectItem>
-                <SelectItem value="admin">Admin</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex-1">
+              <label htmlFor="invite-email" className="sr-only">
+                Email address to invite
+              </label>
+              <Input
+                id="invite-email"
+                type="email"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="colleague@company.com"
+                required
+                className="w-full"
+              />
+            </div>
+            <div>
+              <label htmlFor="invite-role" className="sr-only">
+                Role for invited user
+              </label>
+              <Select value={inviteRole} onValueChange={setInviteRole}>
+                <SelectTrigger id="invite-role" className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="viewer">Viewer</SelectItem>
+                  <SelectItem value="manager">Manager</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <Button type="submit" disabled={createMutation.isPending}>
               <RiAddLine className="w-4 h-4 mr-2" />
               {createMutation.isPending ? "Sending..." : "Invite"}

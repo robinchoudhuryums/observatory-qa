@@ -686,8 +686,11 @@ function SpendAlertsForm({
       {enabled && (
         <div className="space-y-3 pl-1">
           <div className="flex items-center gap-3">
-            <Label className="w-40 text-sm text-muted-foreground">Alert at (%)</Label>
+            <Label htmlFor="alert-threshold" className="w-40 text-sm text-muted-foreground">
+              Alert at (%)
+            </Label>
             <Input
+              id="alert-threshold"
               type="number"
               min={50}
               max={100}
@@ -699,8 +702,11 @@ function SpendAlertsForm({
             <span className="text-xs text-muted-foreground">of monthly call quota</span>
           </div>
           <div className="flex items-center gap-3">
-            <Label className="w-40 text-sm text-muted-foreground">Notify email</Label>
+            <Label htmlFor="alert-email" className="w-40 text-sm text-muted-foreground">
+              Notify email
+            </Label>
             <Input
+              id="alert-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
