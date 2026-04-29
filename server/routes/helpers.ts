@@ -138,42 +138,19 @@ export const upload = multer({
 
 // ─── Upload deduplication lock ───────────────────────────────────────────────
 // Prevents TOCTOU race when two concurrent uploads have the same file hash.
-// Uses Redis SET NX (atomic "set if not exists") with 30-second TTL.
-// Falls back to in-memory Map when Redis is unavailable.
-const memLocks = new Map<string, number>(); // key → expiresAt timestamp
+// Delegates to `ephemeralSetNx`/`ephemeralDel` from services/redis.ts so the
+// atomic check-and-set primitive is centralized (Redis SET NX with TTL +
+// in-memory single-event-loop fallback). The `lockKey` from callers is the
+// org+hash composite; the "upload-lock" prefix is added by ephemeralSetNx.
+const UPLOAD_LOCK_PREFIX = "upload-lock";
 
 export async function acquireUploadLock(lockKey: string, ttlMs = 30_000): Promise<boolean> {
-  try {
-    const { getRedis } = await import("../services/redis");
-    const redis = getRedis();
-    if (redis?.status === "ready") {
-      // SET NX: only sets if key doesn't exist (atomic). Returns "OK" on success, null if already locked.
-      const result = await redis.set(lockKey, "1", "PX", ttlMs, "NX");
-      return result === "OK";
-    }
-  } catch {
-    // Redis unavailable — fall through to in-memory
-  }
-
-  // In-memory fallback (single-instance only)
-  const now = Date.now();
-  const existing = memLocks.get(lockKey);
-  if (existing && existing > now) return false; // Lock held
-  memLocks.set(lockKey, now + ttlMs);
-  return true;
+  const { ephemeralSetNx } = await import("../services/redis");
+  return ephemeralSetNx(UPLOAD_LOCK_PREFIX, lockKey, "1", ttlMs);
 }
 
 /** Release an upload dedup lock early (call after createCall succeeds). */
 export async function releaseUploadLock(lockKey: string): Promise<void> {
-  try {
-    const { getRedis } = await import("../services/redis");
-    const redis = getRedis();
-    if (redis?.status === "ready") {
-      await redis.del(lockKey);
-      return;
-    }
-  } catch {
-    // Redis unavailable — fall through to in-memory
-  }
-  memLocks.delete(lockKey);
+  const { ephemeralDel } = await import("../services/redis");
+  await ephemeralDel(UPLOAD_LOCK_PREFIX, lockKey);
 }

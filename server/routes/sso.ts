@@ -35,7 +35,7 @@ let oidcConfigured = false;
 // OIDC state store — uses Redis when available, in-memory fallback.
 // In multi-instance deployments, Redis ensures the state created on instance A
 // can be consumed by instance B when the OIDC callback arrives.
-import { ephemeralSet, ephemeralConsume } from "../services/redis";
+import { ephemeralSetNx, ephemeralConsume } from "../services/redis";
 
 // JWKS cache: issuer → { keys, fetchedAt }
 const jwksCache = new Map<string, { keys: Record<string, unknown>[]; fetchedAt: number }>();
@@ -737,7 +737,14 @@ export function registerSsoRoutes(app: Express): void {
       const state = randomBytes(16).toString("hex");
       const nonce = randomBytes(16).toString("hex");
 
-      await ephemeralSet("oidc-state", state, JSON.stringify({ orgSlug, nonce }), 10 * 60 * 1000);
+      // Use SET NX to defend against the (vanishingly rare) state collision
+      // between two simultaneous login attempts. ephemeralSetNx returns false
+      // if the key already exists; we fail closed rather than overwriting.
+      const stateStored = await ephemeralSetNx("oidc-state", state, JSON.stringify({ orgSlug, nonce }), 10 * 60 * 1000);
+      if (!stateStored) {
+        logger.warn({ orgSlug }, "OIDC state collision (128-bit randomness should make this impossible)");
+        return res.status(500).json({ message: "Failed to start OIDC flow. Please retry." });
+      }
 
       const baseUrl = getBaseUrl(req);
       const params = new URLSearchParams({
