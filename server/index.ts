@@ -3,7 +3,7 @@
 // OTEL_ENABLED !== "true", so existing deployments are unaffected.
 import { initTelemetry, shutdownTelemetry } from "./services/telemetry";
 
-import express, { type Request, Response, NextFunction } from "express";
+import express from "express";
 import { registerRoutes } from "./routes/index";
 import { setupVite, serveStatic, log } from "./vite";
 import { globalErrorHandler } from "./middleware/error-handler";
@@ -11,7 +11,7 @@ import { setupAuth } from "./auth";
 import { storage, initPostgresStorage } from "./storage";
 import { setupWebSocket } from "./services/websocket";
 import { logger } from "./services/logger";
-import { initRedis, checkRateLimit, closeRedis, getRedisStatus } from "./services/redis";
+import { initRedis, closeRedis, getRedisStatus } from "./services/redis";
 import { initQueues, closeQueues } from "./services/queue";
 import { initEmail } from "./services/email";
 import { isPhiEncryptionEnabled } from "./services/phi-encryption";
@@ -19,6 +19,7 @@ import { wafMiddleware } from "./middleware/waf";
 import { correlationIdMiddleware } from "./middleware/correlation-id";
 import { tracingMiddleware } from "./middleware/tracing";
 import { csrfMiddleware } from "./middleware/csrf";
+import { distributedRateLimit, setRedisAvailable, startRateLimitCleanup } from "./middleware/rate-limit";
 import { initSentry, sentryErrorMiddleware, flushSentry } from "./services/sentry";
 // PLAN_DEFINITIONS and PlanTier moved to scheduled task modules
 
@@ -27,106 +28,9 @@ initSentry();
 
 const app = express();
 
-// --- In-memory sliding window rate limiter (fallback when Redis unavailable) ---
-// Tracks individual request timestamps per key for accurate sliding window behavior
-// UUID pattern for normalizing rate limit keys — replaces actual UUIDs with :id
-// so /api/calls/abc-123/transcript and /api/calls/def-456/transcript share one bucket.
-// Without this, per-endpoint PHI rate limits (30/min on transcript reads) are
-// per-call-ID, letting an attacker cycle IDs to exfiltrate data.
-const UUID_SEGMENT_RE = /\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
-
-const MAX_RATE_LIMIT_ENTRIES = 50_000;
-const rateLimitMap = new Map<string, number[]>();
-function rateLimitKey(req: Request, includeOrg: boolean): string {
-  const orgPart = includeOrg && req.orgId ? `:org:${req.orgId}` : "";
-  // Normalize path: replace UUID segments with :id so rate limits apply per-endpoint-class
-  const normalizedPath = req.path.replace(UUID_SEGMENT_RE, "/:id");
-  return `${req.ip}:${normalizedPath}${orgPart}`;
-}
-
-function setRateLimitHeaders(res: Response, limit: number, remaining: number, resetSeconds: number): void {
-  res.setHeader("X-RateLimit-Limit", limit.toString());
-  res.setHeader("X-RateLimit-Remaining", Math.max(0, remaining).toString());
-  res.setHeader("X-RateLimit-Reset", Math.ceil(resetSeconds).toString());
-}
-
-function inMemoryRateLimit(windowMs: number, maxRequests: number, includeOrg = false) {
-  return (req: Request, res: Response, next: NextFunction) => {
-    const key = rateLimitKey(req, includeOrg);
-    const now = Date.now();
-    const windowStart = now - windowMs;
-
-    // Get existing timestamps and filter out expired ones
-    let timestamps = rateLimitMap.get(key) || [];
-    timestamps = timestamps.filter((ts) => ts > windowStart);
-
-    const resetSeconds = timestamps.length > 0 ? (timestamps[0] + windowMs - now) / 1000 : windowMs / 1000;
-
-    if (timestamps.length >= maxRequests) {
-      rateLimitMap.set(key, timestamps);
-      setRateLimitHeaders(res, maxRequests, 0, resetSeconds);
-      res.setHeader("Retry-After", Math.ceil(resetSeconds).toString());
-      return res.status(429).json({ message: "Too many requests. Please try again later." });
-    }
-
-    // Record this request (enforce hard cap to prevent unbounded growth)
-    timestamps.push(now);
-    if (rateLimitMap.size >= MAX_RATE_LIMIT_ENTRIES && !rateLimitMap.has(key)) {
-      // Evict oldest entry when at capacity
-      const oldest = rateLimitMap.keys().next().value;
-      if (oldest) rateLimitMap.delete(oldest);
-    }
-    rateLimitMap.set(key, timestamps);
-
-    setRateLimitHeaders(res, maxRequests, maxRequests - timestamps.length, resetSeconds);
-    return next();
-  };
-}
-
-// --- Distributed rate limiter (Redis-backed when available) ---
-let redisAvailable = false;
-
-function distributedRateLimit(windowMs: number, maxRequests: number, includeOrg = false) {
-  return async (req: Request, res: Response, next: NextFunction) => {
-    if (!redisAvailable) {
-      // Fall back to in-memory sliding window
-      return inMemoryRateLimit(windowMs, maxRequests, includeOrg)(req, res, next);
-    }
-
-    const key = rateLimitKey(req, includeOrg);
-    try {
-      const result = await checkRateLimit(key, windowMs, maxRequests);
-      const resetSeconds = Math.ceil(result.resetMs / 1000);
-      setRateLimitHeaders(res, maxRequests, result.remaining, resetSeconds);
-      if (!result.allowed) {
-        res.setHeader("Retry-After", resetSeconds.toString());
-        return res.status(429).json({ message: "Too many requests. Please try again later." });
-      }
-      return next();
-    } catch {
-      // Redis error — fall through to allow the request
-      return next();
-    }
-  };
-}
-
-// Clean up expired in-memory rate limit entries every 5 minutes
-const rateLimitCleanupTimer = setInterval(
-  () => {
-    const now = Date.now();
-    rateLimitMap.forEach((timestamps, key) => {
-      // Remove keys where all timestamps have expired (oldest possible window is 1 hour for registration)
-      const maxWindowMs = 60 * 60 * 1000;
-      const filtered = timestamps.filter((ts) => ts > now - maxWindowMs);
-      if (filtered.length === 0) {
-        rateLimitMap.delete(key);
-      } else {
-        rateLimitMap.set(key, filtered);
-      }
-    });
-  },
-  5 * 60 * 1000,
-);
+// Periodic GC for the in-memory limiter; the timer is cleared by the graceful
+// shutdown handler below.
+const rateLimitCleanupTimer = startRateLimitCleanup();
 
 // Trust reverse proxy (Render, Heroku, etc.) so x-forwarded-proto, rate limiting,
 // and IP logging work correctly behind their load balancer.
@@ -319,7 +223,8 @@ app.use("/api/super-admin", distributedRateLimit(60 * 1000, 30) as any);
 
   // 1. Initialize Redis (sessions, rate limiting, pub/sub, queue backend)
   const redis = initRedis();
-  redisAvailable = redis !== null;
+  const redisAvailable = redis !== null;
+  setRedisAvailable(redisAvailable);
   if (redisAvailable) {
     logger.info("Redis available — using distributed sessions, rate limiting, and job queues");
   } else if (process.env.NODE_ENV === "production") {
