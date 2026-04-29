@@ -84,6 +84,7 @@ export const planLimitsSchema = z.object({
   prioritySupport: z.boolean(),
   clinicalDocumentationEnabled: z.boolean().default(false),
   abTestingEnabled: z.boolean().default(false),
+  simulatedCallsEnabled: z.boolean().default(false),
   baseSeats: z.number(), // seats included in base price
   pricePerAdditionalSeatUsd: z.number(), // $/seat/mo for additional seats; 0 = not applicable
   overagePricePerCallUsd: z.number(), // $/call over quota; 0 = hard block at limit
@@ -122,6 +123,7 @@ export const PLAN_DEFINITIONS: Record<
       prioritySupport: false,
       clinicalDocumentationEnabled: false,
       abTestingEnabled: false,
+      simulatedCallsEnabled: false,
       baseSeats: 2,
       pricePerAdditionalSeatUsd: 0,
       overagePricePerCallUsd: 0, // Hard block at limit (no overage on free)
@@ -146,6 +148,7 @@ export const PLAN_DEFINITIONS: Record<
       prioritySupport: false,
       clinicalDocumentationEnabled: false, // Available as $49/mo add-on
       abTestingEnabled: false,
+      simulatedCallsEnabled: false,
       baseSeats: 5,
       pricePerAdditionalSeatUsd: 15,
       overagePricePerCallUsd: 0.35,
@@ -170,6 +173,7 @@ export const PLAN_DEFINITIONS: Record<
       prioritySupport: true,
       clinicalDocumentationEnabled: true, // Included
       abTestingEnabled: true,
+      simulatedCallsEnabled: true,
       baseSeats: 10,
       pricePerAdditionalSeatUsd: 20,
       overagePricePerCallUsd: 0.25,
@@ -194,6 +198,7 @@ export const PLAN_DEFINITIONS: Record<
       prioritySupport: true,
       clinicalDocumentationEnabled: true, // Included
       abTestingEnabled: true,
+      simulatedCallsEnabled: true,
       baseSeats: 25,
       pricePerAdditionalSeatUsd: 25,
       overagePricePerCallUsd: 0.15,

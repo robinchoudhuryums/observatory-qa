@@ -22,6 +22,7 @@ import { registerSsoRoutes, setupSamlAuth, setupOidcAuth } from "./sso";
 import { registerScimRoutes } from "./scim";
 import { registerMfaRoutes } from "./mfa";
 import { registerABTestRoutes } from "./ab-testing";
+import { registerSimulatedCallRoutes } from "./simulated-calls";
 import { registerSpendTrackingRoutes } from "./spend-tracking";
 import { registerClinicalRoutes } from "./clinical";
 import { registerEhrRoutes } from "./ehr";
@@ -100,6 +101,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerInsightRoutes(app);
   registerExportRoutes(app);
   registerABTestRoutes(app);
+  registerSimulatedCallRoutes(app);
   registerSpendTrackingRoutes(app);
   registerClinicalRoutes(app);
   registerEhrRoutes(app);
