@@ -12,6 +12,7 @@ export {
   normalizeAnalysis,
   applyCallFilters,
   mapConcurrent,
+  MIN_CALLS_FOR_TOP_PERFORMER_RANKING,
 } from "./types";
 export { MemStorage } from "./memory";
 export { CloudStorage } from "./cloud";

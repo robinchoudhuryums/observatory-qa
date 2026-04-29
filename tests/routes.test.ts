@@ -260,19 +260,24 @@ describe("API Routes", () => {
     });
 
     it("getTopPerformers returns typed TopPerformer array", async () => {
-      const { MemStorage } = await import("../server/storage");
+      const { MemStorage, MIN_CALLS_FOR_TOP_PERFORMER_RANKING } = await import("../server/storage");
       const store = new MemStorage();
 
       const org = await store.createOrganization({ name: "Org", slug: "org", status: "active" });
       const emp = await store.createEmployee(org.id, { name: "Agent", email: "a@t.com" });
-      const call = await store.createCall(org.id, { status: "completed", employeeId: emp.id });
-      await store.createCallAnalysis(org.id, { callId: call.id, performanceScore: "8.5" });
+      // Seed at least MIN_CALLS_FOR_TOP_PERFORMER_RANKING calls — fewer would be
+      // filtered out by the min-call floor that mirrors PostgresStorage's
+      // HAVING count(*) >= threshold clause.
+      for (let i = 0; i < MIN_CALLS_FOR_TOP_PERFORMER_RANKING; i++) {
+        const call = await store.createCall(org.id, { status: "completed", employeeId: emp.id });
+        await store.createCallAnalysis(org.id, { callId: call.id, performanceScore: "8.5" });
+      }
 
       const performers = await store.getTopPerformers(org.id);
       assert.strictEqual(performers.length, 1);
       assert.strictEqual(performers[0].name, "Agent");
       assert.strictEqual(performers[0].avgPerformanceScore, 8.5);
-      assert.strictEqual(performers[0].totalCalls, 1);
+      assert.strictEqual(performers[0].totalCalls, MIN_CALLS_FOR_TOP_PERFORMER_RANKING);
     });
 
     it("purgeExpiredCalls removes old calls", async () => {

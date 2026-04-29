@@ -88,6 +88,14 @@ export async function mapConcurrent<T, R>(items: T[], concurrency: number, fn: (
 }
 
 /**
+ * Minimum number of calls an employee must have to appear on the top-performers
+ * leaderboard. Prevents employees with 1-2 calls from dominating averages.
+ * Both MemStorage and PostgresStorage must use this same threshold so dev/prod
+ * agree on rankings.
+ */
+export const MIN_CALLS_FOR_TOP_PERFORMER_RANKING = 5;
+
+/**
  * Normalize a CallAnalysis for backward-compatibility with older stored data.
  * AI may return objects instead of arrays for topics/flags/actionItems.
  */
