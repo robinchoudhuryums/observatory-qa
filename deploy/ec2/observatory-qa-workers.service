@@ -1,0 +1,65 @@
+# Observatory QA — BullMQ workers systemd unit
+# Install to: /etc/systemd/system/observatory-qa-workers.service
+#
+# Commands:
+#   sudo systemctl enable observatory-qa-workers   # Start on boot
+#   sudo systemctl start observatory-qa-workers    # Start now
+#   sudo systemctl status observatory-qa-workers   # Check status
+#   sudo journalctl -u observatory-qa-workers -f   # Tail logs
+#
+# Why a separate unit:
+#   The main HTTP server enqueues jobs (audio processing, RAG indexing,
+#   data retention, usage metering, EHR note push, bulk reanalysis); the
+#   workers consume them. Running them in the same Node process would
+#   couple their failure modes — a stuck worker job (e.g. a hot Bedrock
+#   loop) would also kill the request loop. Splitting them lets the
+#   request layer keep serving while a worker job is investigated.
+#
+# Both units share /opt/observatory-qa/.env. The workers entry point is
+# server/workers/index.ts, built to dist/workers.js by `npm run build`.
+
+[Unit]
+Description=Observatory QA — BullMQ workers (audio, RAG, retention, usage, EHR push)
+After=network-online.target postgresql.service redis.service observatory-qa.service
+Wants=network-online.target postgresql.service redis.service
+Requires=postgresql.service redis.service
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=observatory-qa
+Group=observatory-qa
+WorkingDirectory=/opt/observatory-qa
+ExecStart=/usr/bin/node dist/workers.js
+Restart=always
+RestartSec=10
+
+# Environment
+Environment=NODE_ENV=production
+EnvironmentFile=/opt/observatory-qa/.env
+
+# Security hardening (mirrors observatory-qa.service)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/observatory-qa
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Resource limits — sized for t3.small.
+# Workers do the heavy lifting (Bedrock batch buffering, RAG embedding
+# generation, audio processing). Larger MemoryMax than the main server.
+LimitNOFILE=65535
+MemoryMax=600M
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=observatory-qa-workers
+
+[Install]
+WantedBy=multi-user.target

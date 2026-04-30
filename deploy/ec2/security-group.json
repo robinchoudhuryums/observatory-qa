@@ -1,26 +1,25 @@
 {
-  "_comment": "AWS Security Group reference — create via console or CLI",
-  "_usage": "aws ec2 create-security-group --group-name callanalyzer-sg --description 'CallAnalyzer web server' --vpc-id vpc-XXXXX",
-  "GroupName": "callanalyzer-sg",
-  "Description": "CallAnalyzer - HTTPS web server with SSH access",
+  "_comment": "AWS Security Group reference — create via console or CLI. Replace YOUR_BUCKET in the IAM policy with the bucket configured as S3_BUCKET in the app's .env.",
+  "_usage": "aws ec2 create-security-group --group-name observatory-qa-sg --description 'Observatory QA web server' --vpc-id vpc-XXXXX",
+  "GroupName": "observatory-qa-sg",
+  "Description": "Observatory QA — HTTPS web server with SSH access. Single-box deployment hosts PostgreSQL + Redis on the same instance, so DB/cache ports stay closed to the public internet.",
   "IngressRules": [
     {
-      "Description": "SSH — restrict to your IP only",
+      "Description": "SSH — restrict to your IP only. NEVER 0.0.0.0/0.",
       "IpProtocol": "tcp",
       "FromPort": 22,
       "ToPort": 22,
-      "CidrIp": "YOUR_IP/32",
-      "_note": "Replace YOUR_IP with your office/home IP. Never use 0.0.0.0/0 for SSH."
+      "CidrIp": "YOUR_IP/32"
     },
     {
-      "Description": "HTTP — for Caddy ACME challenge + redirect to HTTPS",
+      "Description": "HTTP — Caddy ACME challenge + redirect to HTTPS.",
       "IpProtocol": "tcp",
       "FromPort": 80,
       "ToPort": 80,
       "CidrIp": "0.0.0.0/0"
     },
     {
-      "Description": "HTTPS — main application traffic",
+      "Description": "HTTPS — main application traffic.",
       "IpProtocol": "tcp",
       "FromPort": 443,
       "ToPort": 443,
@@ -29,16 +28,17 @@
   ],
   "EgressRules": [
     {
-      "Description": "All outbound — needed for S3, Bedrock, AssemblyAI, npm, Let's Encrypt",
+      "Description": "All outbound — needed for S3, Bedrock, AssemblyAI, Stripe, npm, Let's Encrypt.",
       "IpProtocol": "-1",
       "CidrIp": "0.0.0.0/0"
     }
   ],
   "_iam_role": {
-    "_comment": "Attach an IAM instance profile with this policy so the app can use S3 + Bedrock without hardcoded keys",
-    "PolicyName": "CallAnalyzerEC2Policy",
+    "_comment": "Attach an IAM instance profile with this policy so the app uses S3 + Bedrock + KMS + Secrets Manager via the instance role (no hardcoded keys in .env).",
+    "PolicyName": "ObservatoryQAEC2Policy",
     "Statement": [
       {
+        "Sid": "S3AudioArchive",
         "Effect": "Allow",
         "Action": [
           "s3:GetObject",
@@ -47,14 +47,47 @@
           "s3:ListBucket"
         ],
         "Resource": [
-          "arn:aws:s3:::ums-call-archive",
-          "arn:aws:s3:::ums-call-archive/*"
+          "arn:aws:s3:::YOUR_BUCKET",
+          "arn:aws:s3:::YOUR_BUCKET/*"
         ]
       },
       {
+        "Sid": "BedrockInvoke",
         "Effect": "Allow",
         "Action": [
-          "bedrock:InvokeModel"
+          "bedrock:InvokeModel",
+          "bedrock:InvokeModelWithResponseStream"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Sid": "BedrockBatchInference",
+        "_comment": "Required only if any org enables batch mode — see CLAUDE.md → Bedrock batch inference.",
+        "Effect": "Allow",
+        "Action": [
+          "bedrock:CreateModelInvocationJob",
+          "bedrock:GetModelInvocationJob",
+          "bedrock:ListModelInvocationJobs"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Sid": "KMSPerOrgEncryption",
+        "_comment": "Required only when AWS_KMS_KEY_ID is set in .env (per-org PHI envelope encryption). Replace YOUR_KEY_ID with the KMS CMK ARN.",
+        "Effect": "Allow",
+        "Action": [
+          "kms:GenerateDataKey",
+          "kms:Decrypt"
+        ],
+        "Resource": "arn:aws:kms:us-east-1:YOUR_ACCOUNT_ID:key/YOUR_KEY_ID"
+      },
+      {
+        "Sid": "SESEmail",
+        "_comment": "Required only when EMAIL_PROVIDER=ses. Restrict the resource to your verified sender identity.",
+        "Effect": "Allow",
+        "Action": [
+          "ses:SendEmail",
+          "ses:SendRawEmail"
         ],
         "Resource": "*"
       }

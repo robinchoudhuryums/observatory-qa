@@ -5,18 +5,18 @@
 # Takes a pre-rollback DB snapshot, reverts the code, and verifies health.
 #
 # Usage:
-#   sudo /opt/callanalyzer/deploy/ec2/rollback.sh               # roll back 1 commit
-#   sudo /opt/callanalyzer/deploy/ec2/rollback.sh <SHA>         # roll back to specific SHA
-#   sudo /opt/callanalyzer/deploy/ec2/rollback.sh --list        # show recent commits
+#   sudo /opt/observatory-qa/deploy/ec2/rollback.sh               # roll back 1 commit
+#   sudo /opt/observatory-qa/deploy/ec2/rollback.sh <SHA>         # roll back to specific SHA
+#   sudo /opt/observatory-qa/deploy/ec2/rollback.sh --list        # show recent commits
 #
 # After a failed rollback, restore the database from backup:
 #   See docs/operations/ROLLBACK_PROCEDURES.md for DB restore steps.
 
 set -euo pipefail
 
-APP_DIR="/opt/callanalyzer"
-APP_USER="callanalyzer"
-LOG_FILE="/var/log/callanalyzer-rollback.log"
+APP_DIR="/opt/observatory-qa"
+APP_USER="observatory-qa"
+LOG_FILE="/var/log/observatory-qa-rollback.log"
 TARGET_SHA="${1:-}"
 
 # ─── Logging ────────────────────────────────────────────────────────────────
@@ -115,7 +115,12 @@ sudo -u "$APP_USER" npm prune --production
 
 log_section "Restarting service"
 
-systemctl restart callanalyzer
+# Restart both units. Workers must be restarted too — they share the same
+# build artifact and a rollback to an older commit can change worker code
+# (BullMQ job processors, retention logic, RAG indexing).
+systemctl restart observatory-qa
+systemctl restart observatory-qa-workers \
+    || log "WARN: workers restart failed — background jobs paused, HTTP traffic unaffected"
 sleep 5
 
 # ─── Health check ────────────────────────────────────────────────────────────
@@ -137,7 +142,7 @@ for i in $(seq 1 $MAX_RETRIES); do
 
     if [ "$i" = "$MAX_RETRIES" ]; then
         log "ERROR: Service unhealthy after rollback — manual intervention required"
-        log "  Journals: journalctl -u callanalyzer -n 50 --no-pager"
+        log "  Journals: journalctl -u observatory-qa -n 50 --no-pager"
         if [ -n "$DATABASE_URL" ] && [ -f "$SNAPSHOT_FILE" ]; then
             log "  DB snapshot available: $SNAPSHOT_FILE"
             log "  See docs/operations/ROLLBACK_PROCEDURES.md for DB restore steps"
@@ -151,14 +156,15 @@ done
 log_section "Rollback complete"
 log "  Rolled back FROM: $CURRENT_SHA"
 log "  Rolled back TO:   $TARGET_SHA"
-log "  Service status:   $(systemctl is-active callanalyzer)"
+log "  Main service:     $(systemctl is-active observatory-qa)"
+log "  Workers service:  $(systemctl is-active observatory-qa-workers)"
 if [ -f "$SNAPSHOT_FILE" ]; then
     log "  DB snapshot:      $SNAPSHOT_FILE"
 fi
 log ""
 log "  To forward-deploy again when the issue is fixed:"
-log "    sudo /opt/callanalyzer/deploy/ec2/deploy.sh"
+log "    sudo /opt/observatory-qa/deploy/ec2/deploy.sh"
 log ""
 log "  To investigate the bad deploy:"
-log "    journalctl -u callanalyzer --since '30 min ago' --no-pager"
+log "    journalctl -u observatory-qa --since '30 min ago' --no-pager"
 log "    git log --oneline $TARGET_SHA..$CURRENT_SHA"

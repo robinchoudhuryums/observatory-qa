@@ -3,15 +3,15 @@
 # Backs up PostgreSQL, verifies the backup is restorable, and uploads to S3.
 #
 # Usage:
-#   sudo /opt/callanalyzer/deploy/ec2/backup.sh
+#   sudo /opt/observatory-qa/deploy/ec2/backup.sh
 #
 # Cron (daily at 2am):
-#   0 2 * * * /opt/callanalyzer/deploy/ec2/backup.sh >> /var/log/callanalyzer-backup.log 2>&1
+#   0 2 * * * /opt/observatory-qa/deploy/ec2/backup.sh >> /var/log/observatory-qa-backup.log 2>&1
 #
 # Requires:
 #   - PostgreSQL client (pg_dump, pg_restore)
 #   - AWS CLI (for S3 upload, uses instance IAM role)
-#   - DATABASE_URL in /opt/callanalyzer/.env
+#   - DATABASE_URL in /opt/observatory-qa/.env
 
 set -euo pipefail
 
@@ -22,7 +22,7 @@ set -euo pipefail
 # any other temp artifacts. See F-18 in broad-scan audit.
 umask 077
 
-APP_DIR="/opt/callanalyzer"
+APP_DIR="/opt/observatory-qa"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_FILE="observatory_${TIMESTAMP}.dump"
 RETENTION_DAYS=30

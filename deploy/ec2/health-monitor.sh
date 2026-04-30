@@ -3,7 +3,7 @@
 #
 # Checks the health endpoint and alerts via webhook on failures.
 # Run via cron every 5 minutes:
-#   */5 * * * * /opt/callanalyzer/scripts/health-monitor.sh >> /var/log/observatory-health.log 2>&1
+#   */5 * * * * /opt/observatory-qa/scripts/health-monitor.sh >> /var/log/observatory-health.log 2>&1
 #
 # Environment:
 #   APP_URL     - Base URL (default: http://localhost:5000)
