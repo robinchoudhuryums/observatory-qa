@@ -22,10 +22,15 @@ Decisions locked:
 - Replace `branding-provider.tsx` color injection to target the celestial palette.
 
 **Out of scope**
-- Backend schema changes beyond `org.settings.presentation` (boolean toggle + lexicon mode).
-- New API endpoints — every screen maps to existing routes (data adapters do the shape work client-side).
 - Marketing/landing page redesign (the App Map flags it as "separate project").
 - Mobile app — only mobile-responsive web (Mobile Atlas pattern).
+
+**Limited backend work (in scope, kept small)**
+- Schema additions: `org.settings.presentation`, `org.settings.theme`, new `pattern_subscriptions` table (Phase 0 + Phase 3).
+- New API endpoints, all small:
+  - `/api/dashboard/galaxy?month=YYYY-MM` — day-bucketed call counts for Galaxy view (Phase 3). Required because client-side bucketing of `/api/calls` is too slow at scale (>5K calls/month).
+  - `/api/patterns/subscribe` (POST) + `/api/patterns/unsubscribe` (DELETE) + `/api/patterns/subscriptions` (GET) — Track Pattern popover (Phase 3).
+  - Ask Ory uses the existing `/api/reference-documents/rag/search` endpoint (non-streaming for v1; see section 9.3 for streaming decision).
 
 ## 2. Design-vs-current delta
 
@@ -84,6 +89,9 @@ These get the orrery color/typography/spacing pass but keep existing structure:
 - `marketing.tsx`, `revenue.tsx`, `emails.tsx`, `insurance-narratives.tsx`
 - `billing.tsx`, `spend-tracking.tsx`, `feedback.tsx`
 - `clinical-live.tsx`, `clinical-templates.tsx`, `clinical-upload.tsx`
+- `onboarding.tsx`, `reports.tsx`, `invite-accept.tsx`, `not-found.tsx`
+
+The App Map flags `onboarding.tsx` and `reports.tsx` as **quiet tier** ("celestial preview" / "orrery on report header"). For Phase 0 we ship tokens-only on both; promote either to a quiet-tier redesign in a follow-up if the polished aesthetic justifies the work. `invite-accept.tsx` and `not-found.tsx` are short pages that only need token consistency.
 
 ### Net-new schema additions
 
@@ -177,19 +185,30 @@ Target folder: `client/src/components/orrery/`. One file per primitive; barrel `
 
 ### 4.3 Data adapters
 
-`client/src/lib/orrery-adapters.ts` — pure functions, fully typed against `shared/schema/*`, unit-tested.
+`client/src/lib/orrery-adapters.ts` — pure functions, fully typed against `shared/schema/*`, unit-tested. Concrete signatures below; if a referenced field doesn't exist on the existing schema, the adapter must compute it from available fields (the "derived" column says how).
 
-| Adapter | Input | Output |
-|---|---|---|
-| `callsToPlanets(calls, lens)` | `Call[]`, `Lens` | `Planet[]` (orbit, angle, size, brightness) |
-| `dayBucketsToGalaxy(days)` | `{ d, calls, close, weekend, anchor }[]` | `GalaxyDay[]` with spiral coords |
-| `patternsToConstellations(insights)` | API `/api/insights` shape | `Pattern[]` (nodes + edges + color + stat) |
-| `agentsToCoachingSystems(employees, performances)` | `Employee[]`, `Performer[]` | `Agent[]` with brightness/delta |
-| `transcriptToMoments(transcript, sentiment, analysis)` | full transcript+sentiment+analysis | `Moment[]` (angle, label, time, tone) |
-| `callToClinicalTimeline(transcript, sentiment, analysis)` | same | quality-over-time samples for `<CallTimeline>` |
-| `clinicalNoteToOrbital(note)` | `ClinicalNote` | completeness orb data + timeline steps |
+| Adapter | Concrete signature | Reads (real schema fields) | Derived (computed) |
+|---|---|---|---|
+| `callsToPlanets` | `(calls: Call[], lens: Lens) => Planet[]` | `call.callCategory`, `call.duration`, `call.status`, `call.uploadedAt`, joined `analysis.performanceScore` | `orbit` = lens(callCategory); `angle` = stable hash of category; `size` = log(count per category); `brightness` = avg(performanceScore)/10; cap at 12 categories, group overflow as `Other` planet |
+| `dayBucketsToGalaxy` | `(days: GalaxyDayRow[]) => GalaxyDay[]` where `GalaxyDayRow = { date: string; calls: number; closeRate: number }` | New endpoint `/api/dashboard/galaxy?month=YYYY-MM` returns this shape | `weekend` = derived from date; `anchor` = today; `brightness` = closeRate; spiral `(x,y)` computed in adapter |
+| `patternsToConstellations` | `(clusters: CallCluster[], calls: Call[]) => Pattern[]` | `/api/insights/clusters` returns clusters; `/api/calls?cluster=:id` returns member calls per cluster | `nodes` = up to 5 most-frequent topics within cluster; `edges` = topic co-occurrence pairs (within calls of cluster); `color` from cluster trend (rising/stable/declining); `stat` = cluster delta vs prior period |
+| `agentsToCoachingSystems` | `(employees: Employee[], perf: PerformanceRow[]) => CoachingAgent[]` where `PerformanceRow` = `/api/performance` row shape | `employee.id`, `employee.name`, `employee.role`, `employee.status`; `perf.avgPerformanceScore`, `perf.totalCalls`, `perf.weekDelta` (if present in API; otherwise compute from two `/api/performance?weeks=2` calls) | `brightness` = avgScore/10; `delta` = weekDelta or computed; `ringHot` = flagged calls > 0 (need `/api/calls?employeeId=&flagged=true` count) |
+| `transcriptToMoments` | `(transcript: Transcript, sentiment: SentimentAnalysis, analysis: CallAnalysis) => Moment[]` | `transcript.text` + `transcript.words[].speaker`; `sentiment.segments[]` (already exists — `{ start, end, sentiment, score }`); `analysis.flags`, `analysis.topics` | See section 6 below ("Moment detection strategy") — locked decision; rule-based v1 |
+| `callToClinicalTimeline` | same inputs | same | Quality curve = rolling average of `sentiment.segments[].score` mapped to 0-100% Y axis; X axis = `transcript.words[0].start..last.end` |
+| `clinicalNoteToOrbital` | `(note: ClinicalNote) => { completenessOrb: number; timelineSteps: Step[] }` | `note.documentationCompleteness`, `note.clinicalAccuracy`, `note.providerAttested`, `note.amendments[]`, `note.cosignature` | `timelineSteps` = derived from `[createdAt, transcribedAt (implicit), draftedAt (implicit = createdAt), editHistory, attestedAt, amendments]` |
 
-Brightness ramp lives in `brightness.ts`. Lens definitions in `lib/orrery-lenses.ts` — each lens has a name, orbit assignment function, and color override hook.
+**Lens definitions** in `lib/orrery-lenses.ts`:
+```typescript
+type Lens = {
+  id: 'type' | 'lifecycle' | 'revenue' | 'recency';
+  label: string;
+  orbitFor: (category: string, call?: Call) => 0 | 1 | 2 | 3;
+  brightnessFor: (calls: Call[]) => number; // 0..1
+};
+```
+Brightness ramp lives in `brightness.ts`.
+
+**Invariant check for adapters:** All input APIs MUST return raw `T[]` arrays per INV-01. Verify in adapter unit tests with a fixture that matches the current `res.json(...)` shape of each endpoint. If any endpoint returns a wrapper object, fix the endpoint, don't wrap the adapter.
 
 ### 4.4 Layout decisions
 
@@ -213,54 +232,89 @@ A single `<AppShell>` component reads route metadata (`tier`) and chooses the wr
 
 Each phase is one PR (or two for large phases). Pre-production means we can land each phase directly on main once reviewed; no feature flag.
 
-### Phase 0 — Tokens, primitives, dev showcases (1 PR, ~30 files)
+### Phase 0 — Tokens, primitives, dev showcases (1 PR, ~30 new + ~60 modified)
 - Replace all CSS variables in `index.css`. Remove aurora keyframes. Add celestial keyframes.
 - Update `tailwind.config.ts`.
 - Swap fonts (remove Poppins, add Instrument Serif + JetBrains Mono).
+- Add `presentation` and `theme` fields to `org.settings` Zod schema (`shared/schema/org.ts`); mirror DDL in `sync-schema.ts` (INV-10). Default `presentation` derived from `industryType` server-side. Default `theme` is `'auto'`.
 - Port all `client/src/components/orrery/` primitives.
-- Owl PNG → `client/public/orrery/owl-mark.png`.
+- Owl asset: ship as optimized SVG (`client/public/orrery/owl-mark.svg`, ~5 KB after SVGO). Keep PNG copy at `client/public/orrery/owl-mark.png` (21 KB) for the `mask-image` fallback path on older Safari. `ObservatoryOwlMark` tries SVG first, falls back via `@supports not (mask-image: url(...svg))`.
 - New routes `/dev/orrery/*` (super-admin only): owl, realism, type-lab, type-lab-b, components.
 - Update `branding-provider.tsx` for celestial palette.
-- Update existing pages: enough token usage swaps to keep them compiling. **Tokens-only pass on the 12 restyle-only pages happens here**, because aurora violet disappears from the build.
+- Update existing pages: enough token usage swaps to keep them compiling. **Tokens-only pass on the 16 restyle-only pages happens here**, because aurora violet disappears from the build.
+- **Recharts recolor checklist** (replaces existing `!important` overrides in `index.css`):
+  - `.dark .recharts-cartesian-axis-tick text` → `fill: var(--ink-soft) !important`
+  - `.dark .recharts-cartesian-grid line` → `stroke: var(--panel-stroke) !important`
+  - `.dark .recharts-tooltip-wrapper` → `background: var(--panel) !important; border: 1px solid var(--panel-border) !important`
+  - `.dark .recharts-default-tooltip` → `background-color: var(--panel) !important; border-color: var(--panel-border) !important`
+  - `.dark .recharts-tooltip-label` → `color: var(--ink) !important`
+  - `.dark .recharts-tooltip-item` → `color: var(--ink-soft) !important`
+  - `.dark .recharts-legend-item-text` → `color: var(--ink-soft) !important`
+  - `--chart-1` through `--chart-5` → celestial ramp: `bright`, `warm`, `cool`, `cold`, `accent-amber`. Light + dark variants.
 - E2E: existing `a11y.spec.ts` and `dashboard.spec.ts` continue to pass (visual changes only).
-- Verification: visual diff vs prototype at `/dev/orrery/components`.
+- Verification: visual diff vs prototype at `/dev/orrery/components`. Manual check: every Recharts page (`dashboard`, `insights`, `sentiment`, `performance`, `revenue`, `spend-tracking`, `clinical-dashboard`, `calibration`) renders cleanly in both themes.
 
-**Files touched (Phase 0):** ~30 new + ~50 modified (CSS vars only across pages).
+**Files touched (Phase 0):** ~30 new + ~60 modified. The modified count went up from 50 because the restyle list grew (+4 pages) and the Recharts recolor adds explicit CSS rule edits.
 
 ### Phase 1 — Atlas hero (1 PR, ~15 files)
 - New `client/src/components/orrery/viz/Orrery.tsx` + lens definitions.
 - Rewrite `client/src/pages/dashboard.tsx` as Atlas.
-- Build `callsToPlanets()` + `dayBucketsToGalaxy()` adapters.
+- Build `callsToPlanets()` adapter (galaxy adapter lands in Phase 3 alongside the new endpoint).
 - Day Replay overlay (`overlays/DayReplay.tsx`).
 - Mobile Atlas bottom sheet — extract into `shell/MobileBottomSheet.tsx`.
 - Realism state wiring: empty/partial/flat-day computed from actual `/api/dashboard/metrics` + today's call count.
-- Delete `components/dashboard/metrics-overview.tsx`, `components/dashboard/sentiment-analysis.tsx`, `components/dashboard/performance-card.tsx`, `components/tables/calls-table.tsx` if no other consumers. (Verify via grep before deletion.)
+- Delete `components/dashboard/metrics-overview.tsx`, `components/dashboard/sentiment-analysis.tsx`, `components/dashboard/performance-card.tsx` (grep-verified: these are dashboard-only).
+- **Keep `components/tables/calls-table.tsx`** — it's also consumed by `transcripts.tsx` list mode. Deletion moves to Phase 2 after the transcripts list redesign.
 - E2E: `dashboard.spec.ts` updated — orrery hero renders, lens switcher works, day replay opens.
 
 **Risk H — dynamic planet count.** Prototype hardcodes 12 planets. Real orgs have variable call categories. Mitigation: cap at 12, group overflow into "Other"; if fewer than 6, render larger planets with wider orbit spacing. Validate in `callsToPlanets()` tests with degenerate inputs (0, 1, 3, 12, 30 categories).
 
-### Phase 2 — Drill-in (Planet + Call detail) (1 PR, ~12 files)
+### Phase 2 — Drill-in (Planet + Call detail) (1 PR, ~14 files)
 - New `client/src/pages/atlas-cluster.tsx` + route `/atlas/cluster/:category`.
-- Rewrite `client/src/pages/transcripts.tsx` detail mode using `<CallArc>`.
-- Refactor `client/src/components/transcripts/transcript-viewer.tsx` — hooks order before early returns (INV-19), arc moments + transcript line synchronization.
+- Rewrite `client/src/pages/transcripts.tsx` **both modes**:
+  - **Detail mode** (`/transcripts/:id`) — `<CallArc>` + transcript pane.
+  - **List mode** (`/transcripts`) — new `<CallList>` component built on the same orrery-card primitive as planet detail's call list. Drops `calls-table.tsx` consumption.
+- Delete `components/tables/calls-table.tsx` and `components/dashboard/calls-table*` (carried over from Phase 1).
+- Refactor `client/src/components/transcripts/transcript-viewer.tsx` — **all hooks declared at the top of the component, BEFORE any early-return guards** (INV-19). Add ESLint `react-hooks/rules-of-hooks` to the file's overrides; PR fails if violated. Arc moments and transcript lines share a `selectedMoment` state; click on arc = scroll transcript to moment time; scroll transcript past a moment = highlight arc point.
 - Adapters: `transcriptToMoments()`, `callToClinicalTimeline()`.
-- Overlays: `CoachThisCallPanel`, `TrackPatternPopover` (stub — wired in Phase 3).
+- Overlays: `CoachThisCallPanel` (functional — posts to `/api/coaching` on submit), `TrackPatternPopover` (stub — wired in Phase 3 when subscription endpoint lands).
 - Clinical-mode swap: `<CallArc>` ↔ `<ClinicalCallTimeline>` based on `usePresentation()`.
-- E2E: new `atlas-cluster.spec.ts`; existing `transcripts.spec.ts` (if any) updated.
+- E2E: new `atlas-cluster.spec.ts`; update `transcripts.spec.ts` to assert both list-mode (`<CallList>`) and detail-mode (`<CallArc>`) render.
 
-**Risk M — moment detection.** Moments are derived from sentiment segments + analysis flags + speaker turns. The prototype shows 7 named moments; real calls have variable length. Adapter strategy: bucket transcript into 6-10 moments by sentiment shifts + flag boundaries; if call < 60s, collapse to 3 moments; if call > 30min, use rolling-window peaks. Falls back to even time-spacing if no sentiment data.
+**Moment detection strategy — locked (closes open question 1).** Rule-based v1, with AI-augmented labels in a follow-up phase. Algorithm:
+1. Bucket the call into ~8 segments by sentiment shift boundaries from `sentiment.segments[]`. If <8 boundaries, supplement with speaker-turn boundaries (first transition per speaker after a 5-second silence).
+2. For each bucket, pick the timestamp where `|sentiment.score - prev.score|` is maximal as the moment anchor.
+3. Tone = `warm` if score > 0.6, `cool` if < 0.4, otherwise the analysis flag color (amber for `low_score`, green for `exceptional_call`).
+4. Label = nearest topic from `analysis.topics[]` by timestamp proximity; falls back to `"Moment N"` if no topics.
+5. Calls <60s: collapse to 3 moments (greeting / middle / close).
+6. Calls >30min: cap at 10 moments via importance ranking (largest sentiment swings win).
+7. If no sentiment segments at all (legacy calls): even time-spacing, 6 moments, no tone color.
 
-### Phase 3 — Galaxy + Patterns + Ask Ory (1 PR, ~15 files)
-- New `client/src/pages/galaxy.tsx`.
+This is testable as a pure function. AI-augmented labels can be added later by piping moment timestamps + transcript spans through Bedrock; no schema change required.
+
+### Phase 3 — Galaxy + Patterns + Ask Ory (1 PR, ~20 files)
+
+**Backend additions** (small, scope-confined):
+- `server/routes/galaxy.ts` exposing `GET /api/dashboard/galaxy?month=YYYY-MM`. Returns `{ date: string; calls: number; closeRate: number }[]`. Aggregates from the `calls` table grouped by `date_trunc('day', uploaded_at)`. Filtered by `orgId` via existing `injectOrgContext` middleware. Cached for 5 min via `dashboard-cache.ts`.
+- `server/routes/patterns.ts` exposing:
+  - `POST /api/patterns/subscribe` — body `{ patternKey, triggerKind, expiresAt }` → creates `pattern_subscriptions` row.
+  - `DELETE /api/patterns/subscribe/:id` — deletes row (org-scoped).
+  - `GET /api/patterns/subscriptions` — lists subscriptions for current org.
+- `shared/schema/patterns.ts` — Zod schemas + types.
+- DDL in `sync-schema.ts` for `pattern_subscriptions` table (INV-10): columns `id, org_id, pattern_key, trigger_kind, expires_at, created_by, created_at`. Index on `(org_id, pattern_key)`.
+
+**Frontend**:
+- New `client/src/pages/galaxy.tsx` + route `/galaxy`. Uses `dayBucketsToGalaxy()` adapter against the new endpoint.
 - Rewrite `client/src/pages/insights.tsx` as Patterns view.
 - New `<Constellation>` viz; clinical mode `<PatternsNetwork>` / `<SankeyHero>` / `<HeatmapHero>`.
-- `patternsToConstellations()` adapter — uses `/api/insights` + `/api/insights/clusters` + `/api/calls` for evidence drilldown.
-- Track Pattern popover wired to new `/api/patterns/subscribe` endpoint (small backend task).
-- **Ask Ory** — global FAB in `AppShell`. Panel posts to existing `/api/reference-documents/rag/search` (RAG already exists). Streaming responses if `responseStyle` is `concise`.
-- Owl persona kit reaches first real usage (Ask Ory panel uses `OwlLayered` in `thinking` and `talking` states).
-- E2E: new `galaxy.spec.ts`, new `ask-ory.spec.ts`; existing `insights.spec.ts` updated.
+- `patternsToConstellations()` adapter — uses `/api/insights/clusters` (exists) + `/api/calls?cluster=:id` (exists, filter param) for evidence drilldown.
+- `TrackPatternPopover` wired to the new endpoints (was a stub in Phase 2).
+- **Ask Ory** — global FAB in `AppShell`. Posts to existing `/api/reference-documents/rag/search` (no new endpoint). **Non-streaming for v1 (closes open question 3).** Concise responses are <2K tokens; P95 latency under 3s is acceptable. Streaming is deferred to Phase 6 hardening — revisit only if user feedback shows the wait is jarring. The owl persona still toggles between `thinking` and `talking` states on request/response boundaries, so the FAB feels responsive even without token-by-token streaming.
+- E2E: new `galaxy.spec.ts`, new `patterns.spec.ts`, new `ask-ory.spec.ts`, new `track-pattern.spec.ts`.
 
 **Risk M — pattern detection quality.** The prototype shows 3 hand-curated patterns. Real `getCallClusters()` returns clusters that may not map cleanly to "patterns". Strategy: in Phase 3, surface clusters as patterns 1:1; in a follow-up, add cross-call pattern detection (e.g., "calls that mention insurance + drop close-rate"). The current `/api/insights/clusters` endpoint is sufficient for Phase 3.
+
+**Risk L — galaxy endpoint perf.** Day-grouping over a month returns ≤31 rows. Uses the existing `(org_id, uploaded_at)` index on `calls`. No new index required.
 
 ### Phase 4 — Coaching + Clinical workbench (2 PRs, ~25 files)
 
@@ -335,45 +389,55 @@ Each phase is one PR (or two for large phases). Pre-production means we can land
 
 | Path | Phase | Action |
 |---|---|---|
-| `client/src/index.css` | 0 | Rewrite (tokens, fonts, keyframes) |
+| `client/src/index.css` | 0 | Rewrite (tokens, fonts, keyframes, Recharts overrides per checklist in §5 Phase 0) |
 | `tailwind.config.ts` | 0 | Extend (colors, fonts, radius, easing) |
 | `client/src/components/orrery/` | 0 | New folder, ~30 components |
-| `client/public/orrery/owl-mark.png` | 0 | New asset |
+| `client/public/orrery/owl-mark.svg` | 0 | New asset (primary, ~5 KB after SVGO) |
+| `client/public/orrery/owl-mark.png` | 0 | New asset (PNG fallback for older Safari `mask-image`) |
 | `client/src/components/branding-provider.tsx` | 0 | Rewrite (celestial palette) |
-| `client/src/pages/auth.tsx` | 5 | Rewrite |
+| `client/src/pages/auth.tsx` | 5 | Rewrite (includes new light-theme sign-in variant — see §9.5) |
 | `client/src/pages/landing.tsx` | 5 | Restyle |
 | `client/src/pages/dashboard.tsx` | 1 | Rewrite |
 | `client/src/pages/atlas-cluster.tsx` | 2 | New |
-| `client/src/pages/transcripts.tsx` | 2 | Rewrite detail mode |
+| `client/src/pages/transcripts.tsx` | 2 | Rewrite both list mode (`<CallList>`) and detail mode (`<CallArc>`) |
 | `client/src/pages/galaxy.tsx` | 3 | New |
 | `client/src/pages/insights.tsx` | 3 | Rewrite |
 | `client/src/pages/coaching.tsx` | 4a | Rewrite |
 | `client/src/pages/clinical-notes.tsx` | 4b | Rewrite |
-| `client/src/pages/clinical-*.tsx` (4 files) | 4b | Restyle |
-| `client/src/pages/{upload,search,sentiment,performance,employees,learning,gamification,calibration,simulated-calls,ab-testing,settings,admin,audit-logs,prompt-templates,marketing,revenue,emails,insurance-narratives,billing,spend-tracking,feedback}.tsx` | 0 (tokens) + 5 (polish) | Restyle only |
-| `client/src/components/dashboard/{metrics-overview,sentiment-analysis,performance-card}.tsx` | 1 | Delete (if no other consumers) |
-| `client/src/components/tables/calls-table.tsx` | 1 | Delete (if no other consumers) |
-| `client/src/components/transcripts/transcript-viewer.tsx` | 2 | Refactor for arc + INV-19 |
+| `client/src/pages/clinical-dashboard.tsx` | 4b | Restyle (workbench tier — tokens only; UX redesign deferred until App Map promotes from "Not yet" to "Designed") |
+| `client/src/pages/{clinical-live,clinical-templates,clinical-upload}.tsx` | 4b | Restyle |
+| `client/src/pages/{upload,search,sentiment,performance,employees,learning,gamification,calibration,simulated-calls,ab-testing,settings,admin,audit-logs,prompt-templates,marketing,revenue,emails,insurance-narratives,billing,spend-tracking,feedback,onboarding,reports,invite-accept,not-found}.tsx` | 0 (tokens) + 5 (polish pass) | Restyle only |
+| `client/src/components/dashboard/{metrics-overview,sentiment-analysis,performance-card}.tsx` | 1 | Delete (grep-verified dashboard-only) |
+| `client/src/components/tables/calls-table.tsx` | 2 | Delete after transcripts list mode rewrite (also consumed by transcripts.tsx — F-02 fix) |
+| `client/src/components/transcripts/transcript-viewer.tsx` | 2 | Refactor for arc + INV-19 (hooks before early returns; ESLint `react-hooks/rules-of-hooks` enforced) |
 | `client/src/lib/orrery-adapters.ts` | 1-4 | New, accretes per phase |
 | `client/src/lib/orrery-lenses.ts` | 1 | New |
-| `shared/schema/org.ts` | 0 | Add `presentation`, `theme` fields |
+| `shared/schema/org.ts` | 0 | Add `presentation`, `theme` fields to `orgSettingsSchema` |
 | `shared/schema/patterns.ts` | 3 | New (pattern subscriptions) |
-| `server/db/sync-schema.ts` | 0, 3 | Mirror DDL for new columns/tables |
-| `server/routes/patterns.ts` | 3 | New (subscribe/unsubscribe) |
+| `server/db/sync-schema.ts` | 0, 3 | Mirror DDL for new columns/tables (INV-10) |
+| `server/db/schema.ts` | 0, 3 | Drizzle table additions for `pattern_subscriptions`; `org.settings` JSONB shape doesn't need migration |
+| `server/routes/galaxy.ts` | 3 | New (`GET /api/dashboard/galaxy?month=YYYY-MM`) |
+| `server/routes/patterns.ts` | 3 | New (subscribe/unsubscribe/list) |
+| `server/routes/index.ts` | 3 | Register new galaxy + patterns routes |
 | `tests/orrery-*.test.ts` | per phase | New |
 | `tests/e2e/orrery-*.spec.ts` | per phase | New |
 | `design/` | 5 | Move to `archive/design-v1/`; keep this plan |
 
-## 9. Open questions
+## 9. Decisions & remaining open questions
 
-These don't block Phase 0 but should be resolved before their phase:
+### Locked decisions (from audit review)
 
-1. **Phase 2 — Moments grammar.** Should moments be AI-generated (Bedrock prompt for "label the key turning points in this transcript") or rule-based (sentiment shifts + flag boundaries + speaker change)? AI gives richer labels but adds cost + latency.
-2. **Phase 3 — Track Pattern persistence.** New `pattern_subscriptions` table or store as JSONB on org settings? Recommend table — supports per-pattern alert config.
-3. **Phase 3 — Ask Ory streaming.** Use SSE or chunked HTTP? Existing `/api/reference-documents/rag/search` is request/response — streaming requires a new endpoint variant.
-4. **Phase 4 — Clinical lexicon scope.** Does the lexicon swap apply to URLs (e.g. `/dashboard` → `/clinical-dashboard` for clinical orgs) or only to UI strings? Recommend UI-only; URLs stay stable.
-5. **Owl PNG vs SVG.** The mark PNG is 21 KB; an inlined SVG (already in `design/uploads/owl-traced.svg` at 1.3 MB!) is too large. Recommend an optimized SVG (~5 KB after SVGO) as the production asset, with the PNG as fallback for older Safari `mask-image` support. Decision needed in Phase 0.
-6. **Light-mode sign-in.** The prototype's sign-in screen is dark-only; the right-panel orrery preview "breaks in light theme" per the file comment. Phase 5 must design a light variant.
+1. **Moments grammar (was Phase 2 open).** ✅ Rule-based v1 per the algorithm in Phase 2. AI-augmented labels deferred to a follow-up; no schema change required when added later.
+2. **Track Pattern persistence (was Phase 3 open).** ✅ Dedicated `pattern_subscriptions` table. JSONB on org settings was rejected because it would require array-update gymnastics in the storage layer and break under concurrent writes.
+3. **Ask Ory streaming (was Phase 3 open).** ✅ Non-streaming for v1. Concise responses are <2K tokens (P95 latency under 3s); owl persona state-toggling provides perceived responsiveness. Streaming reconsidered in Phase 6 only if user feedback warrants it.
+4. **Owl PNG vs SVG (was Phase 0 open).** ✅ Optimized SVG primary (~5 KB after SVGO), PNG fallback (~21 KB) for older Safari `mask-image` support. Both shipped in `client/public/orrery/`.
+5. **Galaxy data flow (was implicit).** ✅ New endpoint `/api/dashboard/galaxy?month=YYYY-MM` rather than client-side bucketing. Relaxes the section-1 non-goal but keeps the change small (one route file, one query, no schema migration).
+
+### Remaining open questions
+
+6. **Phase 4 — Clinical lexicon URL scope.** Does the lexicon swap apply to URLs (e.g. `/dashboard` → `/clinical-dashboard` for clinical orgs) or only to UI strings? **Tentative answer:** UI-only; URLs stay stable. Confirm during Phase 4 design review.
+7. **Phase 5 — Light-mode sign-in design.** The prototype's sign-in screen is dark-only; the right-panel orrery preview "breaks in light theme" per the file comment. A light-theme design must be sketched before Phase 5 implementation. **Action:** prepare design artifact during Phase 3 or Phase 4 (any spare cycle), so Phase 5 isn't blocked.
+8. **`clinical-dashboard.tsx` redesign scope.** The plan currently treats it as restyle-only because the App Map shows status "Not yet" (no design). If a dedicated design lands during the rollout window, upgrade to a Phase 4b redesign.
 
 ## 10. Verification checklist (per phase)
 
@@ -392,4 +456,20 @@ For every PR:
 
 ---
 
-**Status:** Plan ready. Phase 0 can start on user approval.
+## 11. Revision history
+
+**Rev 2 (audit response).** Applied 5 substantive findings from plan audit:
+- F-02: `calls-table.tsx` deletion deferred to Phase 2 (transcripts.tsx list mode also consumes it; Phase 1 was going to delete prematurely).
+- F-04: Ask Ory streaming decision locked — non-streaming for v1.
+- F-07: Galaxy gets a small new endpoint (`/api/dashboard/galaxy`) rather than client-side bucketing.
+- F-10: Explicit Recharts `!important` recolor checklist added to Phase 0.
+- F-11: Added `onboarding.tsx`, `reports.tsx`, `invite-accept.tsx`, `not-found.tsx` to restyle-only list.
+
+Plus tightening:
+- F-05, F-06, F-13: Adapter signatures now specify concrete schema fields the adapters read, derived computations, and lens type.
+- F-09: Phase 2 explicitly enforces `react-hooks/rules-of-hooks` on `transcript-viewer.tsx`.
+- F-12: `clinical-dashboard.tsx` scope clarified as restyle-only with upgrade path.
+- §1 non-goals relaxed: limited backend work is in scope (2 new endpoints + 1 new table + 2 org.settings fields).
+- §9 reorganized into "Locked decisions" + "Remaining open questions" for clarity.
+
+**Status:** Plan ready (Rev 2). Phase 0 can start on user approval.
