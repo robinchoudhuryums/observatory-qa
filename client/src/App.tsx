@@ -76,6 +76,13 @@ const LearningPage = lazy(() => import("@/pages/learning"));
 const MarketingPage = lazy(() => import("@/pages/marketing"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
+// Orrery dev showcases — super-admin only, used to QA primitives without
+// having to navigate through the redesigned pages.
+const OrreryComponentsShowcase = lazy(() => import("@/pages/dev/orrery-components"));
+const OrreryOwlShowcase = lazy(() => import("@/pages/dev/orrery-owl"));
+const OrreryRealismShowcase = lazy(() => import("@/pages/dev/orrery-realism"));
+const OrreryTypeLab = lazy(() => import("@/pages/dev/orrery-type-lab"));
+
 function PageLoader() {
   return (
     <div className="flex items-center justify-center h-64">
@@ -495,6 +502,44 @@ function Router() {
                 {() => (
                   <ErrorBoundary>
                     <OnboardingWizard />
+                  </ErrorBoundary>
+                )}
+              </Route>
+              {/* Orrery dev showcases — admin-only. Bench primitives for
+                  visual QA without depending on real call data. */}
+              <Route path="/dev/orrery/components">
+                {() => (
+                  <ErrorBoundary>
+                    <ProtectedRoute minRole="admin">
+                      <OrreryComponentsShowcase />
+                    </ProtectedRoute>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/dev/orrery/owl">
+                {() => (
+                  <ErrorBoundary>
+                    <ProtectedRoute minRole="admin">
+                      <OrreryOwlShowcase />
+                    </ProtectedRoute>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/dev/orrery/realism">
+                {() => (
+                  <ErrorBoundary>
+                    <ProtectedRoute minRole="admin">
+                      <OrreryRealismShowcase />
+                    </ProtectedRoute>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/dev/orrery/type-lab">
+                {() => (
+                  <ErrorBoundary>
+                    <ProtectedRoute minRole="admin">
+                      <OrreryTypeLab />
+                    </ProtectedRoute>
                   </ErrorBoundary>
                 )}
               </Route>

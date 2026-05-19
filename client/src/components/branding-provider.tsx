@@ -45,7 +45,7 @@ function hexToRgb(hex: string): string | null {
   return `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`;
 }
 
-/** All brand-related CSS custom properties we inject. */
+/** All brand-related CSS custom properties we inject per-org. */
 const BRAND_VARS = [
   "--primary",
   "--accent",
@@ -55,19 +55,28 @@ const BRAND_VARS = [
   "--brand-to",
   "--brand-from-rgb",
   "--brand-to-rgb",
+  "--celestial-bright",
+  "--celestial-warm",
 ] as const;
 
 /**
- * Injects CSS custom properties for org-specific branding.
+ * Injects CSS custom properties for org-specific branding into the
+ * documentElement, overriding the default celestial palette set in
+ * `client/src/index.css`.
  *
- * Sets:
- *   --primary / --accent / --ring / --chart-1  → org primaryColor (shadcn theme)
- *   --brand-from / --brand-to                  → gradient endpoints (HSL)
- *   --brand-from-rgb / --brand-to-rgb          → gradient endpoints (RGB, for box-shadow alpha)
+ * The redesign maps the org's `primaryColor` to the *celestial-bright* slot
+ * (the deepest, most saturated point on the celestial ramp — what planets
+ * fade towards as they get hotter), and `secondaryColor` to *celestial-warm*
+ * (the everyday cyan body color). When only `primaryColor` is set, the
+ * provider also drives the shadcn semantic vars (`--primary`, `--accent`,
+ * `--ring`, `--chart-1`) so existing shadcn components track the brand.
  *
- * Defaults (when no branding set — Aurora theme):
- *   --brand-from: violet-600 (#7c3aed)
- *   --brand-to:   cyan-500 (#06b6d4)
+ * Defaults (when no branding configured — celestial cyan):
+ *   bright: #0892a8  (light) / #4dd6e8 (dark — adjusted in index.css)
+ *   warm:   #22b8cf
+ *
+ * The brand gradient pair stays in `--brand-from / --brand-to` for
+ * components that draw gradient buttons or sidebar accents.
  */
 export function BrandingProvider() {
   const { data: org } = useOrganization();
@@ -77,9 +86,9 @@ export function BrandingProvider() {
   useEffect(() => {
     const root = document.documentElement;
 
-    // Always set brand gradient vars (use defaults if no branding configured)
-    const fromHex = primaryColor || "#7c3aed"; // violet-600 aurora default
-    const toHex = secondaryColor || "#06b6d4"; // cyan-500 aurora default
+    // Default celestial palette. Bright = deep cyan, warm = main cyan.
+    const fromHex = primaryColor || "#0892a8";
+    const toHex = secondaryColor || "#22b8cf";
 
     const fromHsl = hexToHsl(fromHex);
     const toHsl = hexToHsl(toHex);
@@ -91,8 +100,11 @@ export function BrandingProvider() {
     if (fromRgb) root.style.setProperty("--brand-from-rgb", fromRgb);
     if (toRgb) root.style.setProperty("--brand-to-rgb", toRgb);
 
-    // Override shadcn theme colors when an explicit primary is set
+    // Celestial palette tracks the brand. `--celestial-bright` is the focal
+    // point of the brightness ramp; setting it here updates planet fills,
+    // KPI accents, and chart-1 simultaneously.
     if (primaryColor) {
+      root.style.setProperty("--celestial-bright", primaryColor);
       const hsl = hexToHsl(primaryColor);
       if (hsl) {
         root.style.setProperty("--primary", `hsl(${hsl})`);
@@ -100,6 +112,9 @@ export function BrandingProvider() {
         root.style.setProperty("--ring", `hsl(${hsl})`);
         root.style.setProperty("--chart-1", `hsl(${hsl})`);
       }
+    }
+    if (secondaryColor) {
+      root.style.setProperty("--celestial-warm", secondaryColor);
     }
 
     return () => {
