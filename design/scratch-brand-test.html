@@ -1,0 +1,64 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>brand test</title>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel" src="directions/observatory-brand.jsx"></script>
+<style>
+  body { margin: 0; background: #f8faff; font-family: 'Inter', system-ui; padding: 40px; }
+  .row { display: flex; align-items: center; gap: 16px; padding: 18px; border-bottom: 0.5px solid #ddd; flex-wrap: wrap; }
+  .lbl { font-family: ui-monospace, monospace; font-size: 11px; color: #888; letter-spacing: 0.14em; text-transform: uppercase; min-width: 200px; }
+  .dark { background: #04081a; color: #fff; padding: 18px; border-radius: 8px; margin-top: 12px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { ObservatoryOwlMark, ObservatoryWordmark, ObservatoryLockup } = window;
+function App() {
+  return (
+    <div>
+      <div className="row">
+        <div className="lbl">Owl mark · sizes</div>
+        <ObservatoryOwlMark size={64} color="#304d55" />
+        <ObservatoryOwlMark size={32} color="#304d55" />
+        <ObservatoryOwlMark size={20} color="#304d55" />
+      </div>
+      <div className="row">
+        <div className="lbl">Wordmark · sizes</div>
+        <ObservatoryWordmark height={48} color="#304d55" />
+        <ObservatoryWordmark height={28} color="#304d55" />
+        <ObservatoryWordmark height={16} color="#304d55" />
+      </div>
+      <div className="row">
+        <div className="lbl">Lockup · sizes</div>
+        <ObservatoryLockup height={40} color="#304d55" />
+        <ObservatoryLockup height={28} color="#304d55" />
+        <ObservatoryLockup height={20} color="#304d55" />
+      </div>
+      <div className="row">
+        <div className="lbl">Lockup · color treatments</div>
+        <ObservatoryLockup height={40} color="#0e1228" />
+        <ObservatoryLockup height={40} color="#0892a8" />
+        <ObservatoryLockup height={40} owlColor="#0892a8" wordColor="#0e1228" />
+      </div>
+      <div className="dark">
+        <div className="row">
+          <div className="lbl" style={{color: '#aaa'}}>Dark · ink</div>
+          <ObservatoryLockup height={32} color="#f3f5fa" />
+        </div>
+        <div className="row">
+          <div className="lbl" style={{color: '#aaa'}}>Dark · accent</div>
+          <ObservatoryLockup height={32} color="#4dd6e8" />
+        </div>
+        <div className="row">
+          <div className="lbl" style={{color: '#aaa'}}>Dark · split</div>
+          <ObservatoryLockup height={32} owlColor="#4dd6e8" wordColor="#f3f5fa" />
+        </div>
+      </div>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

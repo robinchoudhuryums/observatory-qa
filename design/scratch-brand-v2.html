@@ -1,0 +1,97 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>brand v2 test</title>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="directions/observatory-owl-mark-data.js"></script>
+<script type="text/babel" src="directions/observatory-brand.jsx"></script>
+<style>
+  body { margin: 0; background: #04081a; color: #f3f5fa; font-family: 'Inter', system-ui; padding: 40px 60px; }
+  h1 { font-weight: 300; letter-spacing: -0.02em; font-size: 28px; margin: 0 0 4px; }
+  .sub { font-family: ui-monospace, monospace; font-size: 11px; color: #6a7090; letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 32px; }
+  .row { display: flex; align-items: center; gap: 28px; padding: 24px 0; border-bottom: 0.5px solid rgba(255,255,255,0.08); flex-wrap: wrap; }
+  .lbl { font-family: ui-monospace, monospace; font-size: 10px; color: #6a7090; letter-spacing: 0.16em; text-transform: uppercase; min-width: 220px; }
+  .light { background: #f8faff; color: #0e1228; padding: 18px 60px; margin: 32px -60px 0; }
+  .light .lbl { color: #6a7090; }
+  .light .row { border-bottom-color: rgba(20,30,60,0.08); }
+  .accent { color: #c8a96b; }
+  .ink-light { color: #0e1228; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { ObservatoryOwlMark, ObservatoryWordmark, ObservatoryFilledOwl, ObservatoryFilledOwlHead, ObservatoryLockup } = window;
+
+function App() {
+  return (
+    <div>
+      <h1>Brand v2 — line owl (master) + filled owl (persona)</h1>
+      <div className="sub">◇ DARK MODE</div>
+
+      <div className="row">
+        <div className="lbl">Master · line owl · sizes</div>
+        <ObservatoryOwlMark size={80} color="#c8a96b" />
+        <ObservatoryOwlMark size={48} color="#c8a96b" />
+        <ObservatoryOwlMark size={28} color="#c8a96b" />
+        <ObservatoryOwlMark size={18} color="#c8a96b" />
+      </div>
+      <div className="row">
+        <div className="lbl">Master · lockup</div>
+        <ObservatoryLockup height={56} color="#c8a96b" />
+      </div>
+      <div className="row">
+        <div className="lbl">Master · lockup ink</div>
+        <ObservatoryLockup height={32} color="#f3f5fa" />
+      </div>
+
+      <div className="row">
+        <div className="lbl">Persona · filled owl · sizes</div>
+        <ObservatoryFilledOwl size={64} color="#4dd6e8" />
+        <ObservatoryFilledOwl size={32} color="#4dd6e8" />
+        <ObservatoryFilledOwl size={20} color="#4dd6e8" />
+      </div>
+      <div className="row">
+        <div className="lbl">Persona · head-only · sizes</div>
+        <ObservatoryFilledOwlHead size={64} color="#4dd6e8" />
+        <ObservatoryFilledOwlHead size={32} color="#4dd6e8" />
+        <ObservatoryFilledOwlHead size={20} color="#4dd6e8" />
+        <ObservatoryFilledOwlHead size={14} color="#4dd6e8" />
+      </div>
+      <div className="row">
+        <div className="lbl">Comparison · 22px (top-bar size)</div>
+        <span style={{display:'inline-flex',alignItems:'center',gap:10}}>
+          <ObservatoryOwlMark size={22} color="#c8a96b" /><span style={{fontSize:11,color:'#6a7090'}}>line</span>
+        </span>
+        <span style={{display:'inline-flex',alignItems:'center',gap:10}}>
+          <ObservatoryFilledOwl size={22} color="#4dd6e8" /><span style={{fontSize:11,color:'#6a7090'}}>filled · full</span>
+        </span>
+        <span style={{display:'inline-flex',alignItems:'center',gap:10}}>
+          <ObservatoryFilledOwlHead size={22} color="#4dd6e8" /><span style={{fontSize:11,color:'#6a7090'}}>filled · head</span>
+        </span>
+      </div>
+
+      <div className="light">
+        <div className="sub">◇ LIGHT MODE</div>
+        <div className="row">
+          <div className="lbl">Master · lockup</div>
+          <ObservatoryLockup height={48} color="#0e1228" />
+        </div>
+        <div className="row">
+          <div className="lbl">Master · gold accent</div>
+          <ObservatoryLockup height={32} owlColor="#b08c4a" wordColor="#0e1228" />
+        </div>
+        <div className="row">
+          <div className="lbl">Persona · in light</div>
+          <ObservatoryFilledOwl size={32} color="#0892a8" />
+          <ObservatoryFilledOwlHead size={32} color="#0892a8" />
+          <ObservatoryFilledOwlHead size={20} color="#0892a8" />
+          <ObservatoryFilledOwlHead size={14} color="#0892a8" />
+        </div>
+      </div>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>
