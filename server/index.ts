@@ -144,17 +144,25 @@ app.post("/api/auth/reset-password", distributedRateLimit(15 * 60 * 1000, 5) as 
 // Rate limit invitation acceptance: 10 per 15 minutes per IP (prevent token brute-force)
 app.post("/api/invitations/accept", distributedRateLimit(15 * 60 * 1000, 10) as any);
 // HIPAA: Read rate limiting to prevent bulk data exfiltration
-// Org-scoped so one tenant's usage doesn't block another on shared IPs
-app.get("/api/calls", distributedRateLimit(60 * 1000, 100, true) as any);
+// Org-scoped so one tenant's usage doesn't block another on shared IPs.
+// In E2E mode, relax PHI-endpoint limits because the test suite shares
+// localhost as the source IP and accumulates per-minute fetches across
+// dozens of page-load tests. Without this, security.spec.ts assertions
+// that expect 401 on unauthenticated GET /api/calls or /api/employees
+// instead receive 429 from the cumulative load.
+const phiReadLimit = isE2E ? 10000 : 100;
+const phiUseLimit = isE2E ? 10000 : 60;
+const phiDetailLimit = isE2E ? 10000 : 30;
+app.get("/api/calls", distributedRateLimit(60 * 1000, phiReadLimit, true) as any);
 app.post("/api/calls/upload", distributedRateLimit(60 * 1000, 30, true) as any);
 app.use("/api/export", distributedRateLimit(60 * 1000, 10, true) as any);
 app.post("/api/onboarding/rag/search", distributedRateLimit(60 * 1000, 20, true) as any);
 // Tighter limits on individual PHI detail reads (transcript, analysis, sentiment)
-app.get("/api/calls/:id/transcript", distributedRateLimit(60 * 1000, 30, true) as any);
-app.get("/api/calls/:id/analysis", distributedRateLimit(60 * 1000, 30, true) as any);
-app.get("/api/calls/:id/sentiment", distributedRateLimit(60 * 1000, 30, true) as any);
-app.use("/api/calls", distributedRateLimit(60 * 1000, 60, true) as any);
-app.use("/api/employees", distributedRateLimit(60 * 1000, 60, true) as any);
+app.get("/api/calls/:id/transcript", distributedRateLimit(60 * 1000, phiDetailLimit, true) as any);
+app.get("/api/calls/:id/analysis", distributedRateLimit(60 * 1000, phiDetailLimit, true) as any);
+app.get("/api/calls/:id/sentiment", distributedRateLimit(60 * 1000, phiDetailLimit, true) as any);
+app.use("/api/calls", distributedRateLimit(60 * 1000, phiUseLimit, true) as any);
+app.use("/api/employees", distributedRateLimit(60 * 1000, phiUseLimit, true) as any);
 // Tighter limits on clinical/EHR (PHI-heavy endpoints)
 app.use("/api/clinical", distributedRateLimit(60 * 1000, 40, true) as any);
 app.use("/api/ehr", distributedRateLimit(60 * 1000, 20, true) as any);

@@ -59,9 +59,14 @@ export function AskOryFab({ controlledOpen, onOpenChange }: FabProps) {
           data-testid="ask-ory-fab"
           style={{
             position: "fixed",
-            bottom: 20,
+            // Offset upward so we don't overlap the FeedbackWidget (which sits
+            // at bottom-4 right-4 with z-50). Without this offset, the
+            // FeedbackWidget intercepts pointer events targeting the FAB.
+            bottom: 80,
             right: 20,
-            zIndex: 40,
+            // z-index above the FeedbackWidget's z-50 so the FAB stays the
+            // topmost interactive control in the bottom-right corner.
+            zIndex: 60,
             width: 56,
             height: 56,
             borderRadius: 28,
