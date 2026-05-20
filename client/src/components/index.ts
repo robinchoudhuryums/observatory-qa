@@ -3,11 +3,6 @@
 // Layout
 export * from "./layout/sidebar";
 
-// Dashboard
-export * from "./dashboard/metrics-overview";
-export * from "./dashboard/performance-card";
-export * from "./dashboard/sentiment-analysis";
-
 // Tables
 export * from "./tables/calls-table";
 

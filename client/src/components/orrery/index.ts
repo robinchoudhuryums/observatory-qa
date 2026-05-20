@@ -24,3 +24,6 @@ export { OrreryThemeToggle } from "./OrreryThemeToggle";
 
 export * from "./owl";
 export * from "./realism";
+export * from "./viz";
+export * from "./overlays";
+export * from "./shell";
