@@ -71,6 +71,7 @@ const analyticsNav: NavItem[] = [
   { name: "Performance", href: "/performance", icon: RiTeamLine },
   { name: "Reports", href: "/reports", icon: RiArrowRightUpLine },
   { name: "Insights", href: "/insights", icon: RiBuilding2Line },
+  { name: "Galaxy", href: "/galaxy", icon: RiBuilding2Line },
 ];
 
 const managementNav: NavItem[] = [

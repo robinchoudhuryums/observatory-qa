@@ -1412,6 +1412,35 @@ export async function syncSchema(_dbArg: Database): Promise<void> {
       logger.warn({ err: e }, "RLS setup skipped for business_associate_agreements"),
     );
 
+    // ── Pattern subscriptions (Phase 3 of Orrery redesign) ─────────────────
+    //
+    // Managers subscribe to recurring call patterns surfaced by the
+    // /api/insights/clusters service. When the chosen trigger fires (new
+    // instance, 2σ frequency spike, or daily/weekly digest), the manager
+    // gets notified. Notifications themselves live in the existing webhook
+    // pipeline — this table just records the subscription.
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS pattern_subscriptions (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        pattern_key TEXT NOT NULL,
+        pattern_label TEXT,
+        trigger_kind VARCHAR(40) NOT NULL,
+        expires_at TIMESTAMP,
+        created_by TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS pattern_subscriptions_org_pattern_idx ON pattern_subscriptions (org_id, pattern_key)`,
+    );
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS pattern_subscriptions_expires_idx ON pattern_subscriptions (expires_at) WHERE expires_at IS NOT NULL`,
+    );
+    await addRlsPolicy(db, "pattern_subscriptions").catch((e) =>
+      logger.warn({ err: e }, "RLS setup skipped for pattern_subscriptions"),
+    );
+
     // ── One-time data migrations ─────────────────────────────────────────────
     // These use runOnceMigration() to ensure they execute exactly once even
     // across repeated server restarts. Add new one-time migrations here.

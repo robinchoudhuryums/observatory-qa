@@ -9,3 +9,6 @@ export { Orrery } from "./Orrery";
 export { CallArc } from "./CallArc";
 export { ClinicalCallTimeline } from "./ClinicalCallTimeline";
 export { CallList } from "./CallList";
+export { Galaxy } from "./Galaxy";
+export { Constellation } from "./Constellation";
+export { PatternsNetwork } from "./PatternsNetwork";

@@ -1,19 +1,21 @@
 /**
- * Track-pattern popover — stub for Phase 2. Wired to a real
- * `/api/patterns/subscribe` endpoint in Phase 3 once the backend lands.
+ * Track-pattern popover. Wired to /api/patterns/subscribe in Phase 3.
  *
- * For Phase 2 the popover renders, accepts a trigger choice + expiry, and
- * shows a placeholder "feature coming soon" toast on submit. UX is shaped
- * the same so Phase 3 only swaps the submit handler.
+ * UX: manager selects a notification trigger (every new instance, statistical
+ * spike, daily digest, weekly digest) and an expiry window (7d/30d/never).
+ * Submit posts to the backend; toast confirms creation; popover closes.
  *
  * Industry-agnostic — accepts a free-form pattern label rather than a
- * hardcoded set of patterns.
+ * hardcoded set of patterns. Backend stores the patternKey + label so
+ * digest emails read sensibly even if cluster labels shift later.
  */
 import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 import type { Theme } from "../theme";
 import { OrreryTag } from "../OrreryTag";
 
@@ -52,18 +54,55 @@ export function TrackPatternPopover({
   patternLabel,
 }: Props) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [trigger, setTrigger] = useState<Trigger>("new_instance");
   const [expiry, setExpiry] = useState<Expiry>("30d");
 
+  const subscribeMutation = useMutation({
+    mutationFn: async (payload: {
+      patternKey: string;
+      patternLabel: string;
+      triggerKind: Trigger;
+      expiresAt: string | null;
+    }) => {
+      const res = await apiRequest("POST", "/api/patterns/subscribe", payload);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Tracking this pattern",
+        description: `You'll be notified via "${TRIGGERS.find((t) => t.value === trigger)?.label || trigger}".`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/patterns/subscriptions"] });
+      onClose();
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Could not track pattern",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   if (!open) return null;
 
+  /** Convert the popover's relative-time expiry choice into an absolute ISO. */
+  const expiryToIso = (choice: Expiry): string | null => {
+    if (choice === "never") return null;
+    const days = choice === "7d" ? 7 : 30;
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString();
+  };
+
   const submit = () => {
-    // TODO(Phase 3): POST /api/patterns/subscribe with { patternKey, triggerKind: trigger, expiresAt }
-    toast({
-      title: "Pattern tracking — coming in Phase 3",
-      description: `Will alert on "${patternLabel}" via ${TRIGGERS.find((t) => t.value === trigger)?.label || trigger} for ${EXPIRIES.find((e) => e.value === expiry)?.label || expiry}.`,
+    subscribeMutation.mutate({
+      patternKey,
+      patternLabel,
+      triggerKind: trigger,
+      expiresAt: expiryToIso(expiry),
     });
-    onClose();
   };
 
   // Position near the anchor if provided; otherwise center.
@@ -168,8 +207,14 @@ export function TrackPatternPopover({
           <Button variant="outline" size="sm" onClick={onClose} className="flex-1">
             Cancel
           </Button>
-          <Button size="sm" onClick={submit} className="flex-1" data-testid="tp-submit">
-            Track
+          <Button
+            size="sm"
+            onClick={submit}
+            className="flex-1"
+            disabled={subscribeMutation.isPending}
+            data-testid="tp-submit"
+          >
+            {subscribeMutation.isPending ? "Tracking…" : "Track"}
           </Button>
         </div>
       </div>

@@ -9,6 +9,7 @@ import Sidebar from "@/components/layout/sidebar";
 import { FeedbackWidget } from "@/components/feedback-widget";
 import { ErrorBoundary } from "@/components/lib/error-boundary";
 import { BrandingProvider } from "@/components/branding-provider";
+import { AskOryFab } from "@/components/orrery";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { useIdleTimeout } from "@/hooks/use-idle-timeout";
 import { IdleTimeoutOverlay } from "@/components/idle-timeout-overlay";
@@ -42,6 +43,7 @@ function ProtectedRoute({ minRole, children }: { minRole: string; children: Reac
 // Route-level code splitting — each page loads on demand
 const Dashboard = lazy(() => import("@/pages/dashboard"));
 const AtlasCluster = lazy(() => import("@/pages/atlas-cluster"));
+const GalaxyPage = lazy(() => import("@/pages/galaxy"));
 const Upload = lazy(() => import("@/pages/upload"));
 const Transcripts = lazy(() => import("@/pages/transcripts"));
 const PerformancePage = lazy(() => import("@/pages/performance"));
@@ -194,6 +196,7 @@ function Router() {
       <ShortcutsDialog open={showShortcuts} onOpenChange={setShowShortcuts} />
       <Sidebar />
       <FeedbackWidget />
+      <AskOryFab />
       <main className="flex-1 overflow-auto pt-14 md:pt-0">
         <Suspense fallback={<PageLoader />}>
           <AnimatePresence mode="wait">
@@ -212,6 +215,15 @@ function Router() {
                   <ErrorBoundary>
                     <AnimatedPage>
                       <AtlasCluster />
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/galaxy">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <GalaxyPage />
                     </AnimatedPage>
                   </ErrorBoundary>
                 )}

@@ -66,6 +66,82 @@ export type CallTimeline = {
   points: ClinicalTimelinePoint[];
 };
 
+// ─── Galaxy spiral types ─────────────────────────────────────────────────
+
+/** Raw shape returned by GET /api/dashboard/galaxy?month=YYYY-MM. */
+export type GalaxyDayRow = {
+  /** YYYY-MM-DD. */
+  date: string;
+  calls: number;
+  /** Ratio 0-1 of scored calls that scored ≥7. Null if no calls were scored. */
+  closeRate: number | null;
+};
+
+/** Spiral-positioned day, ready to render in the Galaxy view. */
+export type GalaxyDay = {
+  /** Day of month (1-31). */
+  day: number;
+  /** YYYY-MM-DD. */
+  date: string;
+  calls: number;
+  closeRate: number | null;
+  /** Spiral x coord (viewBox units). */
+  px: number;
+  /** Spiral y coord (viewBox units, isometric-projected). */
+  py: number;
+  /** Planet radius (log-scale of count). */
+  sz: number;
+  /** Brightness 0-1 from closeRate, falls back to mid when null. */
+  br: number;
+  weekend: boolean;
+  /** Today's planet — gets the ring overlay. */
+  anchor: boolean;
+};
+
+// ─── Constellation (pattern) types ───────────────────────────────────────
+
+/** Pattern color band — drives constellation node tint + sidebar accents. */
+export type PatternColor = "bright" | "warm" | "cool" | "cold" | "amber" | "red" | "green";
+
+export type ConstellationNode = {
+  /** Stable key — derived from the topic term. */
+  key: string;
+  label: string;
+  /** Frequency within the cluster, 0-1. */
+  weight: number;
+  /** Node radius in viewBox units. */
+  sz: number;
+  px: number;
+  py: number;
+};
+
+export type ConstellationEdge = {
+  fromKey: string;
+  toKey: string;
+  /** Edge weight 0-1 — drives stroke opacity. */
+  weight: number;
+};
+
+export type Constellation = {
+  /** Stable id — cluster id from the backend. */
+  id: string;
+  /** Display label (e.g. "Insurance verification"). */
+  label: string;
+  /** Headline stat shown in the sidebar (e.g. "+18% vs prior week"). */
+  stat: string;
+  /** Cluster trend — drives the color. */
+  trend: "rising" | "stable" | "declining";
+  color: PatternColor;
+  /** Total occurrences in the analysis window. */
+  occurrences: number;
+  /** Call ids that contribute to the cluster — for evidence drilldown. */
+  callIds: string[];
+  /** Optional short summary from the cluster service. */
+  summary?: string;
+  nodes: ConstellationNode[];
+  edges: ConstellationEdge[];
+};
+
 /**
  * Maximum planets the Atlas renders. Beyond this, the lowest-volume groups
  * collapse into a single "Other" planet. Matches the prototype's visual budget
@@ -701,6 +777,185 @@ function makeEvenMoments(
     });
   }
   return moments;
+}
+
+// ─── Galaxy: map day rows to spiral positions ────────────────────────────
+
+/**
+ * Position each day on a logarithmic spiral, innermost at day 1, outermost
+ * at the last day of the month. Inspired by `directions/orrery-galaxy.jsx`.
+ *
+ * Brightness comes from closeRate (deeper cyan = more wins). Days without
+ * scored calls (closeRate null) get a mid-ramp brightness so they're still
+ * visible but read as "we don't know yet". Weekends are dimmed via the
+ * `weekend` flag (Galaxy viz uses this to draw at 50% opacity).
+ *
+ * The `anchor` flag highlights today's planet when the input month matches
+ * the current month. Other months don't get an anchor.
+ */
+export function dayBucketsToGalaxy(
+  rows: GalaxyDayRow[],
+  options: { now?: Date } = {},
+): GalaxyDay[] {
+  if (rows.length === 0) return [];
+  const now = options.now || new Date();
+  const todayKey = now.toISOString().slice(0, 10);
+
+  // Sort by date ascending (the endpoint already sorts, but be defensive).
+  const sorted = [...rows].sort((a, b) => a.date.localeCompare(b.date));
+  const total = sorted.length;
+
+  return sorted.map((row, i) => {
+    // Spiral: angle increases by ~108° per step (golden-ish), radius grows
+    // logarithmically so inner days are tightly packed and outer days spread.
+    const t = i / Math.max(total - 1, 1);
+    const angle = i * 1.88; // ~108° per step in radians
+    const radius = 8 + Math.log(1 + t * 9) * 12;
+    const px = Math.cos(angle) * radius;
+    const py = Math.sin(angle) * radius * TILT;
+
+    // Size: log of call count, clamped to [0.6, 2.6].
+    const sz = row.calls === 0 ? 0.4 : Math.max(0.6, Math.min(2.6, 0.6 + Math.log10(row.calls + 1) * 1.4));
+
+    // Brightness from closeRate. Null → 0.45 (mid-low — readable, but not
+    // claiming a strong outcome).
+    const br =
+      row.closeRate === null
+        ? 0.45
+        : Math.max(0.05, Math.min(1, row.closeRate));
+
+    const d = new Date(`${row.date}T00:00:00Z`);
+    const dow = d.getUTCDay(); // 0 = Sunday, 6 = Saturday
+    const weekend = dow === 0 || dow === 6;
+    const day = parseInt(row.date.slice(8, 10), 10);
+
+    return {
+      day,
+      date: row.date,
+      calls: row.calls,
+      closeRate: row.closeRate,
+      px,
+      py,
+      sz,
+      br,
+      weekend,
+      anchor: row.date === todayKey,
+    };
+  });
+}
+
+// ─── Constellations: map clusters to pattern visualizations ──────────────
+
+/** Maximum nodes per constellation. Keeps the viz readable. */
+const MAX_CONSTELLATION_NODES = 6;
+
+type ClusterLike = {
+  id: string;
+  label: string;
+  topics?: unknown;
+  callCount?: number;
+  callIds?: unknown;
+  avgScore?: number | null;
+  trend?: string;
+  recentCallIds?: unknown;
+};
+
+/**
+ * Map TopicCluster[] (from /api/insights/clusters) to Constellation[] (the
+ * shape the viz needs).
+ *
+ * Algorithm:
+ *   1. Pick up to MAX_CONSTELLATION_NODES topics per cluster, weighted by
+ *      cluster.callCount and the topic's order (first topic = primary).
+ *   2. Connect each node to the primary node ("hub-and-spoke" baseline),
+ *      with thinner edges between secondary nodes that co-occur often.
+ *   3. Position nodes in a constellation layout — hub at center, spokes
+ *      arranged on a circle.
+ *   4. Color from trend: rising → bright, stable → warm, declining → amber.
+ *   5. Stat line: human-readable summary of trend + count.
+ *
+ * Industry-agnostic — topic terms come from the org's own analysis output;
+ * nothing dental-specific is assumed.
+ */
+export function patternsToConstellations(clusters: ClusterLike[]): Constellation[] {
+  return clusters
+    .filter((c) => c && c.id && Array.isArray(c.topics))
+    .map((cluster) => {
+      const topics = (cluster.topics as unknown[]).filter(
+        (t): t is string => typeof t === "string" && t.trim().length > 0,
+      );
+      const nodes = topicsToNodes(topics);
+      const edges = nodesToEdges(nodes);
+
+      const trend: "rising" | "stable" | "declining" =
+        cluster.trend === "rising" || cluster.trend === "declining" ? cluster.trend : "stable";
+      const color: PatternColor =
+        trend === "rising" ? "bright" : trend === "declining" ? "amber" : "warm";
+
+      const occurrences = typeof cluster.callCount === "number" ? cluster.callCount : 0;
+      const trendVerb =
+        trend === "rising"
+          ? "Rising"
+          : trend === "declining"
+            ? "Declining"
+            : "Stable";
+      const stat = `${trendVerb} · ${occurrences} ${occurrences === 1 ? "call" : "calls"}`;
+
+      const callIds = Array.isArray(cluster.callIds) ? (cluster.callIds as string[]) : [];
+
+      return {
+        id: cluster.id,
+        label: cluster.label,
+        stat,
+        trend,
+        color,
+        occurrences,
+        callIds,
+        nodes,
+        edges,
+      };
+    });
+}
+
+function topicsToNodes(topics: string[]): ConstellationNode[] {
+  if (topics.length === 0) return [];
+  const trimmed = topics.slice(0, MAX_CONSTELLATION_NODES);
+  // First topic = hub at center; remaining laid out on a ring.
+  return trimmed.map((topic, i) => {
+    const key = topic.toLowerCase().replace(/\s+/g, "_");
+    if (i === 0) {
+      return { key, label: topic, weight: 1, sz: 1.6, px: 0, py: 0 };
+    }
+    const angle = ((i - 1) / Math.max(trimmed.length - 1, 1)) * Math.PI * 2;
+    const radius = 9;
+    return {
+      key,
+      label: topic,
+      weight: 1 - i / trimmed.length,
+      sz: 1.0,
+      px: Math.cos(angle) * radius,
+      py: Math.sin(angle) * radius * TILT,
+    };
+  });
+}
+
+function nodesToEdges(nodes: ConstellationNode[]): ConstellationEdge[] {
+  if (nodes.length < 2) return [];
+  const hub = nodes[0];
+  // Hub-and-spoke: every non-hub node connects to the hub.
+  const edges: ConstellationEdge[] = [];
+  for (let i = 1; i < nodes.length; i++) {
+    edges.push({ fromKey: hub.key, toKey: nodes[i].key, weight: 0.8 - i * 0.08 });
+  }
+  // Secondary ring edges between adjacent non-hub nodes — thin, suggest
+  // co-occurrence. Cycles around so the last node connects back to first.
+  if (nodes.length >= 4) {
+    for (let i = 1; i < nodes.length; i++) {
+      const j = i === nodes.length - 1 ? 1 : i + 1;
+      edges.push({ fromKey: nodes[i].key, toKey: nodes[j].key, weight: 0.25 });
+    }
+  }
+  return edges;
 }
 
 // Re-export TILT so the dashboard doesn't need a second orrery import.

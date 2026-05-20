@@ -6,3 +6,4 @@
 export { DayReplay } from "./DayReplay";
 export { CoachThisCallPanel } from "./CoachThisCallPanel";
 export { TrackPatternPopover } from "./TrackPatternPopover";
+export { AskOryFab, AskOryPanel } from "./AskOry";

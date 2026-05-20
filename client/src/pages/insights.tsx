@@ -1,373 +1,295 @@
+import { useMemo, useState, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { HelpTip } from "@/components/ui/help-tip";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Link } from "wouter";
 import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  Cell,
-  Legend,
-} from "recharts";
+  Constellation,
+  PatternsNetwork,
+  OrreryCard,
+  OrreryKpi,
+  OrreryTag,
+  TrackPatternPopover,
+  useOrreryTheme,
+} from "@/components/orrery";
 import {
-  RiBuilding2Line,
-  RiArrowRightDownLine,
-  RiAlertLine,
-  RiBarChartBoxLine,
-  RiChat1Line,
-  RiShieldFlashLine,
-  RiFileDownloadLine,
-  RiUploadLine,
-} from "@remixicon/react";
-import { EmptyState } from "@/components/ui/empty-state";
+  patternsToConstellations,
+  type Constellation as ConstellationData,
+} from "@/lib/orrery-adapters";
+import { usePresentation } from "@/hooks/use-presentation";
+import { RiArrowRightSLine, RiHomeLine, RiBellLine } from "@remixicon/react";
 
-interface InsightsData {
-  totalAnalyzed: number;
-  topTopics: Array<{ topic: string; count: number }>;
-  topComplaints: Array<{ topic: string; count: number }>;
-  escalationPatterns: Array<{ summary: string; callId: string; date: string; score: number }>;
-  weeklyTrend: Array<{ week: string; positive: number; neutral: number; negative: number; total: number }>;
-  lowConfidenceCalls: Array<{ callId: string; date: string; confidence: number; employee: string }>;
-  summary: {
-    avgScore: number;
-    negativeCallRate: number;
-    escalationRate: number;
-  };
-}
-
+/**
+ * Patterns view — recurring topic clusters across the org's recent calls.
+ * Rewritten from the prior insights page as part of Phase 3.
+ *
+ * Each cluster (from /api/insights/clusters) becomes a constellation. The
+ * sidebar lists patterns; clicking a pattern highlights its constellation
+ * and shows evidence calls. Managers can subscribe to a pattern via the
+ * TrackPatternPopover.
+ *
+ * Clinical-mode swap (observatory → clinical): Constellation → PatternsNetwork.
+ * Lexicon: "patterns" → "trends", "constellation" → "pattern".
+ *
+ * Industry-agnostic — topic terms come from the org's own
+ * /api/insights/clusters output. Nothing dental-specific.
+ */
 export default function InsightsPage() {
-  const {
-    data: insights,
-    isLoading,
-    error,
-  } = useQuery<InsightsData>({
-    queryKey: ["/api/insights"],
-    retry: 1,
+  const t = useOrreryTheme();
+  const [, navigate] = useLocation();
+  const { isClinical, lex } = usePresentation();
+
+  // Days window — 30 by default; users can switch to 7 or 90.
+  const [days, setDays] = useState<7 | 30 | 90>(30);
+
+  const { data: response, isLoading } = useQuery<{
+    clusters: Array<{
+      id: string;
+      label: string;
+      topics: string[];
+      callCount: number;
+      callIds: string[];
+      avgScore: number | null;
+      trend: "rising" | "stable" | "declining";
+    }>;
+    totalClusters: number;
+  }>({
+    queryKey: ["/api/insights/clusters", { days }],
+    staleTime: 60_000,
   });
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen">
-        <header className="bg-card border-b border-border px-6 py-4">
-          <h2 className="text-2xl font-bold text-foreground">Company Insights</h2>
-          <p className="text-muted-foreground">Loading...</p>
-        </header>
-        <div className="p-6 space-y-6">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Card key={i}>
-              <CardContent className="pt-6">
-                <Skeleton className="h-48 w-full" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
-    );
-  }
+  const patterns: ConstellationData[] = useMemo(
+    () => patternsToConstellations(response?.clusters ?? []),
+    [response],
+  );
 
-  if (error || !insights || insights.totalAnalyzed === 0) {
-    return (
-      <div className="min-h-screen">
-        <header className="bg-card border-b border-border px-6 py-4">
-          <h2 className="text-2xl font-bold text-foreground">Company Insights</h2>
-          <p className="text-muted-foreground">Trends and patterns across all calls</p>
-        </header>
-        <div className="p-6">
-          <EmptyState
-            icon={RiBuilding2Line}
-            title="No insights yet"
-            description="Upload and process calls to see company-wide trends, complaint patterns, and process improvement opportunities."
-            action={{ label: "Upload your first call", href: "/upload", icon: RiUploadLine }}
-          />
-        </div>
-      </div>
-    );
-  }
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedPattern = useMemo(
+    () => patterns.find((p) => p.id === selectedId) ?? patterns[0] ?? null,
+    [patterns, selectedId],
+  );
+
+  const [trackAnchor, setTrackAnchor] = useState<DOMRect | null>(null);
+  const trackTriggerRef = useRef<HTMLButtonElement>(null);
+  const [trackOpen, setTrackOpen] = useState(false);
+
+  const kpis = useMemo(() => {
+    const rising = patterns.filter((p) => p.trend === "rising").length;
+    const declining = patterns.filter((p) => p.trend === "declining").length;
+    const totalOccurrences = patterns.reduce((s, p) => s + p.occurrences, 0);
+    return {
+      total: patterns.length,
+      rising,
+      declining,
+      totalOccurrences,
+    };
+  }, [patterns]);
 
   return (
     <div className="min-h-screen" data-testid="insights-page">
-      <header className="bg-card border-b border-border px-6 py-4">
+      <header className="dashboard-header px-6 py-4">
+        <nav className="flex items-center text-sm text-muted-foreground mb-2">
+          <Link href="/" className="hover:text-foreground transition-colors">
+            <RiHomeLine className="w-4 h-4" />
+          </Link>
+          <RiArrowRightSLine className="w-3 h-3 mx-2" />
+          <span className="text-foreground font-medium">{lex("Patterns")}</span>
+        </nav>
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
-              Company Insights
-              <HelpTip text="AI-aggregated patterns across all your calls: recurring complaints, top topics, sentiment trends, and process improvement opportunities. Insights update automatically as new calls are analyzed." />
+            <OrreryTag t={t}>
+              ◇ LAST {days} DAYS · {kpis.total} {lex("Patterns").toUpperCase()}
+            </OrreryTag>
+            <h2
+              className="text-2xl font-semibold mt-1"
+              style={{
+                fontFamily: "'Instrument Serif', Georgia, serif",
+                fontStyle: "italic",
+                color: t.ink,
+                letterSpacing: "-0.02em",
+              }}
+            >
+              {isClinical ? "Recurring trends in your calls." : "Constellations forming in the sky."}
             </h2>
-            <p className="text-muted-foreground">
-              Customer experience trends, complaint patterns, and process improvement opportunities across{" "}
-              {insights.totalAnalyzed} analyzed calls
-            </p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              const link = document.createElement("a");
-              link.href = "/api/export/insights";
-              link.download = "";
-              link.click();
-            }}
-          >
-            <RiFileDownloadLine className="w-4 h-4 mr-1.5" />
-            Export CSV
-          </Button>
+          <div className="flex items-center gap-1">
+            {([7, 30, 90] as const).map((d) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => setDays(d)}
+                data-testid={`patterns-days-${d}`}
+                className="px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
+                style={{
+                  background: days === d ? t.bright : "transparent",
+                  color: days === d ? "#fff" : t.inkSoft,
+                  border: `0.5px solid ${days === d ? t.bright : t.panelBorder}`,
+                }}
+                aria-pressed={days === d}
+              >
+                {d} days
+              </button>
+            ))}
+          </div>
         </div>
       </header>
 
       <div className="p-6 space-y-6">
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card className="border-l-4 border-l-blue-500">
-            <CardContent className="pt-6">
-              <p className="text-sm text-muted-foreground">Average Performance</p>
-              <p className="text-3xl font-bold text-foreground">{insights.summary.avgScore.toFixed(1)}/10</p>
-            </CardContent>
-          </Card>
-          <Card className="border-l-4 border-l-red-500">
-            <CardContent className="pt-6">
-              <p className="text-sm text-muted-foreground">Negative Call Rate</p>
-              <p className="text-3xl font-bold text-foreground">
-                {(insights.summary.negativeCallRate * 100).toFixed(1)}%
-              </p>
-              <p className="text-xs text-muted-foreground">of calls have negative sentiment</p>
-            </CardContent>
-          </Card>
-          <Card className="border-l-4 border-l-amber-500">
-            <CardContent className="pt-6">
-              <p className="text-sm text-muted-foreground">Escalation Rate</p>
-              <p className="text-3xl font-bold text-foreground">
-                {(insights.summary.escalationRate * 100).toFixed(1)}%
-              </p>
-              <p className="text-xs text-muted-foreground">of calls scored 4.0 or below</p>
-            </CardContent>
-          </Card>
+        {/* KPI strip */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <OrreryKpi t={t} label={`${lex("Patterns")} found`} value={kpis.total} accentRamp="bright" />
+          <OrreryKpi t={t} label="Rising" value={kpis.rising} accentRamp="warm" />
+          <OrreryKpi t={t} label="Declining" value={kpis.declining} accentRamp="amber" />
+          <OrreryKpi t={t} label="Total occurrences" value={kpis.totalOccurrences} accentRamp="cool" />
         </div>
 
-        {/* Weekly Sentiment Trend */}
-        {insights.weeklyTrend.length > 1 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <RiArrowRightDownLine className="w-5 h-5 text-muted-foreground" />
-                Customer Sentiment Over Time
-              </CardTitle>
-              <CardDescription>Weekly breakdown of positive, neutral, and negative calls</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={280}>
-                <AreaChart data={insights.weeklyTrend}>
-                  <defs>
-                    <linearGradient id="insGreen" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="insGray" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#94a3b8" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#94a3b8" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="insRed" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis dataKey="week" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-                  <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "hsl(var(--card))",
-                      border: "1px solid hsl(var(--border))",
-                      fontSize: 12,
-                    }}
-                  />
-                  <Legend />
-                  <Area
-                    type="monotone"
-                    dataKey="positive"
-                    name="Positive"
-                    stackId="s"
-                    stroke="#22c55e"
-                    fill="url(#insGreen)"
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="neutral"
-                    name="Neutral"
-                    stackId="s"
-                    stroke="#94a3b8"
-                    fill="url(#insGray)"
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="negative"
-                    name="Negative"
-                    stackId="s"
-                    stroke="#ef4444"
-                    fill="url(#insRed)"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-        )}
+        {/* Constellation hero + sidebar */}
+        {isLoading && !response ? (
+          <OrreryCard t={t}>
+            <div style={{ padding: 48, color: t.inkSoft, textAlign: "center" }}>
+              Looking for {lex("patterns").toLowerCase()}…
+            </div>
+          </OrreryCard>
+        ) : patterns.length === 0 ? (
+          <OrreryCard t={t}>
+            <div style={{ padding: 32, textAlign: "center" }}>
+              <OrreryTag t={t}>◇ NO {lex("PATTERNS").toUpperCase()} YET</OrreryTag>
+              <div
+                style={{
+                  fontFamily: "'Instrument Serif', Georgia, serif",
+                  fontStyle: "italic",
+                  fontSize: 22,
+                  color: t.ink,
+                  marginTop: 8,
+                }}
+              >
+                The sky is forming.
+              </div>
+              <p style={{ color: t.inkSoft, marginTop: 8, fontSize: 13, maxWidth: 480, margin: "8px auto 0" }}>
+                {lex("Patterns")} emerge once your team has ~14 days of call data with consistent topics. Check back as
+                more calls complete.
+              </p>
+            </div>
+          </OrreryCard>
+        ) : selectedPattern ? (
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4">
+            <OrreryCard t={t} padded={false} style={{ overflow: "hidden" }}>
+              {isClinical ? (
+                <PatternsNetwork t={t} pattern={selectedPattern} />
+              ) : (
+                <Constellation t={t} pattern={selectedPattern} />
+              )}
+            </OrreryCard>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Top Complaint Topics */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <RiAlertLine className="w-5 h-5 text-red-500" />
-                Top Complaint Topics
-              </CardTitle>
-              <CardDescription>Most frequent topics in negative-sentiment calls</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {insights.topComplaints.length > 0 ? (
-                <div className="space-y-2">
-                  {insights.topComplaints.slice(0, 10).map((item, i) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <span className="text-xs text-muted-foreground w-5">{i + 1}.</span>
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between mb-0.5">
-                          <span className="text-sm font-medium">{item.topic}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {item.count} call{item.count > 1 ? "s" : ""}
-                          </span>
-                        </div>
-                        <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-gradient-to-r from-red-500 to-orange-400"
-                            style={{
-                              width: `${Math.min((item.count / (insights.topComplaints[0]?.count || 1)) * 100, 100)}%`,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+            <div className="space-y-3">
+              <OrreryCard t={t}>
+                <OrreryTag
+                  t={t}
+                  color={
+                    selectedPattern.trend === "rising"
+                      ? t.bright
+                      : selectedPattern.trend === "declining"
+                        ? t.amber
+                        : t.warm
+                  }
+                >
+                  ◇ {selectedPattern.stat.toUpperCase()}
+                </OrreryTag>
+                <div
+                  style={{
+                    fontFamily: "'Instrument Serif', Georgia, serif",
+                    fontStyle: "italic",
+                    fontSize: 22,
+                    color: t.ink,
+                    marginTop: 4,
+                    lineHeight: 1.2,
+                  }}
+                >
+                  {selectedPattern.label}
                 </div>
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-8">No complaint patterns detected yet</p>
-              )}
-            </CardContent>
-          </Card>
+                {selectedPattern.nodes.length > 0 && (
+                  <div className="mt-3 text-xs text-muted-foreground">
+                    <span className="font-mono uppercase tracking-wider">Topics:</span>{" "}
+                    {selectedPattern.nodes.map((n) => n.label).join(" · ")}
+                  </div>
+                )}
+                <div className="mt-4 flex gap-2">
+                  <Button
+                    ref={trackTriggerRef}
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => {
+                      setTrackAnchor(trackTriggerRef.current?.getBoundingClientRect() ?? null);
+                      setTrackOpen(true);
+                    }}
+                    data-testid="track-pattern-trigger"
+                  >
+                    <RiBellLine className="w-4 h-4 mr-1.5" />
+                    Track this {lex("pattern")}
+                  </Button>
+                  {selectedPattern.callIds.length > 0 && (
+                    <Button
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => navigate(`/transcripts?cluster=${encodeURIComponent(selectedPattern.id)}`)}
+                    >
+                      View {selectedPattern.callIds.length} calls
+                    </Button>
+                  )}
+                </div>
+              </OrreryCard>
 
-          {/* Most Common Topics Overall */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <RiBarChartBoxLine className="w-5 h-5 text-blue-500" />
-                Most Common Call Topics
-              </CardTitle>
-              <CardDescription>Topics discussed most frequently across all calls</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {insights.topTopics.length > 0 ? (
-                <ResponsiveContainer width="100%" height={250}>
-                  <BarChart data={insights.topTopics.slice(0, 8)} layout="vertical" margin={{ left: 80 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis type="number" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                    <YAxis
-                      dataKey="topic"
-                      type="category"
-                      tick={{ fontSize: 11 }}
-                      stroke="hsl(var(--muted-foreground))"
-                      width={80}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "hsl(var(--card))",
-                        border: "1px solid hsl(var(--border))",
-                        fontSize: 12,
-                      }}
-                    />
-                    <Bar dataKey="count" name="Calls" radius={[0, 4, 4, 0]}>
-                      {insights.topTopics.slice(0, 8).map((_, idx) => (
-                        <Cell key={idx} fill={`hsl(${210 + idx * 15}, 60%, ${50 + idx * 3}%)`} />
+              {/* Other patterns list. */}
+              {patterns.length > 1 && (
+                <OrreryCard t={t}>
+                  <OrreryTag t={t}>◇ OTHER {lex("PATTERNS").toUpperCase()}</OrreryTag>
+                  <div className="mt-3 space-y-1.5">
+                    {patterns
+                      .filter((p) => p.id !== selectedPattern.id)
+                      .slice(0, 8)
+                      .map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setSelectedId(p.id)}
+                          className="w-full text-left p-2 rounded-md hover:bg-accent/30 transition-colors"
+                          data-testid={`patterns-item-${p.id}`}
+                          style={{ background: "transparent" }}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium truncate" style={{ color: t.ink }}>
+                              {p.label}
+                            </span>
+                            <span
+                              className="text-xs ml-2 flex-shrink-0"
+                              style={{
+                                color:
+                                  p.trend === "rising" ? t.green : p.trend === "declining" ? t.red : t.inkSoft,
+                              }}
+                            >
+                              {p.trend === "rising" ? "↑" : p.trend === "declining" ? "↓" : "→"} {p.occurrences}
+                            </span>
+                          </div>
+                        </button>
                       ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-8">No topics detected yet</p>
+                  </div>
+                </OrreryCard>
               )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Escalation Patterns */}
-        {insights.escalationPatterns.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <RiShieldFlashLine className="w-5 h-5 text-amber-500" />
-                Recent Escalations & Low-Score Calls
-              </CardTitle>
-              <CardDescription>
-                Calls scoring 4.0 or below — potential process improvement opportunities
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {insights.escalationPatterns.slice(0, 10).map((esc, i) => (
-                  <Link key={i} href={`/transcripts/${esc.callId}`}>
-                    <div className="flex items-start gap-3 p-3 rounded-md hover:bg-muted/50 cursor-pointer transition-colors">
-                      <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 shrink-0">
-                        {esc.score.toFixed(1)}
-                      </Badge>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-foreground line-clamp-2">{esc.summary}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {esc.date ? new Date(esc.date).toLocaleDateString() : ""}
-                        </p>
-                      </div>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Low Confidence Calls */}
-        {insights.lowConfidenceCalls.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <RiChat1Line className="w-5 h-5 text-yellow-500" />
-                Low Confidence Analyses
-              </CardTitle>
-              <CardDescription>These calls may need manual review — AI confidence is below 70%</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {insights.lowConfidenceCalls.map((call, i) => (
-                  <Link key={i} href={`/transcripts/${call.callId}`}>
-                    <div className="flex items-center gap-3 p-2 rounded-md hover:bg-muted/50 cursor-pointer transition-colors">
-                      <Badge variant="outline" className="shrink-0">
-                        {(call.confidence * 100).toFixed(0)}%
-                      </Badge>
-                      <span className="text-sm text-foreground">{call.employee}</span>
-                      <span className="text-xs text-muted-foreground ml-auto">
-                        {call.date ? new Date(call.date).toLocaleDateString() : ""}
-                      </span>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
+            </div>
+          </div>
+        ) : null}
       </div>
+
+      {selectedPattern && (
+        <TrackPatternPopover
+          t={t}
+          open={trackOpen}
+          onClose={() => setTrackOpen(false)}
+          anchorRect={trackAnchor}
+          patternKey={selectedPattern.id}
+          patternLabel={selectedPattern.label}
+        />
+      )}
     </div>
   );
 }
