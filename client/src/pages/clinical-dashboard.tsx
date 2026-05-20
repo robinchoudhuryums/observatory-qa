@@ -28,6 +28,10 @@ import {
   RiUploadLine,
   RiInputMethodLine,
 } from "@remixicon/react";
+// Orrery — Phase 4 workbench tier. Light celestial chrome only (tag +
+// italic title); doesn't replace the existing KPI cards or charts.
+import { OrreryTag, useOrreryTheme } from "@/components/orrery";
+import { usePresentation } from "@/hooks/use-presentation";
 import {
   BarChart,
   Bar,
@@ -136,6 +140,8 @@ async function apiPost(url: string, body?: unknown) {
 
 export default function ClinicalDashboardPage() {
   const [, navigate] = useLocation();
+  const orreryTheme = useOrreryTheme();
+  const { lex: clinicalLex } = usePresentation();
   const queryClient = useQueryClient();
   const [templateSearch, setTemplateSearch] = useState("");
 
@@ -218,15 +224,23 @@ export default function ClinicalDashboardPage() {
   }));
 
   return (
-    <div className="p-4 md:p-6 space-y-6">
-      {/* Header */}
+    <div className="p-4 md:p-6 space-y-6" data-testid="clinical-dashboard">
+      {/* Header — workbench tier celestial chrome (Phase 4 redesign). */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <div className="flex items-center gap-3">
-            <RiStethoscopeLine className="w-6 h-6 text-primary" />
-            <h1 className="text-2xl font-bold text-foreground">Clinical Dashboard</h1>
-          </div>
-          <p className="text-muted-foreground mt-1">
+          <OrreryTag t={orreryTheme}>◇ {clinicalLex("CLINICAL")} WORKBENCH</OrreryTag>
+          <h1
+            className="text-2xl mt-1"
+            style={{
+              fontFamily: "'Instrument Serif', Georgia, serif",
+              fontStyle: "italic",
+              color: orreryTheme.ink,
+              letterSpacing: "-0.02em",
+            }}
+          >
+            Documentation in orbit.
+          </h1>
+          <p className="text-muted-foreground mt-1 text-sm">
             Documentation quality, attestation tracking, and AI style learning.
             {metricsRefetching && <span className="ml-2 text-xs text-muted-foreground animate-pulse">Updating...</span>}
           </p>

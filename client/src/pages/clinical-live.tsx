@@ -479,8 +479,17 @@ export default function ClinicalLivePage() {
         {/* Header with controls */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
+            {/* Active listening pulse — celestial chrome added in Phase 4.
+                During active recording, a softly pulsing dot sits next to
+                the "Recording" label as a brand-aligned alternative to the
+                generic red dot. Paused state stays amber for accessibility
+                contrast (matches the existing pattern). */}
             <div className="flex items-center gap-2">
-              <div className={`w-3 h-3 rounded-full ${isPaused ? "bg-amber-500" : "bg-red-500 animate-pulse"}`} />
+              {isPaused ? (
+                <div className="w-3 h-3 rounded-full bg-amber-500" />
+              ) : (
+                <ActiveListeningPulse />
+              )}
               <span className="text-lg font-semibold">{isPaused ? "Paused" : "Recording"}</span>
             </div>
             <Badge variant="outline" className="text-lg px-3 py-1">
@@ -734,5 +743,30 @@ function DraftNoteView({ note }: { note: ClinicalNote }) {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Celestial "active listening" pulse — a softly throbbing planet in the
+ * celestial warm color. Used during active recording. Pure SVG with SMIL
+ * animations so the pulse keeps running even when JS is idle. Respects
+ * prefers-reduced-motion via the global utility from index.css.
+ */
+function ActiveListeningPulse() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="-7 -7 14 14"
+      role="img"
+      aria-label="Recording"
+      style={{ display: "inline-block", verticalAlign: "middle" }}
+    >
+      <circle cx="0" cy="0" r="5" fill="var(--celestial-warm)" opacity="0.3">
+        <animate attributeName="r" values="4;6;4" dur="1.6s" repeatCount="indefinite" />
+        <animate attributeName="opacity" values="0.18;0.42;0.18" dur="1.6s" repeatCount="indefinite" />
+      </circle>
+      <circle cx="0" cy="0" r="3" fill="var(--celestial-bright)" opacity="0.95" />
+    </svg>
   );
 }

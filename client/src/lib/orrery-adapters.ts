@@ -779,6 +779,118 @@ function makeEvenMoments(
   return moments;
 }
 
+// ─── Coaching: per-agent mini-orrery types ────────────────────────────────
+
+export type CoachingAgent = {
+  /** Employee id (stable key for React lists + drilldown). */
+  id: string;
+  name: string;
+  role: string | null;
+  /** 0-1, drives planet brightness. From avgPerformanceScore / 10. */
+  brightness: number;
+  /** Average performance score 0-10 (raw). Null if no calls scored yet. */
+  avgScore: number | null;
+  /** Number of completed calls in the lookback window. */
+  callCount: number;
+  /** Has at least one active coaching session. */
+  hasActiveSession: boolean;
+  /** Has at least one call flagged for coaching (low_score / agent_misconduct). */
+  flagged: boolean;
+  /** Has at least one call flagged as exceptional. */
+  exceptional: boolean;
+};
+
+type CoachingSessionLike = {
+  employeeId?: string;
+  status?: string;
+};
+
+type PerformerLike = {
+  id: string;
+  name: string;
+  role?: string;
+  avgPerformanceScore?: number | null;
+  totalCalls?: number;
+};
+
+type EmployeeLike = {
+  id: string;
+  name: string;
+  role?: string;
+  status?: string;
+};
+
+/**
+ * Build per-agent mini-orrery data from real /api/performance,
+ * /api/employees, /api/coaching responses.
+ *
+ * Returns one CoachingAgent per active employee. Employees who appear in
+ * performance results get their scores; those who don't (no calls yet)
+ * still appear with avgScore=null and brightness mid-ramp.
+ *
+ * Industry-agnostic — no assumptions about role names or call types. Works
+ * the same for a dental practice, contact center, or law firm.
+ */
+export function agentsToCoachingSystems(
+  employees: EmployeeLike[],
+  performers: PerformerLike[],
+  sessions: CoachingSessionLike[],
+  callsWithDetails: Array<{
+    employeeId?: string | null;
+    analysis?: { flags?: unknown } | null;
+  }>,
+): CoachingAgent[] {
+  const performerById = new Map(performers.map((p) => [p.id, p]));
+  // Active session = anything not completed/dismissed.
+  const activeByEmployee = new Set(
+    sessions
+      .filter((s) => s.status !== "completed" && s.status !== "dismissed")
+      .map((s) => s.employeeId)
+      .filter((id): id is string => typeof id === "string"),
+  );
+  // Flag scan — derive coaching/exceptional booleans without re-fetching.
+  const flagsByEmployee = new Map<string, { flagged: boolean; exceptional: boolean }>();
+  for (const c of callsWithDetails) {
+    if (!c.employeeId) continue;
+    const flags = Array.isArray(c.analysis?.flags) ? (c.analysis.flags as string[]) : [];
+    if (flags.length === 0) continue;
+    const entry = flagsByEmployee.get(c.employeeId) || { flagged: false, exceptional: false };
+    for (const f of flags) {
+      if (f === "low_score" || f.startsWith("agent_misconduct")) entry.flagged = true;
+      if (f === "exceptional_call") entry.exceptional = true;
+    }
+    flagsByEmployee.set(c.employeeId, entry);
+  }
+
+  return employees
+    .filter((e) => e.status !== "Inactive")
+    .map((emp) => {
+      const perf = performerById.get(emp.id);
+      const avgScore = perf?.avgPerformanceScore ?? null;
+      const brightness =
+        avgScore === null || avgScore === undefined
+          ? 0.5
+          : Math.max(0.05, Math.min(1, avgScore / 10));
+      const flagData = flagsByEmployee.get(emp.id) || { flagged: false, exceptional: false };
+      return {
+        id: emp.id,
+        name: emp.name,
+        role: emp.role ?? perf?.role ?? null,
+        brightness,
+        avgScore,
+        callCount: perf?.totalCalls ?? 0,
+        hasActiveSession: activeByEmployee.has(emp.id),
+        flagged: flagData.flagged,
+        exceptional: flagData.exceptional,
+      };
+    })
+    .sort((a, b) => {
+      // Brightest first — front-load the team's anchors.
+      if (b.brightness !== a.brightness) return b.brightness - a.brightness;
+      return a.name.localeCompare(b.name);
+    });
+}
+
 // ─── Galaxy: map day rows to spiral positions ────────────────────────────
 
 /**
