@@ -1,5 +1,5 @@
 /**
- * Orrery theme tokens — TypeScript port of design/directions/orrery-system.jsx.
+ * Orrery theme tokens — TypeScript port of archive/design-v1/directions/orrery-system.jsx.
  *
  * Two theme objects (light + dark) mirror the CSS custom properties defined in
  * client/src/index.css. Components that render inline styles (SVG fills, glow

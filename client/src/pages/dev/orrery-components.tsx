@@ -3,7 +3,7 @@
  *
  * Mounts every primitive in `client/src/components/orrery/` against the
  * current theme so visual diffs can be done against the source prototype
- * (design/Orrery Prototype.html). Super-admin only; routed under /dev/orrery/components.
+ * (archive/design-v1/Orrery Prototype.html). Super-admin only; routed under /dev/orrery/components.
  *
  * If a primitive renders broken here, it's broken everywhere.
  */

@@ -1,7 +1,7 @@
 /**
  * Orrery design system — barrel exports.
  *
- * Ports the JSX-in-Babel prototype primitives from `design/directions/` to
+ * Ports the JSX-in-Babel prototype primitives from `archive/design-v1/directions/` to
  * type-safe ES modules. Components stay presentation-only; data and routing
  * are passed in as props.
  *

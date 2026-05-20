@@ -4,7 +4,7 @@
 @tailwind utilities;
 
 /*
- * Orrery theme tokens — ported from design/directions/orrery-system.jsx.
+ * Orrery theme tokens — ported from archive/design-v1/directions/orrery-system.jsx.
  * Light is the daytime "observatory deck" palette; dark is the deep-space view.
  * Both share the celestial cyan accent family (#22b8cf core) so charts, badges
  * and orrery viz stay visually consistent across modes.
