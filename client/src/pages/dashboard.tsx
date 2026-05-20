@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import FileUpload from "@/components/upload/file-upload";
-import CallsTable from "@/components/tables/calls-table";
 import OnboardingTour from "@/components/onboarding-tour";
 import OnboardingChecklist from "@/components/onboarding-checklist";
 import {
@@ -20,6 +19,7 @@ import {
 } from "@remixicon/react";
 import type { CallWithDetails } from "@shared/schema";
 import {
+  CallList,
   DayReplay,
   EmptyState,
   Orrery,
@@ -45,7 +45,7 @@ import { LENSES, type LensId } from "@/lib/orrery-lenses";
  *   3. Onboarding checklist (preserved)
  *   4. Atlas hero (NEW): orrery viz + lens switcher + KPI strip + planet detail
  *   5. Day Replay button (NEW): opens the 18s replay overlay
- *   6. Recent calls table (preserved — CallsTable deletion deferred to Phase 2)
+ *   6. Recent calls (NEW — compact CallList; replaced CallsTable in Phase 2)
  *
  * Data flow:
  *   - /api/calls fetched once (refetch every 60s) — feeds the Atlas adapter,
@@ -225,6 +225,18 @@ export default function Dashboard() {
   const selectedPlanet = selectedKey ? planets.find((p) => p.groupKey === selectedKey) : null;
   const hoveredPlanet = hoveredKey ? planets.find((p) => p.groupKey === hoveredKey) : null;
   const focusedPlanet = selectedPlanet || hoveredPlanet;
+
+  /**
+   * Navigate to the cluster drill-in when the user double-selects a planet
+   * (single-click selects; second-click on the same planet opens the
+   * cluster). Only supported on the "type" lens — other lenses don't yet
+   * have a corresponding drill-in screen.
+   */
+  const openCluster = (groupKey: string) => {
+    if (lensId !== "type") return;
+    if (groupKey === "__other__") return;
+    navigate(`/atlas/cluster/${encodeURIComponent(groupKey)}`);
+  };
 
   return (
     <div className="min-h-screen" data-testid="dashboard-page">
@@ -499,7 +511,14 @@ export default function Dashboard() {
                   hoveredKey={hoveredKey}
                   selectedKey={selectedKey}
                   onHover={setHoveredKey}
-                  onSelect={setSelectedKey}
+                  onSelect={(key) => {
+                    if (key && key === selectedKey) {
+                      // Second-click on an already-selected planet drills in.
+                      openCluster(key);
+                    } else {
+                      setSelectedKey(key);
+                    }
+                  }}
                 />
               )}
             </OrreryCard>
@@ -543,8 +562,10 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* Recent calls table — preserved. CallsTable deletion deferred to Phase 2. */}
-        <CallsTable />
+        {/* Recent calls — compact CallList. Replaced CallsTable as part of
+            the Phase 2 drill-in redesign. The "View all" link drops the user
+            into the full-filter transcripts list view. */}
+        <CallList mode="compact" limit={5} title="Recent calls" />
       </div>
 
       <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
@@ -668,12 +689,12 @@ function FocusedPlanetCard({
   lensId: LensId;
   onClear: () => void;
 }) {
-  // Build a filter URL that takes the user to the relevant filtered call list.
-  // Only the type lens has a clean URL filter (status filter mapped to category).
-  // Other lenses fall back to a generic search.
+  // The "type" lens drills into the cluster page (planet detail); other
+  // lenses fall back to the filtered transcripts list since there's no
+  // dedicated drill-in for them in Phase 2.
   let viewHref = "/transcripts";
-  if (lensId === "type" && planet.groupKey !== "__other__" && planet.groupKey !== "uncategorized") {
-    viewHref = `/transcripts?category=${encodeURIComponent(planet.groupKey)}`;
+  if (lensId === "type" && planet.groupKey !== "__other__") {
+    viewHref = `/atlas/cluster/${encodeURIComponent(planet.groupKey)}`;
   } else if (lensId === "agent" && planet.groupKey !== "unassigned" && planet.groupKey !== "__other__") {
     viewHref = `/transcripts?employee=${encodeURIComponent(planet.groupKey)}`;
   }

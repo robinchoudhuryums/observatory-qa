@@ -4,3 +4,5 @@
  * Coach-this-call panel and Track-pattern popover.
  */
 export { DayReplay } from "./DayReplay";
+export { CoachThisCallPanel } from "./CoachThisCallPanel";
+export { TrackPatternPopover } from "./TrackPatternPopover";

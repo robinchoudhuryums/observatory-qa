@@ -3,9 +3,6 @@
 // Layout
 export * from "./layout/sidebar";
 
-// Tables
-export * from "./tables/calls-table";
-
 // Transcripts
 export * from "./transcripts/transcript-viewer";
 

@@ -41,6 +41,7 @@ function ProtectedRoute({ minRole, children }: { minRole: string; children: Reac
 
 // Route-level code splitting — each page loads on demand
 const Dashboard = lazy(() => import("@/pages/dashboard"));
+const AtlasCluster = lazy(() => import("@/pages/atlas-cluster"));
 const Upload = lazy(() => import("@/pages/upload"));
 const Transcripts = lazy(() => import("@/pages/transcripts"));
 const PerformancePage = lazy(() => import("@/pages/performance"));
@@ -202,6 +203,15 @@ function Router() {
                   <ErrorBoundary>
                     <AnimatedPage>
                       <Dashboard />
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/atlas/cluster/:category">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <AtlasCluster />
                     </AnimatedPage>
                   </ErrorBoundary>
                 )}

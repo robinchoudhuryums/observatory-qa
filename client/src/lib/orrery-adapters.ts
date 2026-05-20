@@ -18,6 +18,54 @@ import type { PlanetData } from "@/components/orrery/OrreryPlanet";
 import { TILT, orreryProject } from "@/components/orrery/projection";
 import { LENSES, ORBIT_RADII, type LensId, type OrbitIndex } from "./orrery-lenses";
 
+// ─── Call arc / moment types ─────────────────────────────────────────────
+
+/**
+ * A "moment" is a single point in time on the call's arc — a place worth
+ * scrubbing to. The Atlas drill-in displays moments as colored dots along
+ * an orbital arc; the clinical mode renders them as labeled peaks on a
+ * horizontal quality curve.
+ *
+ * Tones map to celestial palette colors via brightToColor:
+ *   warm    — positive turn (sentiment improving)
+ *   cool    — negative turn (sentiment dropping)
+ *   amber   — flagged (low_score / agent_misconduct)
+ *   green   — exceptional turn
+ *   neutral — no notable signal (used for "Moment N" filler)
+ */
+export type MomentTone = "warm" | "cool" | "amber" | "green" | "neutral";
+
+export type Moment = {
+  /** Stable id derived from time + label. */
+  id: string;
+  /** Time in seconds from the call start. */
+  time: number;
+  /** Display label — comes from analysis.topics[] when possible. */
+  label: string;
+  tone: MomentTone;
+  /** Brightness 0-1 (drives the dot color via the celestial ramp). */
+  brightness: number;
+  /** Underlying sentiment at this moment, if available. */
+  sentiment?: "positive" | "neutral" | "negative";
+  /** Whether this moment carries a coaching/exceptional flag. */
+  flagged?: boolean;
+};
+
+export type ClinicalTimelinePoint = {
+  /** Time in seconds from the call start. */
+  time: number;
+  /** Quality 0-100 (mapped to Y axis). */
+  quality: number;
+};
+
+export type CallTimeline = {
+  moments: Moment[];
+  /** Total call duration in seconds. */
+  durationSec: number;
+  /** Smoothed quality curve for the clinical timeline view. */
+  points: ClinicalTimelinePoint[];
+};
+
 /**
  * Maximum planets the Atlas renders. Beyond this, the lowest-volume groups
  * collapse into a single "Other" planet. Matches the prototype's visual budget
@@ -333,6 +381,326 @@ function detectAnomaly(
   const dailyAvg = historicalTotal / 7;
   if (dailyAvg < 1) return false; // Too little history to call it anomalous.
   return todayCount > dailyAvg * 2 || todayCount < dailyAvg * 0.5;
+}
+
+// ─── Moment detection ────────────────────────────────────────────────────
+
+/**
+ * Maximum moments rendered on the call arc. Beyond this, the arc gets
+ * crowded and labels overlap. Matches the prototype's visual budget.
+ */
+const MAX_MOMENTS = 10;
+const MIN_MOMENTS = 3;
+const TARGET_MOMENTS = 8;
+const SHORT_CALL_THRESHOLD_SEC = 60;
+const LONG_CALL_THRESHOLD_SEC = 30 * 60;
+
+type SentimentSegmentLike = {
+  start?: number;
+  end?: number;
+  sentiment?: string;
+  score?: number;
+};
+
+type TranscriptLike = {
+  words?: Array<{ start?: number; end?: number; speaker?: string }>;
+};
+
+type AnalysisLike = {
+  topics?: unknown;
+  flags?: unknown;
+};
+
+/**
+ * Detect notable moments in a call from sentiment segments, speaker turns,
+ * and analysis flags. Industry-agnostic — relies only on data shapes that
+ * exist for every channel (voice/email/chat/sms) and every industry.
+ *
+ * Algorithm (closed in §9 of the implementation plan):
+ *   1. Bucket the call by sentiment shift boundaries (segments[]). If <8
+ *      boundaries exist, supplement with speaker-turn boundaries (first
+ *      transition per speaker after a 5-second silence).
+ *   2. Pick the timestamp where |sentiment.score - prev.score| is maximal
+ *      within each bucket as the moment anchor.
+ *   3. Tone: warm if score > 0.6, cool if < 0.4, amber on coaching flag,
+ *      green on exceptional flag.
+ *   4. Label: nearest topic by timestamp proximity; falls back to "Moment N".
+ *   5. Short calls (<60s): collapse to 3 moments (greeting / middle / close).
+ *   6. Long calls (>30min): cap at MAX_MOMENTS, prefer largest sentiment swings.
+ *   7. No sentiment data: even time-spacing, 6 moments, neutral tone.
+ *
+ * Returns moments sorted by time ascending. Pure function — safe to call
+ * during render.
+ */
+export function transcriptToMoments(
+  transcript: TranscriptLike | undefined,
+  sentiment: { segments?: unknown; overallSentiment?: string } | undefined,
+  analysis: AnalysisLike | undefined,
+  durationSec: number,
+): Moment[] {
+  // Normalize topics + flags to safe arrays. (CallAnalysis.topics is
+  // sometimes returned as a string, sometimes an array of objects/strings.)
+  const topics = normalizeTopics(analysis?.topics);
+  const flags = Array.isArray(analysis?.flags)
+    ? (analysis.flags as string[]).filter((f) => typeof f === "string")
+    : [];
+  const hasCoachingFlag = flags.some((f) => f === "low_score" || f.startsWith("agent_misconduct"));
+  const hasExceptionalFlag = flags.includes("exceptional_call");
+
+  // Short call: 3 moments, evenly spaced.
+  if (durationSec > 0 && durationSec < SHORT_CALL_THRESHOLD_SEC) {
+    return makeEvenMoments(durationSec, 3, ["Greeting", "Middle", "Close"], topics, {
+      coaching: hasCoachingFlag,
+      exceptional: hasExceptionalFlag,
+    });
+  }
+
+  const segments = normalizeSegments(sentiment?.segments);
+  // No sentiment data at all: even time-spacing, 6 moments, neutral tone.
+  if (segments.length === 0) {
+    const count = Math.min(MAX_MOMENTS, Math.max(MIN_MOMENTS, 6));
+    return makeEvenMoments(durationSec || 600, count, undefined, topics, {
+      coaching: hasCoachingFlag,
+      exceptional: hasExceptionalFlag,
+    });
+  }
+
+  // Build candidate moments from sentiment-shift boundaries.
+  const candidates: Moment[] = [];
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    const prev = i > 0 ? segments[i - 1] : null;
+    const score = seg.score ?? 0.5;
+    const prevScore = prev?.score ?? 0.5;
+    const swing = Math.abs(score - prevScore);
+    const time = (seg.start ?? 0) / 1000; // AssemblyAI sentiment segments are ms.
+    const tone = pickTone(seg.sentiment, score, hasCoachingFlag, hasExceptionalFlag);
+    candidates.push({
+      id: `m-${time.toFixed(2)}-${i}`,
+      time,
+      label: nearestTopic(topics, time) || `Moment ${i + 1}`,
+      tone,
+      brightness: Math.max(0, Math.min(1, score)),
+      sentiment: normalizeSentimentName(seg.sentiment),
+      flagged: hasCoachingFlag || hasExceptionalFlag,
+      // Internal: swing magnitude for importance ranking. Stripped before return.
+      // @ts-expect-error _swing is an internal-only ranking field stripped before return.
+      _swing: swing,
+    });
+  }
+
+  // Supplement with speaker-turn boundaries when sentiment data is sparse.
+  if (candidates.length < TARGET_MOMENTS && transcript?.words) {
+    const turns = detectSpeakerTurns(transcript.words);
+    for (const turn of turns) {
+      if (candidates.some((c) => Math.abs(c.time - turn) < 3)) continue; // dedupe near existing
+      candidates.push({
+        id: `m-turn-${turn.toFixed(2)}`,
+        time: turn,
+        label: nearestTopic(topics, turn) || `Speaker turn`,
+        tone: "neutral",
+        brightness: 0.5,
+        // @ts-expect-error _swing is an internal-only ranking field (see above).
+        _swing: 0,
+      });
+      if (candidates.length >= TARGET_MOMENTS * 1.5) break;
+    }
+  }
+
+  // Long call: rank by swing magnitude, keep top MAX_MOMENTS.
+  let kept = candidates;
+  if (durationSec > LONG_CALL_THRESHOLD_SEC || candidates.length > MAX_MOMENTS) {
+    kept = candidates
+      // @ts-expect-error _swing is internal — present on candidates only.
+      .sort((a, b) => (b._swing || 0) - (a._swing || 0))
+      .slice(0, MAX_MOMENTS);
+  } else if (candidates.length > TARGET_MOMENTS) {
+    // Trim to TARGET_MOMENTS, biased toward largest swings.
+    kept = candidates
+      // @ts-expect-error _swing is internal — present on candidates only.
+      .sort((a, b) => (b._swing || 0) - (a._swing || 0))
+      .slice(0, TARGET_MOMENTS);
+  }
+
+  // Sort by time and strip internal swing field.
+  return kept
+    .sort((a, b) => a.time - b.time)
+    .map(({ ...m }) => {
+      // @ts-expect-error Strip internal _swing field before returning to consumers.
+      delete m._swing;
+      return m;
+    });
+}
+
+/**
+ * Build a smoothed quality curve for the clinical-mode timeline view.
+ * Samples sentiment.segments[].score across the call duration; if no
+ * sentiment data exists, returns a flat line at 50% with the moments
+ * as the only data points.
+ */
+export function callToClinicalTimeline(
+  transcript: TranscriptLike | undefined,
+  sentiment: { segments?: unknown } | undefined,
+  analysis: AnalysisLike | undefined,
+  durationSec: number,
+): CallTimeline {
+  const moments = transcriptToMoments(transcript, sentiment, analysis, durationSec);
+  const segments = normalizeSegments(sentiment?.segments);
+  const duration = durationSec || moments[moments.length - 1]?.time || 60;
+
+  let points: ClinicalTimelinePoint[];
+  if (segments.length > 0) {
+    points = segments.map((seg) => ({
+      time: (seg.start ?? 0) / 1000,
+      quality: Math.round(Math.max(0, Math.min(1, seg.score ?? 0.5)) * 100),
+    }));
+    // Ensure endpoints anchor at start (0) and end (duration).
+    if (points[0]?.time > 0) points.unshift({ time: 0, quality: points[0].quality });
+    if (points[points.length - 1]?.time < duration) {
+      points.push({ time: duration, quality: points[points.length - 1].quality });
+    }
+  } else {
+    // No sentiment data — interpolate quality at each moment from brightness.
+    points = moments.map((m) => ({
+      time: m.time,
+      quality: Math.round(m.brightness * 100),
+    }));
+    if (points.length === 0 || points[0].time > 0) {
+      points.unshift({ time: 0, quality: 50 });
+    }
+    if (points[points.length - 1].time < duration) {
+      points.push({ time: duration, quality: 50 });
+    }
+  }
+
+  return { moments, durationSec: duration, points };
+}
+
+// ─── moment helpers ──────────────────────────────────────────────────────
+
+function normalizeSegments(raw: unknown): SentimentSegmentLike[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((s): s is SentimentSegmentLike => typeof s === "object" && s !== null);
+}
+
+function normalizeTopics(raw: unknown): Array<{ time?: number; label: string }> {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((t) => {
+      if (typeof t === "string") return { label: t };
+      if (typeof t === "object" && t !== null) {
+        const obj = t as Record<string, unknown>;
+        const label =
+          typeof obj.label === "string"
+            ? obj.label
+            : typeof obj.text === "string"
+              ? obj.text
+              : typeof obj.name === "string"
+                ? obj.name
+                : null;
+        if (!label) return null;
+        const time =
+          typeof obj.time === "number"
+            ? obj.time
+            : typeof obj.start === "number"
+              ? obj.start / 1000
+              : undefined;
+        return { label, time };
+      }
+      return null;
+    })
+    .filter((t): t is { time?: number; label: string } => t !== null);
+}
+
+function nearestTopic(
+  topics: Array<{ time?: number; label: string }>,
+  time: number,
+): string | null {
+  if (topics.length === 0) return null;
+  // Topics with timestamps win; pick the closest within 30s.
+  const withTime = topics.filter((t) => typeof t.time === "number");
+  if (withTime.length > 0) {
+    let best: { dist: number; label: string } | null = null;
+    for (const t of withTime) {
+      const dist = Math.abs((t.time as number) - time);
+      if (dist <= 30 && (!best || dist < best.dist)) best = { dist, label: t.label };
+    }
+    if (best) return best.label;
+  }
+  // Otherwise, round-robin through the labeled list by time slot.
+  const slot = Math.floor((time / Math.max(60, 1)) % topics.length);
+  return topics[slot]?.label || null;
+}
+
+function pickTone(
+  sentimentName: string | undefined,
+  score: number,
+  hasCoachingFlag: boolean,
+  hasExceptionalFlag: boolean,
+): MomentTone {
+  if (hasExceptionalFlag && score > 0.7) return "green";
+  if (hasCoachingFlag && score < 0.4) return "amber";
+  const s = sentimentName?.toUpperCase();
+  if (s === "POSITIVE" || score > 0.6) return "warm";
+  if (s === "NEGATIVE" || score < 0.4) return "cool";
+  return "neutral";
+}
+
+function normalizeSentimentName(
+  raw: string | undefined,
+): "positive" | "neutral" | "negative" | undefined {
+  if (!raw) return undefined;
+  const s = raw.toUpperCase();
+  if (s === "POSITIVE") return "positive";
+  if (s === "NEGATIVE") return "negative";
+  if (s === "NEUTRAL") return "neutral";
+  return undefined;
+}
+
+function detectSpeakerTurns(
+  words: Array<{ start?: number; end?: number; speaker?: string }>,
+): number[] {
+  const turns: number[] = [];
+  let lastSpeaker: string | undefined = undefined;
+  let lastEnd = 0;
+  for (const w of words) {
+    if (!w.speaker || typeof w.start !== "number") continue;
+    const startSec = w.start / 1000;
+    if (w.speaker !== lastSpeaker && startSec - lastEnd > 5) {
+      turns.push(startSec);
+    }
+    lastSpeaker = w.speaker;
+    if (typeof w.end === "number") lastEnd = w.end / 1000;
+  }
+  return turns;
+}
+
+function makeEvenMoments(
+  durationSec: number,
+  count: number,
+  presetLabels: string[] | undefined,
+  topics: Array<{ time?: number; label: string }>,
+  flagFlags: { coaching: boolean; exceptional: boolean },
+): Moment[] {
+  const moments: Moment[] = [];
+  for (let i = 0; i < count; i++) {
+    const time = (durationSec * (i + 0.5)) / count;
+    const presetLabel = presetLabels?.[i];
+    const topicLabel = nearestTopic(topics, time);
+    const label = presetLabel || topicLabel || `Moment ${i + 1}`;
+    let tone: MomentTone = "neutral";
+    if (flagFlags.exceptional && i === count - 1) tone = "green";
+    if (flagFlags.coaching && i === Math.floor(count / 2)) tone = "amber";
+    moments.push({
+      id: `m-even-${i}`,
+      time,
+      label,
+      tone,
+      brightness: 0.5,
+      flagged: flagFlags.coaching || flagFlags.exceptional,
+    });
+  }
+  return moments;
 }
 
 // Re-export TILT so the dashboard doesn't need a second orrery import.
