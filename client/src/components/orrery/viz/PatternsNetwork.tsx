@@ -79,7 +79,15 @@ export function PatternsNetwork({ t, pattern }: Props) {
       {/* Nodes — solid filled circles with labels. */}
       {pattern.nodes.map((node) => (
         <g key={node.key}>
-          <circle cx={node.px} cy={node.py} r={node.sz} fill={accentColor} opacity={0.9} stroke={t.ink} strokeWidth="0.06" />
+          <circle
+            cx={node.px}
+            cy={node.py}
+            r={node.sz}
+            fill={accentColor}
+            opacity={0.9}
+            stroke={t.ink}
+            strokeWidth="0.06"
+          />
           <text
             x={node.px}
             y={node.py + node.sz + 0.9}

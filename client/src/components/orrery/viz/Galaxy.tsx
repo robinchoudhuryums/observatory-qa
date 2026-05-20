@@ -70,16 +70,7 @@ export function Galaxy({ t, days, hoveredDate = null, onHover, onSelectDay }: Pr
               <circle cx={d.px} cy={d.py} r={d.sz * 2.4} fill={d.color} opacity={d.anchor ? 0.25 : 0.15} />
             )}
             <circle cx={d.px} cy={d.py} r={sz} fill={d.color} opacity={d.calls === 0 ? 0.3 : 0.95} />
-            {d.anchor && (
-              <circle
-                cx={d.px}
-                cy={d.py}
-                r={d.sz + 0.9}
-                fill="none"
-                stroke={t.bright}
-                strokeWidth="0.22"
-              />
-            )}
+            {d.anchor && <circle cx={d.px} cy={d.py} r={d.sz + 0.9} fill="none" stroke={t.bright} strokeWidth="0.22" />}
             {/* day number label on hover or anchor */}
             {(isHovered || d.anchor) && (
               <text

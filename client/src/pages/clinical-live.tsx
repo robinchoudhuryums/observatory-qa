@@ -485,11 +485,7 @@ export default function ClinicalLivePage() {
                 generic red dot. Paused state stays amber for accessibility
                 contrast (matches the existing pattern). */}
             <div className="flex items-center gap-2">
-              {isPaused ? (
-                <div className="w-3 h-3 rounded-full bg-amber-500" />
-              ) : (
-                <ActiveListeningPulse />
-              )}
+              {isPaused ? <div className="w-3 h-3 rounded-full bg-amber-500" /> : <ActiveListeningPulse />}
               <span className="text-lg font-semibold">{isPaused ? "Paused" : "Recording"}</span>
             </div>
             <Badge variant="outline" className="text-lg px-3 py-1">

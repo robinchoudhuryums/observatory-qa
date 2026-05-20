@@ -78,20 +78,17 @@ export function ClinicalCompletenessHeader({
     >
       {/* Completeness orb */}
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-        <svg viewBox="-10 -10 20 20" style={{ width: "100%", maxWidth: 140, height: "auto" }} aria-label="Completeness orb">
+        <svg
+          viewBox="-10 -10 20 20"
+          style={{ width: "100%", maxWidth: 140, height: "auto" }}
+          aria-label="Completeness orb"
+        >
           {/* Outer halo — opacity scales with completeness so weak notes feel dim */}
           <circle cx="0" cy="0" r="8.5" fill={orbColor} opacity={0.18 * brightness + 0.05} />
           {/* Planet body */}
           <circle cx="0" cy="0" r="5.5" fill={orbColor} opacity={0.95} />
           {/* Specular highlight */}
-          <ellipse
-            cx="-2"
-            cy="-2"
-            rx="2.4"
-            ry="1.8"
-            fill={t.highlight}
-            opacity={t.name === "dark" ? 0.35 : 0.55}
-          />
+          <ellipse cx="-2" cy="-2" rx="2.4" ry="1.8" fill={t.highlight} opacity={t.name === "dark" ? 0.35 : 0.55} />
           {/* Score label inside the orb */}
           <text
             x="0"
@@ -184,7 +181,10 @@ function Timeline({ t, steps }: { t: Theme; steps: TimelineStep[] }) {
       {steps.map((step, i) => {
         const isLast = i === steps.length - 1;
         return (
-          <div key={step.id} style={{ display: "flex", alignItems: "center", flex: isLast ? "0 0 auto" : "1 1 auto", minWidth: 0 }}>
+          <div
+            key={step.id}
+            style={{ display: "flex", alignItems: "center", flex: isLast ? "0 0 auto" : "1 1 auto", minWidth: 0 }}
+          >
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flexShrink: 0 }}>
               <div
                 style={{

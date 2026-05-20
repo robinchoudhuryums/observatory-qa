@@ -2,13 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import {
-  Galaxy,
-  OrreryCard,
-  OrreryKpi,
-  OrreryTag,
-  useOrreryTheme,
-} from "@/components/orrery";
+import { Galaxy, OrreryCard, OrreryKpi, OrreryTag, useOrreryTheme } from "@/components/orrery";
 import { dayBucketsToGalaxy, type GalaxyDay, type GalaxyDayRow } from "@/lib/orrery-adapters";
 import { usePresentation } from "@/hooks/use-presentation";
 import { RiArrowLeftSLine, RiArrowRightSLine, RiHomeLine } from "@remixicon/react";
@@ -55,9 +49,7 @@ export default function GalaxyPage() {
     const monthCalls = days.reduce((s, d) => s + d.calls, 0);
     const scoredDays = days.filter((d) => d.closeRate !== null);
     const avgCloseRate =
-      scoredDays.length > 0
-        ? scoredDays.reduce((s, d) => s + (d.closeRate || 0), 0) / scoredDays.length
-        : null;
+      scoredDays.length > 0 ? scoredDays.reduce((s, d) => s + (d.closeRate || 0), 0) / scoredDays.length : null;
     const busiest = [...days].sort((a, b) => b.calls - a.calls)[0];
     return {
       monthCalls,
@@ -68,7 +60,7 @@ export default function GalaxyPage() {
   }, [days]);
 
   const hoveredDay: GalaxyDay | null = useMemo(
-    () => (hoveredDate ? days.find((d) => d.date === hoveredDate) ?? null : null),
+    () => (hoveredDate ? (days.find((d) => d.date === hoveredDate) ?? null) : null),
     [hoveredDate, days],
   );
 
@@ -114,9 +106,7 @@ export default function GalaxyPage() {
             >
               <RiArrowLeftSLine className="w-4 h-4" />
             </Button>
-            <span className="text-sm text-muted-foreground min-w-[120px] text-center">
-              {monthLabel}
-            </span>
+            <span className="text-sm text-muted-foreground min-w-[120px] text-center">{monthLabel}</span>
             <Button
               variant="outline"
               size="sm"
@@ -138,13 +128,7 @@ export default function GalaxyPage() {
                 Loading {lex("Galaxy").toLowerCase()}…
               </div>
             ) : (
-              <Galaxy
-                t={t}
-                days={days}
-                hoveredDate={hoveredDate}
-                onHover={setHoveredDate}
-                onSelectDay={onSelectDay}
-              />
+              <Galaxy t={t} days={days} hoveredDate={hoveredDate} onHover={setHoveredDate} onSelectDay={onSelectDay} />
             )}
           </OrreryCard>
 
@@ -197,26 +181,24 @@ export default function GalaxyPage() {
                       Close rate
                     </div>
                     <div style={{ fontSize: 18, fontWeight: 500, color: t.ink }}>
-                      {hoveredDay.closeRate !== null
-                        ? `${Math.round(hoveredDay.closeRate * 100)}%`
-                        : "—"}
+                      {hoveredDay.closeRate !== null ? `${Math.round(hoveredDay.closeRate * 100)}%` : "—"}
                     </div>
                   </div>
                 </div>
                 {hoveredDay.calls > 0 && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="w-full mt-3"
-                    onClick={() => onSelectDay(hoveredDay)}
-                  >
+                  <Button size="sm" variant="outline" className="w-full mt-3" onClick={() => onSelectDay(hoveredDay)}>
                     View calls
                   </Button>
                 )}
               </OrreryCard>
             ) : (
               <>
-                <OrreryKpi t={t} label={`${lex("Calls").replace(/^./, (c) => c.toUpperCase())} this month`} value={kpis.monthCalls} accentRamp="bright" />
+                <OrreryKpi
+                  t={t}
+                  label={`${lex("Calls").replace(/^./, (c) => c.toUpperCase())} this month`}
+                  value={kpis.monthCalls}
+                  accentRamp="bright"
+                />
                 <OrreryKpi
                   t={t}
                   label="Avg close rate"

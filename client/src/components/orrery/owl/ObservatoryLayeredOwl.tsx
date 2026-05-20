@@ -32,12 +32,7 @@ type Props = {
   style?: CSSProperties;
 };
 
-export function ObservatoryLayeredOwl({
-  size = 28,
-  color = "currentColor",
-  state = "idle",
-  style,
-}: Props) {
+export function ObservatoryLayeredOwl({ size = 28, color = "currentColor", state = "idle", style }: Props) {
   // Stroke width is in viewBox units (the SVG is ~66 units wide). 2.5 reads
   // crisp at 28–60px; constant keeps eye-ring weight matched to body across sizes.
   const strokeWidth = 2.5;

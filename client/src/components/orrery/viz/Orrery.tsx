@@ -18,12 +18,7 @@
  */
 import { useMemo } from "react";
 import type { Theme } from "../theme";
-import {
-  OrreryCenterStar,
-  OrreryOrbitRing,
-  OrreryPlanet,
-  OrreryStarfield,
-} from "..";
+import { OrreryCenterStar, OrreryOrbitRing, OrreryPlanet, OrreryStarfield } from "..";
 import type { AtlasPlanet } from "@/lib/orrery-adapters";
 
 type Props = {

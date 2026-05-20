@@ -11,10 +11,7 @@ import {
   TrackPatternPopover,
   useOrreryTheme,
 } from "@/components/orrery";
-import {
-  patternsToConstellations,
-  type Constellation as ConstellationData,
-} from "@/lib/orrery-adapters";
+import { patternsToConstellations, type Constellation as ConstellationData } from "@/lib/orrery-adapters";
 import { usePresentation } from "@/hooks/use-presentation";
 import { RiArrowRightSLine, RiHomeLine, RiBellLine } from "@remixicon/react";
 
@@ -57,10 +54,7 @@ export default function InsightsPage() {
     staleTime: 60_000,
   });
 
-  const patterns: ConstellationData[] = useMemo(
-    () => patternsToConstellations(response?.clusters ?? []),
-    [response],
-  );
+  const patterns: ConstellationData[] = useMemo(() => patternsToConstellations(response?.clusters ?? []), [response]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedPattern = useMemo(
@@ -263,8 +257,7 @@ export default function InsightsPage() {
                             <span
                               className="text-xs ml-2 flex-shrink-0"
                               style={{
-                                color:
-                                  p.trend === "rising" ? t.green : p.trend === "declining" ? t.red : t.inkSoft,
+                                color: p.trend === "rising" ? t.green : p.trend === "declining" ? t.red : t.inkSoft,
                               }}
                             >
                               {p.trend === "rising" ? "↑" : p.trend === "declining" ? "↓" : "→"} {p.occurrences}

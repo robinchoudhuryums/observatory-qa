@@ -28,12 +28,7 @@ import {
   OrreryTag,
   useOrreryTheme,
 } from "@/components/orrery";
-import {
-  callsToPlanets,
-  deriveAtlasRealism,
-  type AtlasPlanet,
-  type AtlasRealism,
-} from "@/lib/orrery-adapters";
+import { callsToPlanets, deriveAtlasRealism, type AtlasPlanet, type AtlasRealism } from "@/lib/orrery-adapters";
 import { LENSES, type LensId } from "@/lib/orrery-lenses";
 
 /**
@@ -123,9 +118,7 @@ export default function Dashboard() {
         return (
           Array.isArray(flags) &&
           flags.length > 0 &&
-          flags.some(
-            (f) => f === "low_score" || f.startsWith("agent_misconduct") || f === "exceptional_call",
-          )
+          flags.some((f) => f === "low_score" || f.startsWith("agent_misconduct") || f === "exceptional_call")
         );
       }),
     [calls],
@@ -135,10 +128,7 @@ export default function Dashboard() {
     () =>
       flaggedCalls.filter((c) => {
         const flags = c.analysis?.flags;
-        return (
-          Array.isArray(flags) &&
-          flags.some((f) => f === "low_score" || f.startsWith("agent_misconduct"))
-        );
+        return Array.isArray(flags) && flags.some((f) => f === "low_score" || f.startsWith("agent_misconduct"));
       }),
     [flaggedCalls],
   );
@@ -191,9 +181,7 @@ export default function Dashboard() {
   const kpis = useMemo(() => {
     const todayCount = todaysCalls.length;
     const completed = todaysCalls.filter((c) => c.status === "completed");
-    const processing = todaysCalls.filter(
-      (c) => c.status === "pending" || c.status === "processing",
-    );
+    const processing = todaysCalls.filter((c) => c.status === "pending" || c.status === "processing");
     let scoreTotal = 0;
     let scoreCount = 0;
     let positiveCount = 0;
@@ -472,11 +460,7 @@ export default function Dashboard() {
           </div>
 
           {/* Hero copy — adapts to realism state. */}
-          <AtlasHeroCopy
-            realism={realism}
-            todayCount={todaysCalls.length}
-            processingCount={kpis.processingToday}
-          />
+          <AtlasHeroCopy realism={realism} todayCount={todaysCalls.length} processingCount={kpis.processingToday} />
 
           {/* Orrery + side card. */}
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
@@ -487,11 +471,7 @@ export default function Dashboard() {
                     t={t}
                     glyph={realism === "day-1" ? "flat-orbit" : "thin-data"}
                     owlVerb="watching"
-                    title={
-                      realism === "day-1"
-                        ? "The sky is empty."
-                        : "No calls landed today."
-                    }
+                    title={realism === "day-1" ? "The sky is empty." : "No calls landed today."}
                     body={
                       realism === "day-1"
                         ? "Upload your first call recording and it will appear here as a planet — bigger if it's part of a busy category, brighter if it scored well."
@@ -606,9 +586,7 @@ function AtlasHeroCopy({
   processingCount: number;
 }) {
   const t = useOrreryTheme();
-  const accent = (text: string) => (
-    <span style={{ color: t.bright, fontWeight: 600 }}>{text}</span>
-  );
+  const accent = (text: string) => <span style={{ color: t.bright, fontWeight: 600 }}>{text}</span>;
 
   let tag = "";
   let body: React.ReactNode = null;
@@ -625,32 +603,25 @@ function AtlasHeroCopy({
     tag = `${dayTag} · EARLY DATA`;
     body = (
       <>
-        {accent(`${todayCount} ${todayCount === 1 ? "call" : "calls"}`)} so far. The sky is forming —
-        patterns need ~14 days of data to stabilize.
+        {accent(`${todayCount} ${todayCount === 1 ? "call" : "calls"}`)} so far. The sky is forming — patterns need ~14
+        days of data to stabilize.
       </>
     );
   } else if (realism === "partial") {
     tag = `${dayTag} · MID-DAY`;
     body = (
       <>
-        So far today, {accent(`${todayCount} calls`)} in orbit — {processingCount} still processing.
-        The sky will fill as the day continues.
+        So far today, {accent(`${todayCount} calls`)} in orbit — {processingCount} still processing. The sky will fill
+        as the day continues.
       </>
     );
   } else if (realism === "flat-day") {
     tag = `${dayTag} · QUIET`;
-    body = (
-      <>
-        A {accent("quiet day")} — calls evenly distributed; no single category dominates.
-      </>
-    );
+    body = <>A {accent("quiet day")} — calls evenly distributed; no single category dominates.</>;
   } else {
     tag = dayTag;
     body = (
-      <>
-        A model of {accent(`${todayCount} calls`)} in orbit — bigger planets carry more, brighter
-        ones score higher.
-      </>
+      <>A model of {accent(`${todayCount} calls`)} in orbit — bigger planets carry more, brighter ones score higher.</>
     );
   }
 
@@ -734,13 +705,29 @@ function FocusedPlanetCard({
       </div>
       <div style={{ display: "flex", gap: 18, marginTop: 12, fontSize: 12.5, color: t.inkSoft }}>
         <div>
-          <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: t.inkMute, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+          <div
+            style={{
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 10,
+              color: t.inkMute,
+              letterSpacing: "0.1em",
+              textTransform: "uppercase",
+            }}
+          >
             Calls
           </div>
           <div style={{ fontSize: 18, fontWeight: 500, color: t.ink }}>{planet.count}</div>
         </div>
         <div>
-          <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: t.inkMute, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+          <div
+            style={{
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 10,
+              color: t.inkMute,
+              letterSpacing: "0.1em",
+              textTransform: "uppercase",
+            }}
+          >
             Avg score
           </div>
           <div style={{ fontSize: 18, fontWeight: 500, color: t.ink }}>
@@ -751,24 +738,16 @@ function FocusedPlanetCard({
       {(planet.hot || planet.coaching || planet.anomaly || planet.exceptional) && (
         <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 6 }}>
           {planet.hot && (
-            <span style={{ ...badgeStyle(t), background: `${t.bright}22`, color: t.bright }}>
-              ◇ TODAY'S ANCHOR
-            </span>
+            <span style={{ ...badgeStyle(t), background: `${t.bright}22`, color: t.bright }}>◇ TODAY'S ANCHOR</span>
           )}
           {planet.coaching && (
-            <span style={{ ...badgeStyle(t), background: `${t.amber}22`, color: t.amber }}>
-              ◇ COACHING FLAGGED
-            </span>
+            <span style={{ ...badgeStyle(t), background: `${t.amber}22`, color: t.amber }}>◇ COACHING FLAGGED</span>
           )}
           {planet.exceptional && (
-            <span style={{ ...badgeStyle(t), background: `${t.green}22`, color: t.green }}>
-              ◇ EXCEPTIONAL
-            </span>
+            <span style={{ ...badgeStyle(t), background: `${t.green}22`, color: t.green }}>◇ EXCEPTIONAL</span>
           )}
           {planet.anomaly && (
-            <span style={{ ...badgeStyle(t), background: `${t.amber}22`, color: t.amber }}>
-              ◇ ANOMALY VS 7-DAY AVG
-            </span>
+            <span style={{ ...badgeStyle(t), background: `${t.amber}22`, color: t.amber }}>◇ ANOMALY VS 7-DAY AVG</span>
           )}
         </div>
       )}

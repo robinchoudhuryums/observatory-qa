@@ -15,10 +15,7 @@ import type { Theme } from "./theme";
 
 export const TILT = 0.42;
 
-export const orreryProject = (x: number, y: number, z = 0): [number, number] => [
-  x,
-  y * TILT - z,
-];
+export const orreryProject = (x: number, y: number, z = 0): [number, number] => [x, y * TILT - z];
 
 export function brightToColor(brightness: number, t: Theme): string {
   if (brightness > 0.8) return t.bright;

@@ -272,18 +272,15 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
   );
 
   // Click a moment → scrub audio to that timestamp.
-  const onSelectMoment = useCallback(
-    (moment: Moment | null) => {
-      setSelectedMomentId(moment?.id ?? null);
-      if (moment && audioRef.current) {
-        audioRef.current.currentTime = moment.time;
-        audioRef.current.play().catch(() => {
-          // Autoplay may be blocked — ignore; user can click play.
-        });
-      }
-    },
-    [],
-  );
+  const onSelectMoment = useCallback((moment: Moment | null) => {
+    setSelectedMomentId(moment?.id ?? null);
+    if (moment && audioRef.current) {
+      audioRef.current.currentTime = moment.time;
+      audioRef.current.play().catch(() => {
+        // Autoplay may be blocked — ignore; user can click play.
+      });
+    }
+  }, []);
 
   // While audio plays, highlight the moment whose time is just before currentTime.
   useEffect(() => {

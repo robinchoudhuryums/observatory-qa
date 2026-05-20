@@ -347,9 +347,7 @@ export function deriveAtlasRealism(
   options: { historyDays?: number } = {},
 ): AtlasRealism {
   const completed = todaysCalls.filter((c) => c.status === "completed");
-  const pendingOrProcessing = todaysCalls.filter(
-    (c) => c.status === "pending" || c.status === "processing",
-  );
+  const pendingOrProcessing = todaysCalls.filter((c) => c.status === "pending" || c.status === "processing");
   const historyDays = options.historyDays ?? 7;
 
   if (completed.length === 0 && historicalCalls.length === 0) return "day-1";
@@ -446,11 +444,7 @@ function pickAngle(
   return angle;
 }
 
-function detectAnomaly(
-  key: string,
-  todayCount: number,
-  historicalByGroup: Map<string, number>,
-): boolean {
+function detectAnomaly(key: string, todayCount: number, historicalByGroup: Map<string, number>): boolean {
   const historicalTotal = historicalByGroup.get(key) || 0;
   if (historicalTotal === 0) return false;
   // Trailing 7-day daily average.
@@ -517,9 +511,7 @@ export function transcriptToMoments(
   // Normalize topics + flags to safe arrays. (CallAnalysis.topics is
   // sometimes returned as a string, sometimes an array of objects/strings.)
   const topics = normalizeTopics(analysis?.topics);
-  const flags = Array.isArray(analysis?.flags)
-    ? (analysis.flags as string[]).filter((f) => typeof f === "string")
-    : [];
+  const flags = Array.isArray(analysis?.flags) ? (analysis.flags as string[]).filter((f) => typeof f === "string") : [];
   const hasCoachingFlag = flags.some((f) => f === "low_score" || f.startsWith("agent_misconduct"));
   const hasExceptionalFlag = flags.includes("exceptional_call");
 
@@ -676,11 +668,7 @@ function normalizeTopics(raw: unknown): Array<{ time?: number; label: string }> 
                 : null;
         if (!label) return null;
         const time =
-          typeof obj.time === "number"
-            ? obj.time
-            : typeof obj.start === "number"
-              ? obj.start / 1000
-              : undefined;
+          typeof obj.time === "number" ? obj.time : typeof obj.start === "number" ? obj.start / 1000 : undefined;
         return { label, time };
       }
       return null;
@@ -688,10 +676,7 @@ function normalizeTopics(raw: unknown): Array<{ time?: number; label: string }> 
     .filter((t): t is { time?: number; label: string } => t !== null);
 }
 
-function nearestTopic(
-  topics: Array<{ time?: number; label: string }>,
-  time: number,
-): string | null {
+function nearestTopic(topics: Array<{ time?: number; label: string }>, time: number): string | null {
   if (topics.length === 0) return null;
   // Topics with timestamps win; pick the closest within 30s.
   const withTime = topics.filter((t) => typeof t.time === "number");
@@ -722,9 +707,7 @@ function pickTone(
   return "neutral";
 }
 
-function normalizeSentimentName(
-  raw: string | undefined,
-): "positive" | "neutral" | "negative" | undefined {
+function normalizeSentimentName(raw: string | undefined): "positive" | "neutral" | "negative" | undefined {
   if (!raw) return undefined;
   const s = raw.toUpperCase();
   if (s === "POSITIVE") return "positive";
@@ -733,9 +716,7 @@ function normalizeSentimentName(
   return undefined;
 }
 
-function detectSpeakerTurns(
-  words: Array<{ start?: number; end?: number; speaker?: string }>,
-): number[] {
+function detectSpeakerTurns(words: Array<{ start?: number; end?: number; speaker?: string }>): number[] {
   const turns: number[] = [];
   let lastSpeaker: string | undefined = undefined;
   let lastEnd = 0;
@@ -867,10 +848,7 @@ export function agentsToCoachingSystems(
     .map((emp) => {
       const perf = performerById.get(emp.id);
       const avgScore = perf?.avgPerformanceScore ?? null;
-      const brightness =
-        avgScore === null || avgScore === undefined
-          ? 0.5
-          : Math.max(0.05, Math.min(1, avgScore / 10));
+      const brightness = avgScore === null || avgScore === undefined ? 0.5 : Math.max(0.05, Math.min(1, avgScore / 10));
       const flagData = flagsByEmployee.get(emp.id) || { flagged: false, exceptional: false };
       return {
         id: emp.id,
@@ -905,10 +883,7 @@ export function agentsToCoachingSystems(
  * The `anchor` flag highlights today's planet when the input month matches
  * the current month. Other months don't get an anchor.
  */
-export function dayBucketsToGalaxy(
-  rows: GalaxyDayRow[],
-  options: { now?: Date } = {},
-): GalaxyDay[] {
+export function dayBucketsToGalaxy(rows: GalaxyDayRow[], options: { now?: Date } = {}): GalaxyDay[] {
   if (rows.length === 0) return [];
   const now = options.now || new Date();
   const todayKey = now.toISOString().slice(0, 10);
@@ -931,10 +906,7 @@ export function dayBucketsToGalaxy(
 
     // Brightness from closeRate. Null → 0.45 (mid-low — readable, but not
     // claiming a strong outcome).
-    const br =
-      row.closeRate === null
-        ? 0.45
-        : Math.max(0.05, Math.min(1, row.closeRate));
+    const br = row.closeRate === null ? 0.45 : Math.max(0.05, Math.min(1, row.closeRate));
 
     const d = new Date(`${row.date}T00:00:00Z`);
     const dow = d.getUTCDay(); // 0 = Sunday, 6 = Saturday
@@ -1001,16 +973,10 @@ export function patternsToConstellations(clusters: ClusterLike[]): Constellation
 
       const trend: "rising" | "stable" | "declining" =
         cluster.trend === "rising" || cluster.trend === "declining" ? cluster.trend : "stable";
-      const color: PatternColor =
-        trend === "rising" ? "bright" : trend === "declining" ? "amber" : "warm";
+      const color: PatternColor = trend === "rising" ? "bright" : trend === "declining" ? "amber" : "warm";
 
       const occurrences = typeof cluster.callCount === "number" ? cluster.callCount : 0;
-      const trendVerb =
-        trend === "rising"
-          ? "Rising"
-          : trend === "declining"
-            ? "Declining"
-            : "Stable";
+      const trendVerb = trend === "rising" ? "Rising" : trend === "declining" ? "Declining" : "Stable";
       const stat = `${trendVerb} · ${occurrences} ${occurrences === 1 ? "call" : "calls"}`;
 
       const callIds = Array.isArray(cluster.callIds) ? (cluster.callIds as string[]) : [];

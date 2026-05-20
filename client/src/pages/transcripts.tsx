@@ -46,9 +46,7 @@ export default function Transcripts() {
           </nav>
           <div>
             <h2 className="text-2xl font-bold text-foreground">Call detail</h2>
-            <p className="text-muted-foreground">
-              Arc of moments synced to the transcript and audio playback.
-            </p>
+            <p className="text-muted-foreground">Arc of moments synced to the transcript and audio playback.</p>
           </div>
         </header>
         <div className="p-6">

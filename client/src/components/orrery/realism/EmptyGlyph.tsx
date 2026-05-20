@@ -47,7 +47,16 @@ export function EmptyGlyph({ t, kind = "flat-orbit" }: Props) {
   return (
     <svg width="120" height="60" viewBox="-30 -15 60 30" style={{ opacity: 0.7 }}>
       <circle cx="0" cy="0" r="9" fill="none" stroke={stroke} strokeWidth="0.4" />
-      <circle cx="0" cy="0" r="9" fill="none" stroke={stroke} strokeWidth="0.4" strokeDasharray="0.6 1.2" opacity="0.5" />
+      <circle
+        cx="0"
+        cy="0"
+        r="9"
+        fill="none"
+        stroke={stroke}
+        strokeWidth="0.4"
+        strokeDasharray="0.6 1.2"
+        opacity="0.5"
+      />
     </svg>
   );
 }

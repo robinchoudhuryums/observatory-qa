@@ -185,7 +185,13 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
             Back to home
           </button>
         )}
-        <Card style={{ background: orreryTheme.panel, backdropFilter: "blur(12px)", border: `0.5px solid ${orreryTheme.panelBorder}` }}>
+        <Card
+          style={{
+            background: orreryTheme.panel,
+            backdropFilter: "blur(12px)",
+            border: `0.5px solid ${orreryTheme.panelBorder}`,
+          }}
+        >
           <CardHeader className="text-center">
             <div className="flex justify-center mb-4">
               <ObservatoryLogo variant="icon" height={48} className="text-primary" />
@@ -766,14 +772,7 @@ function CelestialBackdrop() {
               const radius = orbits[p.o];
               const px = Math.cos(p.a) * radius;
               const py = Math.sin(p.a) * radius * TILT;
-              return (
-                <OrreryPlanet
-                  key={i}
-                  p={{ px, py, sz: p.sz, br: p.br, hot: p.hot }}
-                  t={t}
-                  showRing={p.hot}
-                />
-              );
+              return <OrreryPlanet key={i} p={{ px, py, sz: p.sz, br: p.br, hot: p.hot }} t={t} showRing={p.hot} />;
             })}
           </>
         )}

@@ -13,14 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CallWithDetails } from "@shared/schema";
 import type { Theme } from "../theme";
-import {
-  OrreryCenterStar,
-  OrreryOrbitRing,
-  OrreryStarfield,
-  OrreryTag,
-  TILT,
-  brightToColor,
-} from "..";
+import { OrreryCenterStar, OrreryOrbitRing, OrreryStarfield, OrreryTag, TILT, brightToColor } from "..";
 import { LENSES, ORBIT_RADII } from "@/lib/orrery-lenses";
 
 type Props = {
@@ -185,11 +178,7 @@ export function DayReplay({ t, calls, open, onClose }: Props) {
           </span>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
-          <button
-            type="button"
-            onClick={() => setPlaying((p) => !p)}
-            style={controlButtonStyle(t)}
-          >
+          <button type="button" onClick={() => setPlaying((p) => !p)} style={controlButtonStyle(t)}>
             {playing ? "PAUSE" : "PLAY"}
           </button>
           <button type="button" onClick={restart} style={controlButtonStyle(t)}>
@@ -270,7 +259,9 @@ export function DayReplay({ t, calls, open, onClose }: Props) {
             }}
           />
         </div>
-        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: t.inkMute, letterSpacing: "0.1em" }}>
+        <span
+          style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: t.inkMute, letterSpacing: "0.1em" }}
+        >
           {Math.round(progress * 100)}%
         </span>
       </div>

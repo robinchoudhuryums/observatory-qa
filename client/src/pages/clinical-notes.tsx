@@ -1076,10 +1076,11 @@ function buildClinicalTimeline(
   // The note exists if `cn` exists; AI drafting time defaults to call uploadedAt
   // when no explicit `draftedAt` field is present.
   const drafted = recorded;
-  const edited = Array.isArray(cn?.editHistory) && cn.editHistory.length > 0
-    ? (cn.editHistory[cn.editHistory.length - 1] as { editedAt?: string })?.editedAt ?? null
-    : null;
-  const attested = cn?.providerAttested ? (cn as { attestedAt?: string }).attestedAt ?? null : null;
+  const edited =
+    Array.isArray(cn?.editHistory) && cn.editHistory.length > 0
+      ? ((cn.editHistory[cn.editHistory.length - 1] as { editedAt?: string })?.editedAt ?? null)
+      : null;
+  const attested = cn?.providerAttested ? ((cn as { attestedAt?: string }).attestedAt ?? null) : null;
   const hasAmendments = Array.isArray(cn?.amendments) && cn.amendments.length > 0;
 
   const steps: Array<{ id: string; label: string; done: boolean; time?: string | null; byOry?: boolean }> = [

@@ -69,9 +69,10 @@ export function MobileBottomSheet({ t, initialSnap = "half", onSnapChange, child
       if (dragStartY.current === null) return;
       const finalVh = SNAP_VH[snap] - dragOffsetVh;
       // Snap to the nearest of the three heights.
-      const distances: { snap: SnapHeight; dist: number }[] = (
-        ["peek", "half", "full"] as SnapHeight[]
-      ).map((s) => ({ snap: s, dist: Math.abs(SNAP_VH[s] - finalVh) }));
+      const distances: { snap: SnapHeight; dist: number }[] = (["peek", "half", "full"] as SnapHeight[]).map((s) => ({
+        snap: s,
+        dist: Math.abs(SNAP_VH[s] - finalVh),
+      }));
       distances.sort((a, b) => a.dist - b.dist);
       setSnapAndNotify(distances[0].snap);
       dragStartY.current = null;
@@ -141,9 +142,7 @@ export function MobileBottomSheet({ t, initialSnap = "half", onSnapChange, child
         />
       </div>
 
-      <div style={{ flex: 1, overflow: snap === "full" ? "auto" : "hidden", padding: "8px 18px 24px" }}>
-        {children}
-      </div>
+      <div style={{ flex: 1, overflow: snap === "full" ? "auto" : "hidden", padding: "8px 18px 24px" }}>{children}</div>
     </div>
   );
 }

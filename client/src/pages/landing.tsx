@@ -94,12 +94,7 @@ function WaveBackground() {
         {/* Twinkling stars — SMIL opacity loop keeps the field alive. */}
         {stars.map((s) => (
           <circle key={`s-${s.id}`} cx={s.x} cy={s.y} r={s.r} fill="white" className="wave-line">
-            <animate
-              attributeName="opacity"
-              values="0.3;0.95;0.3"
-              dur={`${s.twinkleDur}s`}
-              repeatCount="indefinite"
-            />
+            <animate attributeName="opacity" values="0.3;0.95;0.3" dur={`${s.twinkleDur}s`} repeatCount="indefinite" />
           </circle>
         ))}
       </svg>

@@ -61,12 +61,19 @@ export default function OrreryComponentsShowcase() {
         <section>
           <OrreryTag t={t}>◇ Section card</OrreryTag>
           <OrreryCard t={t} style={{ marginTop: 12 }}>
-            <div style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontStyle: "italic", fontSize: 24, color: t.ink }}>
+            <div
+              style={{
+                fontFamily: "'Instrument Serif', Georgia, serif",
+                fontStyle: "italic",
+                fontSize: 24,
+                color: t.ink,
+              }}
+            >
               The atlas is the daily home.
             </div>
             <div style={{ marginTop: 8, fontSize: 13, color: t.inkSoft, lineHeight: 1.5 }}>
-              Cards are translucent on top of the celestial background. They hold KPIs,
-              evidence lists, and right-rail overlays.
+              Cards are translucent on top of the celestial background. They hold KPIs, evidence lists, and right-rail
+              overlays.
             </div>
           </OrreryCard>
         </section>

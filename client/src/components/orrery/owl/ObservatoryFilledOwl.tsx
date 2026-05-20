@@ -52,8 +52,7 @@ export function ObservatoryFilledOwlHead({
   eyesClosed = false,
   blink = false,
 }: HeadProps) {
-  const innerMatrix =
-    "matrix(1.4046065591248846,0,0,1.4046065591248846,-37.82311880034244,-27.985388821171068)";
+  const innerMatrix = "matrix(1.4046065591248846,0,0,1.4046065591248846,-37.82311880034244,-27.985388821171068)";
 
   // Eye-cover ellipses in the same coord system as the pupils. When `eyesClosed`
   // is true (or `blink`), they paint over the eye discs in the owl's tint

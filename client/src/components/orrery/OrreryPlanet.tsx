@@ -94,29 +94,25 @@ export function OrreryPlanet({
         />
       )}
       {/* trajectory arrow */}
-      {trajectory && (() => {
-        const dx = Math.cos(trajectory.dir) * (p.sz + 0.8);
-        const dy = Math.sin(trajectory.dir) * (p.sz + 0.8) * TILT;
-        return (
-          <g>
-            <line
-              x1={p.px}
-              y1={p.py}
-              x2={p.px + dx}
-              y2={p.py + dy}
-              stroke={trajectory.up ? t.green : t.red}
-              strokeWidth="0.2"
-              strokeLinecap="round"
-            />
-            <circle
-              cx={p.px + dx}
-              cy={p.py + dy}
-              r="0.35"
-              fill={trajectory.up ? t.green : t.red}
-            />
-          </g>
-        );
-      })()}
+      {trajectory &&
+        (() => {
+          const dx = Math.cos(trajectory.dir) * (p.sz + 0.8);
+          const dy = Math.sin(trajectory.dir) * (p.sz + 0.8) * TILT;
+          return (
+            <g>
+              <line
+                x1={p.px}
+                y1={p.py}
+                x2={p.px + dx}
+                y2={p.py + dy}
+                stroke={trajectory.up ? t.green : t.red}
+                strokeWidth="0.2"
+                strokeLinecap="round"
+              />
+              <circle cx={p.px + dx} cy={p.py + dy} r="0.35" fill={trajectory.up ? t.green : t.red} />
+            </g>
+          );
+        })()}
       {/* planet body */}
       <circle cx={p.px} cy={p.py} r={p.sz} fill={c} opacity={dim ? 0.5 : 0.94} />
       {/* highlight (specular crescent) */}
@@ -159,16 +155,7 @@ export function OrreryPlanet({
         />
       )}
       {/* hover ring */}
-      {hovered && (
-        <circle
-          cx={p.px}
-          cy={p.py}
-          r={p.sz + 0.8}
-          fill="none"
-          stroke={t.bright}
-          strokeWidth="0.18"
-        />
-      )}
+      {hovered && <circle cx={p.px} cy={p.py} r={p.sz + 0.8} fill="none" stroke={t.bright} strokeWidth="0.18" />}
     </g>
   );
 }

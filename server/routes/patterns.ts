@@ -25,10 +25,7 @@ import { requireAuth, injectOrgContext, requireRole } from "../auth";
 import { asyncHandler } from "../middleware/error-handler";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { logger } from "../services/logger";
-import {
-  insertPatternSubscriptionSchema,
-  PATTERN_TRIGGER_KINDS,
-} from "@shared/schema";
+import { insertPatternSubscriptionSchema, PATTERN_TRIGGER_KINDS } from "@shared/schema";
 
 function patternSubscriptionsSupported(): boolean {
   return (

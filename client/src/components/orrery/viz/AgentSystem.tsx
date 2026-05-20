@@ -23,9 +23,7 @@ export function AgentSystem({ t, agent, selected = false, onClick }: Props) {
   const color = brightToColor(agent.brightness, t);
   // Planet sized by call volume — log scale, clamped [0.6, 2.2].
   const planetSize =
-    agent.callCount === 0
-      ? 1.0
-      : Math.max(0.6, Math.min(2.2, 0.6 + Math.log10(agent.callCount + 1) * 1.2));
+    agent.callCount === 0 ? 1.0 : Math.max(0.6, Math.min(2.2, 0.6 + Math.log10(agent.callCount + 1) * 1.2));
 
   return (
     <button
@@ -118,11 +116,17 @@ export function AgentSystem({ t, agent, selected = false, onClick }: Props) {
           fontFamily: "'JetBrains Mono', monospace",
           fontSize: 9.5,
           letterSpacing: "0.1em",
-          color: agent.avgScore !== null && agent.avgScore >= 7 ? t.green : agent.avgScore !== null && agent.avgScore < 4 ? t.red : t.inkMute,
+          color:
+            agent.avgScore !== null && agent.avgScore >= 7
+              ? t.green
+              : agent.avgScore !== null && agent.avgScore < 4
+                ? t.red
+                : t.inkMute,
           textTransform: "uppercase",
         }}
       >
-        {agent.avgScore !== null ? agent.avgScore.toFixed(1) : "—"} · {agent.callCount} {agent.callCount === 1 ? "call" : "calls"}
+        {agent.avgScore !== null ? agent.avgScore.toFixed(1) : "—"} · {agent.callCount}{" "}
+        {agent.callCount === 1 ? "call" : "calls"}
       </div>
     </button>
   );

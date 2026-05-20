@@ -32,14 +32,7 @@ export function LoadingPlanet({ cx, cy, r = 1.6, t }: Props) {
         strokeDasharray="1 1.5"
         opacity="0.7"
       >
-        <animateTransform
-          attributeName="transform"
-          type="rotate"
-          from="0"
-          to="360"
-          dur="3s"
-          repeatCount="indefinite"
-        />
+        <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="3s" repeatCount="indefinite" />
       </circle>
     </g>
   );

@@ -66,14 +66,7 @@ type Props = {
   emptyBody?: string;
 };
 
-export function CallList({
-  mode = "full",
-  limit = 5,
-  filterFn,
-  title = null,
-  emptyTitle,
-  emptyBody,
-}: Props) {
+export function CallList({ mode = "full", limit = 5, filterFn, title = null, emptyTitle, emptyBody }: Props) {
   const t = useOrreryTheme();
 
   // Filters — server-side filters via queryKey trigger refetch; client-side
@@ -412,9 +405,7 @@ function CallCard({ call }: { call: CallWithDetails }) {
 
         {/* Identity */}
         <div className="flex-1 min-w-0">
-          <div className="font-medium text-foreground truncate">
-            {call.fileName || call.employee?.name || "Call"}
-          </div>
+          <div className="font-medium text-foreground truncate">{call.fileName || call.employee?.name || "Call"}</div>
           <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
             {call.employee?.name && (
               <span className="truncate" title={call.employee.name}>

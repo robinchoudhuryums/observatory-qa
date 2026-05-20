@@ -41,7 +41,11 @@ export default function OrreryRealismShowcase() {
           <OrreryTag t={t}>◇ Empty glyphs</OrreryTag>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginTop: 12 }}>
             {(["flat-orbit", "no-constellation", "thin-data", "cloud"] as const).map((kind) => (
-              <OrreryCard t={t} key={kind} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+              <OrreryCard
+                t={t}
+                key={kind}
+                style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}
+              >
                 <EmptyGlyph t={t} kind={kind} />
                 <OrreryTag t={t}>{kind}</OrreryTag>
               </OrreryCard>
@@ -76,7 +80,16 @@ export default function OrreryRealismShowcase() {
           <OrreryTag t={t}>◇ Loading planet (in-orbit skeleton)</OrreryTag>
           <OrreryCard t={t} padded={false} style={{ marginTop: 12, padding: 24, background: t.bgFlat }}>
             <svg viewBox="-15 -10 30 20" style={{ width: 240, height: 160 }}>
-              <ellipse cx="0" cy="0" rx="10" ry={10 * TILT} fill="none" stroke={t.orbit} strokeWidth="0.15" strokeDasharray="0.6 0.5" />
+              <ellipse
+                cx="0"
+                cy="0"
+                rx="10"
+                ry={10 * TILT}
+                fill="none"
+                stroke={t.orbit}
+                strokeWidth="0.15"
+                strokeDasharray="0.6 0.5"
+              />
               <LoadingPlanet cx={-6} cy={3 * TILT} t={t} />
               <LoadingPlanet cx={8} cy={-2 * TILT} t={t} r={1.4} />
             </svg>
@@ -87,7 +100,8 @@ export default function OrreryRealismShowcase() {
           <OrreryTag t={t}>◇ Uncertainty haze</OrreryTag>
           <UncertaintyHaze t={t} reason="TRANSCRIPT CONFIDENCE 0.42">
             <div style={{ fontSize: 13, lineHeight: 1.5, color: t.inkSoft }}>
-              Background noise affected three minutes of the call. Manager review recommended before acting on this analysis.
+              Background noise affected three minutes of the call. Manager review recommended before acting on this
+              analysis.
             </div>
           </UncertaintyHaze>
         </section>

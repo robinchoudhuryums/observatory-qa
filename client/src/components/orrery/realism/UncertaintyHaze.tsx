@@ -35,8 +35,7 @@ export function UncertaintyHaze({ t, reason, children }: Props) {
           gap: 6,
         }}
       >
-        <span style={{ width: 5, height: 5, borderRadius: 3, background: t.amber }} />
-        ◇ LOW CONFIDENCE · {reason}
+        <span style={{ width: 5, height: 5, borderRadius: 3, background: t.amber }} />◇ LOW CONFIDENCE · {reason}
       </div>
       {children}
     </div>

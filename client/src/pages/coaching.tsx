@@ -109,9 +109,7 @@ export default function CoachingPage() {
     const exceptional = teamSystems.filter((a) => a.exceptional).length;
     const scoredAgents = teamSystems.filter((a) => a.avgScore !== null);
     const teamAvg =
-      scoredAgents.length > 0
-        ? scoredAgents.reduce((s, a) => s + (a.avgScore || 0), 0) / scoredAgents.length
-        : null;
+      scoredAgents.length > 0 ? scoredAgents.reduce((s, a) => s + (a.avgScore || 0), 0) / scoredAgents.length : null;
     return { total, withActive, flagged, exceptional, teamAvg };
   }, [teamSystems]);
 
@@ -226,9 +224,26 @@ export default function CoachingPage() {
         {teamSystems.length > 0 && (
           <section data-testid="coaching-hero" className="space-y-4">
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <OrreryKpi t={t} label="Team avg score" value={teamKpis.teamAvg !== null ? teamKpis.teamAvg.toFixed(1) : "—"} sub={teamKpis.teamAvg !== null ? "/ 10" : undefined} accentRamp="bright" />
-              <OrreryKpi t={t} label="Active sessions" value={teamKpis.withActive} sub={`/ ${teamKpis.total}`} accentRamp="warm" />
-              <OrreryKpi t={t} label="Coaching flagged" value={teamKpis.flagged} accentRamp={teamKpis.flagged > 0 ? "amber" : "cool"} />
+              <OrreryKpi
+                t={t}
+                label="Team avg score"
+                value={teamKpis.teamAvg !== null ? teamKpis.teamAvg.toFixed(1) : "—"}
+                sub={teamKpis.teamAvg !== null ? "/ 10" : undefined}
+                accentRamp="bright"
+              />
+              <OrreryKpi
+                t={t}
+                label="Active sessions"
+                value={teamKpis.withActive}
+                sub={`/ ${teamKpis.total}`}
+                accentRamp="warm"
+              />
+              <OrreryKpi
+                t={t}
+                label="Coaching flagged"
+                value={teamKpis.flagged}
+                accentRamp={teamKpis.flagged > 0 ? "amber" : "cool"}
+              />
               <OrreryKpi t={t} label="Exceptional" value={teamKpis.exceptional} accentRamp="cool" />
             </div>
 
@@ -246,9 +261,7 @@ export default function CoachingPage() {
                     t={t}
                     agent={agent}
                     selected={employeeFilter === agent.id}
-                    onClick={() =>
-                      setEmployeeFilter((current) => (current === agent.id ? "all" : agent.id))
-                    }
+                    onClick={() => setEmployeeFilter((current) => (current === agent.id ? "all" : agent.id))}
                   />
                 ))}
               </div>

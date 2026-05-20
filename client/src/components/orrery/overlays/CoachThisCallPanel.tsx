@@ -72,9 +72,7 @@ export function CoachThisCallPanel({
     if (!open) return;
     // Re-seed the form whenever the panel opens with a new moment/call.
     const momentLabel = moment?.label || "this call";
-    const seedTitle = moment
-      ? `Coach: ${momentLabel} (${callName})`
-      : `Coach: ${callName}`;
+    const seedTitle = moment ? `Coach: ${momentLabel} (${callName})` : `Coach: ${callName}`;
     let seedFraming: string;
     if (!moment) {
       seedFraming = `Reviewing call "${callName}". Use this session to discuss patterns observed across the conversation.`;
@@ -178,7 +176,14 @@ export function CoachThisCallPanel({
           }
         `}</style>
 
-        <div style={{ padding: "20px 24px 12px", display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <div
+          style={{
+            padding: "20px 24px 12px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "baseline",
+          }}
+        >
           <div>
             <OrreryTag t={t} color={t.bright}>
               ◇ COACH THIS {moment ? "MOMENT" : "CALL"}
@@ -211,7 +216,17 @@ export function CoachThisCallPanel({
           </button>
         </div>
 
-        <form onSubmit={submit} style={{ flex: 1, overflowY: "auto", padding: "8px 24px 16px", display: "flex", flexDirection: "column", gap: 14 }}>
+        <form
+          onSubmit={submit}
+          style={{
+            flex: 1,
+            overflowY: "auto",
+            padding: "8px 24px 16px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 14,
+          }}
+        >
           <div>
             <Label htmlFor="cct-title" className="text-xs">
               Session title
@@ -258,7 +273,12 @@ export function CoachThisCallPanel({
             <Button type="button" variant="outline" onClick={onClose} className="flex-1">
               Cancel
             </Button>
-            <Button type="submit" disabled={createMutation.isPending || !title.trim()} className="flex-1" data-testid="cct-submit">
+            <Button
+              type="submit"
+              disabled={createMutation.isPending || !title.trim()}
+              className="flex-1"
+              data-testid="cct-submit"
+            >
               {createMutation.isPending ? "Sending…" : "Send to coach"}
             </Button>
           </div>

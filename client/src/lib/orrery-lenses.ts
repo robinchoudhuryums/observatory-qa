@@ -62,13 +62,7 @@ export type Lens = {
  * on the innermost orbit (closest to the sun, most prominent). Used by the
  * type and agent lenses where there's no natural ordering.
  */
-function distributeByVolume({
-  volumeRank,
-  totalGroups,
-}: {
-  volumeRank: number;
-  totalGroups: number;
-}): OrbitIndex {
+function distributeByVolume({ volumeRank, totalGroups }: { volumeRank: number; totalGroups: number }): OrbitIndex {
   // Spread the groups roughly evenly across the 4 orbits, but cap so the top
   // 3 always go on the innermost orbit (most prominent slots).
   if (totalGroups <= 4) return Math.min(volumeRank, 3) as OrbitIndex;

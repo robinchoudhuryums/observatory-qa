@@ -23,23 +23,19 @@ const HEIGHT = 32;
 const PAD_X = 6;
 const PAD_Y = 4;
 
-export function ClinicalCallTimeline({
-  t,
-  points,
-  moments,
-  durationSec,
-  selectedId = null,
-  onSelectMoment,
-}: Props) {
+export function ClinicalCallTimeline({ t, points, moments, durationSec, selectedId = null, onSelectMoment }: Props) {
   const xFor = (time: number): number => {
     const denom = durationSec || 1;
-    return PAD_X + ((WIDTH - 2 * PAD_X) * Math.min(1, Math.max(0, time / denom)));
+    return PAD_X + (WIDTH - 2 * PAD_X) * Math.min(1, Math.max(0, time / denom));
   };
   const yFor = (quality: number): number => {
     return HEIGHT - PAD_Y - ((HEIGHT - 2 * PAD_Y) * Math.min(100, Math.max(0, quality))) / 100;
   };
 
-  const pathD = useMemo(() => catmullRomPath(points.map((p) => [xFor(p.time), yFor(p.quality)])), [points, durationSec]);
+  const pathD = useMemo(
+    () => catmullRomPath(points.map((p) => [xFor(p.time), yFor(p.quality)])),
+    [points, durationSec],
+  );
   const areaD = useMemo(() => {
     if (points.length === 0) return "";
     const lastX = xFor(points[points.length - 1].time);
@@ -140,13 +136,7 @@ export function ClinicalCallTimeline({
       ))}
 
       {/* X-axis bookends. */}
-      <text
-        x={PAD_X}
-        y={HEIGHT - 1}
-        fontFamily="'JetBrains Mono', monospace"
-        fontSize="1.4"
-        fill={t.inkMute}
-      >
+      <text x={PAD_X} y={HEIGHT - 1} fontFamily="'JetBrains Mono', monospace" fontSize="1.4" fill={t.inkMute}>
         0:00
       </text>
       <text

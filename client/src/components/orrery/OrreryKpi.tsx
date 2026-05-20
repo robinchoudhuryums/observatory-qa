@@ -23,15 +23,7 @@ type Props = {
   plain?: boolean;
 };
 
-export function OrreryKpi({
-  t,
-  label,
-  value,
-  sub,
-  delta = null,
-  accentRamp = "bright",
-  plain = false,
-}: Props) {
+export function OrreryKpi({ t, label, value, sub, delta = null, accentRamp = "bright", plain = false }: Props) {
   const accent = t[accentRamp];
 
   const wrapStyle: CSSProperties = {
@@ -73,9 +65,7 @@ export function OrreryKpi({
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
         <span style={labelStyle}>{label}</span>
         {delta && (
-          <span style={{ fontSize: 10, color: t.green, fontFamily: "'JetBrains Mono', monospace" }}>
-            ↑ {delta}
-          </span>
+          <span style={{ fontSize: 10, color: t.green, fontFamily: "'JetBrains Mono', monospace" }}>↑ {delta}</span>
         )}
       </div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 4 }}>

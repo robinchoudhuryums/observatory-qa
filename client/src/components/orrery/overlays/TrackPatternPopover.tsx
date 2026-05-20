@@ -45,14 +45,7 @@ type Props = {
   patternLabel: string;
 };
 
-export function TrackPatternPopover({
-  t,
-  open,
-  onClose,
-  anchorRect,
-  patternKey,
-  patternLabel,
-}: Props) {
+export function TrackPatternPopover({ t, open, onClose, anchorRect, patternKey, patternLabel }: Props) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [trigger, setTrigger] = useState<Trigger>("new_instance");
@@ -123,11 +116,7 @@ export function TrackPatternPopover({
 
   return (
     <>
-      <div
-        onClick={onClose}
-        style={{ position: "fixed", inset: 0, zIndex: 50 }}
-        aria-hidden
-      />
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 50 }} aria-hidden />
       <div
         role="dialog"
         aria-label={`Track pattern: ${patternLabel}`}

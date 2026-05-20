@@ -18,11 +18,7 @@ import {
   type PlanetData,
 } from "@/components/orrery";
 import { usePresentation } from "@/hooks/use-presentation";
-import {
-  RiArrowLeftLine,
-  RiArrowRightSLine,
-  RiHomeLine,
-} from "@remixicon/react";
+import { RiArrowLeftLine, RiArrowRightSLine, RiHomeLine } from "@remixicon/react";
 
 /**
  * Atlas cluster drill-in. Reached by clicking a planet on the Atlas hero.
@@ -76,8 +72,7 @@ export default function AtlasCluster() {
     if (todaysClusterCalls.length === 0) return [];
     // Sort by uploadedAt so moons land in chronological order around the planet.
     const sorted = [...todaysClusterCalls].sort(
-      (a, b) =>
-        new Date(a.uploadedAt || 0).getTime() - new Date(b.uploadedAt || 0).getTime(),
+      (a, b) => new Date(a.uploadedAt || 0).getTime() - new Date(b.uploadedAt || 0).getTime(),
     );
     const ringRadii = [12, 16, 22];
     return sorted.map((c, i) => {
@@ -171,7 +166,9 @@ export default function AtlasCluster() {
         </nav>
         <div className="flex items-center justify-between">
           <div>
-            <OrreryTag t={t}>◇ TODAY · {kpis.count} {kpis.count === 1 ? "CALL" : "CALLS"}</OrreryTag>
+            <OrreryTag t={t}>
+              ◇ TODAY · {kpis.count} {kpis.count === 1 ? "CALL" : "CALLS"}
+            </OrreryTag>
             <h2
               className="text-2xl font-semibold mt-1"
               style={{
@@ -290,9 +287,7 @@ export default function AtlasCluster() {
           <h3 className="text-base font-semibold text-foreground mb-3">All calls in this cluster</h3>
           <CallList
             mode="full"
-            filterFn={(c) =>
-              category === "uncategorized" ? !c.callCategory : c.callCategory === category
-            }
+            filterFn={(c) => (category === "uncategorized" ? !c.callCategory : c.callCategory === category)}
             emptyTitle="No calls in this cluster."
             emptyBody="When a call matches this category, it will appear here."
           />

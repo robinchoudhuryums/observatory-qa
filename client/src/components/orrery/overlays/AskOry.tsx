@@ -105,7 +105,9 @@ export function AskOryPanel({ open, onClose }: PanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const askMutation = useMutation({
-    mutationFn: async (query: string): Promise<{
+    mutationFn: async (
+      query: string,
+    ): Promise<{
       formattedContext?: string;
       chunks?: unknown[];
       source?: string;
@@ -225,7 +227,15 @@ export function AskOryPanel({ open, onClose }: PanelProps) {
         `}</style>
 
         {/* Header */}
-        <div style={{ padding: "16px 20px 12px", display: "flex", alignItems: "center", gap: 12, borderBottom: `0.5px solid ${t.panelBorder}` }}>
+        <div
+          style={{
+            padding: "16px 20px 12px",
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            borderBottom: `0.5px solid ${t.panelBorder}`,
+          }}
+        >
           <ObservatoryLayeredOwl size={40} color={t.bright} state={owlState} />
           <div style={{ flex: 1 }}>
             <OrreryTag t={t} color={t.bright}>
@@ -252,7 +262,10 @@ export function AskOryPanel({ open, onClose }: PanelProps) {
         </div>
 
         {/* Messages */}
-        <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+        <div
+          ref={scrollRef}
+          style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}
+        >
           {messages.length === 0 && !askMutation.isPending && (
             <div style={{ textAlign: "center", padding: "24px 16px", color: t.inkSoft }}>
               <div
@@ -267,8 +280,8 @@ export function AskOryPanel({ open, onClose }: PanelProps) {
                 What would you like to know?
               </div>
               <div style={{ fontSize: 13 }}>
-                Ask about your team's playbooks, compliance policies, or anything else from your uploaded
-                reference documents.
+                Ask about your team's playbooks, compliance policies, or anything else from your uploaded reference
+                documents.
               </div>
             </div>
           )}
@@ -278,7 +291,16 @@ export function AskOryPanel({ open, onClose }: PanelProps) {
           ))}
 
           {askMutation.isPending && (
-            <div style={{ display: "flex", gap: 8, alignItems: "center", color: t.inkSoft, fontSize: 13, fontStyle: "italic" }}>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                alignItems: "center",
+                color: t.inkSoft,
+                fontSize: 13,
+                fontStyle: "italic",
+              }}
+            >
               <ObservatoryLayeredOwl size={20} color={t.inkSoft} state="thinking" />
               Ory is thinking…
             </div>

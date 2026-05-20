@@ -18,12 +18,7 @@ import type { IndustryType } from "@shared/schema";
  */
 export type Presentation = "observatory" | "clinical";
 
-const CLINICAL_INDUSTRIES: IndustryType[] = [
-  "healthcare",
-  "dental",
-  "behavioral_health",
-  "veterinary",
-];
+const CLINICAL_INDUSTRIES: IndustryType[] = ["healthcare", "dental", "behavioral_health", "veterinary"];
 
 const CLINICAL_LEXICON: Record<string, string> = {
   Atlas: "Dashboard",

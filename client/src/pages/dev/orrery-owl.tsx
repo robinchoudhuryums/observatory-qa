@@ -73,7 +73,16 @@ export default function OrreryOwlShowcase() {
             {STATES.map((state) => (
               <OrreryCard t={t} key={state} style={{ textAlign: "center" }}>
                 <ObservatoryLayeredOwl size={80} color={t.bright} state={state} />
-                <div style={{ marginTop: 8, fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: t.inkSoft, letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                <div
+                  style={{
+                    marginTop: 8,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: 10,
+                    color: t.inkSoft,
+                    letterSpacing: "0.12em",
+                    textTransform: "uppercase",
+                  }}
+                >
                   {state}
                 </div>
               </OrreryCard>
