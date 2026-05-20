@@ -11,6 +11,7 @@ import { startUploadCleanup } from "./helpers";
 import { registerReportRoutes } from "./reports";
 import { registerCoachingRoutes } from "./coaching";
 import { registerInsightRoutes } from "./insights";
+import { registerPatternRoutes } from "./patterns";
 import { registerRegistrationRoutes } from "./registration";
 import { registerApiKeyRoutes, apiKeyAuth } from "./api-keys";
 import { registerOAuthRoutes, setupGoogleOAuth } from "./oauth";
@@ -99,6 +100,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerReportRoutes(app);
   registerCoachingRoutes(app);
   registerInsightRoutes(app);
+  registerPatternRoutes(app);
   registerExportRoutes(app);
   registerABTestRoutes(app);
   registerSimulatedCallRoutes(app);

@@ -9,6 +9,7 @@ import Sidebar from "@/components/layout/sidebar";
 import { FeedbackWidget } from "@/components/feedback-widget";
 import { ErrorBoundary } from "@/components/lib/error-boundary";
 import { BrandingProvider } from "@/components/branding-provider";
+import { AskOryFab } from "@/components/orrery";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { useIdleTimeout } from "@/hooks/use-idle-timeout";
 import { IdleTimeoutOverlay } from "@/components/idle-timeout-overlay";
@@ -41,6 +42,8 @@ function ProtectedRoute({ minRole, children }: { minRole: string; children: Reac
 
 // Route-level code splitting — each page loads on demand
 const Dashboard = lazy(() => import("@/pages/dashboard"));
+const AtlasCluster = lazy(() => import("@/pages/atlas-cluster"));
+const GalaxyPage = lazy(() => import("@/pages/galaxy"));
 const Upload = lazy(() => import("@/pages/upload"));
 const Transcripts = lazy(() => import("@/pages/transcripts"));
 const PerformancePage = lazy(() => import("@/pages/performance"));
@@ -75,6 +78,13 @@ const EmailsPage = lazy(() => import("@/pages/emails"));
 const LearningPage = lazy(() => import("@/pages/learning"));
 const MarketingPage = lazy(() => import("@/pages/marketing"));
 const NotFound = lazy(() => import("@/pages/not-found"));
+
+// Orrery dev showcases — super-admin only, used to QA primitives without
+// having to navigate through the redesigned pages.
+const OrreryComponentsShowcase = lazy(() => import("@/pages/dev/orrery-components"));
+const OrreryOwlShowcase = lazy(() => import("@/pages/dev/orrery-owl"));
+const OrreryRealismShowcase = lazy(() => import("@/pages/dev/orrery-realism"));
+const OrreryTypeLab = lazy(() => import("@/pages/dev/orrery-type-lab"));
 
 function PageLoader() {
   return (
@@ -186,6 +196,7 @@ function Router() {
       <ShortcutsDialog open={showShortcuts} onOpenChange={setShowShortcuts} />
       <Sidebar />
       <FeedbackWidget />
+      <AskOryFab />
       <main className="flex-1 overflow-auto pt-14 md:pt-0">
         <Suspense fallback={<PageLoader />}>
           <AnimatePresence mode="wait">
@@ -195,6 +206,24 @@ function Router() {
                   <ErrorBoundary>
                     <AnimatedPage>
                       <Dashboard />
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/atlas/cluster/:category">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <AtlasCluster />
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/galaxy">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <GalaxyPage />
                     </AnimatedPage>
                   </ErrorBoundary>
                 )}
@@ -495,6 +524,44 @@ function Router() {
                 {() => (
                   <ErrorBoundary>
                     <OnboardingWizard />
+                  </ErrorBoundary>
+                )}
+              </Route>
+              {/* Orrery dev showcases — admin-only. Bench primitives for
+                  visual QA without depending on real call data. */}
+              <Route path="/dev/orrery/components">
+                {() => (
+                  <ErrorBoundary>
+                    <ProtectedRoute minRole="admin">
+                      <OrreryComponentsShowcase />
+                    </ProtectedRoute>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/dev/orrery/owl">
+                {() => (
+                  <ErrorBoundary>
+                    <ProtectedRoute minRole="admin">
+                      <OrreryOwlShowcase />
+                    </ProtectedRoute>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/dev/orrery/realism">
+                {() => (
+                  <ErrorBoundary>
+                    <ProtectedRoute minRole="admin">
+                      <OrreryRealismShowcase />
+                    </ProtectedRoute>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/dev/orrery/type-lab">
+                {() => (
+                  <ErrorBoundary>
+                    <ProtectedRoute minRole="admin">
+                      <OrreryTypeLab />
+                    </ProtectedRoute>
                   </ErrorBoundary>
                 )}
               </Route>

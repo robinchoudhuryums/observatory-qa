@@ -637,6 +637,16 @@ export interface IStorage {
   createBusinessAssociateAgreement?(orgId: string, baa: any): Promise<any>;
   updateBusinessAssociateAgreement?(orgId: string, id: string, updates: any): Promise<any | undefined>;
 
+  // ── Pattern subscriptions (Phase 3 of Orrery redesign) ────────────────
+  // Tracked-pattern alerts that fire when clusters surfaced by
+  // /api/insights/clusters recur. Storage methods are optional so backends
+  // without persistence (CloudStorage/MemStorage) can stub them and
+  // /api/patterns/* will still operate, just without persistence between
+  // restarts.
+  listPatternSubscriptions?(orgId: string): Promise<any[]>;
+  createPatternSubscription?(orgId: string, sub: any): Promise<any>;
+  deletePatternSubscription?(orgId: string, id: string): Promise<void>;
+
   // Transaction support — wraps multiple storage operations in a single atomic unit.
   // PostgresStorage uses a real database transaction (Drizzle ORM).
   // MemStorage/CloudStorage run the callback directly (single-threaded = effectively atomic).

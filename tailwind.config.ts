@@ -6,9 +6,11 @@ export default {
   theme: {
     extend: {
       borderRadius: {
+        sm: "var(--radius-sm)",
+        md: "var(--radius-md)",
         lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        xl: "var(--radius-lg)",
+        "2xl": "var(--radius-xl)",
       },
       colors: {
         background: "var(--background)",
@@ -61,28 +63,47 @@ export default {
           border: "var(--sidebar-border)",
           ring: "var(--sidebar-ring)",
         },
+        // Orrery — semantic celestial tokens accessible as Tailwind utilities.
+        // e.g. text-celestial-bright, bg-celestial-warm, border-celestial-cool
+        celestial: {
+          bright: "var(--celestial-bright)",
+          warm: "var(--celestial-warm)",
+          cool: "var(--celestial-cool)",
+          cold: "var(--celestial-cold)",
+          ice: "var(--celestial-ice)",
+        },
+        ink: {
+          DEFAULT: "var(--ink)",
+          soft: "var(--ink-soft)",
+          mute: "var(--ink-mute)",
+        },
+        panel: {
+          DEFAULT: "var(--panel)",
+          border: "var(--panel-border)",
+          stroke: "var(--panel-stroke)",
+        },
       },
       fontFamily: {
+        // Orrery typography: Inter body, Instrument Serif italic display,
+        // JetBrains Mono code. The serif is meant for h1/h2/hero values
+        // (use `font-serif italic` or `.serif-display`).
         sans: ["var(--font-sans)"],
         serif: ["var(--font-serif)"],
         mono: ["var(--font-mono)"],
       },
+      transitionTimingFunction: {
+        // Orrery — pop easing for overshoot animations (eye widen, planet
+        // hover, etc.) from observatory-brand.jsx attention state.
+        pop: "cubic-bezier(0.22, 1, 0.36, 1)",
+      },
       keyframes: {
         "accordion-down": {
-          from: {
-            height: "0",
-          },
-          to: {
-            height: "var(--radix-accordion-content-height)",
-          },
+          from: { height: "0" },
+          to: { height: "var(--radix-accordion-content-height)" },
         },
         "accordion-up": {
-          from: {
-            height: "var(--radix-accordion-content-height)",
-          },
-          to: {
-            height: "0",
-          },
+          from: { height: "var(--radix-accordion-content-height)" },
+          to: { height: "0" },
         },
       },
       animation: {

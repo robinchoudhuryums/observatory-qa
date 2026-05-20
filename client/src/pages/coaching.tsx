@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,8 +10,11 @@ import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { useBeforeUnload } from "@/hooks/use-before-unload";
 import { apiRequest } from "@/lib/queryClient";
-import type { Employee } from "@shared/schema";
+import type { Employee, CallWithDetails, TopPerformer } from "@shared/schema";
 import { COACHING_CATEGORIES } from "@shared/schema";
+// Orrery hero — additive layer above the existing coaching form + list.
+import { AgentSystem, OrreryCard, OrreryKpi, OrreryTag, useOrreryTheme } from "@/components/orrery";
+import { agentsToCoachingSystems } from "@/lib/orrery-adapters";
 import {
   RiClipboardLine,
   RiAddLine,
@@ -74,6 +77,41 @@ export default function CoachingPage() {
   const { data: employees } = useQuery<Employee[]>({
     queryKey: ["/api/employees"],
   });
+
+  // Orrery hero data — team-in-orbit visualization above the session list.
+  // Reuses the dashboard's /api/calls fetch (shared TanStack Query cache,
+  // so no extra request when navigating from Atlas).
+  const { data: performers } = useQuery<TopPerformer[]>({
+    queryKey: ["/api/performance"],
+  });
+  const { data: callsForFlags } = useQuery<CallWithDetails[]>({
+    queryKey: ["/api/calls", { status: "", sentiment: "", employee: "" }],
+    staleTime: 30_000,
+  });
+  const t = useOrreryTheme();
+  const teamSystems = useMemo(
+    () =>
+      agentsToCoachingSystems(
+        (employees as Employee[]) || [],
+        (performers as TopPerformer[]) || [],
+        (sessions as { employeeId?: string; status?: string }[]) || [],
+        ((callsForFlags as CallWithDetails[]) || []).map((c) => ({
+          employeeId: c.employeeId,
+          analysis: c.analysis ? { flags: c.analysis.flags } : null,
+        })),
+      ),
+    [employees, performers, sessions, callsForFlags],
+  );
+  const teamKpis = useMemo(() => {
+    const total = teamSystems.length;
+    const withActive = teamSystems.filter((a) => a.hasActiveSession).length;
+    const flagged = teamSystems.filter((a) => a.flagged).length;
+    const exceptional = teamSystems.filter((a) => a.exceptional).length;
+    const scoredAgents = teamSystems.filter((a) => a.avgScore !== null);
+    const teamAvg =
+      scoredAgents.length > 0 ? scoredAgents.reduce((s, a) => s + (a.avgScore || 0), 0) / scoredAgents.length : null;
+    return { total, withActive, flagged, exceptional, teamAvg };
+  }, [teamSystems]);
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, updates }: { id: string; updates: Record<string, any> }) => {
@@ -179,7 +217,58 @@ export default function CoachingPage() {
         </span>
       </div>
 
-      <main className="p-6 space-y-3">
+      <main className="p-6 space-y-6">
+        {/* Orrery hero — team-in-orbit + KPIs. Added in Phase 4 of the
+            redesign; doesn't replace the existing form/list below, just
+            gives the page a celestial overview of who needs attention. */}
+        {teamSystems.length > 0 && (
+          <section data-testid="coaching-hero" className="space-y-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <OrreryKpi
+                t={t}
+                label="Team avg score"
+                value={teamKpis.teamAvg !== null ? teamKpis.teamAvg.toFixed(1) : "—"}
+                sub={teamKpis.teamAvg !== null ? "/ 10" : undefined}
+                accentRamp="bright"
+              />
+              <OrreryKpi
+                t={t}
+                label="Active sessions"
+                value={teamKpis.withActive}
+                sub={`/ ${teamKpis.total}`}
+                accentRamp="warm"
+              />
+              <OrreryKpi
+                t={t}
+                label="Coaching flagged"
+                value={teamKpis.flagged}
+                accentRamp={teamKpis.flagged > 0 ? "amber" : "cool"}
+              />
+              <OrreryKpi t={t} label="Exceptional" value={teamKpis.exceptional} accentRamp="cool" />
+            </div>
+
+            <OrreryCard t={t}>
+              <div className="flex items-center justify-between mb-3">
+                <OrreryTag t={t}>◇ TEAM IN ORBIT</OrreryTag>
+                <span className="text-xs text-muted-foreground">
+                  Brighter planets score higher · ringed planets have open sessions
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-2">
+                {teamSystems.map((agent) => (
+                  <AgentSystem
+                    key={agent.id}
+                    t={t}
+                    agent={agent}
+                    selected={employeeFilter === agent.id}
+                    onClick={() => setEmployeeFilter((current) => (current === agent.id ? "all" : agent.id))}
+                  />
+                ))}
+              </div>
+            </OrreryCard>
+          </section>
+        )}
+
         {isLoading && (
           <div className="space-y-3">
             {Array.from({ length: 4 }).map((_, i) => (

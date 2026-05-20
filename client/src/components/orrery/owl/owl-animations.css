@@ -1,0 +1,93 @@
+/**
+ * Owl persona animations — ported from observatory-brand.jsx.
+ *
+ * The layered owl has a state machine driven by `data-owl-state`:
+ *   idle      — slow ambient blink every ~5s
+ *   thinking  — blink + slight head tilt
+ *   attention — eyes WIDEN twice (a "noticed something" alert pop)
+ *   concerned — eyes shift down + slightly squashed (no animation, a posture)
+ *   talking   — subtle "breath" scale on the body
+ *
+ * Each animation targets `.obs-owl-eye` or `.obs-owl-root`; transform-box:
+ * fill-box keeps scales centered on each eye independently. Respects
+ * prefers-reduced-motion.
+ */
+
+/* IDLE BLINK — eyes open most of the cycle, brief close at 92–98%. */
+@keyframes obsOwlBlink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  94%, 96%      { transform: scaleY(0.05); }
+}
+
+/* ATTENTION — widen twice. Eyes are "noticing" something. */
+@keyframes obsOwlAttention {
+  0%, 100%      { transform: scale(1); }
+  15%, 45%      { transform: scale(1.32); }
+  30%, 60%      { transform: scale(1); }
+  72%, 90%      { transform: scale(1); }
+}
+
+/* TALKING — subtle whole-owl breath. */
+@keyframes obsOwlBreath {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.025); }
+}
+
+/* THINKING — tiny head tilt + slow blink share the cycle. */
+@keyframes obsOwlTilt {
+  0%, 100% { transform: rotate(-2deg); }
+  50%      { transform: rotate(2deg); }
+}
+
+/* === State bindings === */
+
+/* idle: gentle blink every 5.4s */
+.obs-owl-root[data-owl-state="idle"] .obs-owl-eye {
+  animation: obsOwlBlink 5.4s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* thinking: blink every 3.8s + slow head tilt every 4s */
+.obs-owl-root[data-owl-state="thinking"] {
+  animation: obsOwlTilt 4s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.obs-owl-root[data-owl-state="thinking"] .obs-owl-eye {
+  animation: obsOwlBlink 3.8s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.obs-owl-root[data-owl-state="thinking"] .obs-owl-eye-right {
+  /* Eyes don't blink quite in lockstep — adds a tiny lifelike asymmetry. */
+  animation-delay: 0.15s;
+}
+
+/* attention: eye-widen pop, repeats every 3.2s */
+.obs-owl-root[data-owl-state="attention"] .obs-owl-eye {
+  animation: obsOwlAttention 3.2s cubic-bezier(0.34, 1.56, 0.64, 1) infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* concerned: static squashed eyes, slightly lowered. Pure transform — reads as posture, not motion. */
+.obs-owl-root[data-owl-state="concerned"] .obs-owl-eye {
+  transform: translateY(0.6px) scaleY(0.6);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* talking: breath on whole owl */
+.obs-owl-root[data-owl-state="talking"] {
+  animation: obsOwlBreath 1.6s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .obs-owl-root,
+  .obs-owl-root .obs-owl-eye {
+    animation: none !important;
+  }
+}

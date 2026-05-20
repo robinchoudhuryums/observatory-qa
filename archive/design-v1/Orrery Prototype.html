@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Orrery · Prototype</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin: 0; padding: 0; background: #04081a; color: #f4ecdb; font-family: 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+  button { font-family: inherit; }
+  a { color: inherit; }
+  #root { min-height: 100vh; }
+
+  /* page transitions */
+  .orrery-screen-enter {
+    animation: orrery-fade-in 360ms ease-out;
+  }
+  @keyframes orrery-fade-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- Tweaks framework -->
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+
+<!-- Observatory brand primitives (owl mark + wordmark) -->
+<script src="directions/observatory-owl-mark-data.js"></script>
+<script type="text/babel" src="directions/observatory-brand.jsx"></script>
+
+<!-- Orrery design system + screens -->
+<script type="text/babel" src="directions/orrery-system.jsx"></script>
+<script type="text/babel" src="directions/orrery-dashboard.jsx"></script>
+<script type="text/babel" src="directions/orrery-planet-detail.jsx"></script>
+<script type="text/babel" src="directions/orrery-call-detail.jsx"></script>
+<script type="text/babel" src="directions/orrery-coach-this-call.jsx"></script>
+<script type="text/babel" src="directions/orrery-track-pattern.jsx"></script>
+<script type="text/babel" src="directions/orrery-galaxy.jsx"></script>
+<script type="text/babel" src="directions/orrery-patterns.jsx"></script>
+<script type="text/babel" src="directions/orrery-clinical-note.jsx"></script>
+<script type="text/babel" src="directions/orrery-coaching.jsx"></script>
+<script type="text/babel" src="directions/orrery-mobile-atlas.jsx"></script>
+<script type="text/babel" src="directions/orrery-owl.jsx"></script>
+<script type="text/babel" src="directions/orrery-owl-showcase.jsx"></script>
+<script type="text/babel" src="directions/orrery-realism.jsx"></script>
+<script type="text/babel" src="directions/orrery-realism-showcase.jsx"></script>
+<script type="text/babel" src="directions/orrery-typelab.jsx"></script>
+<script type="text/babel" src="directions/orrery-typelab-b.jsx"></script>
+<script type="text/babel" src="directions/orrery-clinical.jsx"></script>
+<script type="text/babel" src="directions/orrery-clinical-patterns.jsx"></script>
+<script type="text/babel" src="directions/orrery-clinical-call.jsx"></script>
+
+<!-- Prototype-only screens -->
+<script type="text/babel" src="prototype/ios-frame.jsx"></script>
+<script type="text/babel" src="prototype/orrery-signin.jsx"></script>
+<script type="text/babel" src="prototype/orrery-replay.jsx"></script>
+
+<script type="text/babel" data-presets="env,react">
+const { useState, useEffect } = React;
+
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "theme": "light",
+  "showTweaks": true,
+  "realism": "partial",
+  "brandLogo": "auto",
+  "presentation": "observatory",
+  "clinicalHero": "swimlane",
+  "clinicalPatternHero": "sankey",
+  "noteTrajectoryStyle": "constellation"
+}/*EDITMODE-END*/;
+
+function App() {
+  const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const [route, setRoute] = useState({ name: 'signin' });
+  const [replayOpen, setReplayOpen] = useState(false);
+  const [askOpen, setAskOpen] = useState(false);
+
+  // Brand logo tint — mutate the shared theme tokens so every screen picks
+  // it up. ORRERY_DARK / ORRERY_LIGHT define `logoTint` (default ink) and
+  // `logoTintGold` (warm amber) — the tweak swaps which is active.
+  useEffect(() => {
+    const dark = window.ORRERY_DARK, light = window.ORRERY_LIGHT;
+    if (!dark || !light) return;
+    // 'auto' = gold in dark, mono in light — matches the amber accent family
+    // in dark mode and stays clean ink against bright bgs.
+    const wantGold = tweaks.brandLogo === 'gold'
+      || (tweaks.brandLogo === 'auto' && tweaks.theme === 'dark');
+    if (wantGold) {
+      dark.logoTint = dark.logoTintGold;
+      light.logoTint = light.logoTintGold;
+    } else {
+      dark.logoTint = '#f3f5fa';        // mirrors original t.ink (dark)
+      light.logoTint = '#1a1f3a';       // mirrors original t.ink (light)
+    }
+    // Force a remount so screens re-render with the new tokens.
+    setRoute(r => ({ ...r, _bump: (r._bump || 0) + 1 }));
+  }, [tweaks.brandLogo, tweaks.theme]);
+
+  // Dev: expose a global so screenshots / probes can flip logo tint without
+  // poking through useTweaks internals.
+  useEffect(() => { window.__setBrandLogo = (v) => setTweak('brandLogo', v); }, []);
+
+  // Bridge: any screen can call onNavigate('dashboard'|'planet'|'call'|'galaxy'|'patterns'|'replay'|'signin', payload)
+  const navigate = (name, payload = {}) => {
+    if (name === 'replay') { setReplayOpen(true); return; }
+    if (name === 'signin') { setRoute({ name: 'signin' }); return; }
+    setRoute({ name, ...payload });
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  };
+
+  const setTheme = (next) => setTweak('theme', next);
+
+  let screen = null;
+  const k = `${route.name}-${tweaks.theme}`;
+
+  if (route.name === 'signin') {
+    screen = (
+      <window.OrrerySignIn key={k} theme={tweaks.theme} onThemeChange={setTheme}
+        onSignIn={() => navigate('dashboard')} />
+    );
+  } else if (route.name === 'dashboard') {
+    screen = (
+      <window.OrreryDashboard key={k + '-' + tweaks.presentation + '-' + tweaks.clinicalHero} theme={tweaks.theme} onThemeChange={setTheme}
+        realism={tweaks.realism}
+        presentation={tweaks.presentation}
+        clinicalHero={tweaks.clinicalHero}
+        onPresentationChange={(v) => setTweak('presentation', v)}
+        onClinicalHeroChange={(v) => setTweak('clinicalHero', v)}
+        onNavigate={navigate} />
+    );
+  } else if (route.name === 'planet') {
+    screen = (
+      <window.OrreryPlanetDetail key={k} theme={tweaks.theme} onThemeChange={setTheme}
+        onNavigate={navigate}
+        planetLabel={route.planetLabel || 'Tx plan review'} />
+    );
+  } else if (route.name === 'call') {
+    screen = (
+      <window.OrreryCallDetail key={k + '-' + tweaks.presentation} theme={tweaks.theme} onThemeChange={setTheme}
+        onNavigate={navigate}
+        realism={tweaks.realism}
+        presentation={tweaks.presentation}
+        onPresentationChange={(v) => setTweak('presentation', v)}
+        callName={route.callName || 'Maria Hernandez'} />
+    );
+  } else if (route.name === 'galaxy') {
+    screen = (
+      <window.OrreryGalaxy key={k} theme={tweaks.theme} onThemeChange={setTheme}
+        onNavigate={navigate} />
+    );
+  } else if (route.name === 'patterns') {
+    screen = (
+      <window.OrreryPatterns key={k + '-' + tweaks.presentation + '-' + tweaks.clinicalPatternHero} theme={tweaks.theme} onThemeChange={setTheme}
+        realism={tweaks.realism}
+        presentation={tweaks.presentation}
+        clinicalPatternHero={tweaks.clinicalPatternHero}
+        onPresentationChange={(v) => setTweak('presentation', v)}
+        onClinicalPatternHeroChange={(v) => setTweak('clinicalPatternHero', v)}
+        onNavigate={navigate} />
+    );
+  } else if (route.name === 'clinical') {
+    screen = (
+      <window.OrreryClinicalNote key={k + '-' + (route.noteState || 'draft') + '-' + tweaks.presentation + '-' + tweaks.noteTrajectoryStyle} theme={tweaks.theme} onThemeChange={setTheme}
+        onNavigate={navigate} state={route.noteState || 'draft'}
+        presentation={tweaks.presentation}
+        onPresentationChange={(v) => setTweak('presentation', v)}
+        noteTrajectoryStyle={tweaks.noteTrajectoryStyle} />
+    );
+  } else if (route.name === 'coaching') {
+    screen = (
+      <window.OrreryCoaching key={k + '-' + tweaks.presentation} theme={tweaks.theme} onThemeChange={setTheme}
+        presentation={tweaks.presentation}
+        onPresentationChange={(v) => setTweak('presentation', v)}
+        onNavigate={navigate} />
+    );
+  } else if (route.name === 'owl-showcase') {
+    screen = (
+      <window.OrreryOwlShowcase key={k} theme={tweaks.theme} onThemeChange={setTheme}
+        onNavigate={navigate} />
+    );
+  } else if (route.name === 'realism-showcase') {
+    screen = (
+      <window.OrreryRealismShowcase key={k} theme={tweaks.theme} onThemeChange={setTheme}
+        onNavigate={navigate} />
+    );
+  } else if (route.name === 'type-lab') {
+    screen = (
+      <window.OrreryTypeLab key={k} theme={tweaks.theme} onThemeChange={setTheme}
+        onNavigate={navigate} />
+    );
+  } else if (route.name === 'type-lab-b') {
+    screen = (
+      <window.OrreryTypeLabB key={k} theme={tweaks.theme} onThemeChange={setTheme}
+        onNavigate={navigate} />
+    );
+  } else if (route.name === 'mobile-atlas') {
+    // Wrap the mobile atlas in an iPhone bezel for presentation
+    screen = (
+      <div style={{
+        minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 32,
+        background: tweaks.theme === 'dark'
+          ? 'radial-gradient(ellipse at 50% 30%, #0d1640 0%, #060a22 70%)'
+          : 'radial-gradient(ellipse at 50% 30%, #eef2f8 0%, #dbe2ee 70%)',
+      }}>
+        <window.IOSDevice width={402} height={874} dark={tweaks.theme === 'dark'}>
+          <window.OrreryMobileAtlas key={k} theme={tweaks.theme} onThemeChange={setTheme}
+            onNavigate={navigate} />
+        </window.IOSDevice>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="orrery-screen-enter" style={{ minHeight: '100vh' }}>
+        {screen}
+      </div>
+
+      {replayOpen && (
+        <window.OrreryDayReplay theme={tweaks.theme} onClose={() => setReplayOpen(false)} />
+      )}
+
+      {/* Global Ask-the-Owl (owl mascot stays in both modes; tone shifts) */}
+      {window.OwlStyles && <window.OwlStyles />}
+      {route.name !== 'signin' && route.name !== 'owl-showcase' && route.name !== 'realism-showcase' && route.name !== 'type-lab' && route.name !== 'type-lab-b' && route.name !== 'mobile-atlas' && window.AskOwlFab && (
+        <>
+          <window.AskOwlFab
+            t={tweaks.theme === 'light' ? window.ORRERY_LIGHT : window.ORRERY_DARK}
+            signal={route.name === 'dashboard'}
+            onClick={() => setAskOpen(true)} />
+          <window.AskOwlPanel
+            t={tweaks.theme === 'light' ? window.ORRERY_LIGHT : window.ORRERY_DARK}
+            presentation={tweaks.presentation}
+            open={askOpen} onClose={() => setAskOpen(false)} />
+        </>
+      )}
+
+      <TweaksPanel title="Tweaks">
+        <TweakSection label="Presentation" />
+        <TweakRadio
+          label="Style"
+          value={tweaks.presentation}
+          options={[
+            { value: 'observatory', label: 'Observatory' },
+            { value: 'clinical',    label: 'Clinical' },
+          ]}
+          onChange={(v) => setTweak('presentation', v)} />
+        {tweaks.presentation === 'clinical' && (
+          <TweakRadio
+            label="Hero"
+            value={tweaks.clinicalHero}
+            options={[
+              { value: 'swimlane', label: 'Swimlane' },
+              { value: 'scatter',  label: 'Scatter' },
+              { value: 'bars',     label: 'Bars' },
+            ]}
+            onChange={(v) => setTweak('clinicalHero', v)} />
+        )}
+        {tweaks.presentation === 'clinical' && (
+          <TweakRadio
+            label="Patterns hero"
+            value={tweaks.clinicalPatternHero}
+            options={[
+              { value: 'network', label: 'Network' },
+              { value: 'sankey',  label: 'Sankey' },
+              { value: 'heatmap', label: 'Heatmap' },
+            ]}
+            onChange={(v) => setTweak('clinicalPatternHero', v)} />
+        )}
+        {tweaks.presentation === 'observatory' && (
+          <TweakRadio
+            label="Note trajectory"
+            value={tweaks.noteTrajectoryStyle}
+            options={[
+              { value: 'subtle',        label: 'Subtle' },
+              { value: 'bold',          label: 'Bold' },
+              { value: 'constellation', label: 'Constellation' },
+            ]}
+            onChange={(v) => setTweak('noteTrajectoryStyle', v)} />
+        )}
+
+        <TweakSection label="Theme" />
+        <TweakRadio
+          label="Mode"
+          value={tweaks.theme}
+          options={['light', 'dark']}
+          onChange={(v) => setTweak('theme', v)} />
+        <TweakRadio
+          label="Logo tint"
+          value={tweaks.brandLogo}
+          options={[
+            { value: 'auto', label: 'Auto' },
+            { value: 'monochrome', label: 'Mono' },
+            { value: 'gold', label: 'Gold' },
+          ]}
+          onChange={(v) => setTweak('brandLogo', v)} />
+
+        <TweakSection label="Realism (Atlas state)" />
+        <TweakSelect
+          label="Day state"
+          value={tweaks.realism}
+          options={[
+            { value: 'normal', label: 'Normal · all data clean' },
+            { value: 'day-1', label: 'Day 1 · empty (0 calls)' },
+            { value: 'day-1-afternoon', label: 'Day 1 · afternoon (3 calls)' },
+            { value: 'partial', label: 'Partial · day-in-progress' },
+            { value: 'flat-day', label: 'Flat day · no clear anchor' },
+            { value: 'pre-data', label: 'Pre-data · <14 days (Patterns)' },
+            { value: 'low-confidence', label: 'Low-confidence transcript (Call detail)' },
+            { value: 'transcribing', label: 'Transcribing (Call detail)' },
+          ]}
+          onChange={(v) => setTweak('realism', v)} />
+
+        <TweakSection label="Navigate" />
+        <TweakButton label="Sign in" onClick={() => navigate('signin')} />
+        <TweakButton label="Atlas (dashboard)" onClick={() => navigate('dashboard')} />
+        <TweakButton label="Planet detail" onClick={() => navigate('planet', { planetLabel: 'Tx plan review' })} />
+        <TweakButton label="Call detail" onClick={() => navigate('call', { callName: 'Maria Hernandez' })} />
+        <TweakButton label="Galaxy view" onClick={() => navigate('galaxy')} />
+        <TweakButton label="Patterns view" onClick={() => navigate('patterns')} />
+        <TweakButton label="Clinical note · draft" onClick={() => navigate('clinical', { noteState: 'draft' })} />
+        <TweakButton label="Clinical note · attested" onClick={() => navigate('clinical', { noteState: 'attested' })} />
+        <TweakButton label="Clinical note · amended" onClick={() => navigate('clinical', { noteState: 'amended' })} />
+        <TweakButton label="Coaching" onClick={() => navigate('coaching')} />
+        <TweakButton label="📱 Mobile · Atlas" onClick={() => navigate('mobile-atlas')} />
+        <TweakButton label="🦉 Owl persona showcase" onClick={() => navigate('owl-showcase')} />
+        <TweakButton label="🌫 Realism showcase" onClick={() => navigate('realism-showcase')} />
+        <TweakButton label="🅰 Type & polish lab" onClick={() => navigate('type-lab')} />
+        <TweakButton label="🅱 Direction B refine" onClick={() => navigate('type-lab-b')} />
+        <TweakButton label="Day replay overlay" onClick={() => setReplayOpen(true)} />
+
+        <TweakSection label="Demo flow" />
+        <TweakButton label="▶ Play full demo" onClick={async () => {
+          navigate('signin');
+          await new Promise(r => setTimeout(r, 1200));
+          navigate('dashboard');
+          await new Promise(r => setTimeout(r, 1800));
+          navigate('planet', { planetLabel: 'Tx plan review' });
+          await new Promise(r => setTimeout(r, 1800));
+          navigate('call', { callName: 'Maria Hernandez' });
+          await new Promise(r => setTimeout(r, 1800));
+          navigate('galaxy');
+          await new Promise(r => setTimeout(r, 1800));
+          navigate('patterns');
+        }} />
+      </TweaksPanel>
+    </>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+</body>
+</html>

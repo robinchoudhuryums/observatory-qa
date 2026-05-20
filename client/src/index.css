@@ -1,98 +1,192 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Instrument+Serif:ital,wght@0,400;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Orrery theme tokens — ported from archive/design-v1/directions/orrery-system.jsx.
+ * Light is the daytime "observatory deck" palette; dark is the deep-space view.
+ * Both share the celestial cyan accent family (#22b8cf core) so charts, badges
+ * and orrery viz stay visually consistent across modes.
+ *
+ * Tokens fall into three families:
+ *   1. Surfaces (bg, panel) — page + card backgrounds.
+ *   2. Ink (ink, ink-soft, ink-mute) — text scale, three levels of emphasis.
+ *   3. Celestial ramp (bright, warm, cool, cold, ice) — brightness-driven
+ *      color ramp used by brightToColor() for planets, KPIs, and charts.
+ *
+ * shadcn semantic vars (--background, --foreground, --primary, --card, …) are
+ * derived from the celestial tokens so every existing shadcn-styled component
+ * picks up the new look without per-component changes.
+ */
 :root {
-  /* ── Aurora Gradient Theme: Light Mode ────────────────── */
-  --background: hsl(245, 20%, 96%);
-  --foreground: hsl(245, 30%, 15%);
+  /* Orrery — light surfaces */
+  --bg: linear-gradient(180deg, #f8faff 0%, #eef2f8 100%);
+  --bg-flat: #f4f6fb;
+  --panel: rgba(255, 255, 255, 0.72);
+  --panel-border: rgba(20, 30, 60, 0.06);
+  --panel-stroke: rgba(20, 30, 60, 0.04);
+
+  /* Orrery — ink scale (text) */
+  --ink: #0e1228;
+  --ink-soft: #3c4566;
+  --ink-mute: #7a8198;
+
+  /* Orrery — celestial ramp (brightness-driven) */
+  --celestial-bright: #0892a8;
+  --celestial-warm: #22b8cf;
+  --celestial-cool: #9ee5ed;
+  --celestial-cold: #cdedf2;
+  --celestial-ice: #e6f8fb;
+
+  /* Orrery — celestial atmosphere */
+  --star-core: #ffffff;
+  --star-glow-1: #a7e6f0;
+  --star-glow-2: #22b8cf;
+  --star-outer: #0892a8;
+  --halo-bg: rgba(34, 184, 207, 0.22);
+  --orbit: rgba(20, 30, 60, 0.10);
+  --orbit-tick: rgba(20, 30, 60, 0.20);
+  --ring-stroke: rgba(8, 146, 168, 0.55);
+
+  /* Orrery — accents */
+  --accent-amber: #c08a2d;
+  --accent-red: #a8403c;
+  --accent-green: #22a06b;
+
+  /* Orrery — brand logo tints */
+  --logo-tint: #1a1f3a;
+  --logo-tint-gold: #a8762c;
+
+  /* shadcn semantic vars — derived from celestial palette */
+  --background: hsl(225, 33%, 96%);
+  --foreground: hsl(232, 51%, 11%);
   --card: hsl(0, 0%, 100%);
-  --card-foreground: hsl(245, 30%, 15%);
+  --card-foreground: hsl(232, 51%, 11%);
   --popover: hsl(0, 0%, 100%);
-  --popover-foreground: hsl(245, 30%, 15%);
-  --primary: hsl(262, 83%, 58%);
+  --popover-foreground: hsl(232, 51%, 11%);
+  --primary: hsl(189, 71%, 47%);
   --primary-foreground: hsl(0, 0%, 100%);
-  --secondary: hsl(245, 20%, 94%);
-  --secondary-foreground: hsl(245, 25%, 25%);
-  --muted: hsl(245, 15%, 93%);
-  --muted-foreground: hsl(245, 10%, 45%);
-  --accent: hsl(262, 83%, 58%);
+  --secondary: hsl(225, 25%, 93%);
+  --secondary-foreground: hsl(229, 25%, 31%);
+  --muted: hsl(225, 20%, 92%);
+  --muted-foreground: hsl(225, 13%, 45%);
+  --accent: hsl(189, 71%, 47%);
   --accent-foreground: hsl(0, 0%, 100%);
-  --destructive: hsl(350, 89%, 60%);
+  --destructive: hsl(2, 47%, 45%);
   --destructive-foreground: hsl(0, 0%, 100%);
-  --border: hsl(245, 15%, 88%);
-  --input: hsl(245, 15%, 93%);
-  --ring: hsl(262, 83%, 58%);
-  /* Aurora-inspired chart palette */
-  --chart-1: hsl(262, 83%, 58%);
-  --chart-2: hsl(187, 85%, 53%);
-  --chart-3: hsl(292, 84%, 61%);
-  --chart-4: hsl(43, 96%, 56%);
-  --chart-5: hsl(350, 89%, 60%);
-  --sidebar: hsl(250, 25%, 97%);
-  --sidebar-foreground: hsl(250, 25%, 15%);
-  --sidebar-primary: hsl(262, 83%, 58%);
+  --border: hsl(225, 22%, 88%);
+  --input: hsl(225, 20%, 92%);
+  --ring: hsl(189, 71%, 47%);
+
+  /* Celestial chart palette — bright, warm, cool, amber, red */
+  --chart-1: var(--celestial-bright);
+  --chart-2: var(--celestial-warm);
+  --chart-3: var(--celestial-cool);
+  --chart-4: var(--accent-amber);
+  --chart-5: var(--accent-red);
+
+  /* Sidebar — celestial themed */
+  --sidebar: hsl(225, 33%, 97%);
+  --sidebar-foreground: hsl(232, 51%, 11%);
+  --sidebar-primary: hsl(189, 71%, 47%);
   --sidebar-primary-foreground: hsl(0, 0%, 100%);
-  --sidebar-accent: hsl(260, 40%, 93%);
-  --sidebar-accent-foreground: hsl(262, 83%, 58%);
-  --sidebar-border: hsl(250, 15%, 88%);
-  --sidebar-ring: hsl(262, 83%, 58%);
-  --font-sans: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-serif: Georgia, serif;
-  --font-mono: Menlo, monospace;
-  /* Aurora brand gradient defaults (overridden by BrandingProvider per-org) */
-  --brand-from: 262, 83%, 58%;
-  --brand-to: 187, 85%, 53%;
-  --brand-from-rgb: 124, 58, 237;
-  --brand-to-rgb: 6, 182, 212;
-  /* Aurora accent colors for glows */
-  --aurora-violet: 262, 83%, 58%;
-  --aurora-cyan: 187, 85%, 53%;
-  --aurora-magenta: 292, 84%, 61%;
-  --aurora-amber: 43, 96%, 56%;
-  --radius: 0.625rem;
-  --shadow-2xs: 0px 2px 0px 0px hsl(202.8169, 89.1213%, 53.1373%, 0.00);
-  --shadow-xs: 0px 2px 0px 0px hsl(202.8169, 89.1213%, 53.1373%, 0.00);
-  --shadow-sm: 0px 2px 0px 0px hsl(202.8169, 89.1213%, 53.1373%, 0.00), 0px 1px 2px -1px hsl(202.8169, 89.1213%, 53.1373%, 0.00);
-  --shadow: 0px 2px 0px 0px hsl(202.8169, 89.1213%, 53.1373%, 0.00), 0px 1px 2px -1px hsl(202.8169, 89.1213%, 53.1373%, 0.00);
-  --shadow-md: 0px 2px 0px 0px hsl(202.8169, 89.1213%, 53.1373%, 0.00), 0px 2px 4px -1px hsl(202.8169, 89.1213%, 53.1373%, 0.00);
-  --shadow-lg: 0px 2px 0px 0px hsl(202.8169, 89.1213%, 53.1373%, 0.00), 0px 4px 6px -1px hsl(202.8169, 89.1213%, 53.1373%, 0.00);
-  --shadow-xl: 0px 2px 0px 0px hsl(202.8169, 89.1213%, 53.1373%, 0.00), 0px 8px 10px -1px hsl(202.8169, 89.1213%, 53.1373%, 0.00);
-  --shadow-2xl: 0px 2px 0px 0px hsl(202.8169, 89.1213%, 53.1373%, 0.00);
-  --tracking-normal: 0em;
+  --sidebar-accent: hsl(189, 64%, 92%);
+  --sidebar-accent-foreground: hsl(189, 86%, 32%);
+  --sidebar-border: hsl(225, 22%, 88%);
+  --sidebar-ring: hsl(189, 71%, 47%);
+
+  /* Typography — Inter body, Instrument Serif italic display, JetBrains Mono code */
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-serif: 'Instrument Serif', Georgia, serif;
+  --font-mono: 'JetBrains Mono', Menlo, monospace;
+
+  /* Per-org branding gradient pair (overridden by BrandingProvider). */
+  --brand-from: 189, 86%, 35%;
+  --brand-to: 187, 70%, 55%;
+  --brand-from-rgb: 8, 146, 168;
+  --brand-to-rgb: 34, 184, 207;
+
+  /* Orrery — radius scale (6/8/10/12/14 from prototype). --radius is the
+     shadcn "lg" value; smaller radii derive via tailwind config calc. */
+  --radius: 0.625rem; /* 10px */
+  --radius-sm: 0.375rem; /* 6px */
+  --radius-md: 0.5rem; /* 8px */
+  --radius-lg: 0.75rem; /* 12px */
+  --radius-xl: 0.875rem; /* 14px */
+
   --spacing: 0.25rem;
 }
 
 .dark {
-  /* ── Aurora Gradient Theme: Dark Mode (Deep Indigo/Violet) ── */
-  --background: hsl(255, 35%, 7%);
-  --foreground: hsl(250, 15%, 93%);
-  --card: hsl(255, 30%, 10%);
-  --card-foreground: hsl(250, 15%, 93%);
-  --popover: hsl(255, 30%, 10%);
-  --popover-foreground: hsl(250, 15%, 93%);
-  --primary: hsl(262, 83%, 62%);
-  --primary-foreground: hsl(0, 0%, 100%);
-  --secondary: hsl(255, 30%, 13%);
-  --secondary-foreground: hsl(250, 15%, 75%);
-  --muted: hsl(255, 25%, 14%);
-  --muted-foreground: hsl(250, 15%, 55%);
-  --accent: hsl(262, 83%, 62%);
-  --accent-foreground: hsl(0, 0%, 100%);
-  --destructive: hsl(350, 89%, 60%);
-  --destructive-foreground: hsl(0, 0%, 100%);
-  --border: hsl(255, 25%, 18%);
-  --input: hsl(255, 25%, 14%);
-  --ring: hsl(262, 83%, 62%);
-  --sidebar: hsl(260, 35%, 8%);
-  --sidebar-foreground: hsl(250, 15%, 85%);
-  --sidebar-primary: hsl(262, 83%, 62%);
-  --sidebar-primary-foreground: hsl(0, 0%, 100%);
-  --sidebar-accent: hsl(260, 40%, 12%);
-  --sidebar-accent-foreground: hsl(262, 83%, 70%);
-  --sidebar-border: hsl(255, 25%, 16%);
-  --sidebar-ring: hsl(262, 83%, 62%);
+  /* Orrery — dark surfaces */
+  --bg: radial-gradient(ellipse at 50% 35%, #0c1538 0%, #04081a 70%);
+  --bg-flat: #04081a;
+  --panel: rgba(255, 255, 255, 0.045);
+  --panel-border: rgba(255, 255, 255, 0.10);
+  --panel-stroke: rgba(255, 255, 255, 0.06);
+
+  --ink: #f3f5fa;
+  --ink-soft: #a0a8c0;
+  --ink-mute: #646b85;
+
+  --celestial-bright: #4dd6e8;
+  --celestial-warm: #22b8cf;
+  --celestial-cool: #5fb1c2;
+  --celestial-cold: #3a6878;
+  --celestial-ice: #22384a;
+
+  --star-core: #ffffff;
+  --star-glow-1: #7ddef0;
+  --star-glow-2: #22b8cf;
+  --star-outer: #0892a8;
+  --halo-bg: rgba(34, 184, 207, 0.30);
+  --orbit: rgba(180, 200, 255, 0.16);
+  --orbit-tick: rgba(180, 200, 255, 0.40);
+  --ring-stroke: rgba(77, 214, 232, 0.65);
+
+  --accent-amber: #e6b262;
+  --accent-red: #e07a73;
+  --accent-green: #7ed5a3;
+
+  --logo-tint: #f3f5fa;
+  --logo-tint-gold: #e6b262;
+
+  /* shadcn semantic vars — dark celestial */
+  --background: hsl(228, 64%, 6%);
+  --foreground: hsl(225, 25%, 96%);
+  --card: hsl(228, 50%, 9%);
+  --card-foreground: hsl(225, 25%, 96%);
+  --popover: hsl(228, 50%, 9%);
+  --popover-foreground: hsl(225, 25%, 96%);
+  --primary: hsl(187, 78%, 61%);
+  --primary-foreground: hsl(228, 64%, 6%);
+  --secondary: hsl(228, 35%, 13%);
+  --secondary-foreground: hsl(225, 15%, 75%);
+  --muted: hsl(228, 30%, 14%);
+  --muted-foreground: hsl(225, 13%, 55%);
+  --accent: hsl(187, 78%, 61%);
+  --accent-foreground: hsl(228, 64%, 6%);
+  --destructive: hsl(4, 68%, 67%);
+  --destructive-foreground: hsl(228, 64%, 6%);
+  --border: hsl(228, 30%, 18%);
+  --input: hsl(228, 30%, 14%);
+  --ring: hsl(187, 78%, 61%);
+
+  --chart-1: var(--celestial-bright);
+  --chart-2: var(--celestial-warm);
+  --chart-3: var(--celestial-cool);
+  --chart-4: var(--accent-amber);
+  --chart-5: var(--accent-red);
+
+  --sidebar: hsl(228, 60%, 7%);
+  --sidebar-foreground: hsl(225, 15%, 85%);
+  --sidebar-primary: hsl(187, 78%, 61%);
+  --sidebar-primary-foreground: hsl(228, 64%, 6%);
+  --sidebar-accent: hsl(228, 40%, 12%);
+  --sidebar-accent-foreground: hsl(187, 78%, 70%);
+  --sidebar-border: hsl(228, 30%, 16%);
+  --sidebar-ring: hsl(187, 78%, 61%);
 }
 
 @layer base {
@@ -107,113 +201,68 @@
 }
 
 @layer utilities {
-  /* ── Aurora Animated Gradient Background ────────────── */
-  @keyframes aurora-shift {
-    0%, 100% { background-position: 0% 50%; }
-    25% { background-position: 100% 25%; }
-    50% { background-position: 50% 100%; }
-    75% { background-position: 25% 50%; }
+  /* Celestial background — subtle radial gradient suggesting a deck under sky. */
+  .celestial-bg {
+    background: var(--bg);
   }
 
-  @keyframes aurora-shimmer {
-    0% { opacity: 0.4; }
-    50% { opacity: 0.7; }
-    100% { opacity: 0.4; }
+  .celestial-bg-flat {
+    background: var(--bg-flat);
   }
 
-  .aurora-bg {
-    background: linear-gradient(135deg,
-      hsl(262, 83%, 58%) 0%,
-      hsl(292, 84%, 61%) 25%,
-      hsl(187, 85%, 53%) 50%,
-      hsl(262, 83%, 58%) 75%,
-      hsl(292, 84%, 61%) 100%
-    );
-    background-size: 300% 300%;
-    animation: aurora-shift 15s ease-in-out infinite;
-  }
-
-  .aurora-bg-subtle {
-    background: linear-gradient(135deg,
-      hsla(262, 83%, 58%, 0.08) 0%,
-      hsla(292, 84%, 61%, 0.05) 25%,
-      hsla(187, 85%, 53%, 0.08) 50%,
-      hsla(262, 83%, 58%, 0.05) 75%
-    );
-    background-size: 300% 300%;
-    animation: aurora-shift 20s ease-in-out infinite;
-  }
-
-  .dark .aurora-bg-subtle {
-    background: linear-gradient(135deg,
-      hsla(262, 83%, 58%, 0.12) 0%,
-      hsla(292, 84%, 61%, 0.08) 25%,
-      hsla(187, 85%, 53%, 0.12) 50%,
-      hsla(262, 83%, 58%, 0.08) 75%
-    );
-    background-size: 300% 300%;
-    animation: aurora-shift 20s ease-in-out infinite;
-  }
-
-  /* ── Glassmorphism ─────────────────────────────────── */
-  .glass-card {
-    background: rgba(255, 255, 255, 0.7);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.3);
+  /* Glass panel — translucent surface used by KPIs, cards, and overlays. */
+  .glass-panel {
+    background: var(--panel);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid var(--panel-border);
     transition: border-color 0.3s, box-shadow 0.3s;
   }
 
-  .dark .glass-card {
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+  .glass-panel:hover {
+    border-color: var(--celestial-warm);
+    box-shadow: 0 4px 24px rgba(34, 184, 207, 0.08);
   }
 
-  .glass-card:hover {
-    border-color: rgba(124, 58, 237, 0.3);
-    box-shadow: 0 8px 32px rgba(124, 58, 237, 0.08);
+  /* Mono tag — uppercase JetBrains Mono badges used across the orrery. */
+  .mono-tag {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
   }
 
-  .dark .glass-card:hover {
-    border-color: rgba(124, 58, 237, 0.25);
-    box-shadow: 0 8px 32px rgba(124, 58, 237, 0.15);
+  /* Italic display — Instrument Serif for hero values and titles. */
+  .serif-display {
+    font-family: var(--font-serif);
+    font-style: italic;
+    letter-spacing: -0.02em;
   }
 
-  .gradient-border {
-    background: linear-gradient(135deg, #7c3aed, #d946ef, #06b6d4);
-    border-radius: 0.75rem;
-    padding: 2px;
-  }
-
-  .gradient-border-inner {
-    background: white;
-    border-radius: 0.625rem;
-  }
-
-  .dark .gradient-border-inner {
-    background: hsl(255, 30%, 10%);
-  }
-
+  /* Drop zone (upload) — celestial highlight. */
   .drop-zone-active {
-    border-color: hsl(262, 83%, 58%);
-    background-color: hsl(262, 83%, 96%);
+    border-color: var(--celestial-bright);
+    background-color: rgba(34, 184, 207, 0.08);
   }
 
   .dark .drop-zone-active {
-    background-color: hsl(262, 60%, 15%);
+    background-color: rgba(77, 214, 232, 0.12);
   }
 
+  /* Chart container — light celestial wash. */
   .chart-container {
     position: relative;
     height: 300px;
-    background: linear-gradient(135deg, rgba(124, 58, 237, 0.04), rgba(6, 182, 212, 0.04));
-    border-radius: 0.625rem;
+    background: linear-gradient(135deg, rgba(34, 184, 207, 0.04), rgba(8, 146, 168, 0.04));
+    border-radius: var(--radius);
     display: flex;
     align-items: center;
     justify-content: center;
     border: 1px solid var(--border);
   }
 
+  /* Transcript line — used by transcript viewer. */
   .transcript-line {
     transition: background-color 0.2s ease;
   }
@@ -222,148 +271,134 @@
     background-color: var(--muted);
   }
 
+  /* Sentiment chips — celestial cool=positive, amber=neutral, red=negative.
+     Avoids the violet/pink aurora palette; uses the celestial accent family. */
   .sentiment-positive {
-    color: hsl(187, 85%, 42%);
-    background-color: hsl(187, 70%, 94%);
+    color: hsl(189, 86%, 32%);
+    background-color: hsl(189, 64%, 92%);
   }
 
   .sentiment-negative {
-    color: hsl(350, 89%, 55%);
-    background-color: hsl(350, 80%, 95%);
+    color: hsl(2, 56%, 50%);
+    background-color: hsl(2, 60%, 95%);
   }
 
   .sentiment-neutral {
-    color: hsl(43, 96%, 45%);
-    background-color: hsl(43, 80%, 94%);
+    color: hsl(34, 60%, 38%);
+    background-color: hsl(34, 80%, 94%);
   }
 
   .dark .sentiment-positive {
-    color: hsl(187, 85%, 60%);
-    background-color: hsl(187, 60%, 12%);
+    color: hsl(187, 76%, 70%);
+    background-color: hsl(189, 60%, 12%);
   }
 
   .dark .sentiment-negative {
-    color: hsl(350, 89%, 65%);
-    background-color: hsl(350, 60%, 12%);
+    color: hsl(4, 68%, 74%);
+    background-color: hsl(2, 55%, 14%);
   }
 
   .dark .sentiment-neutral {
-    color: hsl(43, 96%, 60%);
-    background-color: hsl(43, 60%, 12%);
+    color: hsl(34, 76%, 72%);
+    background-color: hsl(34, 55%, 12%);
   }
 
-  /* ── Modern Cards (Aurora Glassmorphism) ──────────── */
+  /* Modern card — translucent surface, hover lift. */
   .modern-card {
-    background: rgba(255, 255, 255, 0.8);
+    background: var(--panel);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgba(124, 58, 237, 0.08);
+    border: 1px solid var(--panel-border);
     transition: border-color 0.3s, box-shadow 0.3s;
   }
 
-  .dark .modern-card {
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(124, 58, 237, 0.12);
-  }
-
   .modern-card:hover {
-    border-color: rgba(124, 58, 237, 0.2);
-    box-shadow: 0 4px 24px rgba(124, 58, 237, 0.06);
+    border-color: var(--celestial-warm);
+    box-shadow: 0 4px 24px rgba(34, 184, 207, 0.06);
   }
 
-  .dark .modern-card:hover {
-    border-color: rgba(124, 58, 237, 0.25);
-    box-shadow: 0 4px 24px rgba(124, 58, 237, 0.12);
-  }
-
-  /* ── Metric Cards (Aurora Glow) ─────────────────────  */
+  /* Metric card — same translucent treatment with hover lift. */
   .metric-card {
-    background: rgba(255, 255, 255, 0.85);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    border: 1px solid rgba(124, 58, 237, 0.1);
+    background: var(--panel);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid var(--panel-border);
     transition: border-color 0.3s, box-shadow 0.3s, transform 0.25s;
-  }
-
-  .dark .metric-card {
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(124, 58, 237, 0.12);
   }
 
   .metric-card:hover {
     transform: translateY(-3px);
   }
 
-  /* Aurora glow — violet primary */
+  /* Glow accents — used by metric cards. The "brand" variants follow the
+     per-org primary; the celestial variants are fixed. */
   .metric-glow-brand:hover {
-    border-color: hsl(var(--aurora-violet) / 0.4);
-    box-shadow: 0 4px 24px rgba(var(--brand-from-rgb), 0.15), 0 0 40px rgba(var(--brand-from-rgb), 0.05);
+    border-color: rgba(var(--brand-from-rgb), 0.4);
+    box-shadow:
+      0 4px 24px rgba(var(--brand-from-rgb), 0.15),
+      0 0 40px rgba(var(--brand-from-rgb), 0.05);
   }
   .dark .metric-glow-brand:hover {
-    box-shadow: 0 4px 24px rgba(var(--brand-from-rgb), 0.25), 0 0 60px rgba(var(--brand-from-rgb), 0.08);
+    box-shadow:
+      0 4px 24px rgba(var(--brand-from-rgb), 0.25),
+      0 0 60px rgba(var(--brand-from-rgb), 0.08);
   }
 
-  /* Aurora glow — cyan secondary */
   .metric-glow-brand-alt:hover {
-    border-color: hsl(var(--aurora-cyan) / 0.4);
-    box-shadow: 0 4px 24px rgba(var(--brand-to-rgb), 0.15), 0 0 40px rgba(var(--brand-to-rgb), 0.05);
+    border-color: rgba(var(--brand-to-rgb), 0.4);
+    box-shadow:
+      0 4px 24px rgba(var(--brand-to-rgb), 0.15),
+      0 0 40px rgba(var(--brand-to-rgb), 0.05);
   }
   .dark .metric-glow-brand-alt:hover {
-    box-shadow: 0 4px 24px rgba(var(--brand-to-rgb), 0.25), 0 0 60px rgba(var(--brand-to-rgb), 0.08);
+    box-shadow:
+      0 4px 24px rgba(var(--brand-to-rgb), 0.25),
+      0 0 60px rgba(var(--brand-to-rgb), 0.08);
   }
 
-  /* Aurora glow — cyan for sentiment */
+  /* Celestial bright glow — used by sentiment cards. */
   .metric-glow-green:hover {
-    border-color: hsl(187, 85%, 55% / 0.4);
-    box-shadow: 0 4px 24px rgba(6, 182, 212, 0.12), 0 0 40px rgba(6, 182, 212, 0.04);
+    border-color: rgba(34, 184, 207, 0.4);
+    box-shadow: 0 4px 24px rgba(34, 184, 207, 0.12), 0 0 40px rgba(34, 184, 207, 0.04);
   }
   .dark .metric-glow-green:hover {
-    border-color: hsl(187, 85%, 45% / 0.4);
-    box-shadow: 0 4px 24px rgba(6, 182, 212, 0.2), 0 0 60px rgba(6, 182, 212, 0.06);
+    border-color: rgba(77, 214, 232, 0.4);
+    box-shadow: 0 4px 24px rgba(77, 214, 232, 0.2), 0 0 60px rgba(77, 214, 232, 0.06);
   }
 
-  /* Aurora glow — magenta for score */
+  /* Celestial deep glow — used by score cards. */
   .metric-glow-purple:hover {
-    border-color: hsl(292, 84%, 61% / 0.4);
-    box-shadow: 0 4px 24px rgba(217, 70, 239, 0.12), 0 0 40px rgba(217, 70, 239, 0.04);
+    border-color: rgba(8, 146, 168, 0.4);
+    box-shadow: 0 4px 24px rgba(8, 146, 168, 0.12), 0 0 40px rgba(8, 146, 168, 0.04);
   }
   .dark .metric-glow-purple:hover {
-    border-color: hsl(292, 84%, 55% / 0.4);
-    box-shadow: 0 4px 24px rgba(217, 70, 239, 0.2), 0 0 60px rgba(217, 70, 239, 0.06);
+    border-color: rgba(77, 214, 232, 0.4);
+    box-shadow: 0 4px 24px rgba(77, 214, 232, 0.2), 0 0 60px rgba(77, 214, 232, 0.06);
   }
 
-  /* ── Sidebar (Aurora) ──────────────────────────────────  */
+  /* Sidebar — celestial frosted glass. */
   .sidebar-container {
     background: rgba(255, 255, 255, 0.6);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
-    border-right: 1px solid rgba(124, 58, 237, 0.08);
+    border-right: 1px solid var(--panel-border);
   }
 
   .dark .sidebar-container {
-    background: rgba(15, 10, 40, 0.85);
-    border-right: 1px solid rgba(124, 58, 237, 0.12);
+    background: rgba(12, 21, 56, 0.85);
+    border-right: 1px solid var(--panel-border);
   }
 
-  .sidebar-header {
-    border-bottom: 1px solid rgba(124, 58, 237, 0.08);
-  }
-
-  .dark .sidebar-header {
-    border-bottom: 1px solid rgba(124, 58, 237, 0.12);
-  }
-
+  .sidebar-header,
   .sidebar-footer {
-    border-top: 1px solid rgba(124, 58, 237, 0.08);
-  }
-
-  .dark .sidebar-footer {
-    border-top: 1px solid rgba(124, 58, 237, 0.12);
+    border-color: var(--panel-border);
   }
 
   .sidebar-active-link {
     background: linear-gradient(135deg, hsl(var(--brand-from)), hsl(var(--brand-to)));
-    box-shadow: 0 2px 12px rgba(var(--brand-from-rgb), 0.3), 0 0 20px rgba(var(--brand-from-rgb), 0.08);
+    box-shadow:
+      0 2px 12px rgba(var(--brand-from-rgb), 0.3),
+      0 0 20px rgba(var(--brand-from-rgb), 0.08);
   }
 
   /* Sidebar nav hover micro-interaction */
@@ -371,7 +406,7 @@
     transform: translateX(3px);
   }
 
-  /* ── Table Row Stagger Animation ──────────────────────  */
+  /* Table row stagger animation. */
   @keyframes row-fade-in {
     from { opacity: 0; transform: translateY(6px); }
     to   { opacity: 1; transform: translateY(0); }
@@ -381,126 +416,155 @@
     animation: row-fade-in 0.3s ease-out both;
   }
 
-  /* ── Brand Gradient Button ─────────────────────────────  */
+  /* Brand gradient button (cyan → deep cyan in default; per-org override
+     via BrandingProvider). */
   .brand-gradient-btn {
     background: linear-gradient(135deg, hsl(var(--brand-from)), hsl(var(--brand-to)));
-    box-shadow: 0 4px 14px rgba(var(--brand-from-rgb), 0.2), 0 0 20px rgba(var(--brand-from-rgb), 0.06);
+    box-shadow:
+      0 4px 14px rgba(var(--brand-from-rgb), 0.2),
+      0 0 20px rgba(var(--brand-from-rgb), 0.06);
     transition: filter 0.2s, box-shadow 0.3s;
   }
   .brand-gradient-btn:hover {
     filter: brightness(1.1);
-    box-shadow: 0 4px 20px rgba(var(--brand-from-rgb), 0.35), 0 0 30px rgba(var(--brand-from-rgb), 0.1);
+    box-shadow:
+      0 4px 20px rgba(var(--brand-from-rgb), 0.35),
+      0 0 30px rgba(var(--brand-from-rgb), 0.1);
   }
 
-  /* ── Dashboard Header (Aurora) ──────────────────────  */
+  /* Dashboard header — frosted celestial. */
   .dashboard-header {
     background: rgba(255, 255, 255, 0.6);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border-bottom: 1px solid rgba(124, 58, 237, 0.08);
+    border-bottom: 1px solid var(--panel-border);
   }
 
   .dark .dashboard-header {
-    background: rgba(15, 10, 40, 0.6);
-    border-bottom: 1px solid rgba(124, 58, 237, 0.12);
+    background: rgba(12, 21, 56, 0.6);
+    border-bottom: 1px solid var(--panel-border);
   }
 
-  /* Recharts dark mode text fix — aurora theme */
+  /* Recharts dark mode overrides — celestial tokens.
+     Mirrors the §5 Phase 0 checklist from ORRERY_IMPLEMENTATION_PLAN.md.
+     Aurora violet replaced by celestial cyan; ink-soft replaces the old
+     hsl(250, 15%, 65%) muted text. */
   .dark .recharts-cartesian-axis-tick text,
   .dark .recharts-legend-item-text,
   .dark .recharts-label,
   .dark .recharts-text {
-    fill: hsl(250, 15%, 65%) !important;
+    fill: var(--ink-soft) !important;
+  }
+
+  .dark .recharts-cartesian-grid line {
+    stroke: var(--panel-stroke) !important;
+  }
+
+  .dark .recharts-tooltip-wrapper {
+    background: var(--panel) !important;
+    border: 1px solid var(--panel-border) !important;
   }
 
   .dark .recharts-default-tooltip {
-    background-color: hsl(255, 30%, 12%) !important;
-    border-color: rgba(124, 58, 237, 0.2) !important;
-    color: hsl(250, 15%, 85%) !important;
+    background-color: var(--card) !important;
+    border-color: var(--panel-border) !important;
+    color: var(--foreground) !important;
   }
 
-  .dark .recharts-tooltip-label,
+  .dark .recharts-tooltip-label {
+    color: var(--ink) !important;
+  }
+
   .dark .recharts-tooltip-item {
-    color: hsl(250, 15%, 85%) !important;
+    color: var(--ink-soft) !important;
   }
 
-  /* Aurora focus ring glow */
+  /* Focus ring — celestial bright. */
   *:focus-visible {
-    outline: 2px solid hsl(262, 83%, 58%);
+    outline: 2px solid var(--celestial-bright);
     outline-offset: 2px;
-    box-shadow: 0 0 12px rgba(124, 58, 237, 0.2);
+    box-shadow: 0 0 12px rgba(8, 146, 168, 0.2);
   }
 
-  /* ── Enhanced Interactive States ──────────────────── */
+  .dark *:focus-visible {
+    outline-color: var(--celestial-warm);
+    box-shadow: 0 0 12px rgba(77, 214, 232, 0.25);
+  }
 
-  /* Button press effect */
+  /* Button press effect — universal scale-down on active. */
   button:active:not(:disabled),
   [role="button"]:active:not(:disabled) {
     transform: scale(0.97);
   }
 
-  /* Table row hover — subtle lift + left accent */
+  /* Table row hover — celestial wash + left accent. */
   .table-row-interactive {
     transition: background-color 0.15s, box-shadow 0.2s;
   }
 
   .table-row-interactive:hover {
-    background-color: rgba(124, 58, 237, 0.03);
-    box-shadow: inset 3px 0 0 hsl(262, 83%, 58%);
+    background-color: rgba(34, 184, 207, 0.04);
+    box-shadow: inset 3px 0 0 var(--celestial-bright);
   }
 
   .dark .table-row-interactive:hover {
-    background-color: rgba(124, 58, 237, 0.06);
+    background-color: rgba(77, 214, 232, 0.06);
   }
 
-  /* Badge hover glow */
+  /* Badge hover glow. */
   .badge-interactive {
     transition: box-shadow 0.2s, transform 0.15s;
   }
 
   .badge-interactive:hover {
-    box-shadow: 0 2px 8px rgba(124, 58, 237, 0.12);
+    box-shadow: 0 2px 8px rgba(34, 184, 207, 0.12);
     transform: translateY(-1px);
   }
 
-  /* Input focus enhancement */
+  /* Input focus enhancement. */
   input:focus,
   textarea:focus,
   select:focus {
-    border-color: hsl(262, 83%, 58%) !important;
-    box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.1) !important;
+    border-color: var(--celestial-bright) !important;
+    box-shadow: 0 0 0 3px rgba(34, 184, 207, 0.1) !important;
   }
 
-  /* Card clickable variant */
+  /* Card clickable variant. */
   .card-clickable {
     cursor: pointer;
     transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
   }
 
   .card-clickable:hover {
-    border-color: rgba(124, 58, 237, 0.25);
-    box-shadow: 0 4px 20px rgba(124, 58, 237, 0.08);
+    border-color: rgba(34, 184, 207, 0.25);
+    box-shadow: 0 4px 20px rgba(34, 184, 207, 0.08);
     transform: translateY(-1px);
   }
 
   .dark .card-clickable:hover {
-    box-shadow: 0 4px 20px rgba(124, 58, 237, 0.15);
+    box-shadow: 0 4px 20px rgba(77, 214, 232, 0.15);
   }
 
-  /* Smooth skeleton pulse — aurora tinted */
-  @keyframes aurora-pulse {
+  /* Smooth skeleton pulse — celestial tinted. */
+  @keyframes celestial-pulse {
     0%, 100% { opacity: 0.6; }
     50% { opacity: 1; }
   }
 
   .animate-pulse {
-    animation: aurora-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    animation: celestial-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  /* Realism pulse — used by ProcessingBadge + LoadingPlanet. */
+  @keyframes realPulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
   }
 }
 
-/* ── Landing Page ──────────────────────────────────────────── */
-
-/* Wave line animation — gentle drift; spark effect handled by SVG SMIL <animate> */
+/* Landing page — celestial starfield aesthetic. The wave drift keyframe is
+   kept (used by the existing landing SVG) but recolored to celestial cyan in
+   the celestial palette below. */
 @keyframes wave-drift {
   0%, 100% { transform: translateX(0) translateY(0); }
   25% { transform: translateX(-15px) translateY(-8px); }
@@ -516,54 +580,63 @@
   animation: wave-drift 10s ease-in-out infinite;
 }
 
-/* Landing page headings — tighter tracking for large display text */
 .landing-page h1,
 .landing-page h2 {
   letter-spacing: -0.025em;
 }
 
-/* Landing hero: aurora gradient by default, light override */
+/* Landing hero — celestial deep-space gradient in dark, soft sky in light. */
 .landing-hero {
-  background: linear-gradient(135deg, hsl(260, 40%, 6%) 0%, hsl(255, 35%, 10%) 30%, hsl(270, 25%, 12%) 60%, hsl(240, 30%, 8%) 100%);
+  background: linear-gradient(
+    135deg,
+    #04081a 0%,
+    #0c1538 30%,
+    #0e1d44 60%,
+    #061229 100%
+  );
 }
 
 .dark .landing-hero,
 .landing-hero {
-  background: linear-gradient(135deg, hsl(260, 40%, 6%) 0%, hsl(255, 35%, 10%) 30%, hsl(270, 25%, 12%) 60%, hsl(240, 30%, 8%) 100%);
+  background: linear-gradient(
+    135deg,
+    #04081a 0%,
+    #0c1538 30%,
+    #0e1d44 60%,
+    #061229 100%
+  );
 }
 
 :root .landing-hero {
-  background: linear-gradient(135deg, hsl(250, 25%, 97%) 0%, hsl(260, 20%, 95%) 40%, hsl(245, 22%, 96%) 100%);
+  background: linear-gradient(135deg, #f8faff 0%, #eef2f8 40%, #f4f6fb 100%);
 }
 
-/* Landing text colors */
 .landing-text {
-  color: hsl(220, 15%, 95%);
+  color: hsl(225, 25%, 95%);
 }
 
 :root .landing-text {
-  color: hsl(220, 25%, 15%);
+  color: var(--ink);
 }
 
 .dark .landing-text {
-  color: hsl(220, 15%, 95%);
+  color: hsl(225, 25%, 95%);
 }
 
 .landing-text-muted {
-  color: hsl(220, 15%, 60%);
+  color: hsl(225, 15%, 65%);
 }
 
 :root .landing-text-muted {
-  color: hsl(220, 10%, 45%);
+  color: var(--ink-soft);
 }
 
 .dark .landing-text-muted {
-  color: hsl(220, 15%, 60%);
+  color: hsl(225, 15%, 65%);
 }
 
-/* Landing sections */
 .landing-section {
-  background: hsl(260, 40%, 6%);
+  background: #04081a;
 }
 
 :root .landing-section {
@@ -571,92 +644,88 @@
 }
 
 .dark .landing-section {
-  background: hsl(260, 40%, 6%);
+  background: #04081a;
 }
 
 .landing-section-alt {
-  background: hsl(255, 35%, 8%);
+  background: #060e22;
 }
 
 :root .landing-section-alt {
-  background: hsl(250, 20%, 97%);
+  background: hsl(225, 33%, 97%);
 }
 
 .dark .landing-section-alt {
-  background: hsl(255, 35%, 8%);
+  background: #060e22;
 }
 
-/* Landing cards (aurora glass) */
 .landing-card {
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(124, 58, 237, 0.15);
+  border: 1px solid var(--panel-border);
   backdrop-filter: blur(8px);
 }
 
 :root .landing-card {
   background: rgba(255, 255, 255, 0.8);
-  border: 1px solid rgba(124, 58, 237, 0.1);
-  box-shadow: 0 1px 3px rgba(124, 58, 237, 0.04);
+  border: 1px solid rgba(34, 184, 207, 0.1);
+  box-shadow: 0 1px 3px rgba(8, 146, 168, 0.04);
 }
 
 .dark .landing-card {
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(124, 58, 237, 0.15);
+  border: 1px solid var(--panel-border);
 }
 
 .landing-card:hover {
-  border-color: rgba(124, 58, 237, 0.3);
-  box-shadow: 0 8px 30px rgba(124, 58, 237, 0.15);
+  border-color: rgba(34, 184, 207, 0.3);
+  box-shadow: 0 8px 30px rgba(34, 184, 207, 0.15);
 }
 
 :root .landing-card:hover {
-  border-color: rgba(124, 58, 237, 0.2);
-  box-shadow: 0 8px 30px rgba(124, 58, 237, 0.08);
+  border-color: rgba(34, 184, 207, 0.2);
+  box-shadow: 0 8px 30px rgba(8, 146, 168, 0.08);
 }
 
-/* Landing outline button */
 .landing-outline-btn {
-  border-color: rgba(124, 58, 237, 0.3);
-  color: hsl(250, 15%, 80%);
+  border-color: rgba(77, 214, 232, 0.3);
+  color: hsl(225, 15%, 80%);
 }
 
 :root .landing-outline-btn {
-  border-color: rgba(124, 58, 237, 0.2);
-  color: hsl(250, 25%, 25%);
+  border-color: rgba(34, 184, 207, 0.2);
+  color: var(--ink-soft);
 }
 
 .dark .landing-outline-btn {
-  border-color: rgba(124, 58, 237, 0.3);
-  color: hsl(250, 15%, 80%);
+  border-color: rgba(77, 214, 232, 0.3);
+  color: hsl(225, 15%, 80%);
 }
 
 .landing-outline-btn:hover {
-  background: rgba(124, 58, 237, 0.1);
-  border-color: rgba(124, 58, 237, 0.5);
+  background: rgba(77, 214, 232, 0.1);
+  border-color: rgba(77, 214, 232, 0.5);
 }
 
 :root .landing-outline-btn:hover {
-  background: rgba(124, 58, 237, 0.06);
-  border-color: rgba(124, 58, 237, 0.3);
+  background: rgba(34, 184, 207, 0.06);
+  border-color: rgba(34, 184, 207, 0.3);
 }
 
-/* Landing footer */
 .landing-footer {
-  background: hsl(260, 40%, 5%);
-  border-top: 1px solid rgba(124, 58, 237, 0.12);
+  background: #04081a;
+  border-top: 1px solid var(--panel-border);
 }
 
 :root .landing-footer {
-  background: hsl(250, 20%, 97%);
-  border-top: 1px solid rgba(124, 58, 237, 0.1);
+  background: hsl(225, 33%, 97%);
+  border-top: 1px solid rgba(34, 184, 207, 0.1);
 }
 
 .dark .landing-footer {
-  background: hsl(260, 40%, 5%);
-  border-top: 1px solid rgba(124, 58, 237, 0.12);
+  background: #04081a;
+  border-top: 1px solid var(--panel-border);
 }
 
-/* Landing page — force wave visibility in light mode */
 :root .landing-page .wave-line {
   opacity: 0.06 !important;
 }

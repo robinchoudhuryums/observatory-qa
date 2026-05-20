@@ -26,87 +26,77 @@ interface LandingPageProps {
   onNavigate: (view: "login" | "register") => void;
 }
 
-/** Animated flowing wave lines with traveling spark/pulse effect */
+/**
+ * Celestial hero background — starfield with drifting planet glows.
+ *
+ * Phase 5 of the Orrery redesign: replaces the previous "wave-line" SVG
+ * (teal→rose gradients) with a celestial composition that matches the
+ * rest of the app. Uses SMIL animations on `<animate>` elements for the
+ * twinkle + drift effect — no JS scheduler required.
+ *
+ * Light mode: subtle starfield only.
+ * Dark mode: full constellation hero with bright accent planets.
+ */
 function WaveBackground() {
-  const waves = Array.from({ length: 18 }, (_, i) => {
-    const yBase = 150 + i * 22;
-    const amplitude = 60 + Math.sin(i * 0.7) * 30;
-    const phase = i * 25;
-    const opacity = 0.18 + (i / 18) * 0.32;
-    const hue = 170 + (i / 18) * 160; // teal → rose
-    const saturation = 80 + Math.sin(i * 0.5) * 15;
-    const color = `hsl(${hue}, ${saturation}%, 55%)`;
-    const brightColor = `hsl(${hue}, ${Math.min(saturation + 15, 100)}%, 75%)`;
-
-    const d = `M-100,${yBase} C200,${yBase - amplitude + phase * 0.1} 400,${yBase + amplitude - phase * 0.05} 600,${yBase} C800,${yBase - amplitude * 0.7} 1000,${yBase + amplitude * 0.5} 1200,${yBase} C1400,${yBase - amplitude * 0.3} 1600,${yBase + amplitude * 0.8} 2000,${yBase}`;
-
-    const sparkDelay = i * 0.15;
-    const sparkDuration = 3.5 + (i % 3) * 0.5;
-    const gradId = `spark-${i}`;
-
-    return (
-      <g key={i}>
-        <linearGradient id={gradId} x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stopColor={color} stopOpacity={opacity * 0.6} />
-          <stop offset="0%" stopColor={brightColor} stopOpacity={Math.min(opacity + 0.5, 1)}>
-            <animate
-              attributeName="offset"
-              values="-0.15;1.15"
-              dur={`${sparkDuration}s`}
-              begin={`${sparkDelay}s`}
-              repeatCount="indefinite"
-            />
-          </stop>
-          <stop offset="0%" stopColor={color} stopOpacity={opacity * 0.6}>
-            <animate
-              attributeName="offset"
-              values="-0.05;1.25"
-              dur={`${sparkDuration}s`}
-              begin={`${sparkDelay}s`}
-              repeatCount="indefinite"
-            />
-          </stop>
-          <stop offset="100%" stopColor={color} stopOpacity={opacity * 0.6} />
-        </linearGradient>
-
-        <path
-          d={d}
-          fill="none"
-          stroke={`url(#${gradId})`}
-          strokeWidth="8"
-          opacity={opacity * 0.4}
-          className="wave-line-glow"
-          style={{
-            animationDelay: `${i * 0.3}s`,
-            animationDuration: `${8 + i * 0.5}s`,
-          }}
-          filter="url(#wave-blur)"
-        />
-        <path
-          d={d}
-          fill="none"
-          stroke={`url(#${gradId})`}
-          strokeWidth="1.5"
-          opacity={1}
-          className="wave-line"
-          style={{
-            animationDelay: `${i * 0.3}s`,
-            animationDuration: `${8 + i * 0.5}s`,
-          }}
-        />
-      </g>
-    );
+  // 80 deterministic stars via sine seeds — same pattern as OrreryStarfield.
+  const stars = Array.from({ length: 80 }, (_, i) => {
+    const x = Math.sin(i * 7.13 + 0.5) * 580 + 600;
+    const y = Math.cos(i * 4.91 + 1.1) * 280 + 300;
+    const r = 1.2 + (Math.sin(i * 3.7) + 1) * 1.1;
+    const twinkleDur = 3 + (i % 5) * 0.7;
+    return { id: i, x, y, r, twinkleDur };
   });
+
+  // 6 ambient planet glows drifting in a slow orbital pattern.
+  const planets = [
+    { x: 200, y: 180, r: 60, color: "var(--celestial-bright)", opacity: 0.4 },
+    { x: 900, y: 140, r: 80, color: "var(--celestial-warm)", opacity: 0.3 },
+    { x: 1050, y: 380, r: 50, color: "var(--celestial-cool)", opacity: 0.35 },
+    { x: 350, y: 460, r: 70, color: "var(--celestial-warm)", opacity: 0.28 },
+    { x: 650, y: 290, r: 90, color: "var(--celestial-bright)", opacity: 0.18 },
+    { x: 100, y: 480, r: 55, color: "var(--accent-amber)", opacity: 0.18 },
+  ];
 
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none">
-      <svg viewBox="0 0 1200 600" preserveAspectRatio="xMidYMid slice" className="absolute inset-0 w-full h-full">
+      <svg
+        viewBox="0 0 1200 600"
+        preserveAspectRatio="xMidYMid slice"
+        className="absolute inset-0 w-full h-full"
+        aria-hidden="true"
+      >
         <defs>
-          <filter id="wave-blur">
-            <feGaussianBlur stdDeviation="5" />
+          <filter id="celestial-blur">
+            <feGaussianBlur stdDeviation="30" />
           </filter>
         </defs>
-        {waves}
+
+        {/* Drifting planet glows — soft blurred discs that gently fade. */}
+        {planets.map((p, i) => (
+          <circle
+            key={`p-${i}`}
+            cx={p.x}
+            cy={p.y}
+            r={p.r}
+            fill={p.color}
+            opacity={p.opacity}
+            filter="url(#celestial-blur)"
+          >
+            <animate
+              attributeName="opacity"
+              values={`${p.opacity * 0.6};${p.opacity};${p.opacity * 0.6}`}
+              dur={`${8 + i * 1.5}s`}
+              repeatCount="indefinite"
+            />
+          </circle>
+        ))}
+
+        {/* Twinkling stars — SMIL opacity loop keeps the field alive. */}
+        {stars.map((s) => (
+          <circle key={`s-${s.id}`} cx={s.x} cy={s.y} r={s.r} fill="white" className="wave-line">
+            <animate attributeName="opacity" values="0.3;0.95;0.3" dur={`${s.twinkleDur}s`} repeatCount="indefinite" />
+          </circle>
+        ))}
       </svg>
     </div>
   );

@@ -1,5 +1,11 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+// Orrery viz — CallArc renders the call's moments as an orbital path,
+// synced bidirectionally with audio playback. Clinical-mode swap to the
+// horizontal timeline happens further down inside the component.
+import { CallArc, ClinicalCallTimeline, useOrreryTheme, CoachThisCallPanel } from "@/components/orrery";
+import { transcriptToMoments, callToClinicalTimeline, type Moment } from "@/lib/orrery-adapters";
+import { usePresentation } from "@/hooks/use-presentation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -82,6 +88,15 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
     (isEditing && (editScore !== "" || editSummary !== "" || editReason !== "")) ||
       (showCorrectionMode && pendingCorrections.size > 0),
   );
+
+  // Orrery — moment + presentation state. Lives alongside the other top-of-
+  // component state declarations to keep all hooks above the early-return
+  // guards below (INV-19).
+  const orreryTheme = useOrreryTheme();
+  const { isClinical } = usePresentation();
+  const [selectedMomentId, setSelectedMomentId] = useState<string | null>(null);
+  const [coachOpen, setCoachOpen] = useState(false);
+  const [coachMoment, setCoachMoment] = useState<Moment | null>(null);
 
   const { data: call, isLoading } = useQuery<CallWithDetails>({
     queryKey: ["/api/calls", callId],
@@ -242,6 +257,45 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
       audio.removeEventListener("ended", onEnded);
     };
   }, [call]);
+
+  // Compute moments + clinical timeline. Memoized so we don't rerun on every
+  // re-render (transcripts can be 100k chars; sentiment.segments can be 200+).
+  // Must come AFTER the call query but BEFORE any early returns (INV-19).
+  const durationSec = call?.duration || (call?.transcript?.words?.length ? lastWordSec(call.transcript.words) : 0);
+  const moments = useMemo<Moment[]>(
+    () => transcriptToMoments(call?.transcript, call?.sentiment, call?.analysis, durationSec),
+    [call?.transcript, call?.sentiment, call?.analysis, durationSec],
+  );
+  const clinicalTimeline = useMemo(
+    () => callToClinicalTimeline(call?.transcript, call?.sentiment, call?.analysis, durationSec),
+    [call?.transcript, call?.sentiment, call?.analysis, durationSec],
+  );
+
+  // Click a moment → scrub audio to that timestamp.
+  const onSelectMoment = useCallback((moment: Moment | null) => {
+    setSelectedMomentId(moment?.id ?? null);
+    if (moment && audioRef.current) {
+      audioRef.current.currentTime = moment.time;
+      audioRef.current.play().catch(() => {
+        // Autoplay may be blocked — ignore; user can click play.
+      });
+    }
+  }, []);
+
+  // While audio plays, highlight the moment whose time is just before currentTime.
+  useEffect(() => {
+    if (moments.length === 0) return;
+    const currentSec = currentTime / 1000;
+    let active: Moment | null = null;
+    for (const m of moments) {
+      if (m.time <= currentSec) active = m;
+      else break;
+    }
+    setSelectedMomentId((prev) => {
+      const next = active?.id ?? null;
+      return next === prev ? prev : next;
+    });
+  }, [currentTime, moments]);
 
   if (isLoading) {
     return (
@@ -568,6 +622,46 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
 
       {/* Hidden audio element that streams from S3 via the API */}
       <audio ref={audioRef} src={`/api/calls/${callId}/audio`} preload="metadata" />
+
+      {/* Call arc / clinical timeline — the orrery drill-in visualization.
+          Synced with audio playback; clicking a moment scrubs the audio.
+          Clinical-mode swap controlled by org settings.presentation. */}
+      <div className="mb-4" data-testid="call-arc-wrapper">
+        {isClinical ? (
+          <ClinicalCallTimeline
+            t={orreryTheme}
+            points={clinicalTimeline.points}
+            moments={moments}
+            durationSec={clinicalTimeline.durationSec}
+            selectedId={selectedMomentId}
+            onSelectMoment={onSelectMoment}
+          />
+        ) : (
+          <CallArc
+            t={orreryTheme}
+            moments={moments}
+            durationSec={durationSec || 60}
+            selectedId={selectedMomentId}
+            onSelectMoment={onSelectMoment}
+          />
+        )}
+        {selectedMomentId && (
+          <div className="flex justify-end mt-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                const m = moments.find((mm) => mm.id === selectedMomentId);
+                setCoachMoment(m ?? null);
+                setCoachOpen(true);
+              }}
+              data-testid="coach-this-moment"
+            >
+              Coach this moment
+            </Button>
+          </div>
+        )}
+      </div>
 
       {/* AI analysis failure banner */}
       {call.analysis?.confidenceFactors &&
@@ -1108,6 +1202,28 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
           />
         </div>
       </div>
+
+      <CoachThisCallPanel
+        t={orreryTheme}
+        open={coachOpen}
+        onClose={() => setCoachOpen(false)}
+        callId={callId}
+        callName={call?.fileName || call?.employee?.name || "Call"}
+        employeeId={call?.employee?.id}
+        employeeName={call?.employee?.name}
+        moment={coachMoment}
+      />
     </div>
   );
+}
+
+/**
+ * Last word end timestamp in seconds — used to estimate call duration when
+ * Call.duration isn't set (legacy calls). Transcript word timestamps are ms.
+ */
+function lastWordSec(words: Array<{ end?: number }>): number {
+  for (let i = words.length - 1; i >= 0; i--) {
+    if (typeof words[i].end === "number") return (words[i].end as number) / 1000;
+  }
+  return 0;
 }

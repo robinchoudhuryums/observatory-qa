@@ -33,12 +33,17 @@ import { SectionCard } from "@/components/lib/section-card";
 import { formatLabel, openPrintWindow } from "./clinical-notes/helpers";
 import { MissingSectionsCard, ValidationNotesCard, EditHistoryCard, QualityFeedbackCard } from "./clinical-notes/cards";
 import type { CallWithClinical } from "./clinical-notes/types";
+// Orrery — Phase 4 clinical workbench completeness header. PHI-safe: reads
+// only metadata (score, timestamps, format) — does NOT touch decrypted note
+// content. INV-08/INV-09 audit logging remains entirely server-side.
+import { ClinicalCompletenessHeader, useOrreryTheme } from "@/components/orrery";
 
 export default function ClinicalNotesPage() {
   const [, params] = useRoute("/clinical/notes/:id");
   const callId = params?.id;
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const orreryTheme = useOrreryTheme();
   const [editing, setEditing] = useState(false);
   const [editFields, setEditFields] = useState<Record<string, unknown>>({});
   const printRef = useRef<HTMLDivElement>(null);
@@ -293,8 +298,26 @@ export default function ClinicalNotesPage() {
   const isBirp = cn.format === "birp";
   const isDental = cn.format?.startsWith("dental_");
 
+  // Build the timeline for the orrery completeness header. Steps are
+  // derived from existing call/note metadata — no new fields needed.
+  const timelineSteps = buildClinicalTimeline(call, cn);
+
   return (
     <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-6">
+      {/* Orrery completeness header — added in Phase 4 of the redesign.
+          Sits above the existing header strip; PHI-safe (metadata only). */}
+      <ClinicalCompletenessHeader
+        t={orreryTheme}
+        patientLabel={call.employee?.name || "Clinical encounter"}
+        providerLabel={null}
+        encounterDate={call.uploadedAt ? new Date(call.uploadedAt).toLocaleDateString() : null}
+        format={cn.format ? cn.format.toUpperCase() : null}
+        completeness={typeof cn.documentationCompleteness === "number" ? cn.documentationCompleteness : null}
+        accuracy={typeof cn.clinicalAccuracy === "number" ? cn.clinicalAccuracy : null}
+        confidence={extractConfidenceLabel(cn)}
+        timeline={timelineSteps}
+      />
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -1011,4 +1034,66 @@ export default function ClinicalNotesPage() {
       )}
     </div>
   );
+}
+
+/**
+ * Pull a confidence label off the clinical note in a type-safe way.
+ * The ClinicalNote Zod schema doesn't currently expose a `confidence`
+ * field on every variant, but server responses sometimes include one as
+ * part of the analysis envelope (e.g. "high"/"medium"/"low"). Read it
+ * defensively rather than widening the type.
+ */
+function extractConfidenceLabel(cn: unknown): "high" | "medium" | "low" | null {
+  if (!cn || typeof cn !== "object") return null;
+  const raw = (cn as Record<string, unknown>).confidence;
+  if (typeof raw !== "string") return null;
+  const lowered = raw.toLowerCase();
+  if (lowered === "high" || lowered === "medium" || lowered === "low") return lowered;
+  return null;
+}
+
+/**
+ * Derive the lifecycle timeline shown in the orrery completeness header.
+ * Steps are pulled from existing call + note metadata — no new schema
+ * fields. PHI-safe (timestamps + boolean flags only).
+ */
+function buildClinicalTimeline(
+  call: CallWithClinical,
+  cn: NonNullable<CallWithClinical["analysis"]>["clinicalNote"],
+): Array<{ id: string; label: string; done: boolean; time?: string | null; byOry?: boolean }> {
+  const fmt = (iso?: string | null) => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  };
+
+  const recorded = call?.uploadedAt;
+  // The Call object on this page doesn't include the transcript blob — we
+  // infer "transcribed" from the existence of `analysis` which only exists
+  // once transcription + AI analysis have completed.
+  const transcribed = call?.analysis ? recorded : null;
+  // The note exists if `cn` exists; AI drafting time defaults to call uploadedAt
+  // when no explicit `draftedAt` field is present.
+  const drafted = recorded;
+  const edited =
+    Array.isArray(cn?.editHistory) && cn.editHistory.length > 0
+      ? ((cn.editHistory[cn.editHistory.length - 1] as { editedAt?: string })?.editedAt ?? null)
+      : null;
+  const attested = cn?.providerAttested ? ((cn as { attestedAt?: string }).attestedAt ?? null) : null;
+  const hasAmendments = Array.isArray(cn?.amendments) && cn.amendments.length > 0;
+
+  const steps: Array<{ id: string; label: string; done: boolean; time?: string | null; byOry?: boolean }> = [
+    { id: "rec", label: "Recorded", done: !!recorded, time: fmt(recorded) },
+    { id: "tx", label: "Transcribed", done: !!transcribed, time: fmt(transcribed) },
+    { id: "ai", label: "Drafted", done: !!drafted, time: fmt(drafted), byOry: true },
+    { id: "edit", label: "Edited", done: !!edited, time: fmt(edited) },
+    { id: "attest", label: "Attested", done: !!attested, time: fmt(attested) },
+  ];
+
+  if (hasAmendments) {
+    steps.push({ id: "amend", label: "Amended", done: true });
+  }
+
+  return steps;
 }

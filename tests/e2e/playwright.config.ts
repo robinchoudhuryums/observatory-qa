@@ -12,8 +12,13 @@ export default defineConfig({
 
   use: {
     baseURL: process.env.BASE_URL || "http://localhost:5000",
-    trace: "on-first-retry",
+    // Trace on every retry AND on first failure — gives us a Playwright trace
+    // file in test-results/ for every failed test, which the CI `playwright-
+    // report-{sha}` artifact upload captures. Without this, retried-but-passing
+    // failures lose their first-attempt context. Cost: ~5-10% test runtime.
+    trace: "retain-on-failure",
     screenshot: "only-on-failure",
+    video: "retain-on-failure",
     viewport: { width: 1280, height: 720 },
     actionTimeout: 15_000,
   },

@@ -8,6 +8,19 @@ import { ObservatoryLogo } from "@/components/observatory-logo";
 import { apiRequest } from "@/lib/queryClient";
 import { USER_ROLES, INDUSTRY_TYPES } from "@shared/schema";
 import { useAppName } from "@/hooks/use-organization";
+// Orrery sign-in backdrop — Phase 5 celestial chrome. The orbital preview
+// renders behind the auth card. Dark mode shows the full preview;
+// light mode shows just a soft starfield (the orrery preview's planet
+// shadow reads poorly against a bright background — light-theme variant
+// per ORRERY_IMPLEMENTATION_PLAN.md §9.7).
+import {
+  OrreryCenterStar,
+  OrreryOrbitRing,
+  OrreryPlanet,
+  OrreryStarfield,
+  TILT,
+  useOrreryTheme,
+} from "@/components/orrery";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   RiLoginBoxLine,
@@ -35,6 +48,7 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
   const appName = useAppName();
+  const orreryTheme = useOrreryTheme();
 
   // Request access form state
   const [requestName, setRequestName] = useState("");
@@ -154,8 +168,14 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <div className="w-full max-w-md space-y-6">
+    <div
+      className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden"
+      style={{ background: orreryTheme.bg }}
+      data-testid="auth-page"
+    >
+      {/* Celestial backdrop — pure SVG, sits behind the auth card. */}
+      <CelestialBackdrop />
+      <div className="w-full max-w-md space-y-6 relative z-10">
         {onBack && (
           <button
             onClick={onBack}
@@ -165,12 +185,27 @@ export default function AuthPage({ onLogin, onBack, initialView }: AuthPageProps
             Back to home
           </button>
         )}
-        <Card>
+        <Card
+          style={{
+            background: orreryTheme.panel,
+            backdropFilter: "blur(12px)",
+            border: `0.5px solid ${orreryTheme.panelBorder}`,
+          }}
+        >
           <CardHeader className="text-center">
             <div className="flex justify-center mb-4">
               <ObservatoryLogo variant="icon" height={48} className="text-primary" />
             </div>
-            <CardTitle className="text-2xl">{appName}</CardTitle>
+            <CardTitle
+              className="text-3xl"
+              style={{
+                fontFamily: "'Instrument Serif', Georgia, serif",
+                fontStyle: "italic",
+                letterSpacing: "-0.02em",
+              }}
+            >
+              {appName}
+            </CardTitle>
             <CardDescription>
               {view === "login"
                 ? "Sign in to access the call analysis dashboard"
@@ -673,5 +708,75 @@ function SsoLoginSection() {
         </Button>
       </div>
     </>
+  );
+}
+
+/**
+ * Celestial backdrop for the sign-in page.
+ *
+ * Dark mode: 6-planet orrery preview behind the card, suggesting the
+ * "model of the practice in orbit." The card sits over it as a frosted
+ * panel; planets are partially visible at the edges. Mirrors the
+ * prototype's signin layout.
+ *
+ * Light mode: gradient + soft starfield only. The full orbital preview
+ * "breaks" against bright backgrounds (planet shadows + halos rely on
+ * dark-on-dark contrast). The lighter variant keeps the celestial brand
+ * feel without the visual collisions.
+ */
+function CelestialBackdrop() {
+  const t = useOrreryTheme();
+  const isDark = t.name === "dark";
+
+  // Deterministic planet placements — same as orrery-signin.jsx prototype.
+  const planets = [
+    { o: 0, a: 0.4, sz: 2.6, br: 0.85 },
+    { o: 0, a: 2.1, sz: 1.8, br: 0.7 },
+    { o: 1, a: 0.9, sz: 3.0, br: 0.92, hot: true },
+    { o: 1, a: 3.0, sz: 2.0, br: 0.6 },
+    { o: 2, a: 0.2, sz: 2.2, br: 0.5 },
+    { o: 2, a: 4.1, sz: 1.4, br: 0.4 },
+  ];
+  const orbits = [14, 24, 34];
+
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        position: "absolute",
+        inset: 0,
+        pointerEvents: "none",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden",
+      }}
+    >
+      <svg
+        viewBox="-50 -28 100 56"
+        preserveAspectRatio="xMidYMid slice"
+        style={{
+          width: "100%",
+          height: "100%",
+          opacity: isDark ? 1 : 0.35,
+        }}
+      >
+        <OrreryStarfield t={t} count={isDark ? 80 : 40} spread={[48, 24]} />
+        {isDark && (
+          <>
+            {orbits.map((r) => (
+              <OrreryOrbitRing key={r} r={r} t={t} dashed />
+            ))}
+            <OrreryCenterStar t={t} idSeed="auth" />
+            {planets.map((p, i) => {
+              const radius = orbits[p.o];
+              const px = Math.cos(p.a) * radius;
+              const py = Math.sin(p.a) * radius * TILT;
+              return <OrreryPlanet key={i} p={{ px, py, sz: p.sz, br: p.br, hot: p.hot }} t={t} showRing={p.hot} />;
+            })}
+          </>
+        )}
+      </svg>
+    </div>
   );
 }

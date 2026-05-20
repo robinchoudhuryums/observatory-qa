@@ -1197,6 +1197,32 @@ export const businessAssociateAgreements = pgTable(
   ],
 );
 
+// --- PATTERN SUBSCRIPTIONS (Phase 3 of Orrery redesign) ---
+// Manager-created alerts that fire when a recurring call cluster (surfaced
+// by /api/insights/clusters) recurs. Triggers: every new occurrence, 2σ
+// frequency spike, or daily/weekly digest. The cluster id is stored as
+// opaque text (the clustering service doesn't expose a stable typed
+// reference), with an optional snapshot of the cluster's friendly label.
+export const patternSubscriptions = pgTable(
+  "pattern_subscriptions",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    patternKey: text("pattern_key").notNull(),
+    patternLabel: text("pattern_label"),
+    triggerKind: varchar("trigger_kind", { length: 40 }).notNull(),
+    expiresAt: timestamp("expires_at"),
+    createdBy: text("created_by"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (t) => [
+    index("pattern_subscriptions_org_pattern_idx").on(t.orgId, t.patternKey),
+    index("pattern_subscriptions_expires_idx").on(t.expiresAt),
+  ],
+);
+
 // --- SIMULATED CALLS (synthetic/training calls generated via TTS) ---
 // Multi-tenant lift of CA's single-tenant simulated_calls table: every row
 // carries org_id and references organizations(id). sent_to_analysis_call_id

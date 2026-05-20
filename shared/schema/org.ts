@@ -187,6 +187,13 @@ export const orgSettingsSchema = z.object({
   // Default: { A: "agent", B: "customer" }. Override per-org when agent doesn't speak first
   // (e.g., IVR-routed calls where customer speaks first).
   defaultSpeakerRoles: z.record(z.string(), z.string()).optional(),
+  // Orrery presentation mode — controls metaphor language (observatory) vs flat charts (clinical).
+  // Default is derived from industryType server-side: clinical for healthcare/dental/behavioral_health/
+  // veterinary; observatory otherwise. Admins can override via org settings.
+  presentation: z.enum(["observatory", "clinical"]).optional(),
+  // Default theme preference for users without a personal setting.
+  // 'auto' follows OS preference via prefers-color-scheme.
+  theme: z.enum(["light", "dark", "auto"]).optional(),
   // Edit pattern insights: aggregated analysis of manager manual score edits
   editPatternInsights: z
     .object({

@@ -21,7 +21,8 @@ Observatory QA is a multi-tenant, HIPAA-compliant SaaS platform for call quality
 - **Logging**: Pino + Betterstack (@logtail/pino) for structured log aggregation
 - **Auth**: Passport.js (local strategy + Google OAuth 2.0 + SAML 2.0 SSO + OIDC SSO), session-based, role-based (viewer/manager/admin), MFA (TOTP + WebAuthn/Passkeys), SCIM 2.0 provisioning
 - **Hosting**: EC2 with Caddy (production HIPAA), Render.com (staging/non-PHI)
-- **Font**: Poppins (primary), Inter (fallback) — chosen to match Observatory logo typeface
+- **Font**: Inter (body + UI), Instrument Serif italic (display + KPI values), JetBrains Mono (tags + metadata) — celestial brand voice, switched from Poppins during the Orrery redesign
+- **Design system**: Orrery — celestial cyan accent family, custom SVG orrery/galaxy/constellation viz, `client/src/components/orrery/` primitives, two presentation modes (observatory + clinical) via `usePresentation()` hook. Source design archived at `archive/design-v1/`; implementation plan at `archive/ORRERY_IMPLEMENTATION_PLAN.md`.
 
 ## Local Development Setup
 
@@ -183,12 +184,26 @@ npx vite build         # Frontend-only build (quick verification)
 
 ### Key Directories
 ```
-client/src/pages/            # Route pages (34 pages)
+client/src/pages/            # Route pages (37 pages — includes Phase 1-3 atlas-cluster + galaxy + 4 dev showcases)
+  atlas-cluster.tsx          # /atlas/cluster/:category — drill-in from Atlas planet click
+  galaxy.tsx                 # /galaxy — month spiral (day-bucketed call counts)
+  dev/                       # Super-admin showcase routes (Phase 0)
+    orrery-components.tsx    #   /dev/orrery/components — every primitive
+    orrery-owl.tsx           #   /dev/orrery/owl — persona kit + 5 animation states
+    orrery-realism.tsx       #   /dev/orrery/realism — empty/loading/uncertainty/degraded
+    orrery-type-lab.tsx      #   /dev/orrery/type-lab — typography reference
 client/src/components/       # UI components
   ui/                        #   shadcn/ui primitives
-  dashboard/                 #   Dashboard cards (metrics-overview, sentiment-analysis, performance-card)
-  tables/                    #   Data tables (calls-table)
-  transcripts/               #   Transcript viewer
+  orrery/                    #   Orrery design system (Phase 0-5 redesign)
+    theme.ts                 #     ORRERY_LIGHT/DARK token objects + useOrreryTheme() hook
+    projection.ts            #     TILT (0.42), orreryProject(), brightToColor() ramp
+    Orrery*                  #     Center star, orbit rings, planets, starfield, KPI, card, tag, theme toggle, top bar
+    owl/                     #     ObservatoryOwlMark, Wordmark, FilledOwl[Head], Lockup, LayeredOwl (5-state animation machine), owl-animations.css
+    realism/                 #     EmptyState, EmptyGlyph (4 kinds), LoadingPlanet, ProcessingBadge, UncertaintyHaze, DegradedNotice
+    viz/                     #     Orrery (Atlas), CallArc, ClinicalCallTimeline, CallList, Galaxy, Constellation, PatternsNetwork, AgentSystem, ClinicalCompletenessHeader
+    overlays/                #     DayReplay, CoachThisCallPanel, TrackPatternPopover, AskOryFab + AskOryPanel
+    shell/                   #     MobileBottomSheet
+  transcripts/               #   Transcript viewer (embeds CallArc — moments synced bidirectionally with audio playback)
   search/                    #   Search components (employee-filter, call-card)
   upload/                    #   File upload (file-upload) with before-unload warning
   audio/                     #   Audio components (audio-waveform: canvas-based amplitude visualization with click-to-seek)
@@ -202,10 +217,16 @@ client/src/components/       # UI components
 
 client/src/hooks/            # Custom React hooks
   use-idle-timeout.ts        #   15-min idle timeout with 2-min warning, auto-logout on expiry
+  use-presentation.ts        #   Resolves observatory|clinical mode from org.settings + industryType; provides clinicalLex() label translator
 
 client/src/lib/              # Client utilities
   display-utils.ts           #   toDisplayString() — safe AI response value rendering
   error-reporting.ts         #   Sentry client-side integration + HIPAA PHI sanitization
+  orrery-adapters.ts         #   Pure adapters: callsToPlanets, dayBucketsToGalaxy, patternsToConstellations, transcriptToMoments, callToClinicalTimeline, agentsToCoachingSystems
+  orrery-lenses.ts           #   4 industry-agnostic Atlas lenses (type/recency/sentiment/agent) with orbit assignment functions
+
+client/public/orrery/        # Orrery brand assets (Phase 0 redesign)
+  owl-mark.png               #   Brand owl mark — mask-image source for tintable rendering
 
 server/
   index.ts                   # App entry: Express setup, middleware, startup sequence
@@ -260,6 +281,7 @@ server/routes/               # Modular API route files (44 route files)
   clinical-compliance.routes.ts  #   Extracted: amendments, FHIR R4 export, co-signatures
   clinical-analytics.routes.ts   #   Extracted: style learning, population analytics, prefill, custom templates
   admin-security.routes.ts   #   Extracted: audit logs, WAF, incidents, breach reports, GDPR, vocab, MFA recovery
+  patterns.ts                #   Pattern subscriptions (Phase 3): GET /api/patterns/subscriptions, POST/DELETE /api/patterns/subscribe
 
 server/services/             # Business logic & integrations (46 files)
   ai-factory.ts              #   AI provider setup (Bedrock, per-org model config, per-org circuit breaker with global fallback)
@@ -384,6 +406,10 @@ shared/schema/org.ts         #   Organization, user, employee schemas
 shared/schema/calls.ts       #   Call, transcript, analysis schemas
 shared/schema/billing.ts     #   Billing/subscription schemas, plan definitions
 shared/schema/features.ts    #   Feature-specific schemas (selfReview, dispute, callReferral, etc.)
+shared/schema/patterns.ts    #   PatternSubscription Zod schemas + PATTERN_TRIGGER_KINDS enum (Phase 3)
+archive/                     # Snapshot of the v1 prototype design package + implementation plan
+  ORRERY_IMPLEMENTATION_PLAN.md  #   Canonical record of the Orrery redesign (Phases 0-5)
+  design-v1/                     #   Source prototypes (JSX, HTML, screenshots, owl assets)
 data/dental/                 # Dental-specific reference data
   default-prompt-templates.json  # 5 dental call categories with evaluation criteria
   dental-terminology-reference.md  # CDT codes, insurance terminology, coverage tiers
@@ -395,25 +421,27 @@ tests/e2e/                   # Playwright E2E tests (11 spec files)
 ### Frontend Pages
 | Page | Route | Description |
 |------|-------|-------------|
-| `landing.tsx` | `/` | Public landing / marketing page |
-| `auth.tsx` | `/auth` | Login + registration forms (supports industry type selection) |
+| `landing.tsx` | `/` | Public landing — celestial starfield + planet glows hero (Phase 5 replaced wave background) |
+| `auth.tsx` | `/auth` | Login/register/request-access with CelestialBackdrop (full orrery preview in dark, soft starfield in light) |
 | `onboarding.tsx` | `/onboarding` | Post-registration org setup wizard |
 | `invite-accept.tsx` | `/invite/:token` | Accept team invitation |
-| `dashboard.tsx` | `/dashboard` | Main dashboard with KPIs |
-| `transcripts.tsx` | `/transcripts` | Call list + transcript viewer |
+| `dashboard.tsx` | `/` | Atlas — orrery hero (planets as call categories, 4 lenses, KPI strip), Day Replay overlay, recent calls (compact CallList) |
+| `atlas-cluster.tsx` | `/atlas/cluster/:category` | Drill-in from Atlas planet click — hero planet with calls as moons + scoped CallList (Phase 2) |
+| `galaxy.tsx` | `/galaxy` | Month spiral — day-bucketed call volume + close rate; month nav (Phase 3) |
+| `transcripts.tsx` | `/transcripts` and `/transcripts/:id` | List: CallList with filters/sort/pagination. Detail: CallArc (observatory) or ClinicalCallTimeline (clinical) above transcript viewer, synced bidirectionally with audio |
 | `upload.tsx` | `/upload` | Audio file upload |
 | `employees.tsx` | `/employees` | Employee roster management |
-| `coaching.tsx` | `/coaching` | Coaching session management |
+| `coaching.tsx` | `/coaching` | Team-in-orbit hero (AgentSystem mini-orreries) + existing session list/form (Phase 4) |
 | `reports.tsx` | `/reports` | Reports with date filtering |
 | `performance.tsx` | `/performance` | Performance metrics & trends |
 | `sentiment.tsx` | `/sentiment` | Sentiment analysis views |
 | `search.tsx` | `/search` | Full-text call search |
-| `insights.tsx` | `/insights` | Aggregate insights & trends |
+| `insights.tsx` | `/insights` | Patterns — TopicCluster constellations + TrackPatternPopover; lexicon swap to "Trends" in clinical mode (Phase 3) |
 | `prompt-templates.tsx` | `/prompt-templates` | AI prompt template management |
 | `admin.tsx` | `/admin` | User management, org settings |
 | `settings.tsx` | `/settings` | User preferences (dark mode, etc.) |
 | `clinical-dashboard.tsx` | `/clinical` | Clinical documentation dashboard (metrics, attestation rates, trends) |
-| `clinical-notes.tsx` | `/clinical/notes/:callId` | View/edit clinical notes, attestation workflow, consent |
+| `clinical-notes.tsx` | `/clinical/notes/:callId` | ClinicalCompletenessHeader (completeness orb + lifecycle timeline) above existing edit/attest/amendment workflow (Phase 4) |
 | `clinical-templates.tsx` | `/clinical/templates` | Browse pre-built clinical note templates by specialty/format |
 | `clinical-upload.tsx` | `/clinical/upload` | Upload clinical encounter audio for note generation |
 | `ab-testing.tsx` | `/ab-testing` | A/B model comparison (upload audio, dual-model analysis, cost tracking) |
@@ -429,12 +457,16 @@ tests/e2e/                   # Playwright E2E tests (11 spec files)
 | `clinical-live.tsx` | `/clinical/live` | Live clinical session: real-time transcription + note generation |
 | `audit-logs.tsx` | `/admin/audit-logs` | HIPAA audit log viewer |
 | `not-found.tsx` | `*` | 404 page |
+| `dev/orrery-components.tsx` | `/dev/orrery/components` | Super-admin: primitive showcase (Phase 0) |
+| `dev/orrery-owl.tsx` | `/dev/orrery/owl` | Super-admin: owl persona kit + 5 animation states |
+| `dev/orrery-realism.tsx` | `/dev/orrery/realism` | Super-admin: empty/loading/uncertainty/degraded vocabulary |
+| `dev/orrery-type-lab.tsx` | `/dev/orrery/type-lab` | Super-admin: Instrument Serif + Inter + JetBrains Mono reference |
 
 ### Multi-Tenant Data Model
 Every data entity has an `orgId` field. All storage methods take `orgId` as the first parameter. Data isolation is enforced at the storage layer — no method can access data without specifying the org.
 
 **Schemas in `shared/schema.ts`**:
-- `Organization` — id, name, slug, status, industryType, settings (departments, subTeams, branding, AI config, quotas, ehrConfig, providerStylePreferences). SSO settings: `ssoProvider` (saml|oidc), `ssoEntityId`, `ssoSignOnUrl`, `ssoCertificate`, `ssoEnforced`, `ssoGroupRoleMap` (group→role map), `ssoGroupAttribute`, `ssoSessionMaxHours`, `ssoLogoutUrl`, `ssoCertificateExpiry` (auto-computed), `ssoNewCertificate` (rotation dual-cert), `ssoNewCertificateExpiry`. OIDC: `oidcDiscoveryUrl`, `oidcClientId`, `oidcClientSecret`. SCIM: `scimEnabled`, `scimTokenHash`, `scimTokenPrefix`. MFA: `mfaRequired`, `mfaGracePeriodDays` (default 7), `mfaRequiredEnabledAt`. Session: `sessionAbsoluteMaxHours` (1–24, falls back to `DEFAULT_SESSION_ABSOLUTE_MAX_HOURS` = 6h in `server/auth.ts` per NIST SP 800-66 Rev. 2 healthcare guidance) — overrides the default per-org via `getEffectiveSessionMaxMs()`.
+- `Organization` — id, name, slug, status, industryType, settings (departments, subTeams, branding, AI config, quotas, ehrConfig, providerStylePreferences). SSO settings: `ssoProvider` (saml|oidc), `ssoEntityId`, `ssoSignOnUrl`, `ssoCertificate`, `ssoEnforced`, `ssoGroupRoleMap` (group→role map), `ssoGroupAttribute`, `ssoSessionMaxHours`, `ssoLogoutUrl`, `ssoCertificateExpiry` (auto-computed), `ssoNewCertificate` (rotation dual-cert), `ssoNewCertificateExpiry`. OIDC: `oidcDiscoveryUrl`, `oidcClientId`, `oidcClientSecret`. SCIM: `scimEnabled`, `scimTokenHash`, `scimTokenPrefix`. MFA: `mfaRequired`, `mfaGracePeriodDays` (default 7), `mfaRequiredEnabledAt`. Session: `sessionAbsoluteMaxHours` (1–24, falls back to `DEFAULT_SESSION_ABSOLUTE_MAX_HOURS` = 6h in `server/auth.ts` per NIST SP 800-66 Rev. 2 healthcare guidance) — overrides the default per-org via `getEffectiveSessionMaxMs()`. Orrery (Phase 0): `presentation` (`"observatory" | "clinical"`, optional) — controls viz metaphor; defaults from `industryType` (clinical for healthcare/dental/behavioral_health/veterinary). `theme` (`"light" | "dark" | "auto"`, optional) — default user theme preference.
 - `User` — id, orgId, username, passwordHash, name, role, mfaEnabled, mfaSecret (encrypted), mfaBackupCodes[], webauthnCredentials[] (credentialId/publicKey/counter/transports/name), mfaTrustedDevices[] (tokenHash/name/expiresAt), mfaEnrollmentDeadline
 - `Employee` — id, orgId, name, email, role, initials, status, subTeam
 - `Call` — id, orgId, employeeId, fileName, status, duration, callCategory, tags
@@ -831,6 +863,7 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
 | GET | `/api/dashboard/metrics` | Call metrics & performance |
 | GET | `/api/dashboard/sentiment` | Sentiment distribution |
 | GET | `/api/dashboard/performers` | Top performers |
+| GET | `/api/dashboard/galaxy?month=YYYY-MM` | Day-bucketed call counts + close rate for one month — powers the /galaxy spiral (Phase 3) |
 | GET | `/api/search` | Full-text search |
 | GET | `/api/performance` | Performance metrics |
 | GET | `/api/reports/summary` | Summary report |
@@ -838,6 +871,13 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
 | GET | `/api/reports/agent-profile/:id` | Agent profile |
 | POST | `/api/reports/agent-summary/:id` | Generate agent summary |
 | GET | `/api/insights` | Aggregate insights & trends |
+
+### Patterns (org-scoped, Phase 3)
+| Method | Path | Role | Description |
+|--------|------|------|-------------|
+| GET | `/api/patterns/subscriptions` | authenticated | List active pattern subscriptions for the org (filters out expired) |
+| POST | `/api/patterns/subscribe` | manager+ | Subscribe to a recurring cluster — body `{ patternKey, patternLabel?, triggerKind, expiresAt? }` |
+| DELETE | `/api/patterns/subscribe/:id` | manager+ | Cancel a subscription |
 
 ### Coaching (org-scoped)
 | Method | Path | Role | Description |
@@ -1323,6 +1363,7 @@ TRUST_PROXY                     # Set to "0" to disable trust proxy in productio
 | `security_incidents` | index on `(org_id, phase)` | HIPAA breach tracking: severity, phase lifecycle, timeline, action items, breach notification deadline. RLS-protected |
 | `breach_reports` | index on `(org_id, notification_status)` | HIPAA §164.408: affected individuals count, PHI types, 60-day notification deadline, notification status tracking, corrective actions |
 | `business_associate_agreements` | index on `(org_id, status)`, `(expires_at)` | HIPAA §164.502(e): vendor BAA tracking with expiry dates, renewal reminders, PHI categories, signatory info. RLS-protected |
+| `pattern_subscriptions` | index on `(org_id, pattern_key)`, partial index on `expires_at WHERE NOT NULL` | Manager-tracked alerts for recurring call clusters (Phase 3 of Orrery redesign). `trigger_kind` ∈ {new_instance, sigma_2, daily_digest, weekly_digest}. Cascade delete with org. RLS-protected |
 
 Requires pgvector extension: `CREATE EXTENSION IF NOT EXISTS vector;`
 
@@ -1511,7 +1552,13 @@ Server serves both API and static frontend from the same process.
 - When adding new storage methods: update `IStorage` interface in `types.ts`, then implement in `memory.ts`, `cloud.ts`, and `pg-storage.ts`
 - **Schema sync on startup**: `sync-schema.ts` auto-creates tables/columns, so `drizzle-kit push` is not needed in production. Schema changes should be added to both `schema.ts` (for Drizzle) and `sync-schema.ts` (for runtime sync)
 - **SSO pre-flight validation**: Always use `/api/auth/sso/check/:orgSlug` before redirecting to `/api/auth/sso/:orgSlug` — prevents users seeing raw JSON error pages for invalid org slugs
-- **Font**: App uses Poppins (loaded via Google Fonts in `index.css`), chosen to match the Observatory logo typeface. Defined in `--font-sans` CSS variable
+- **Font**: App uses Inter (body + UI), Instrument Serif italic (display + hero values + KPI numbers), JetBrains Mono (tags + metadata). Loaded via Google Fonts in `index.css`. Defined in `--font-sans / --font-serif / --font-mono`. Italic display via inline `fontFamily` style or the `.serif-display` utility. Switched from Poppins during the Phase 0 Orrery redesign — any remaining `Poppins` references are stale doc.
+- **Orrery primitives — barrel vs leaf imports in tests**: `client/src/components/orrery/index.ts` re-exports the owl module which imports `owl-animations.css`. Node's tsx test runner can't load CSS — so unit tests under `tests/orrery-*.test.ts` MUST import from leaf modules (e.g. `../client/src/components/orrery/projection`) rather than the barrel. App code can use the barrel freely (Vite bundles CSS).
+- **Industry-agnostic principle for orrery viz**: Primitives never hardcode industry-specific labels (no "Cleanings", "Tx plan review", etc. from the dental prototype). All labels read from real data via adapters in `client/src/lib/orrery-adapters.ts`. The 4 Atlas lenses (type/recency/sentiment/agent) work for every supported industry. Industry-specific viz variants (e.g. clinical mode) swap rendering, not data shape.
+- **`/api/insights/clusters` returns a wrapper object**: Unlike most list endpoints (INV-01), this returns `{ clusters: TopicCluster[], totalClusters, params }`. The patterns frontend adapter reads `response.clusters`. Don't "fix" this by flattening — `totalClusters` and `params` carry useful context for debugging.
+- **`usePresentation()` hook resolves observatory vs clinical mode**: Reads `org.settings.presentation` (explicit override) or falls back to `industryType` default (healthcare/dental/behavioral_health/veterinary → clinical; everything else → observatory). Components consume `.isClinical` for viz swaps (`Constellation` ↔ `PatternsNetwork`, `CallArc` ↔ `ClinicalCallTimeline`) and `.lex()` for label translation (Atlas → Dashboard, Patterns → Trends, etc.).
+- **Clinical viz is PHI-safe by construction**: `ClinicalCompletenessHeader`, `ClinicalCallTimeline`, and other clinical orrery components read only metadata (completeness score, timestamps, format name, flags) — never decrypted note body fields. INV-08/INV-09 audit logging stays entirely server-side via `decryptClinicalNotePhi()` in `server/routes/clinical.ts`.
+- **Orrery design source archived**: The v1 prototype source lives at `archive/design-v1/` (preserved via `git mv`). The canonical implementation plan is `archive/ORRERY_IMPLEMENTATION_PLAN.md`. Doc comments in `theme.ts`, `index.css`, `components/orrery/index.ts`, and `pages/dev/orrery-components.tsx` reference the archive path.
 - **Landing page wave animation**: Uses SVG SMIL `<animate>` elements on `<linearGradient>` stops for a traveling spark effect. CSS only handles `wave-drift` for gentle positional movement
 - **Clinical note PHI encryption**: PHI fields (subjective, objective, assessment, HPI) are encrypted with AES-256-GCM before storage and decrypted on retrieval in clinical routes. `encryptField()` **throws in production** if `PHI_ENCRYPTION_KEY` is not set — never stores plaintext PHI in production. `decryptClinicalNotePhi()` accepts an optional `PhiDecryptionContext` for HIPAA audit logging of every decryption event
 - **EHR adapters**: Open Dental uses developer key + customer key auth; Eaglesoft uses eDex API with X-API-Key header. Config stored in `org.settings.ehrConfig`
@@ -1583,7 +1630,7 @@ Server serves both API and static frontend from the same process.
 - **Call shares in cloud.ts use in-memory token lookup**: `getCallShareByToken()` in CloudStorage searches an in-memory Map populated at `createCallShare()` time. In multi-instance deployments, replace with a dedicated S3 index or move to PostgreSQL.
 - **`checkApiKeyScope()` is a no-op for session auth**: The middleware checks `req.apiKeyScopes` and returns `next()` immediately if it's undefined — which it is for all session-authenticated requests. This means scope checks are additive, not breaking, for existing session-based flows.
 - **`GET /api/coaching/my` match priority**: Matches caller's employee record first by email (exact match on `employee.email === user.username`), then by display name (`employee.name === user.name`). If multiple name matches exist, returns 409 to avoid returning the wrong employee's sessions.
-- **Check WORK_LOG.md before auditing**: Detailed branch history of all completed audit and implementation work is in `WORK_LOG.md`. Check it before starting new audit sessions to avoid re-investigating resolved issues. The critical invariants from past fixes are captured in the Invariant Library (INV-01 through INV-23) below.
+- **Check WORK_LOG.md before auditing**: Detailed branch history of all completed audit and implementation work is in `WORK_LOG.md`. Check it before starting new audit sessions to avoid re-investigating resolved issues. The critical invariants from past fixes are captured in the Invariant Library (INV-01 through INV-25) below.
 - **PG pool skips SSL on loopback hosts**: `initDatabase()` in `server/db/index.ts` requires SSL when `NODE_ENV=production`, but carves out `localhost` / `127.0.0.1` / `0.0.0.0` hosts. Real production deployments never connect to the database over loopback plain TCP, so the carve-out can't weaken a real prod posture. Required for the CI E2E job and `npm run test:e2e:pg` to run prod-mode builds against local plain-TCP postgres. Non-loopback hosts (RDS, Neon, Render PG, etc.) still require SSL with cert verification by default; `DB_SSL_REJECT_UNAUTHORIZED=false` remains the escape hatch for managed DBs with self-signed certs.
 - **PostgresStorage prototype mixin uses buffered Proxy**: `server/db/pg-storage.ts` side-effect-imports `pg-storage-features.ts`, which side-effect-imports per-domain mixin files in `server/db/pg-storage/` (calibration, lms, marketing, revenue). esbuild hoists ALL ESM imports to the top of the bundled `__init` wrapper, so the mixin chain runs BEFORE the `class PostgresStorage` declaration in pg-storage.ts itself — synchronously reading `PostgresStorage.prototype` from a mixin file crashes the bundled prod server with `TypeError: Cannot read properties of undefined (reading 'prototype')`. tsx (dev/unit tests) masks this; only the bundled prod path with PG storage actually loaded triggers it. Fix: `_shared.ts` exports `P` as a Proxy that buffers `P.method = fn` assignments in an internal map; `pg-storage.ts` flushes the buffer onto the real prototype via `bindPrototype(PostgresStorage.prototype)` at the very bottom of its body (after the class declaration AND the side-effect mixin import). When adding new mixin files: import `P`, `db`, `blob` from `./pg-storage/_shared`, never reference `PostgresStorage` value-side, never read `.prototype` synchronously.
 
@@ -1613,6 +1660,19 @@ Items marked ✅ were completed in a later session.
 - Add `updateLearningProgress` to `IStorage` interface (currently feature-detected via `(storage as any)`)
 - Gamification effectiveness endpoint (`/api/gamification/effectiveness`) still loads unbounded calls
 - Eaglesoft and Dentrix adapters have the same silent error masking — should get `classifyEhrError` treatment
+
+### Orrery Redesign Follow-Ons (Phase 0-5 completed; deferred items)
+- Pattern subscription notification delivery — `pattern_subscriptions` table is populated by the UI, but no worker reads it yet to send digests/alerts. Phase 3 stopped at schema + endpoint
+- Mobile bottom sheet is built (`shell/MobileBottomSheet.tsx`) but not yet wired into the Atlas responsive layout
+- Ask Ory streaming — non-streaming v1 ships in Phase 3; revisit if user feedback shows wait is jarring
+- Coaching session detail page (`/coaching/:id`) not yet redesigned — list view has the team-in-orbit hero, but per-session drill keeps the prior form layout
+- Clinical-specific Ory panel variant — Ask Ory FAB is general-purpose; a clinical context-aware variant could pull encounter context
+- Sankey + Heatmap clinical pattern variants deferred from Phase 3 (PatternsNetwork covers the majority case)
+- Orrery SVG accessibility: ARIA labels exist at component level; keyboard nav (arrow keys to move between planets) is a polish item
+- `/api/dashboard/performers` is orphaned since Phase 1 (its only consumer was the deleted `performance-card.tsx`) — cleanup candidate
+- `/api/dashboard/metrics` cache invalidation in `file-upload.tsx` + `use-websocket.ts` is functionally a no-op now (Atlas computes KPIs from `/api/calls` directly) — cleanup candidate
+- Light-mode sign-in could grow a dedicated decorative layer (e.g. drifting cloud illustration) in a Phase 6 polish pass
+- Optimized SVG owl mark (~5 KB after SVGO) as a `mask-image` fallback for older Safari — Phase 0 shipped PNG only
 
 ### Operational Improvements (low urgency)
 - Bedrock empty-content metric: per-model counter of empty responses for content-filter debugging
@@ -1771,7 +1831,7 @@ Core Platform & Infrastructure:
   server/index.ts, server/vite.ts, server/utils.ts, server/logger.ts, server/types.d.ts, server/middleware/correlation-id.ts, server/middleware/tracing.ts, server/middleware/error-handler.ts, server/middleware/validate.ts, server/middleware/waf.ts, server/middleware/csrf.ts, server/middleware/rate-limit.ts, server/services/websocket.ts, server/services/queue.ts, server/services/redis.ts, server/services/logger.ts, server/services/sentry.ts, server/services/telemetry.ts, server/services/dashboard-cache.ts, server/services/error-codes.ts, server/services/aws-credentials.ts, server/services/s3.ts, server/utils/helpers.ts, server/utils/lru-cache.ts, server/utils/request-metrics.ts, server/utils/resilience.ts, server/routes/index.ts, server/routes/helpers.ts, server/routes/health.ts
 
 Storage Layer & Database:
-  server/storage/types.ts, server/storage/index.ts, server/storage/memory.ts, server/storage/cloud.ts, server/storage/call-tags.ts, server/storage/scheduled-reports.ts, server/storage/scoring-corrections.ts, server/storage/snapshots.ts, server/db/index.ts, server/db/schema.ts, server/db/pg-storage.ts, server/db/pg-storage-features.ts, server/db/pg-storage-confidence.ts, server/db/pg-storage/_shared.ts, server/db/pg-storage/calibration.ts, server/db/pg-storage/lms.ts, server/db/pg-storage/marketing.ts, server/db/pg-storage/revenue.ts, server/db/sync-schema.ts, server/db/migrate.ts, server/db/migrate-audit-chain.ts, shared/schema/org.ts, shared/schema/calls.ts, shared/schema/billing.ts, shared/schema/features.ts, shared/schema/call-tags.ts, shared/schema/scheduled-reports.ts, shared/schema/scoring-corrections.ts, shared/schema/snapshots.ts
+  server/storage/types.ts, server/storage/index.ts, server/storage/memory.ts, server/storage/cloud.ts, server/storage/call-tags.ts, server/storage/scheduled-reports.ts, server/storage/scoring-corrections.ts, server/storage/snapshots.ts, server/db/index.ts, server/db/schema.ts, server/db/pg-storage.ts, server/db/pg-storage-features.ts, server/db/pg-storage-confidence.ts, server/db/pg-storage/_shared.ts, server/db/pg-storage/calibration.ts, server/db/pg-storage/lms.ts, server/db/pg-storage/marketing.ts, server/db/pg-storage/revenue.ts, server/db/sync-schema.ts, server/db/migrate.ts, server/db/migrate-audit-chain.ts, shared/schema/org.ts, shared/schema/calls.ts, shared/schema/billing.ts, shared/schema/features.ts, shared/schema/call-tags.ts, shared/schema/scheduled-reports.ts, shared/schema/scoring-corrections.ts, shared/schema/snapshots.ts, shared/schema/patterns.ts
 
 Auth, Security & HIPAA:
   server/auth.ts, server/services/phi-encryption.ts, server/services/org-encryption.ts, server/services/audit-log.ts, server/services/incident-response.ts, server/services/phi-policy.ts, server/utils/phi-redactor.ts, server/utils/url-validation.ts, server/utils/ai-guardrails.ts, server/routes/auth.ts, server/routes/mfa.ts, server/routes/sso.ts, server/routes/scim.ts, server/routes/oauth.ts, server/routes/password-reset.ts, server/routes/api-keys.ts, server/routes/registration.ts, server/routes/access.ts, server/routes/baa.ts, server/routes/admin-security.routes.ts, server/scheduled/audit-chain-verify.ts
@@ -1795,13 +1855,20 @@ Billing & Revenue:
   server/routes/billing.ts, server/routes/billing-webhook-handlers.ts, server/routes/spend-tracking.ts, server/routes/revenue.ts, server/services/stripe.ts, server/scheduled/trial-downgrade.ts, server/scheduled/quota-alerts.ts
 
 Admin & Platform Operations:
-  server/routes/admin.ts, server/routes/super-admin.ts, server/routes/dashboard.ts, server/routes/insights.ts, server/routes/reports.ts, server/routes/export.ts, server/routes/employees.ts, server/routes/feedback.ts, server/routes/onboarding.ts, server/routes/marketing.ts, server/routes/benchmarks.ts, server/routes/emails.ts, server/routes/scoring-corrections.ts, server/services/email.ts, server/services/notifications.ts, server/services/telephony-ingestion.ts, server/services/scoring-feedback.ts, server/services/scoring-feedback-alerts.ts, server/services/scoring-feedback-context.ts, server/services/scoring-feedback-regression.ts
+  server/routes/admin.ts, server/routes/super-admin.ts, server/routes/dashboard.ts, server/routes/insights.ts, server/routes/patterns.ts, server/routes/reports.ts, server/routes/export.ts, server/routes/employees.ts, server/routes/feedback.ts, server/routes/onboarding.ts, server/routes/marketing.ts, server/routes/benchmarks.ts, server/routes/emails.ts, server/routes/scoring-corrections.ts, server/services/email.ts, server/services/notifications.ts, server/services/telephony-ingestion.ts, server/services/scoring-feedback.ts, server/services/scoring-feedback-alerts.ts, server/services/scoring-feedback-context.ts, server/services/scoring-feedback-regression.ts
 
 Workers & Scheduled Tasks:
   server/workers/index.ts, server/workers/retention.worker.ts, server/workers/reanalysis.worker.ts, server/workers/indexing.worker.ts, server/workers/usage.worker.ts, server/workers/simulated-call.worker.ts, server/scheduled/index.ts, server/scheduled/scheduler.ts, server/scheduled/retention.ts, server/scheduled/weekly-digest.ts, server/scheduled/post-processing-reconciliation.ts, server/scheduled/scheduled-reports-tick.ts, server/scheduled/scoring-quality-tasks.ts
 
 Frontend (UI/UX):
-  client/src/App.tsx, client/src/main.tsx, client/src/pages/, client/src/components/, client/src/hooks/, client/src/lib/
+  client/src/App.tsx, client/src/main.tsx, client/src/index.css, client/src/pages/, client/src/components/, client/src/hooks/, client/src/lib/,
+  client/src/components/orrery/ (theme.ts, projection.ts, OrreryTopBar, OrreryCenterStar, OrreryOrbitRing, OrreryPlanet, OrreryStarfield, OrreryKpi, OrreryCard, OrreryTag, OrreryThemeToggle, owl/, realism/),
+  client/src/components/orrery/viz/ (Orrery, CallArc, ClinicalCallTimeline, CallList, Galaxy, Constellation, PatternsNetwork, AgentSystem, ClinicalCompletenessHeader),
+  client/src/components/orrery/overlays/ (DayReplay, CoachThisCallPanel, TrackPatternPopover, AskOryFab + AskOryPanel),
+  client/src/components/orrery/shell/MobileBottomSheet.tsx,
+  client/src/lib/orrery-adapters.ts, client/src/lib/orrery-lenses.ts,
+  client/src/hooks/use-presentation.ts,
+  client/src/pages/atlas-cluster.tsx, client/src/pages/galaxy.tsx, client/src/pages/dev/
 ```
 
 ### Invariant Library
@@ -1829,6 +1896,8 @@ INV-20 | broadcastCallUpdate requires orgId parameter | Subsystem: Core Platform
 INV-21 | searchCalls uses plainto_tsquery for queries >= 2 chars | Subsystem: Storage Layer & Database
 INV-22 | EHR adapters use classifyEhrError for typed error handling | Subsystem: EHR Integration
 INV-23 | getTeamScopedEmployeeIds returns null for unrestricted | Subsystem: Auth, Security & HIPAA
+INV-24 | Orrery primitives never hardcode industry-specific labels — all viz reads from real data via adapters in client/src/lib/orrery-adapters.ts | Subsystem: Frontend (UI/UX)
+INV-25 | Clinical orrery viz (ClinicalCompletenessHeader, ClinicalCallTimeline) reads only metadata — never decrypted PHI body fields. PHI decryption + audit logging stays server-side in clinical.ts route handlers | Subsystem: Frontend (UI/UX) + Clinical Documentation
 ```
 
 ### Policy Configuration

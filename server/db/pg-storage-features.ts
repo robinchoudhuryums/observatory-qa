@@ -1104,3 +1104,59 @@ P.updateBusinessAssociateAgreement = async function (
     .returning();
   return row ? mapBaa(row) : undefined;
 };
+
+// ── Pattern subscriptions (Phase 3 of Orrery redesign) ────────────────
+// Maps Drizzle row → JSON shape consumed by /api/patterns/*.
+
+function mapPatternSubscription(r: typeof tables.patternSubscriptions.$inferSelect): {
+  id: string;
+  orgId: string;
+  patternKey: string;
+  patternLabel: string | null;
+  triggerKind: string;
+  expiresAt: string | null;
+  createdBy: string | null;
+  createdAt: string | null;
+} {
+  return {
+    id: r.id,
+    orgId: r.orgId,
+    patternKey: r.patternKey,
+    patternLabel: r.patternLabel,
+    triggerKind: r.triggerKind,
+    expiresAt: toISOString(r.expiresAt) ?? null,
+    createdBy: r.createdBy,
+    createdAt: toISOString(r.createdAt) ?? null,
+  };
+}
+
+P.listPatternSubscriptions = async function (orgId: string): Promise<any[]> {
+  const rows = await db(this)
+    .select()
+    .from(tables.patternSubscriptions)
+    .where(eq(tables.patternSubscriptions.orgId, orgId))
+    .orderBy(desc(tables.patternSubscriptions.createdAt));
+  return rows.map(mapPatternSubscription);
+};
+
+P.createPatternSubscription = async function (orgId: string, sub: any): Promise<any> {
+  const [row] = await db(this)
+    .insert(tables.patternSubscriptions)
+    .values({
+      id: sub.id || randomUUID(),
+      orgId,
+      patternKey: sub.patternKey,
+      patternLabel: sub.patternLabel ?? null,
+      triggerKind: sub.triggerKind,
+      expiresAt: sub.expiresAt ? new Date(sub.expiresAt) : null,
+      createdBy: sub.createdBy ?? null,
+    })
+    .returning();
+  return mapPatternSubscription(row);
+};
+
+P.deletePatternSubscription = async function (orgId: string, id: string): Promise<void> {
+  await db(this)
+    .delete(tables.patternSubscriptions)
+    .where(and(eq(tables.patternSubscriptions.orgId, orgId), eq(tables.patternSubscriptions.id, id)));
+};

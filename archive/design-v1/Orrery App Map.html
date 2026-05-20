@@ -1,0 +1,1127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Orrery · App Map</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #f6f8fc;
+    --bg-2: #eef2f8;
+    --panel: #ffffff;
+    --ink: #0e1228;
+    --ink-soft: #3c4566;
+    --ink-mute: #7a8198;
+    --line: rgba(20,30,60,0.10);
+    --line-soft: rgba(20,30,60,0.05);
+    --bright: #0892a8;
+    --warm: #22b8cf;
+    --cool: #9ee5ed;
+    --amber: #c08a2d;
+    --green: #22a06b;
+    --red: #a8403c;
+
+    --tier-full-bg: #0892a814;
+    --tier-full-fg: #066d80;
+    --tier-quiet-bg: #22b8cf14;
+    --tier-quiet-fg: #167a8a;
+    --tier-bench-bg: rgba(20,30,60,0.06);
+    --tier-bench-fg: #3c4566;
+  }
+  html, body {
+    margin: 0; padding: 0;
+    background: linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
+    color: var(--ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+  * { box-sizing: border-box; }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    position: sticky; top: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 32px;
+    background: rgba(246,248,252,0.85);
+    backdrop-filter: blur(10px);
+    border-bottom: 0.5px solid var(--line);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand .name {
+    font-family: 'Instrument Serif', serif; font-style: italic; font-size: 20px;
+  }
+  .brand .ver {
+    font-family: 'JetBrains Mono', monospace; font-size: 9.5px;
+    color: var(--ink-mute); letter-spacing: 0.16em; margin-left: 4px;
+  }
+  .pill {
+    font-family: 'JetBrains Mono', monospace; font-size: 10.5px;
+    letter-spacing: 0.1em; color: var(--bright);
+    padding: 5px 10px; background: #0892a818; border-radius: 6px;
+  }
+
+  /* ---------- Header ---------- */
+  .header { padding: 36px 32px 8px; max-width: 1400px; }
+  .tag {
+    font-family: 'JetBrains Mono', monospace; font-size: 10.5px;
+    letter-spacing: 0.16em; text-transform: uppercase; color: var(--bright);
+  }
+  h1 {
+    font-family: 'Instrument Serif', serif; font-weight: 400;
+    font-size: 44px; letter-spacing: -0.02em; margin: 6px 0 0;
+    line-height: 1.05; max-width: 880px;
+  }
+  h1 .accent {
+    background: linear-gradient(90deg, var(--warm), var(--bright));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    font-style: italic;
+  }
+  .lede {
+    margin-top: 16px; max-width: 720px;
+    font-size: 14.5px; line-height: 1.65; color: var(--ink-soft);
+  }
+
+  /* ---------- Legend ---------- */
+  .legend-row {
+    display: flex; gap: 16px; flex-wrap: wrap;
+    padding: 24px 32px 8px; max-width: 1400px;
+  }
+  .legend {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 12px 14px; background: var(--panel);
+    border: 0.5px solid var(--line); border-radius: 10px;
+    flex: 1; min-width: 240px; max-width: 360px;
+  }
+  .legend .swatch {
+    width: 36px; height: 36px; border-radius: 8px;
+    display: grid; place-items: center; flex-shrink: 0;
+    font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.08em;
+  }
+  .legend .sw-full   { background: var(--tier-full-bg);  color: var(--tier-full-fg);  }
+  .legend .sw-quiet  { background: var(--tier-quiet-bg); color: var(--tier-quiet-fg); }
+  .legend .sw-bench  { background: var(--tier-bench-bg); color: var(--tier-bench-fg); }
+  .legend .l-name {
+    font-family: 'Instrument Serif', serif; font-style: italic;
+    font-size: 16px; line-height: 1.1; color: var(--ink);
+  }
+  .legend .l-desc {
+    font-size: 11.5px; color: var(--ink-soft); line-height: 1.45; margin-top: 3px;
+  }
+
+  /* ---------- Status legend (small) ---------- */
+  .status-key {
+    display: flex; gap: 14px; flex-wrap: wrap;
+    padding: 0 32px 8px; max-width: 1400px;
+    font-family: 'JetBrains Mono', monospace; font-size: 9.5px;
+    color: var(--ink-mute); letter-spacing: 0.1em;
+  }
+  .status-key .item { display: flex; align-items: center; gap: 6px; }
+  .status-key .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .dot-done    { background: var(--green); }
+  .dot-partial { background: var(--amber); }
+  .dot-todo    { background: var(--ink-mute); opacity: 0.5; }
+  .dot-new     { background: var(--bright); }
+
+  /* ---------- Sections ---------- */
+  .sections { padding: 16px 32px 56px; max-width: 1400px; }
+  .section {
+    margin-top: 28px;
+  }
+  .section-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    border-bottom: 0.5px solid var(--line);
+    padding-bottom: 8px; margin-bottom: 14px;
+  }
+  .section-head .title {
+    font-family: 'Instrument Serif', serif; font-style: italic;
+    font-size: 24px; color: var(--ink);
+  }
+  .section-head .meta {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    color: var(--ink-mute); letter-spacing: 0.12em;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 12px;
+  }
+
+  /* ---------- Card ---------- */
+  .card {
+    position: relative;
+    background: var(--panel);
+    border: 0.5px solid var(--line);
+    border-radius: 12px;
+    padding: 14px 16px 14px;
+    overflow: hidden;
+    transition: border-color 200ms, transform 200ms;
+  }
+  .card:hover { border-color: rgba(8,146,168,0.4); transform: translateY(-1px); }
+  .card .accent-bar {
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  }
+  .card.tier-full  .accent-bar { background: linear-gradient(90deg, var(--bright), transparent); }
+  .card.tier-quiet .accent-bar { background: linear-gradient(90deg, var(--warm), transparent); opacity: 0.7; }
+  .card.tier-bench .accent-bar { background: linear-gradient(90deg, var(--ink-mute), transparent); opacity: 0.4; }
+
+  .card-top {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+  }
+  .card-name {
+    font-family: 'Instrument Serif', serif; font-style: italic;
+    font-size: 19px; color: var(--ink); line-height: 1.15;
+  }
+  .card-route {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    color: var(--ink-mute); margin-top: 2px; letter-spacing: 0.04em;
+  }
+
+  .badges {
+    display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+  }
+  .badge {
+    font-family: 'JetBrains Mono', monospace; font-size: 9px;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 3px 7px; border-radius: 4px;
+    white-space: nowrap;
+  }
+  .b-full   { background: var(--tier-full-bg);  color: var(--tier-full-fg);  }
+  .b-quiet  { background: var(--tier-quiet-bg); color: var(--tier-quiet-fg); }
+  .b-bench  { background: var(--tier-bench-bg); color: var(--tier-bench-fg); }
+
+  .status {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-family: 'JetBrains Mono', monospace; font-size: 9.5px;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    margin-top: 10px;
+  }
+  .status .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .status.s-done    { color: var(--green); }
+  .status.s-done .dot { background: var(--green); }
+  .status.s-partial { color: var(--amber); }
+  .status.s-partial .dot { background: var(--amber); }
+  .status.s-todo    { color: var(--ink-mute); }
+  .status.s-todo .dot { background: var(--ink-mute); opacity: 0.6; }
+  .status.s-new     { color: var(--bright); }
+  .status.s-new .dot { background: var(--bright); }
+
+  .card-note {
+    margin-top: 8px; font-size: 12px; color: var(--ink-soft); line-height: 1.5;
+  }
+
+  .card-meta {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 0.5px solid var(--line-soft);
+    display: flex; gap: 12px; flex-wrap: wrap;
+    font-size: 11px; color: var(--ink-mute);
+  }
+  .card-meta strong {
+    font-weight: 500;
+    color: var(--ink-soft);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-right: 4px;
+  }
+
+  /* ---------- Footer summary ---------- */
+  .summary {
+    margin-top: 36px;
+    padding: 18px 22px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #0892a812, #22b8cf08);
+    border: 0.5px solid var(--line);
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px;
+  }
+  .summary .stat { }
+  .summary .label {
+    font-family: 'JetBrains Mono', monospace; font-size: 9.5px;
+    letter-spacing: 0.12em; color: var(--ink-mute); text-transform: uppercase;
+  }
+  .summary .num {
+    font-family: 'Instrument Serif', serif; font-style: italic;
+    font-size: 32px; color: var(--ink); margin-top: 2px; line-height: 1;
+  }
+  .summary .sub {
+    font-size: 11px; color: var(--ink-soft); margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+      <defs>
+        <linearGradient id="owl-grad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#22b8cf" />
+          <stop offset="100%" stop-color="#0892a8" />
+        </linearGradient>
+      </defs>
+      <circle cx="8" cy="10" r="3" fill="url(#owl-grad)" opacity="0.42" />
+      <circle cx="16" cy="10" r="3" fill="url(#owl-grad)" opacity="0.42" />
+      <circle cx="8" cy="10" r="1.2" fill="#0e1228" />
+      <circle cx="16" cy="10" r="1.2" fill="#0e1228" />
+      <path d="M 11 13 L 12 15 L 13 13" stroke="#0e1228" stroke-width="1" fill="none" />
+    </svg>
+    <span class="name">Orrery</span>
+    <span class="ver">v2 · APP MAP</span>
+  </div>
+  <span class="pill">VIEW · MAP</span>
+</div>
+
+<div class="header">
+  <span class="tag">◇ DESIGN ROADMAP · APR 2026</span>
+  <h1>Every screen in <span class="accent">Observatory QA</span>, mapped to the orrery system.</h1>
+  <p class="lede">
+    The orrery aesthetic spans the whole product, but the metaphor's intensity varies with what each screen is for. Below: every page in the codebase, sorted by surface area and tagged by intensity tier and design status. This is the working map for what gets designed next.
+  </p>
+</div>
+
+<div class="legend-row">
+  <div class="legend">
+    <div class="swatch sw-full">FULL</div>
+    <div>
+      <div class="l-name">Full orrery</div>
+      <div class="l-desc">Star + orbits + planets are the hero. Editorial voice on summaries. Where the metaphor does real work.</div>
+    </div>
+  </div>
+  <div class="legend">
+    <div class="swatch sw-quiet">QUIET</div>
+    <div>
+      <div class="l-name">Quiet orrery</div>
+      <div class="l-desc">Mostly utilitarian layout with a small celestial element — mini-map, arc, sparkline-as-orbit. Voice in Ory's Note only.</div>
+    </div>
+  </div>
+  <div class="legend">
+    <div class="swatch sw-bench">BENCH</div>
+    <div>
+      <div class="l-name">Workbench</div>
+      <div class="l-desc">No celestial element. Same type, color, owl mark, ◇ tags. Reads as same product, looks like a calm work surface.</div>
+    </div>
+  </div>
+</div>
+
+<div class="status-key">
+  <span class="item"><span class="dot dot-done"></span>DESIGNED</span>
+  <span class="item"><span class="dot dot-partial"></span>PARTIAL · NEEDS PASS</span>
+  <span class="item"><span class="dot dot-new"></span>NEXT UP</span>
+  <span class="item"><span class="dot dot-todo"></span>NOT YET</span>
+</div>
+
+<div class="sections">
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <div class="section-head">
+      <span class="title">Atlas — the daily home</span>
+      <span class="meta">5 SCREENS · WHERE MANAGERS LIVE</span>
+    </div>
+    <div class="grid">
+
+      <div class="card tier-full">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Sign in</div>
+            <div class="card-route">/auth</div>
+          </div>
+          <div class="badges"><span class="badge b-full">FULL</span></div>
+        </div>
+        <div class="status s-partial"><span class="dot"></span>Partial · needs pass</div>
+        <div class="card-note">Form + animated orrery preview. Currently dark-only — light theme breaks the preview side. Needs theme parity, password reset, SSO/Google entry, MFA challenge step.</div>
+        <div class="card-meta">
+          <span><strong>Replaces</strong> auth.tsx (26k)</span>
+        </div>
+      </div>
+
+      <div class="card tier-full">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Atlas</div>
+            <div class="card-route">/dashboard</div>
+          </div>
+          <div class="badges"><span class="badge b-full">FULL</span></div>
+        </div>
+        <div class="status s-partial"><span class="dot"></span>Partial · needs pass</div>
+        <div class="card-note">The hero. Needs: orbit-mapping lens switcher (type/lifecycle/revenue/recency), no-anchor empty state, computed hot/anomaly/coaching states, owl persona surface, mobile reduction.</div>
+        <div class="card-meta">
+          <span><strong>Replaces</strong> dashboard.tsx (20k)</span>
+        </div>
+      </div>
+
+      <div class="card tier-full">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Day Replay</div>
+            <div class="card-route">overlay on /dashboard</div>
+          </div>
+          <div class="badges"><span class="badge b-full">FULL</span></div>
+        </div>
+        <div class="status s-done"><span class="dot"></span>Designed</span></div>
+        <div class="card-note">Calls land as bright stars over 18s. Works as-is for desktop and (with minor work) phone portrait. Could grow scrub-to-moment + per-call peek.</div>
+        <div class="card-meta">
+          <span><strong>Status</strong> Demo-grade</span>
+        </div>
+      </div>
+
+      <div class="card tier-quiet">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Search</div>
+            <div class="card-route">/search</div>
+          </div>
+          <div class="badges"><span class="badge b-quiet">QUIET</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Cross-call search. Workbench-leaning, but results could group by planet (call type) with small orbital glyphs. Light treatment.</div>
+        <div class="card-meta">
+          <span><strong>Source</strong> search.tsx (7k)</span>
+        </div>
+      </div>
+
+      <div class="card tier-quiet">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Onboarding</div>
+            <div class="card-route">/onboarding</div>
+          </div>
+          <div class="badges"><span class="badge b-quiet">QUIET</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">First-run setup: industry, team, integrations, first upload. Quiet orrery — small celestial preview that fills in as the user completes steps.</div>
+        <div class="card-meta">
+          <span><strong>Source</strong> onboarding.tsx (26k)</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <div class="section-head">
+      <span class="title">Calls &amp; analysis</span>
+      <span class="meta">7 SCREENS · THE EVIDENCE LAYER</span>
+    </div>
+    <div class="grid">
+
+      <div class="card tier-quiet">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Planet detail</div>
+            <div class="card-route">/calls?cluster=…</div>
+          </div>
+          <div class="badges"><span class="badge b-quiet">QUIET</span></div>
+        </div>
+        <div class="status s-partial"><span class="dot"></span>Partial · needs pass</div>
+        <div class="card-note">Cluster drill-in: 19 calls as moons + list. Solid. Needs: real filter/sort, low-confidence call surfacing, links to coaching from any call.</div>
+      </div>
+
+      <div class="card tier-quiet">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Call detail</div>
+            <div class="card-route">/calls/:id</div>
+          </div>
+          <div class="badges"><span class="badge b-quiet">QUIET</span></div>
+        </div>
+        <div class="status s-partial"><span class="dot"></span>Partial · needs pass</div>
+        <div class="card-note">Orbital arc + transcript + dimensions + Ory's Note. Needs: real audio waveform + click-to-seek, prompt-injection flag treatment, share-link affordance, amend/addendum.</div>
+        <div class="card-meta">
+          <span><strong>Source</strong> transcripts.tsx, call detail logic</span>
+        </div>
+      </div>
+
+      <div class="card tier-bench">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Upload</div>
+            <div class="card-route">/upload</div>
+          </div>
+          <div class="badges"><span class="badge b-bench">BENCH</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Drag-drop audio. Workbench. Tiny celestial touch: queued calls render as "forming planets" (incomplete circles) until processing finishes.</div>
+        <div class="card-meta"><span><strong>Source</strong> upload.tsx (10k)</span></div>
+      </div>
+
+      <div class="card tier-quiet">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Sentiment</div>
+            <div class="card-route">/sentiment</div>
+          </div>
+          <div class="badges"><span class="badge b-quiet">QUIET</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Sentiment over time. Quiet — could be a single warm/cool ribbon along an orbit arc. Aligns naturally with brightness ramp.</div>
+        <div class="card-meta"><span><strong>Source</strong> sentiment.tsx (14k)</span></div>
+      </div>
+
+      <div class="card tier-quiet">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Calibration</div>
+            <div class="card-route">/calibration</div>
+          </div>
+          <div class="badges"><span class="badge b-quiet">QUIET</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Manager re-scores calls; system learns. Workbench layout, small orbital "drift" indicator showing where AI vs human disagree.</div>
+        <div class="card-meta"><span><strong>Source</strong> calibration.tsx (16k)</span></div>
+      </div>
+
+      <div class="card tier-bench">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Simulated calls</div>
+            <div class="card-route">/simulated-calls</div>
+          </div>
+          <div class="badges"><span class="badge b-bench">BENCH</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Practice/training calls. Workbench. Small touch: training calls live in a separate "training orbit" so they don't pollute production planets.</div>
+        <div class="card-meta"><span><strong>Source</strong> simulated-calls.tsx (27k)</span></div>
+      </div>
+
+      <div class="card tier-bench">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">A/B model testing</div>
+            <div class="card-route">/ab-testing</div>
+          </div>
+          <div class="badges"><span class="badge b-bench">BENCH</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Compare AI models side-by-side. Workbench — admin-y. Tables, latency bars, cost numbers.</div>
+        <div class="card-meta"><span><strong>Source</strong> ab-testing.tsx (29k)</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <div class="section-head">
+      <span class="title">Insight &amp; pattern</span>
+      <span class="meta">5 SCREENS · WHERE THE METAPHOR EARNS ITS KEEP</span>
+    </div>
+    <div class="grid">
+
+      <div class="card tier-full">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Galaxy</div>
+            <div class="card-route">/galaxy</div>
+          </div>
+          <div class="badges"><span class="badge b-full">FULL</span></div>
+        </div>
+        <div class="status s-done"><span class="dot"></span>Designed</div>
+        <div class="card-note">Month/quarter view, days as a spiral. Strong. Could grow date-range picker, week banding, drill-into-day.</div>
+      </div>
+
+      <div class="card tier-full">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Patterns</div>
+            <div class="card-route">/insights/patterns</div>
+          </div>
+          <div class="badges"><span class="badge b-full">FULL</span></div>
+        </div>
+        <div class="status s-partial"><span class="dot"></span>Partial · needs pass</div>
+        <div class="card-note">Constellations between planets. Needs: more honest evidence (call-count + statistical confidence), less "owl drew this in your sky" language, "open the calls behind this" flow.</div>
+      </div>
+
+      <div class="card tier-full">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Insights</div>
+            <div class="card-route">/insights</div>
+          </div>
+          <div class="badges"><span class="badge b-full">FULL</span></div>
+        </div>
+        <div class="status s-new"><span class="dot"></span>Next up</div>
+        <div class="card-note">Landing for AI-generated insights — "Three things Ory noticed this week." First place Ory persona shows up as a real co-worker, not a logo.</div>
+        <div class="card-meta"><span><strong>Source</strong> insights.tsx (15k)</span></div>
+      </div>
+
+      <div class="card tier-quiet">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Performance snapshots</div>
+            <div class="card-route">/performance</div>
+          </div>
+          <div class="badges"><span class="badge b-quiet">QUIET</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Longitudinal analytics with AI narrative. Quiet orrery — trajectory lines + period-over-period bars. Ory's Note for the narrative summary.</div>
+        <div class="card-meta"><span><strong>Source</strong> performance.tsx (12k)</span></div>
+      </div>
+
+      <div class="card tier-quiet">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Reports</div>
+            <div class="card-route">/reports</div>
+          </div>
+          <div class="badges"><span class="badge b-quiet">QUIET</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Custom report builder + agent profile sections. Quiet — workbench layout, orrery only on the rendered report header.</div>
+        <div class="card-meta"><span><strong>Source</strong> reports.tsx (33k) + AgentProfileSection</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <div class="section-head">
+      <span class="title">People &amp; coaching</span>
+      <span class="meta">5 SCREENS · DEVELOPMENT &amp; ENABLEMENT</span>
+    </div>
+    <div class="grid">
+
+      <div class="card tier-full">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Coaching</div>
+            <div class="card-route">/coaching</div>
+          </div>
+          <div class="badges"><span class="badge b-full">FULL</span></div>
+        </div>
+        <div class="status s-new"><span class="dot"></span>Next up</div>
+        <div class="card-note">Landing: each agent as their own small system. Pre→post effectiveness as a "dim to bright" arc. Action plans, attached calls, session notes. Highest-priority new screen.</div>
+        <div class="card-meta"><span><strong>Source</strong> coaching.tsx (22k)</span></div>
+      </div>
+
+      <div class="card tier-quiet">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Coaching session</div>
+            <div class="card-route">/coaching/:id</div>
+          </div>
+          <div class="badges"><span class="badge b-quiet">QUIET</span></div>
+        </div>
+        <div class="status s-new"><span class="dot"></span>Next up</div>
+        <div class="card-note">Inside a session: action plan editor, AI-suggested coaching plan, attached calls, self-assessment. Quiet — work happens here.</div>
+      </div>
+
+      <div class="card tier-quiet">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Employees</div>
+            <div class="card-route">/employees</div>
+          </div>
+          <div class="badges"><span class="badge b-quiet">QUIET</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Roster with team scoping. Quiet — table-led, but each row carries a tiny "system glyph" preview of that agent's planets.</div>
+        <div class="card-meta"><span><strong>Source</strong> employees.tsx (24k)</span></div>
+      </div>
+
+      <div class="card tier-quiet">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Learning (LMS)</div>
+            <div class="card-route">/learning</div>
+          </div>
+          <div class="badges"><span class="badge b-quiet">QUIET</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">AI-generated training courses from call analysis, lesson tracking. Quiet — course list, lesson player, progress.</div>
+        <div class="card-meta"><span><strong>Source</strong> learning.tsx (35k)</span></div>
+      </div>
+
+      <div class="card tier-quiet">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Gamification</div>
+            <div class="card-route">/gamification</div>
+          </div>
+          <div class="badges"><span class="badge b-quiet">QUIET</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Leaderboards / streaks. Risk of clashing with editorial voice — keep restrained. Stars-earned could be literal: small constellation per agent.</div>
+        <div class="card-meta"><span><strong>Source</strong> gamification.tsx (13k)</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <div class="section-head">
+      <span class="title">Clinical documentation</span>
+      <span class="meta">6 SCREENS · WHERE THE WORKBENCH PROVES OUT</span>
+    </div>
+    <div class="grid">
+
+      <div class="card tier-bench">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Clinical dashboard</div>
+            <div class="card-route">/clinical</div>
+          </div>
+          <div class="badges"><span class="badge b-bench">BENCH</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Provider's note queue + attestation status. Workbench. Owl tag on AI-drafted notes ("Drafted by Ory").</div>
+        <div class="card-meta"><span><strong>Source</strong> clinical-dashboard.tsx (34k)</span></div>
+      </div>
+
+      <div class="card tier-bench">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Clinical notes editor</div>
+            <div class="card-route">/clinical/notes/:id</div>
+          </div>
+          <div class="badges"><span class="badge b-bench">BENCH</span></div>
+        </div>
+        <div class="status s-new"><span class="dot"></span>Next up</div>
+        <div class="card-note">SOAP/DAP/BIRP editor, amend/addendum, attestation, FHIR export. Stress-test screen for the workbench tier — if Orrery holds here, it holds everywhere.</div>
+        <div class="card-meta"><span><strong>Source</strong> clinical-notes.tsx (41k)</span></div>
+      </div>
+
+      <div class="card tier-bench">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Clinical live</div>
+            <div class="card-route">/clinical/live</div>
+          </div>
+          <div class="badges"><span class="badge b-bench">BENCH</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Live transcription via AssemblyAI streaming. Workbench, but a single soft "active listening" pulse fits the metaphor without intruding.</div>
+        <div class="card-meta"><span><strong>Source</strong> clinical-live.tsx (30k)</span></div>
+      </div>
+
+      <div class="card tier-bench">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Clinical templates</div>
+            <div class="card-route">/clinical/templates</div>
+          </div>
+          <div class="badges"><span class="badge b-bench">BENCH</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Specialty-specific note templates. Workbench list + editor. Standard.</div>
+        <div class="card-meta"><span><strong>Source</strong> clinical-templates.tsx (9k)</span></div>
+      </div>
+
+      <div class="card tier-bench">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Clinical upload</div>
+            <div class="card-route">/clinical/upload</div>
+          </div>
+          <div class="badges"><span class="badge b-bench">BENCH</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Recordings tagged for clinical-note generation. Variant of Upload with attestation routing.</div>
+      </div>
+
+      <div class="card tier-bench">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Insurance narratives</div>
+            <div class="card-route">/insurance-narratives</div>
+          </div>
+          <div class="badges"><span class="badge b-bench">BENCH</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">AI-drafted appeal/auth narratives. Workbench. Owl tag on drafts.</div>
+        <div class="card-meta"><span><strong>Source</strong> insurance-narratives.tsx (17k)</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <div class="section-head">
+      <span class="title">Knowledge &amp; configuration</span>
+      <span class="meta">3 SCREENS · WHAT ORY READS &amp; HOW IT JUDGES</span>
+    </div>
+    <div class="grid">
+
+      <div class="card tier-quiet">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Knowledge base</div>
+            <div class="card-route">/knowledge</div>
+          </div>
+          <div class="badges"><span class="badge b-quiet">QUIET</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">RAG document library. Quiet — file list + chunk inspector. Owl reads from these. Citations on call analysis link back here.</div>
+      </div>
+
+      <div class="card tier-bench">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Prompt templates</div>
+            <div class="card-route">/prompt-templates</div>
+          </div>
+          <div class="badges"><span class="badge b-bench">BENCH</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Per-category scoring criteria, required phrases, weighted scoring. 19 industry defaults. Workbench editor.</div>
+        <div class="card-meta"><span><strong>Source</strong> prompt-templates.tsx (25k)</span></div>
+      </div>
+
+      <div class="card tier-bench">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Emails</div>
+            <div class="card-route">/emails</div>
+          </div>
+          <div class="badges"><span class="badge b-bench">BENCH</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Email template management + send history. Workbench.</div>
+        <div class="card-meta"><span><strong>Source</strong> emails.tsx (14k)</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <div class="section-head">
+      <span class="title">Settings &amp; admin</span>
+      <span class="meta">10 SCREENS · INFRASTRUCTURE</span>
+    </div>
+    <div class="grid">
+
+      <div class="card tier-bench">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Settings · shell</div>
+            <div class="card-route">/settings</div>
+          </div>
+          <div class="badges"><span class="badge b-bench">BENCH</span></div>
+        </div>
+        <div class="status s-new"><span class="dot"></span>Next up</div>
+        <div class="card-note">Tabbed settings shell. Designing the shell + one tab proves the workbench tier on truly mundane surface.</div>
+      </div>
+
+      <div class="card tier-bench">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Organization</div>
+            <div class="card-route">/settings/organization</div>
+          </div>
+          <div class="badges"><span class="badge b-bench">BENCH</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Org name, industry, retention, KMS, MFA enforcement. Workbench form.</div>
+      </div>
+
+      <div class="card tier-bench">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Users &amp; roles</div>
+            <div class="card-route">/settings/users</div>
+          </div>
+          <div class="badges"><span class="badge b-bench">BENCH</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Role mgmt: viewer/manager/admin, team scoping. Workbench table.</div>
+      </div>
+
+      <div class="card tier-bench">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Invitations</div>
+            <div class="card-route">/settings/invitations</div>
+          </div>
+          <div class="badges"><span class="badge b-bench">BENCH</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Pending invites, resend, revoke.</div>
+      </div>
+
+      <div class="card tier-bench">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Branding</div>
+            <div class="card-route">/settings/branding</div>
+          </div>
+          <div class="badges"><span class="badge b-bench">BENCH</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Logo, color, custom domain.</div>
+      </div>
+
+      <div class="card tier-bench">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">API keys</div>
+            <div class="card-route">/settings/api-keys</div>
+          </div>
+          <div class="badges"><span class="badge b-bench">BENCH</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Resource-scoped API keys. Workbench.</div>
+      </div>
+
+      <div class="card tier-bench">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Billing</div>
+            <div class="card-route">/settings/billing</div>
+          </div>
+          <div class="badges"><span class="badge b-bench">BENCH</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Plan, seats, usage, overage, Clinical add-on, Stripe portal.</div>
+        <div class="card-meta"><span><strong>Source</strong> BillingTab.tsx (30k)</span></div>
+      </div>
+
+      <div class="card tier-bench">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Spend tracking</div>
+            <div class="card-route">/spend</div>
+          </div>
+          <div class="badges"><span class="badge b-bench">BENCH</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Per-call cost breakdown, batch toggle, model spend. Workbench.</div>
+      </div>
+
+      <div class="card tier-bench">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Audit logs</div>
+            <div class="card-route">/audit-logs</div>
+          </div>
+          <div class="badges"><span class="badge b-bench">BENCH</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Tamper-evident PHI access log. Workbench. Filterable table, integrity-hash badge.</div>
+      </div>
+
+      <div class="card tier-bench">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Admin</div>
+            <div class="card-route">/admin</div>
+          </div>
+          <div class="badges"><span class="badge b-bench">BENCH</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Org admin: data export, GDPR purge, batch flush, super-admin cross-org.</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <div class="section-head">
+      <span class="title">Integrations &amp; growth</span>
+      <span class="meta">3 SCREENS · OUTBOUND CONNECTIONS</span>
+    </div>
+    <div class="grid">
+
+      <div class="card tier-bench">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">EHR sync</div>
+            <div class="card-route">/integrations/ehr</div>
+          </div>
+          <div class="badges"><span class="badge b-bench">BENCH</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Open Dental + Eaglesoft. Workbench. Connection status, sync log, mapping.</div>
+      </div>
+
+      <div class="card tier-bench">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Marketing &amp; revenue</div>
+            <div class="card-route">/marketing · /revenue</div>
+          </div>
+          <div class="badges"><span class="badge b-bench">BENCH</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">UTM attribution + revenue rollup. Could promote to Quiet if it earns it (revenue is naturally one of the orbit-mapping options).</div>
+      </div>
+
+      <div class="card tier-quiet">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Landing (marketing)</div>
+            <div class="card-route">public marketing site</div>
+          </div>
+          <div class="badges"><span class="badge b-quiet">QUIET</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">Out of scope unless we want it. The orrery would shine here but it's a separate project.</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <div class="section-head">
+      <span class="title">Ory, as a system</span>
+      <span class="meta">CROSS-CUTTING · NOT A SCREEN</span>
+    </div>
+    <div class="grid">
+
+      <div class="card tier-full">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Owl persona kit</div>
+            <div class="card-route">design system</div>
+          </div>
+          <div class="badges"><span class="badge b-full">FULL</span></div>
+        </div>
+        <div class="status s-new"><span class="dot"></span>Next up</div>
+        <div class="card-note">Owl states (idle, listening, thinking, has-something-to-say, resting), voice rules (when it speaks vs stays quiet), avatar variants for inline use, "Drafted by Ory" attribution chip.</div>
+      </div>
+
+      <div class="card tier-full">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Ask Ory</div>
+            <div class="card-route">global affordance</div>
+          </div>
+          <div class="badges"><span class="badge b-full">FULL</span></div>
+        </div>
+        <div class="status s-todo"><span class="dot"></span>Not yet</div>
+        <div class="card-note">RAG-grounded chat surface, present on every screen as a corner affordance. Cites knowledge base. Ory as co-worker, finally.</div>
+      </div>
+
+      <div class="card tier-quiet">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Realism states pack</div>
+            <div class="card-route">cross-screen</div>
+          </div>
+          <div class="badges"><span class="badge b-quiet">QUIET</span></div>
+        </div>
+        <div class="status s-new"><span class="dot"></span>Next up</div>
+        <div class="card-note">No-anchor day, processing planet, agent on PTO, low-confidence haze, compliance flag, prompt-injection caught, noisy-anomaly day. Apply to all Full and Quiet screens.</div>
+      </div>
+
+      <div class="card tier-quiet">
+        <div class="accent-bar"></div>
+        <div class="card-top">
+          <div>
+            <div class="card-name">Mobile reductions</div>
+            <div class="card-route">cross-screen</div>
+          </div>
+          <div class="badges"><span class="badge b-quiet">QUIET</span></div>
+        </div>
+        <div class="status s-new"><span class="dot"></span>Next up</div>
+        <div class="card-note">Atlas, Galaxy, Patterns, Day Replay, Coaching, Call detail in portrait. Bottom sheet replaces right rail. Designed alongside the desktop, not after.</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="summary">
+    <div class="stat">
+      <div class="label">SCREENS TOTAL</div>
+      <div class="num">38</div>
+      <div class="sub">+ 4 cross-cutting</div>
+    </div>
+    <div class="stat">
+      <div class="label">FULL ORRERY</div>
+      <div class="num">9</div>
+      <div class="sub">Hero surfaces</div>
+    </div>
+    <div class="stat">
+      <div class="label">QUIET ORRERY</div>
+      <div class="num">14</div>
+      <div class="sub">Light celestial touch</div>
+    </div>
+    <div class="stat">
+      <div class="label">WORKBENCH</div>
+      <div class="num">19</div>
+      <div class="sub">Calm work surfaces</div>
+    </div>
+  </div>
+
+  <div style="margin-top: 28px; padding: 18px 22px; border-radius: 14px; background: var(--panel); border: 0.5px solid var(--line);">
+    <div class="tag">◇ NEXT UP · IF YOU AGREE</div>
+    <div style="font-family: 'Instrument Serif', serif; font-style: italic; font-size: 22px; margin-top: 6px; line-height: 1.3;">
+      Six items marked <span style="color: var(--bright);">NEXT UP</span> form the next sprint:
+    </div>
+    <ol style="margin-top: 10px; font-size: 13.5px; line-height: 1.7; color: var(--ink-soft); padding-left: 22px;">
+      <li><strong style="color: var(--ink);">Coaching</strong> — full-orrery hero, the largest missing feature.</li>
+      <li><strong style="color: var(--ink);">Coaching session</strong> — quiet companion, proves the pair holds together.</li>
+      <li><strong style="color: var(--ink);">Insights</strong> — first real owl-as-co-worker surface.</li>
+      <li><strong style="color: var(--ink);">Clinical notes editor</strong> — workbench stress test. If it holds here, it holds everywhere.</li>
+      <li><strong style="color: var(--ink);">Settings shell + one tab</strong> — bench tier on the most mundane surface possible.</li>
+      <li><strong style="color: var(--ink);">Owl persona kit + Realism states + Mobile</strong> — three cross-cutting passes that lift everything we already have.</li>
+    </ol>
+    <div style="margin-top: 12px; font-size: 12.5px; color: var(--ink-mute); line-height: 1.6;">
+      My pick to start: <strong style="color: var(--ink-soft);">Clinical notes editor</strong>. If the workbench tier doesn't hold on a 41k-line SOAP/DAP/BIRP editor, the whole "intensity-tiered system" idea is in trouble — better to find that out first. <strong style="color: var(--ink-soft);">Coaching</strong> is a close second if you'd rather lead with the visible new feature.
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
