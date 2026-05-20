@@ -48,12 +48,16 @@ import { LENSES, type LensId } from "@/lib/orrery-lenses";
  *   6. Recent calls table (preserved — CallsTable deletion deferred to Phase 2)
  *
  * Data flow:
- *   - /api/calls fetched once (refetch every 60s) — feeds the Atlas adapter
- *     and the existing flagged-calls panel.
- *   - /api/dashboard/metrics powers the KPI strip values that would be
- *     expensive to recompute client-side (avgConfidence, dataQuality).
+ *   - /api/calls fetched once (refetch every 60s) — feeds the Atlas adapter,
+ *     KPI strip, flagged-calls panel, and recent-calls table. The Atlas
+ *     computes today's metrics client-side from this list (no extra fetch).
  *   - /api/billing/subscription stays for quota warnings.
  *   - /api/employees stays for onboarding count.
+ *
+ * The old /api/dashboard/{metrics,sentiment,performers} endpoints are no
+ * longer queried from this page; sentiment.tsx still uses /sentiment.
+ * /metrics and /performers are now orphaned — flagged for follow-on cleanup
+ * once the broader redesign settles.
  *
  * Industry-agnostic — no hardcoded category names. All planet labels come
  * from the org's own call data via the selected lens.
