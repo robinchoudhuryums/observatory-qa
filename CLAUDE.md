@@ -1663,15 +1663,15 @@ Items marked ✅ were completed in a later session.
 - Gamification effectiveness endpoint (`/api/gamification/effectiveness`) still loads unbounded calls
 - Eaglesoft and Dentrix adapters have the same silent error masking — should get `classifyEhrError` treatment
 
-### Orrery Redesign Follow-Ons (Phase 0-6 + Sprint 1 completed; deferred items)
+### Orrery Redesign Follow-Ons (Phase 0-6 + Sprints 1-3 completed; deferred items)
 - Pattern subscription notification delivery — scheduled task (`server/scheduled/pattern-notifications.ts`) runs daily and checks subscriptions against clusters. Currently logs matches but does NOT yet send webhooks/emails to the subscribing manager. Wiring actual delivery via `notifyFlaggedCall()` or a new `notifyPatternMatch()` is a follow-on
 - ✅ Ask Ory streaming — SSE endpoint + fetch+ReadableStream consumer shipped in Sprint 2; non-streaming fallback preserved
 - ✅ Coaching session detail page (`/coaching/:id`) — shipped in Sprint 2 with orrery chrome (AgentSystem header, effectiveness KPIs, action plan editor)
 - Clinical-specific Ory panel variant — Ask Ory FAB is general-purpose; a clinical context-aware variant could pull encounter context
-- Sankey + Heatmap clinical pattern variants deferred from Phase 3 (PatternsNetwork covers the majority case)
+- ✅ Sankey clinical pattern variant — shipped in Sprint 3; insights.tsx has a 2-variant picker (Network/Sankey) in clinical mode
 - `/api/dashboard/performers` is orphaned since Phase 1 (its only consumer was the deleted `performance-card.tsx`) — cleanup candidate
-- Light-mode sign-in could grow a dedicated decorative layer (e.g. drifting cloud illustration) in a Phase 6 polish pass
-- Orrery arrow-key navigation between planets on the same orbit ring — Phase 6 added role/tabIndex/Enter+Space; arrow-key focus management is a further polish item
+- ✅ Light-mode sign-in — Sprint 3 added drifting decorative glow circles behind the auth card in light mode
+- ✅ Orrery arrow-key navigation — Sprint 3 added ArrowLeft/Right handler in Orrery.tsx; wraps around at the ends
 
 ### Operational Improvements (low urgency)
 - Bedrock empty-content metric: per-model counter of empty responses for content-filter debugging

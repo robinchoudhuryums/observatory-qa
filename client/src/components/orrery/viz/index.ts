@@ -13,6 +13,5 @@ export { Galaxy } from "./Galaxy";
 export { Constellation } from "./Constellation";
 export { PatternsNetwork } from "./PatternsNetwork";
 export { ClinicalSankeyHero } from "./ClinicalSankeyHero";
-export { ClinicalHeatmapHero } from "./ClinicalHeatmapHero";
 export { AgentSystem } from "./AgentSystem";
 export { ClinicalCompletenessHeader } from "./ClinicalCompletenessHeader";
