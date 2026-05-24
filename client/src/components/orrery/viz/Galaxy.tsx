@@ -63,7 +63,22 @@ export function Galaxy({ t, days, hoveredDate = null, onHover, onSelectDay }: Pr
             style={{ cursor: onSelectDay ? "pointer" : "default", opacity }}
             onMouseEnter={() => onHover?.(d.date)}
             onMouseLeave={() => onHover?.(null)}
+            onFocus={() => onHover?.(d.date)}
+            onBlur={() => onHover?.(null)}
             onClick={() => onSelectDay?.(d)}
+            onKeyDown={
+              onSelectDay
+                ? (e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onSelectDay(d);
+                    }
+                  }
+                : undefined
+            }
+            role={onSelectDay ? "button" : undefined}
+            tabIndex={onSelectDay ? 0 : undefined}
+            aria-label={`Day ${d.day}: ${d.calls} calls${d.anchor ? " (today)" : ""}`}
           >
             {/* glow halo for hovered / anchor */}
             {(isHovered || d.anchor) && (

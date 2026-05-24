@@ -111,7 +111,11 @@ export function DayReplay({ t, calls, open, onClose }: Props) {
     }
     const tick = (ts: number) => {
       if (lastTsRef.current === null) lastTsRef.current = ts;
-      const dt = (ts - lastTsRef.current) / 1000;
+      // Cap dt at 200ms — if the tab was hidden and rAF was throttled,
+      // the first frame back would have a large dt and skip to the end.
+      // Capping keeps the replay smooth on tab resume (Phase 6 perf fix).
+      const rawDt = (ts - lastTsRef.current) / 1000;
+      const dt = Math.min(rawDt, 0.2);
       lastTsRef.current = ts;
       setProgress((p) => {
         const next = p + dt / REPLAY_DURATION_SECONDS;

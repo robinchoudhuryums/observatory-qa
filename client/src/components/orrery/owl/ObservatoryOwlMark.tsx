@@ -2,18 +2,26 @@
  * MASTER BRAND owl mark — minimal linework, watchful, stars in the forehead
  * crown. Used in top-bar lockup, sign-in hero, marketing.
  *
- * The mark is rendered from a transparent PNG via CSS `mask-image` on a
- * `background-color`-tinted div. This makes the owl tintable to any color
- * (via `color` prop or `currentColor`) while preserving the exact illustration.
+ * Primary path: CSS `mask-image` on a `background-color`-tinted div. This
+ * makes the owl tintable to any color via the `color` prop while preserving
+ * the exact illustration from the PNG.
  *
- * Asset lives at `/orrery/owl-mark.png` (21 KB). Older Safari support for
- * `mask-image` is good (16.4+) — if we encounter rendering issues on older
- * browsers, swap in a hand-built SVG fallback by detecting via @supports.
+ * Fallback path: for browsers without CSS `mask-image` support (primarily
+ * older Safari < 15.4), renders the PNG directly as an `<img>`. Loses
+ * tintability but preserves the mark. The detection uses a runtime
+ * `CSS.supports` check — Phase 6 cross-browser hardening.
+ *
+ * Asset lives at `/orrery/owl-mark.png` (21 KB).
  */
-import type { CSSProperties } from "react";
+import { useMemo, type CSSProperties } from "react";
 
 const OWL_MARK_ASPECT = 215 / 203; // width / height of the source PNG
 const OWL_MARK_SRC = "/orrery/owl-mark.png";
+
+const supportsMaskImage =
+  typeof CSS !== "undefined" && CSS.supports
+    ? CSS.supports("mask-image", 'url("x")') || CSS.supports("-webkit-mask-image", 'url("x")')
+    : true; // SSR fallback assumes modern browser
 
 type Props = {
   size?: number;
@@ -25,6 +33,31 @@ export function ObservatoryOwlMark({ size = 28, color = "currentColor", style }:
   const w = Math.round(size * OWL_MARK_ASPECT);
   const h = size;
   const useCurrent = color === "currentColor";
+
+  if (!supportsMaskImage) {
+    return (
+      <span
+        style={{
+          display: "inline-block",
+          verticalAlign: "middle",
+          lineHeight: 0,
+          width: w,
+          height: h,
+          ...style,
+        }}
+      >
+        <img
+          src={OWL_MARK_SRC}
+          alt=""
+          aria-hidden="true"
+          width={w}
+          height={h}
+          style={{ display: "block", width: "100%", height: "100%", objectFit: "contain" }}
+        />
+      </span>
+    );
+  }
+
   return (
     <span
       style={{
