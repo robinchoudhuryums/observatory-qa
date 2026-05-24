@@ -432,6 +432,7 @@ tests/e2e/                   # Playwright E2E tests (11 spec files)
 | `upload.tsx` | `/upload` | Audio file upload |
 | `employees.tsx` | `/employees` | Employee roster management |
 | `coaching.tsx` | `/coaching` | Team-in-orbit hero (AgentSystem mini-orreries) + existing session list/form (Phase 4) |
+| `coaching-session.tsx` | `/coaching/:id` | Coaching session detail — agent mini-orrery header, action plan checklist, effectiveness KPIs, reference call (Sprint 2) |
 | `reports.tsx` | `/reports` | Reports with date filtering |
 | `performance.tsx` | `/performance` | Performance metrics & trends |
 | `sentiment.tsx` | `/sentiment` | Sentiment analysis views |
@@ -957,6 +958,7 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
 | GET | `/api/reference-documents/:id/chunks` | authenticated | Paginated chunk preview |
 | POST | `/api/reference-documents/url` | admin | Add web URL as knowledge base source |
 | POST | `/api/reference-documents/rag/search` | authenticated | RAG knowledge base search |
+| POST | `/api/reference-documents/rag/stream` | authenticated | RAG knowledge base search (SSE streaming — Sprint 2) |
 | GET | `/api/reference-documents/rag/status` | authenticated | RAG indexing status |
 | GET | `/api/reference-documents/rag/analytics` | admin | Knowledge base analytics |
 
@@ -1663,8 +1665,8 @@ Items marked ✅ were completed in a later session.
 
 ### Orrery Redesign Follow-Ons (Phase 0-6 + Sprint 1 completed; deferred items)
 - Pattern subscription notification delivery — scheduled task (`server/scheduled/pattern-notifications.ts`) runs daily and checks subscriptions against clusters. Currently logs matches but does NOT yet send webhooks/emails to the subscribing manager. Wiring actual delivery via `notifyFlaggedCall()` or a new `notifyPatternMatch()` is a follow-on
-- Ask Ory streaming — non-streaming v1 ships in Phase 3; revisit if user feedback shows wait is jarring
-- Coaching session detail page (`/coaching/:id`) not yet redesigned — list view has the team-in-orbit hero, but per-session drill keeps the prior form layout
+- ✅ Ask Ory streaming — SSE endpoint + fetch+ReadableStream consumer shipped in Sprint 2; non-streaming fallback preserved
+- ✅ Coaching session detail page (`/coaching/:id`) — shipped in Sprint 2 with orrery chrome (AgentSystem header, effectiveness KPIs, action plan editor)
 - Clinical-specific Ory panel variant — Ask Ory FAB is general-purpose; a clinical context-aware variant could pull encounter context
 - Sankey + Heatmap clinical pattern variants deferred from Phase 3 (PatternsNetwork covers the majority case)
 - `/api/dashboard/performers` is orphaned since Phase 1 (its only consumer was the deleted `performance-card.tsx`) — cleanup candidate
@@ -1837,7 +1839,7 @@ Call Analysis Pipeline:
   server/services/call-processing.ts, server/services/assemblyai.ts, server/services/assemblyai-realtime.ts, server/services/ai-factory.ts, server/services/ai-provider.ts, server/services/ai-prompts.ts, server/services/ai-types.ts, server/services/bedrock.ts, server/services/bedrock-batch.ts, server/services/auto-calibration.ts, server/services/cost-estimation.ts, server/services/scoring-calibration.ts, server/services/call-clustering.ts, server/services/circumstance-modifiers.ts, server/services/disfluency.ts, server/services/script-rewriter.ts, server/services/simulated-call-generator.ts, server/services/sub-score-badges.ts, server/services/elevenlabs-client.ts, server/routes/calls.ts, server/routes/call-insights.ts, server/routes/ab-testing.ts, server/routes/assemblyai-webhook.ts, server/routes/call-tags.ts, server/routes/simulated-calls.ts
 
 RAG Knowledge Base:
-  server/services/rag.ts, server/services/chunker.ts, server/services/embeddings.ts, server/services/embeddings-rag.ts, server/services/embedding-provider.ts, server/services/rag-worker.ts, server/services/rag-trace.ts, server/services/faq-analytics.ts
+  server/services/rag.ts, server/services/chunker.ts, server/services/embeddings.ts, server/services/embeddings-rag.ts, server/services/embedding-provider.ts, server/services/rag-worker.ts, server/services/rag-trace.ts, server/services/faq-analytics.ts, server/routes/rag-stream.ts
 
 Clinical Documentation:
   server/routes/clinical.ts, server/routes/clinical-compliance.routes.ts, server/routes/clinical-analytics.routes.ts, server/routes/live-session.ts, server/routes/insurance-narratives.ts, server/routes/patient-journey.ts, server/services/clinical-templates.ts, server/services/clinical-validation.ts, server/services/clinical-extraction.ts, server/services/style-learning.ts, server/services/fhir.ts
