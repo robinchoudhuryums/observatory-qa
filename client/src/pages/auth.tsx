@@ -762,6 +762,26 @@ function CelestialBackdrop() {
         }}
       >
         <OrreryStarfield t={t} count={isDark ? 80 : 40} spread={[48, 24]} />
+
+        {/* Light-mode decorative layer — a soft drifting "moon" glow behind
+            the card. Replaces the full orrery preview which has too many dark-
+            on-dark shadows for a bright background. Sprint 3 (D9). */}
+        {!isDark && (
+          <>
+            <circle cx="-20" cy="-8" r="18" fill="var(--celestial-cool)" opacity="0.25">
+              <animate attributeName="cx" values="-20;-16;-20" dur="12s" repeatCount="indefinite" />
+              <animate attributeName="cy" values="-8;-11;-8" dur="15s" repeatCount="indefinite" />
+            </circle>
+            <circle cx="25" cy="10" r="12" fill="var(--celestial-warm)" opacity="0.18">
+              <animate attributeName="cx" values="25;28;25" dur="10s" repeatCount="indefinite" />
+              <animate attributeName="cy" values="10;7;10" dur="13s" repeatCount="indefinite" />
+            </circle>
+            <circle cx="-5" cy="14" r="8" fill="var(--accent-amber)" opacity="0.12">
+              <animate attributeName="opacity" values="0.08;0.18;0.08" dur="8s" repeatCount="indefinite" />
+            </circle>
+          </>
+        )}
+
         {isDark && (
           <>
             {orbits.map((r) => (

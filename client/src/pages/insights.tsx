@@ -3,6 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import {
+  ClinicalHeatmapHero,
+  ClinicalSankeyHero,
   Constellation,
   PatternsNetwork,
   OrreryCard,
@@ -37,6 +39,7 @@ export default function InsightsPage() {
 
   // Days window — 30 by default; users can switch to 7 or 90.
   const [days, setDays] = useState<7 | 30 | 90>(30);
+  const [clinicalHero, setClinicalHero] = useState<"network" | "sankey" | "heatmap">("network");
 
   const { data: response, isLoading } = useQuery<{
     clusters: Array<{
@@ -168,7 +171,34 @@ export default function InsightsPage() {
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4">
             <OrreryCard t={t} padded={false} style={{ overflow: "hidden" }}>
               {isClinical ? (
-                <PatternsNetwork t={t} pattern={selectedPattern} />
+                <>
+                  {clinicalHero === "sankey" ? (
+                    <ClinicalSankeyHero t={t} pattern={selectedPattern} />
+                  ) : clinicalHero === "heatmap" ? (
+                    <ClinicalHeatmapHero t={t} pattern={selectedPattern} />
+                  ) : (
+                    <PatternsNetwork t={t} pattern={selectedPattern} />
+                  )}
+                  {/* Clinical hero variant picker */}
+                  <div className="flex justify-center gap-1 py-2" style={{ borderTop: `0.5px solid ${t.panelBorder}` }}>
+                    {(["network", "sankey", "heatmap"] as const).map((v) => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => setClinicalHero(v)}
+                        className="px-2.5 py-1 rounded text-xs transition-colors"
+                        style={{
+                          background: clinicalHero === v ? t.bright : "transparent",
+                          color: clinicalHero === v ? "#fff" : t.inkSoft,
+                          border: `0.5px solid ${clinicalHero === v ? t.bright : t.panelBorder}`,
+                        }}
+                        aria-pressed={clinicalHero === v}
+                      >
+                        {v.charAt(0).toUpperCase() + v.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </>
               ) : (
                 <Constellation t={t} pattern={selectedPattern} />
               )}
