@@ -24,7 +24,6 @@
  * `onOpenChange`.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiRequest } from "@/lib/queryClient";
@@ -107,55 +106,148 @@ export function AskOryPanel({ open, onClose }: PanelProps) {
   const t = useOrreryTheme();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
+  const [isStreaming, setIsStreaming] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
-  const askMutation = useMutation({
-    mutationFn: async (
-      query: string,
-    ): Promise<{
-      formattedContext?: string;
-      chunks?: unknown[];
-      source?: string;
-    }> => {
-      const res = await apiRequest("POST", "/api/reference-documents/rag/search", {
-        query,
-        responseStyle: "concise",
+  /**
+   * Streaming fetch — POST to the SSE endpoint, read the response body
+   * chunk-by-chunk, and append each `data:` payload to the current
+   * assistant message in real time. Falls back to the non-streaming
+   * endpoint on any error (network, 503, malformed SSE).
+   *
+   * Sprint 2 (D5/A5).
+   */
+  const streamQuery = async (query: string) => {
+    setIsStreaming(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    // Optimistic: add an empty assistant message that we'll fill progressively.
+    const assistantIdx = messages.length + 1; // +1 because user message is appended first
+    setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+
+    try {
+      const csrfCookie = document.cookie.match(/csrf-token=([^;]+)/)?.[1] || "";
+      const res = await fetch("/api/reference-documents/rag/stream", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-csrf-token": csrfCookie,
+        },
+        credentials: "include",
+        body: JSON.stringify({ query, responseStyle: "concise" }),
+        signal: controller.signal,
       });
-      return res.json();
-    },
-    onSuccess: (data) => {
-      const content =
-        typeof data.formattedContext === "string" && data.formattedContext.trim().length > 0
-          ? data.formattedContext
-          : "I couldn't find anything in your knowledge base that answers that. Try rephrasing, or upload more reference docs in the admin panel.";
-      const chunkCount = Array.isArray(data.chunks) ? data.chunks.length : 0;
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content,
-          source: typeof data.source === "string" ? data.source : undefined,
-          chunkCount,
-        },
-      ]);
-    },
-    onError: (err: Error) => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: `Couldn't reach the knowledge base: ${err.message}. Try again in a moment.`,
-        },
-      ]);
-    },
-  });
 
-  // Owl state machine — drives perceived responsiveness during the
-  // request/response cycle. Idle → thinking on submit, thinking → talking
-  // when the first character of the response arrives.
-  const owlState: OwlState = askMutation.isPending
-    ? "thinking"
-    : messages.length > 0 && messages[messages.length - 1].role === "assistant"
+      if (!res.ok || !res.body) {
+        throw new Error(`Stream failed: ${res.status}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let chunkCount = 0;
+      let source: string | undefined;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // Parse SSE lines from buffer
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const payload = JSON.parse(line.slice(6));
+              if (typeof payload.text === "string") {
+                setMessages((prev) => {
+                  const updated = [...prev];
+                  const last = updated[updated.length - 1];
+                  if (last?.role === "assistant") {
+                    updated[updated.length - 1] = {
+                      ...last,
+                      content: last.content + payload.text,
+                    };
+                  }
+                  return updated;
+                });
+              }
+              if (typeof payload.chunkCount === "number") chunkCount = payload.chunkCount;
+              if (typeof payload.source === "string") source = payload.source;
+            } catch {
+              // malformed JSON line — skip
+            }
+          }
+        }
+      }
+
+      // Finalize — set chunkCount + source on the assistant message.
+      setMessages((prev) => {
+        const updated = [...prev];
+        const last = updated[updated.length - 1];
+        if (last?.role === "assistant") {
+          updated[updated.length - 1] = { ...last, chunkCount, source };
+        }
+        return updated;
+      });
+    } catch (error: any) {
+      if (error.name === "AbortError") return;
+      // Fallback to non-streaming endpoint
+      try {
+        const res = await apiRequest("POST", "/api/reference-documents/rag/search", {
+          query,
+          responseStyle: "concise",
+        });
+        const data = await res.json();
+        const content =
+          typeof data.formattedContext === "string" && data.formattedContext.trim().length > 0
+            ? data.formattedContext
+            : "I couldn't find anything in your knowledge base that answers that.";
+        setMessages((prev) => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last?.role === "assistant") {
+            updated[updated.length - 1] = {
+              ...last,
+              content,
+              chunkCount: Array.isArray(data.chunks) ? data.chunks.length : 0,
+              source: data.source,
+            };
+          }
+          return updated;
+        });
+      } catch (fallbackErr: any) {
+        setMessages((prev) => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last?.role === "assistant") {
+            updated[updated.length - 1] = {
+              ...last,
+              content: `Couldn't reach the knowledge base: ${fallbackErr.message}. Try again in a moment.`,
+            };
+          }
+          return updated;
+        });
+      }
+    } finally {
+      setIsStreaming(false);
+      abortRef.current = null;
+    }
+  };
+
+  // Owl state machine — drives perceived responsiveness. Streaming mode:
+  // thinking while waiting for first chunk, talking while streaming in,
+  // idle when done.
+  const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
+  const owlState: OwlState = isStreaming
+    ? lastMsg?.role === "assistant" && lastMsg.content.length > 0
+      ? "talking"
+      : "thinking"
+    : lastMsg?.role === "assistant" && lastMsg.content.length > 0
       ? "talking"
       : "idle";
 
@@ -176,15 +268,15 @@ export function AskOryPanel({ open, onClose }: PanelProps) {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, askMutation.isPending]);
+  }, [messages, isStreaming]);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const query = input.trim();
-    if (!query || askMutation.isPending) return;
+    if (!query || isStreaming) return;
     setMessages((prev) => [...prev, { role: "user", content: query }]);
     setInput("");
-    askMutation.mutate(query);
+    streamQuery(query);
   };
 
   if (!open) return null;
@@ -271,7 +363,7 @@ export function AskOryPanel({ open, onClose }: PanelProps) {
           ref={scrollRef}
           style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}
         >
-          {messages.length === 0 && !askMutation.isPending && (
+          {messages.length === 0 && !isStreaming && (
             <div style={{ textAlign: "center", padding: "24px 16px", color: t.inkSoft }}>
               <div
                 style={{
@@ -295,7 +387,7 @@ export function AskOryPanel({ open, onClose }: PanelProps) {
             <MessageBubble key={i} message={m} />
           ))}
 
-          {askMutation.isPending && (
+          {isStreaming && (
             <div
               style={{
                 display: "flex",
@@ -321,11 +413,11 @@ export function AskOryPanel({ open, onClose }: PanelProps) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask anything…"
-            disabled={askMutation.isPending}
+            disabled={isStreaming}
             data-testid="ask-ory-input"
             autoFocus
           />
-          <Button type="submit" disabled={!input.trim() || askMutation.isPending} data-testid="ask-ory-submit">
+          <Button type="submit" disabled={!input.trim() || isStreaming} data-testid="ask-ory-submit">
             Ask
           </Button>
         </form>

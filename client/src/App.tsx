@@ -55,6 +55,7 @@ const AdminPage = lazy(() => import("@/pages/admin"));
 const PromptTemplatesPage = lazy(() => import("@/pages/prompt-templates"));
 const InsightsPage = lazy(() => import("@/pages/insights"));
 const CoachingPage = lazy(() => import("@/pages/coaching"));
+const CoachingSessionPage = lazy(() => import("@/pages/coaching-session"));
 const SettingsPage = lazy(() => import("@/pages/settings"));
 const AuditLogsPage = lazy(() => import("@/pages/audit-logs"));
 const OnboardingWizard = lazy(() => import("@/pages/onboarding"));
@@ -315,6 +316,17 @@ function Router() {
                     <AnimatedPage>
                       <ProtectedRoute minRole="manager">
                         <CoachingPage />
+                      </ProtectedRoute>
+                    </AnimatedPage>
+                  </ErrorBoundary>
+                )}
+              </Route>
+              <Route path="/coaching/:id">
+                {() => (
+                  <ErrorBoundary>
+                    <AnimatedPage>
+                      <ProtectedRoute minRole="manager">
+                        <CoachingSessionPage />
                       </ProtectedRoute>
                     </AnimatedPage>
                   </ErrorBoundary>
