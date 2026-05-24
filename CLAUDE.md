@@ -1641,7 +1641,7 @@ Items marked ✅ were completed in a later session.
 
 ### P2 — Code Quality (non-blocking)
 - ~379 `as any` casts across 68 server files (the 82 in pg-storage.ts have been refactored away via typed mappers)
-- 250 ESLint `no-unused-vars` warnings
+- ~235 ESLint `no-unused-vars` warnings
 - ~105 remaining catch blocks across 29 route files — confirmed intentional (file cleanup, non-blocking notifications, PHI decryption fallbacks)
 - Live session Maps have no hard cap (11 unbounded Maps; all cleared on session cleanup)
 - `request-metrics.ts` key growth bounded by `req.route?.path` but falls back to `req.path` (raw URL with IDs)
@@ -1661,18 +1661,15 @@ Items marked ✅ were completed in a later session.
 - Gamification effectiveness endpoint (`/api/gamification/effectiveness`) still loads unbounded calls
 - Eaglesoft and Dentrix adapters have the same silent error masking — should get `classifyEhrError` treatment
 
-### Orrery Redesign Follow-Ons (Phase 0-5 completed; deferred items)
-- Pattern subscription notification delivery — `pattern_subscriptions` table is populated by the UI, but no worker reads it yet to send digests/alerts. Phase 3 stopped at schema + endpoint
-- Mobile bottom sheet is built (`shell/MobileBottomSheet.tsx`) but not yet wired into the Atlas responsive layout
+### Orrery Redesign Follow-Ons (Phase 0-6 + Sprint 1 completed; deferred items)
+- Pattern subscription notification delivery — scheduled task (`server/scheduled/pattern-notifications.ts`) runs daily and checks subscriptions against clusters. Currently logs matches but does NOT yet send webhooks/emails to the subscribing manager. Wiring actual delivery via `notifyFlaggedCall()` or a new `notifyPatternMatch()` is a follow-on
 - Ask Ory streaming — non-streaming v1 ships in Phase 3; revisit if user feedback shows wait is jarring
 - Coaching session detail page (`/coaching/:id`) not yet redesigned — list view has the team-in-orbit hero, but per-session drill keeps the prior form layout
 - Clinical-specific Ory panel variant — Ask Ory FAB is general-purpose; a clinical context-aware variant could pull encounter context
 - Sankey + Heatmap clinical pattern variants deferred from Phase 3 (PatternsNetwork covers the majority case)
-- Orrery SVG accessibility: ARIA labels exist at component level; keyboard nav (arrow keys to move between planets) is a polish item
 - `/api/dashboard/performers` is orphaned since Phase 1 (its only consumer was the deleted `performance-card.tsx`) — cleanup candidate
-- `/api/dashboard/metrics` cache invalidation in `file-upload.tsx` + `use-websocket.ts` is functionally a no-op now (Atlas computes KPIs from `/api/calls` directly) — cleanup candidate
 - Light-mode sign-in could grow a dedicated decorative layer (e.g. drifting cloud illustration) in a Phase 6 polish pass
-- Optimized SVG owl mark (~5 KB after SVGO) as a `mask-image` fallback for older Safari — Phase 0 shipped PNG only
+- Orrery arrow-key navigation between planets on the same orbit ring — Phase 6 added role/tabIndex/Enter+Space; arrow-key focus management is a further polish item
 
 ### Operational Improvements (low urgency)
 - Bedrock empty-content metric: per-model counter of empty responses for content-filter debugging
@@ -1858,7 +1855,7 @@ Admin & Platform Operations:
   server/routes/admin.ts, server/routes/super-admin.ts, server/routes/dashboard.ts, server/routes/insights.ts, server/routes/patterns.ts, server/routes/reports.ts, server/routes/export.ts, server/routes/employees.ts, server/routes/feedback.ts, server/routes/onboarding.ts, server/routes/marketing.ts, server/routes/benchmarks.ts, server/routes/emails.ts, server/routes/scoring-corrections.ts, server/services/email.ts, server/services/notifications.ts, server/services/telephony-ingestion.ts, server/services/scoring-feedback.ts, server/services/scoring-feedback-alerts.ts, server/services/scoring-feedback-context.ts, server/services/scoring-feedback-regression.ts
 
 Workers & Scheduled Tasks:
-  server/workers/index.ts, server/workers/retention.worker.ts, server/workers/reanalysis.worker.ts, server/workers/indexing.worker.ts, server/workers/usage.worker.ts, server/workers/simulated-call.worker.ts, server/scheduled/index.ts, server/scheduled/scheduler.ts, server/scheduled/retention.ts, server/scheduled/weekly-digest.ts, server/scheduled/post-processing-reconciliation.ts, server/scheduled/scheduled-reports-tick.ts, server/scheduled/scoring-quality-tasks.ts
+  server/workers/index.ts, server/workers/retention.worker.ts, server/workers/reanalysis.worker.ts, server/workers/indexing.worker.ts, server/workers/usage.worker.ts, server/workers/simulated-call.worker.ts, server/scheduled/index.ts, server/scheduled/scheduler.ts, server/scheduled/retention.ts, server/scheduled/weekly-digest.ts, server/scheduled/post-processing-reconciliation.ts, server/scheduled/scheduled-reports-tick.ts, server/scheduled/scoring-quality-tasks.ts, server/scheduled/pattern-notifications.ts
 
 Frontend (UI/UX):
   client/src/App.tsx, client/src/main.tsx, client/src/index.css, client/src/pages/, client/src/components/, client/src/hooks/, client/src/lib/,
