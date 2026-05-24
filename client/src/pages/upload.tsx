@@ -44,7 +44,6 @@ export default function Upload() {
 
       toast({ title: "Recording Uploaded", description: "Your recording is now being processed." });
       queryClient.invalidateQueries({ queryKey: ["/api/calls"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
     } catch (error) {
       toast({
         title: "Upload Failed",

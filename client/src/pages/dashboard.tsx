@@ -22,6 +22,7 @@ import {
   CallList,
   DayReplay,
   EmptyState,
+  MobileBottomSheet,
   Orrery,
   OrreryCard,
   OrreryKpi,
@@ -462,8 +463,11 @@ export default function Dashboard() {
           {/* Hero copy — adapts to realism state. */}
           <AtlasHeroCopy realism={realism} todayCount={todaysCalls.length} processingCount={kpis.processingToday} />
 
-          {/* Orrery + side card. */}
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
+          {/* Desktop: orrery hero + side panel grid. Mobile: full-bleed
+              orrery with a draggable bottom sheet for KPIs + recent calls. */}
+
+          {/* Desktop layout (md+) */}
+          <div className="hidden md:grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
             <OrreryCard t={t} padded={false} style={{ overflow: "hidden" }}>
               {planets.length === 0 ? (
                 <div style={{ padding: 24 }}>
@@ -493,7 +497,6 @@ export default function Dashboard() {
                   onHover={setHoveredKey}
                   onSelect={(key) => {
                     if (key && key === selectedKey) {
-                      // Second-click on an already-selected planet drills in.
                       openCluster(key);
                     } else {
                       setSelectedKey(key);
@@ -503,7 +506,6 @@ export default function Dashboard() {
               )}
             </OrreryCard>
 
-            {/* Side panel — focused planet OR KPI strip. */}
             <div className="space-y-3">
               {focusedPlanet ? (
                 <FocusedPlanetCard t={t} planet={focusedPlanet} lensId={lensId} onClear={() => setSelectedKey(null)} />
@@ -539,6 +541,60 @@ export default function Dashboard() {
                 </>
               )}
             </div>
+          </div>
+
+          {/* Mobile layout (<md) — full-bleed orrery + bottom sheet */}
+          <div className="md:hidden" style={{ position: "relative", minHeight: "60vh" }}>
+            <OrreryCard t={t} padded={false} style={{ overflow: "hidden" }}>
+              {planets.length === 0 ? (
+                <div style={{ padding: 24 }}>
+                  <EmptyState
+                    t={t}
+                    glyph={realism === "day-1" ? "flat-orbit" : "thin-data"}
+                    owlVerb="watching"
+                    title={realism === "day-1" ? "The sky is empty." : "No calls landed today."}
+                    body="Upload your first call to see the atlas."
+                    action={
+                      <Button onClick={() => setUploadOpen(true)} className="mt-2">
+                        <RiUploadLine className="w-4 h-4 mr-2" /> Upload
+                      </Button>
+                    }
+                  />
+                </div>
+              ) : (
+                <Orrery
+                  t={t}
+                  planets={planets}
+                  hoveredKey={hoveredKey}
+                  selectedKey={selectedKey}
+                  onHover={setHoveredKey}
+                  onSelect={(key) => setSelectedKey(key === selectedKey ? null : key)}
+                />
+              )}
+            </OrreryCard>
+
+            <MobileBottomSheet t={t} initialSnap="half">
+              <div className="space-y-3 p-4">
+                <div className="grid grid-cols-2 gap-2">
+                  <OrreryKpi t={t} label="Calls" value={kpis.callsToday} accentRamp="bright" />
+                  <OrreryKpi
+                    t={t}
+                    label="Score"
+                    value={kpis.avgScore !== null ? kpis.avgScore.toFixed(1) : "—"}
+                    accentRamp="warm"
+                  />
+                </div>
+                {focusedPlanet && (
+                  <FocusedPlanetCard
+                    t={t}
+                    planet={focusedPlanet}
+                    lensId={lensId}
+                    onClear={() => setSelectedKey(null)}
+                  />
+                )}
+                <CallList mode="compact" limit={3} title="Recent" />
+              </div>
+            </MobileBottomSheet>
           </div>
         </section>
 

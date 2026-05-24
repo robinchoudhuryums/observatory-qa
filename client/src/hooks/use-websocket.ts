@@ -54,9 +54,8 @@ export function useWebSocket() {
                 title: "Call Processing Complete",
                 description: data.label || "Your call has been analyzed and is ready to view.",
               });
-              // Refresh calls and dashboard data
+              // Refresh calls (Atlas + CallList re-derive their data from this query)
               queryClient.invalidateQueries({ queryKey: ["/api/calls"] });
-              queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
             } else if (data.status === "failed") {
               toastRef.current({
                 title: "Call Processing Failed",
