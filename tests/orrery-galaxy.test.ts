@@ -15,8 +15,8 @@ import {
 
 const NOW = new Date("2026-05-20T14:00:00Z");
 
-function makeRow(date: string, calls: number, closeRate: number | null): GalaxyDayRow {
-  return { date, calls, closeRate };
+function makeRow(date: string, calls: number, qualityRatio: number | null): GalaxyDayRow {
+  return { date, calls, qualityRatio };
 }
 
 describe("dayBucketsToGalaxy — degenerate inputs", () => {
@@ -66,14 +66,14 @@ describe("dayBucketsToGalaxy — degenerate inputs", () => {
   });
 });
 
-describe("dayBucketsToGalaxy — brightness from closeRate", () => {
-  it("brightness scales with closeRate", () => {
+describe("dayBucketsToGalaxy — brightness from qualityRatio", () => {
+  it("brightness scales with qualityRatio", () => {
     const rows = [makeRow("2026-05-01", 5, 0.2), makeRow("2026-05-02", 5, 0.9)];
     const days = dayBucketsToGalaxy(rows, { now: NOW });
-    assert.ok(days[1].br > days[0].br, "higher closeRate → higher brightness");
+    assert.ok(days[1].br > days[0].br, "higher qualityRatio → higher brightness");
   });
 
-  it("falls back to mid-low brightness when closeRate is null", () => {
+  it("falls back to mid-low brightness when qualityRatio is null", () => {
     const rows = [makeRow("2026-05-01", 5, null)];
     const days = dayBucketsToGalaxy(rows, { now: NOW });
     // Should be in the mid-low band, readable but uncertain.

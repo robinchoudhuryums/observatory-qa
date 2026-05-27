@@ -38,7 +38,11 @@ export default function InsightsPage() {
 
   // Days window — 30 by default; users can switch to 7 or 90.
   const [days, setDays] = useState<7 | 30 | 90>(30);
-  const [clinicalHero, setClinicalHero] = useState<"network" | "sankey">("network");
+  // Clinical mode defaults to Network view (the Sankey variant exists but
+  // the A/B toggle was removed — it was prototype exploration chrome, not a
+  // product feature). If user testing later shows Sankey is preferred, swap
+  // the default here.
+  const clinicalHero = "network" as const;
 
   const { data: response, isLoading } = useQuery<{
     clusters: Array<{
@@ -104,7 +108,7 @@ export default function InsightsPage() {
                 letterSpacing: "-0.02em",
               }}
             >
-              {isClinical ? "Recurring trends in your calls." : "Constellations forming in the sky."}
+              {isClinical ? "Recurring trends in your calls." : "Recurring patterns in your calls."}
             </h2>
           </div>
           <div className="flex items-center gap-1">
@@ -158,7 +162,7 @@ export default function InsightsPage() {
                   marginTop: 8,
                 }}
               >
-                The sky is forming.
+                No patterns yet.
               </div>
               <p style={{ color: t.inkSoft, marginTop: 8, fontSize: 13, maxWidth: 480, margin: "8px auto 0" }}>
                 {lex("Patterns")} emerge once your team has ~14 days of call data with consistent topics. Check back as
@@ -171,30 +175,7 @@ export default function InsightsPage() {
             <OrreryCard t={t} padded={false} style={{ overflow: "hidden" }}>
               {isClinical ? (
                 <>
-                  {clinicalHero === "sankey" ? (
-                    <ClinicalSankeyHero t={t} pattern={selectedPattern} />
-                  ) : (
-                    <PatternsNetwork t={t} pattern={selectedPattern} />
-                  )}
-                  {/* Clinical hero variant picker */}
-                  <div className="flex justify-center gap-1 py-2" style={{ borderTop: `0.5px solid ${t.panelBorder}` }}>
-                    {(["network", "sankey"] as const).map((v) => (
-                      <button
-                        key={v}
-                        type="button"
-                        onClick={() => setClinicalHero(v)}
-                        className="px-2.5 py-1 rounded text-xs transition-colors"
-                        style={{
-                          background: clinicalHero === v ? t.bright : "transparent",
-                          color: clinicalHero === v ? "#fff" : t.inkSoft,
-                          border: `0.5px solid ${clinicalHero === v ? t.bright : t.panelBorder}`,
-                        }}
-                        aria-pressed={clinicalHero === v}
-                      >
-                        {v.charAt(0).toUpperCase() + v.slice(1)}
-                      </button>
-                    ))}
-                  </div>
+                  <PatternsNetwork t={t} pattern={selectedPattern} />
                 </>
               ) : (
                 <Constellation t={t} pattern={selectedPattern} />

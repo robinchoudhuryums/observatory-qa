@@ -243,7 +243,7 @@ export default function Dashboard() {
           <div>
             <h2 className="text-2xl font-bold text-foreground tracking-tight">Atlas</h2>
             <div className="flex items-center gap-3 mt-0.5">
-              <p className="text-sm text-muted-foreground">A model of your team's calls in orbit.</p>
+              <p className="text-sm text-muted-foreground">Daily call volume by category.</p>
               {lastUpdated && (
                 <span className="text-xs text-muted-foreground/60 whitespace-nowrap hidden sm:inline">
                   Updated {lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -448,16 +448,9 @@ export default function Dashboard() {
                 </button>
               ))}
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setReplayOpen(true)}
-              disabled={todaysCalls.length === 0}
-              data-testid="atlas-day-replay"
-            >
-              <RiPlayCircleLine className="w-4 h-4 mr-1.5" />
-              Day replay
-            </Button>
+            {/* Day Replay button removed from production dashboard — it was
+                prototype demo chrome. The overlay + state remain wired for
+                potential admin/dev-only access in the future. */}
           </div>
 
           {/* Hero copy — adapts to realism state. */}
@@ -475,7 +468,7 @@ export default function Dashboard() {
                     t={t}
                     glyph={realism === "day-1" ? "flat-orbit" : "thin-data"}
                     owlVerb="watching"
-                    title={realism === "day-1" ? "The sky is empty." : "No calls landed today."}
+                    title={realism === "day-1" ? "No calls yet." : "No calls today."}
                     body={
                       realism === "day-1"
                         ? "Upload your first call recording and it will appear here as a planet — bigger if it's part of a busy category, brighter if it scored well."
@@ -552,7 +545,7 @@ export default function Dashboard() {
                     t={t}
                     glyph={realism === "day-1" ? "flat-orbit" : "thin-data"}
                     owlVerb="watching"
-                    title={realism === "day-1" ? "The sky is empty." : "No calls landed today."}
+                    title={realism === "day-1" ? "No calls yet." : "No calls today."}
                     body="Upload your first call to see the atlas."
                     action={
                       <Button onClick={() => setUploadOpen(true)} className="mt-2">
@@ -654,21 +647,20 @@ function AtlasHeroCopy({
 
   if (realism === "day-1") {
     tag = `${dayTag} · DAY 1`;
-    body = <>The {accent("sky is empty")}. Your first call lights the first planet.</>;
+    body = <>{accent("No calls yet.")} Upload your first recording to see it here.</>;
   } else if (realism === "day-1-afternoon") {
     tag = `${dayTag} · EARLY DATA`;
     body = (
       <>
-        {accent(`${todayCount} ${todayCount === 1 ? "call" : "calls"}`)} so far. The sky is forming — patterns need ~14
-        days of data to stabilize.
+        {accent(`${todayCount} ${todayCount === 1 ? "call" : "calls"}`)} so far. Pattern insights require ~14 days of
+        data to stabilize.
       </>
     );
   } else if (realism === "partial") {
-    tag = `${dayTag} · MID-DAY`;
+    tag = `${dayTag} · IN PROGRESS`;
     body = (
       <>
-        So far today, {accent(`${todayCount} calls`)} in orbit — {processingCount} still processing. The sky will fill
-        as the day continues.
+        {accent(`${todayCount} calls`)} today — {processingCount} still processing. More will appear as they complete.
       </>
     );
   } else if (realism === "flat-day") {
@@ -676,9 +668,7 @@ function AtlasHeroCopy({
     body = <>A {accent("quiet day")} — calls evenly distributed; no single category dominates.</>;
   } else {
     tag = dayTag;
-    body = (
-      <>A model of {accent(`${todayCount} calls`)} in orbit — bigger planets carry more, brighter ones score higher.</>
-    );
+    body = <>{accent(`${todayCount} calls`)} today — bigger planets carry more volume, brighter ones score higher.</>;
   }
 
   return (
@@ -794,7 +784,7 @@ function FocusedPlanetCard({
       {(planet.hot || planet.coaching || planet.anomaly || planet.exceptional) && (
         <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 6 }}>
           {planet.hot && (
-            <span style={{ ...badgeStyle(t), background: `${t.bright}22`, color: t.bright }}>◇ TODAY'S ANCHOR</span>
+            <span style={{ ...badgeStyle(t), background: `${t.bright}22`, color: t.bright }}>◇ HIGHEST VOLUME</span>
           )}
           {planet.coaching && (
             <span style={{ ...badgeStyle(t), background: `${t.amber}22`, color: t.amber }}>◇ COACHING FLAGGED</span>

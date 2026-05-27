@@ -1,14 +1,14 @@
 /**
  * Galaxy view — a logarithmic spiral of days in one month. Inner days are
  * tightly packed near the sun; outer days fan into the void. Each day's
- * planet size = call count (log-scale), brightness = close rate.
+ * planet size = call count (log-scale), brightness = quality ratio.
  *
  * Weekends rendered at 50% opacity. Today's planet (if the month matches)
  * gets a bright ring. Hover shows the day label + counts; click drills
  * into the day (currently → /transcripts filtered by date — Phase 3+
  * could add a per-day drill page).
  *
- * Industry-agnostic — colors come from `closeRate` which only requires
+ * Industry-agnostic — colors come from `qualityRatio` which only requires
  * performance scoring (already universal in the AI analysis pipeline).
  */
 import { useMemo } from "react";

@@ -178,18 +178,18 @@ export function registerDashboardRoutes(app: Express): void {
  * Build the day-bucketed call data for one calendar month.
  *
  * Loads all completed calls in the date range, buckets by date_trunc('day'),
- * computes call count + close rate per day. Days with zero calls still
+ * computes call count + quality ratio per day. Days with zero calls still
  * appear in the result so the spiral has a complete sequence.
  *
- * "Close rate" definition is industry-agnostic: ratio of calls scored ≥7.0
+ * "Quality score" definition is industry-agnostic: ratio of calls scored ≥7.0
  * to total scored calls. Orgs without performance scoring (e.g. legacy data)
- * get null closeRate — the galaxy adapter handles null gracefully.
+ * get null qualityRatio — the galaxy adapter handles null gracefully.
  */
 async function computeGalaxyDays(
   orgId: string,
   year: number,
   month: number,
-): Promise<Array<{ date: string; calls: number; closeRate: number | null }>> {
+): Promise<Array<{ date: string; calls: number; qualityRatio: number | null }>> {
   const start = new Date(Date.UTC(year, month - 1, 1));
   const end = new Date(Date.UTC(year, month, 0)); // last day of the month
   const daysInMonth = end.getUTCDate();
@@ -226,7 +226,7 @@ async function computeGalaxyDays(
     .map(([date, b]) => ({
       date,
       calls: b.calls,
-      closeRate: b.scored > 0 ? b.closed / b.scored : null,
+      qualityRatio: b.scored > 0 ? b.closed / b.scored : null,
     }))
     .sort((a, b) => a.date.localeCompare(b.date));
 }

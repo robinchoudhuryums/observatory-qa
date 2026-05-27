@@ -74,7 +74,7 @@ export type GalaxyDayRow = {
   date: string;
   calls: number;
   /** Ratio 0-1 of scored calls that scored ≥7. Null if no calls were scored. */
-  closeRate: number | null;
+  qualityRatio: number | null;
 };
 
 /** Spiral-positioned day, ready to render in the Galaxy view. */
@@ -84,14 +84,14 @@ export type GalaxyDay = {
   /** YYYY-MM-DD. */
   date: string;
   calls: number;
-  closeRate: number | null;
+  qualityRatio: number | null;
   /** Spiral x coord (viewBox units). */
   px: number;
   /** Spiral y coord (viewBox units, isometric-projected). */
   py: number;
   /** Planet radius (log-scale of count). */
   sz: number;
-  /** Brightness 0-1 from closeRate, falls back to mid when null. */
+  /** Brightness 0-1 from qualityRatio, falls back to mid when null. */
   br: number;
   weekend: boolean;
   /** Today's planet — gets the ring overlay. */
@@ -875,8 +875,8 @@ export function agentsToCoachingSystems(
  * Position each day on a logarithmic spiral, innermost at day 1, outermost
  * at the last day of the month. Inspired by `directions/orrery-galaxy.jsx`.
  *
- * Brightness comes from closeRate (deeper cyan = more wins). Days without
- * scored calls (closeRate null) get a mid-ramp brightness so they're still
+ * Brightness comes from qualityRatio (deeper cyan = more wins). Days without
+ * scored calls (qualityRatio null) get a mid-ramp brightness so they're still
  * visible but read as "we don't know yet". Weekends are dimmed via the
  * `weekend` flag (Galaxy viz uses this to draw at 50% opacity).
  *
@@ -904,9 +904,9 @@ export function dayBucketsToGalaxy(rows: GalaxyDayRow[], options: { now?: Date }
     // Size: log of call count, clamped to [0.6, 2.6].
     const sz = row.calls === 0 ? 0.4 : Math.max(0.6, Math.min(2.6, 0.6 + Math.log10(row.calls + 1) * 1.4));
 
-    // Brightness from closeRate. Null → 0.45 (mid-low — readable, but not
+    // Brightness from qualityRatio. Null → 0.45 (mid-low — readable, but not
     // claiming a strong outcome).
-    const br = row.closeRate === null ? 0.45 : Math.max(0.05, Math.min(1, row.closeRate));
+    const br = row.qualityRatio === null ? 0.45 : Math.max(0.05, Math.min(1, row.qualityRatio));
 
     const d = new Date(`${row.date}T00:00:00Z`);
     const dow = d.getUTCDay(); // 0 = Sunday, 6 = Saturday
@@ -917,7 +917,7 @@ export function dayBucketsToGalaxy(rows: GalaxyDayRow[], options: { now?: Date }
       day,
       date: row.date,
       calls: row.calls,
-      closeRate: row.closeRate,
+      qualityRatio: row.qualityRatio,
       px,
       py,
       sz,
