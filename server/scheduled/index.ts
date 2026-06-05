@@ -19,6 +19,7 @@ export {
   runScheduledReportsCatchUp,
 } from "./scheduled-reports-tick";
 export { runScoringQualityTasks } from "./scoring-quality-tasks";
+export { runPatternNotifications } from "./pattern-notifications";
 export { scheduleDaily, scheduleWeekly, scheduleHourly } from "./scheduler";
 
 // Re-import for orchestrator use
@@ -30,6 +31,7 @@ import { runAuditChainVerify } from "./audit-chain-verify";
 import { runCoachingScheduledTasks } from "./coaching-tasks";
 import { runPostProcessingReconciliation } from "./post-processing-reconciliation";
 import { runScoringQualityTasks } from "./scoring-quality-tasks";
+import { runPatternNotifications } from "./pattern-notifications";
 
 interface DailyTaskOptions {
   queuesReady: boolean;
@@ -111,6 +113,11 @@ export async function runAllDailyTasks(storage: IStorage, opts: DailyTaskOptions
       name: "scoring-quality-tasks",
       timeoutMs: DEFAULT_TASK_TIMEOUT_MS,
       fn: () => runScoringQualityTasks(storage, orgs),
+    },
+    {
+      name: "pattern-notifications",
+      timeoutMs: DEFAULT_TASK_TIMEOUT_MS,
+      fn: () => runPatternNotifications(storage),
     },
   ];
 

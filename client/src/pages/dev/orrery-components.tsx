@@ -52,7 +52,7 @@ export default function OrreryComponentsShowcase() {
           <OrreryTag t={t}>◇ KPI tiles</OrreryTag>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginTop: 12 }}>
             <OrreryKpi t={t} label="Calls today" value="142" delta="+18%" accentRamp="bright" />
-            <OrreryKpi t={t} label="Close rate" value="64" sub="%" accentRamp="warm" />
+            <OrreryKpi t={t} label="Quality score" value="64" sub="%" accentRamp="warm" />
             <OrreryKpi t={t} label="Avg score" value="8.2" accentRamp="cool" />
             <OrreryKpi t={t} label="Coaching" value="3" sub="open" accentRamp="amber" />
           </div>

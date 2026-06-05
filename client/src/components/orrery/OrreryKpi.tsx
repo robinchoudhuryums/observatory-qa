@@ -51,10 +51,10 @@ export function OrreryKpi({ t, label, value, sub, delta = null, accentRamp = "br
     fontFamily: "'JetBrains Mono', monospace",
   };
   const valueStyle: CSSProperties = {
-    fontFamily: plain ? "'Inter', system-ui, sans-serif" : "'Instrument Serif', Georgia, serif",
+    fontFamily: "'Inter', system-ui, sans-serif",
     fontSize: 30,
-    fontStyle: plain ? "normal" : "italic",
-    fontWeight: plain ? 500 : 400,
+    fontStyle: "normal",
+    fontWeight: 500,
     letterSpacing: "-0.02em",
     color: t.ink,
   };

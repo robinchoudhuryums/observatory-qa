@@ -8,7 +8,7 @@ import { usePresentation } from "@/hooks/use-presentation";
 import { RiArrowLeftSLine, RiArrowRightSLine, RiHomeLine } from "@remixicon/react";
 
 /**
- * Galaxy — month-at-a-glance view of call volume + close rate per day,
+ * Galaxy — month-at-a-glance view of call volume + quality ratio per day,
  * rendered as a logarithmic spiral. Phase 3 of the Orrery redesign.
  *
  * Data: GET /api/dashboard/galaxy?month=YYYY-MM (Phase 3 backend endpoint).
@@ -47,9 +47,9 @@ export default function GalaxyPage() {
   // KPIs.
   const kpis = useMemo(() => {
     const monthCalls = days.reduce((s, d) => s + d.calls, 0);
-    const scoredDays = days.filter((d) => d.closeRate !== null);
+    const scoredDays = days.filter((d) => d.qualityRatio !== null);
     const avgCloseRate =
-      scoredDays.length > 0 ? scoredDays.reduce((s, d) => s + (d.closeRate || 0), 0) / scoredDays.length : null;
+      scoredDays.length > 0 ? scoredDays.reduce((s, d) => s + (d.qualityRatio || 0), 0) / scoredDays.length : null;
     const busiest = [...days].sort((a, b) => b.calls - a.calls)[0];
     return {
       monthCalls,
@@ -94,7 +94,7 @@ export default function GalaxyPage() {
                 letterSpacing: "-0.02em",
               }}
             >
-              The month in orbit.
+              Monthly call volume.
             </h2>
           </div>
           <div className="flex items-center gap-2">
@@ -178,10 +178,10 @@ export default function GalaxyPage() {
                         textTransform: "uppercase",
                       }}
                     >
-                      Close rate
+                      Quality score
                     </div>
                     <div style={{ fontSize: 18, fontWeight: 500, color: t.ink }}>
-                      {hoveredDay.closeRate !== null ? `${Math.round(hoveredDay.closeRate * 100)}%` : "—"}
+                      {hoveredDay.qualityRatio !== null ? `${Math.round(hoveredDay.qualityRatio * 100)}%` : "—"}
                     </div>
                   </div>
                 </div>
@@ -201,7 +201,7 @@ export default function GalaxyPage() {
                 />
                 <OrreryKpi
                   t={t}
-                  label="Avg close rate"
+                  label="Avg quality ratio"
                   value={kpis.avgCloseRate !== null ? Math.round(kpis.avgCloseRate * 100) : "—"}
                   sub={kpis.avgCloseRate !== null ? "%" : undefined}
                   accentRamp="warm"

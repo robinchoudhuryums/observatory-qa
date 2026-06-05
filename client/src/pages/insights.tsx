@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import {
+  ClinicalSankeyHero,
   Constellation,
   PatternsNetwork,
   OrreryCard,
@@ -37,6 +38,11 @@ export default function InsightsPage() {
 
   // Days window — 30 by default; users can switch to 7 or 90.
   const [days, setDays] = useState<7 | 30 | 90>(30);
+  // Clinical mode defaults to Network view (the Sankey variant exists but
+  // the A/B toggle was removed — it was prototype exploration chrome, not a
+  // product feature). If user testing later shows Sankey is preferred, swap
+  // the default here.
+  const clinicalHero = "network" as const;
 
   const { data: response, isLoading } = useQuery<{
     clusters: Array<{
@@ -102,7 +108,7 @@ export default function InsightsPage() {
                 letterSpacing: "-0.02em",
               }}
             >
-              {isClinical ? "Recurring trends in your calls." : "Constellations forming in the sky."}
+              {isClinical ? "Recurring trends in your calls." : "Recurring patterns in your calls."}
             </h2>
           </div>
           <div className="flex items-center gap-1">
@@ -156,7 +162,7 @@ export default function InsightsPage() {
                   marginTop: 8,
                 }}
               >
-                The sky is forming.
+                No patterns yet.
               </div>
               <p style={{ color: t.inkSoft, marginTop: 8, fontSize: 13, maxWidth: 480, margin: "8px auto 0" }}>
                 {lex("Patterns")} emerge once your team has ~14 days of call data with consistent topics. Check back as
@@ -168,7 +174,9 @@ export default function InsightsPage() {
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4">
             <OrreryCard t={t} padded={false} style={{ overflow: "hidden" }}>
               {isClinical ? (
-                <PatternsNetwork t={t} pattern={selectedPattern} />
+                <>
+                  <PatternsNetwork t={t} pattern={selectedPattern} />
+                </>
               ) : (
                 <Constellation t={t} pattern={selectedPattern} />
               )}

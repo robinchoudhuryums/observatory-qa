@@ -147,7 +147,6 @@ export default function FileUpload() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/calls"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
     },
     onError: (error) => {
       toast({ title: "Upload Failed", description: error.message, variant: "destructive" });

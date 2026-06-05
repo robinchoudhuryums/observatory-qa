@@ -7,15 +7,11 @@
  * but don't fail the build — those are tracked in CLAUDE.md's UI/UX backlog
  * and fixed incrementally.
  *
- * Why critical only (was critical+serious before the Orrery redesign):
- * the Orrery viz introduces a lot of clickable SVG (planets, moons, galaxy
- * day dots) that axe-core flags as `serious` for missing keyboard access
- * patterns it can't infer from `<g onClick>`. The Phase 6 hardening pass
- * (see archive/ORRERY_IMPLEMENTATION_PLAN.md §6 and CLAUDE.md "Orrery
- * Redesign Follow-Ons") adds proper role+tabindex+key handlers to all
- * interactive SVG. Until then, narrowing the gate to `critical` keeps the
- * suite useful (catches form/landmark/contrast disasters) without blocking
- * on patterns the redesign hasn't reached yet.
+ * Why critical+serious: Phase 6 of the Orrery redesign added
+ * role="button", tabIndex, aria-label, and keyboard handlers to all
+ * interactive SVG (planets, moons, galaxy days, call-arc moments).
+ * This restores the gate that was temporarily narrowed to critical-only
+ * during Phases 0-5 while the keyboard-nav debt was open.
  *
  * Why not waitForLoadState("networkidle"): the dashboard/transcripts pages
  * fire periodic polling and websocket heartbeats that prevent the network
@@ -59,10 +55,8 @@ async function runAxe(page: Page): Promise<ViolationSummary[]> {
 }
 
 function assertNoCriticalOrSerious(violations: ViolationSummary[], page: string): void {
-  const blocking = violations.filter((v) => v.impact === "critical");
-  const nonBlocking = violations.filter(
-    (v) => v.impact === "serious" || v.impact === "moderate" || v.impact === "minor",
-  );
+  const blocking = violations.filter((v) => v.impact === "critical" || v.impact === "serious");
+  const nonBlocking = violations.filter((v) => v.impact === "moderate" || v.impact === "minor");
 
   if (nonBlocking.length > 0) {
     // eslint-disable-next-line no-console

@@ -12,5 +12,6 @@ export { CallList } from "./CallList";
 export { Galaxy } from "./Galaxy";
 export { Constellation } from "./Constellation";
 export { PatternsNetwork } from "./PatternsNetwork";
+export { ClinicalSankeyHero } from "./ClinicalSankeyHero";
 export { AgentSystem } from "./AgentSystem";
 export { ClinicalCompletenessHeader } from "./ClinicalCompletenessHeader";

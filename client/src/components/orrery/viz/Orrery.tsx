@@ -15,8 +15,12 @@
  * Layout: 4 fixed orbits at radii [14, 24, 34, 44] in a ±50-unit viewBox.
  * Aspect ratio is intentionally wide (`viewBox="-50 -28 100 56"`) to match
  * the prototype and read as a sky band, not a square.
+ *
+ * Keyboard navigation (Sprint 3 / D10): ArrowLeft/Right move focus between
+ * adjacent planets in render order. Enter/Space on a focused planet selects
+ * it (handled by OrreryPlanet's onKeyDown — Phase 6).
  */
-import { useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import type { Theme } from "../theme";
 import { OrreryCenterStar, OrreryOrbitRing, OrreryPlanet, OrreryStarfield } from "..";
 import type { AtlasPlanet } from "@/lib/orrery-adapters";
@@ -43,12 +47,29 @@ export function Orrery({
   onSelect,
   dimmed = false,
 }: Props) {
-  // Memo the projected planets to avoid recomputing on hover.
-  // (callsToPlanets already projects; this just stabilizes the array.)
   const visible = useMemo(() => planets, [planets]);
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  const handleArrowNav = useCallback(
+    (e: React.KeyboardEvent<SVGSVGElement>) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      if (visible.length < 2) return;
+      const svg = svgRef.current;
+      if (!svg) return;
+      const focused = document.activeElement;
+      const groups = Array.from(svg.querySelectorAll<SVGGElement>('[role="button"]'));
+      const idx = groups.indexOf(focused as SVGGElement);
+      if (idx === -1) return;
+      e.preventDefault();
+      const next = e.key === "ArrowRight" ? (idx + 1) % groups.length : (idx - 1 + groups.length) % groups.length;
+      groups[next]?.focus();
+    },
+    [visible.length],
+  );
 
   return (
     <svg
+      ref={svgRef}
       viewBox="-50 -28 100 56"
       preserveAspectRatio="xMidYMid meet"
       style={{
@@ -60,6 +81,7 @@ export function Orrery({
       }}
       role="img"
       aria-label={`Orrery showing ${visible.length} call groups in orbit`}
+      onKeyDown={handleArrowNav}
     >
       <OrreryStarfield t={t} count={70} spread={[48, 24]} />
       <OrreryOrbitRing r={14} t={t} dashed />

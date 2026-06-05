@@ -20,16 +20,18 @@
  *     call detail page; bulk deletion handled by the future admin panel
  */
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getSentimentBadge as getSentimentBadgeHelper } from "@/lib/badge-helpers";
 import type { CallWithDetails, Employee, AuthUser } from "@shared/schema";
 import { CALL_CATEGORIES } from "@shared/schema";
-import { getQueryFn } from "@/lib/queryClient";
+import { apiRequest, getQueryFn } from "@/lib/queryClient";
 import { brightToColor } from "../projection";
 import { useOrreryTheme } from "../theme";
 import { OrreryCard } from "../OrreryCard";
@@ -69,6 +71,10 @@ type Props = {
 export function CallList({ mode = "full", limit = 5, filterFn, title = null, emptyTitle, emptyBody }: Props) {
   const t = useOrreryTheme();
 
+  // Bulk selection — manager/admin only, full mode only. Sprint 2 (D4).
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkAction, setBulkAction] = useState<"idle" | "deleting" | "reassigning">("idle");
+
   // Filters — server-side filters via queryKey trigger refetch; client-side
   // for category + flag + score range (matches the prior CallsTable behavior).
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -87,6 +93,63 @@ export function CallList({ mode = "full", limit = 5, filterFn, title = null, emp
     queryFn: getQueryFn({ on401: "returnNull" }),
     staleTime: Infinity,
   });
+
+  const canBulkAction = mode === "full" && (user?.role === "admin" || user?.role === "manager");
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === displayedCalls?.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(displayedCalls?.map((c) => c.id) ?? []));
+    }
+  };
+
+  const bulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setBulkAction("deleting");
+    let deleted = 0;
+    for (const id of Array.from(selectedIds)) {
+      try {
+        await apiRequest("DELETE", `/api/calls/${id}`);
+        deleted++;
+      } catch {
+        // continue — partial success is better than all-or-nothing
+      }
+    }
+    setBulkAction("idle");
+    setSelectedIds(new Set());
+    queryClient.invalidateQueries({ queryKey: ["/api/calls"] });
+    toast({ title: `Deleted ${deleted} call${deleted !== 1 ? "s" : ""}` });
+  };
+
+  const bulkReassign = async (employeeId: string) => {
+    if (selectedIds.size === 0) return;
+    setBulkAction("reassigning");
+    let reassigned = 0;
+    for (const id of Array.from(selectedIds)) {
+      try {
+        await apiRequest("PATCH", `/api/calls/${id}/assign`, { employeeId });
+        reassigned++;
+      } catch {
+        // continue
+      }
+    }
+    setBulkAction("idle");
+    setSelectedIds(new Set());
+    queryClient.invalidateQueries({ queryKey: ["/api/calls"] });
+    toast({ title: `Reassigned ${reassigned} call${reassigned !== 1 ? "s" : ""}` });
+  };
 
   const { data: calls, isLoading: callsLoading } = useQuery<CallWithDetails[]>({
     queryKey: [
@@ -298,12 +361,72 @@ export function CallList({ mode = "full", limit = 5, filterFn, title = null, emp
         </div>
       )}
 
+      {/* Bulk select header (full mode, manager/admin) */}
+      {canBulkAction && displayedCalls.length > 0 && (
+        <div className="flex items-center gap-3 px-1">
+          <Checkbox
+            checked={selectedIds.size > 0 && selectedIds.size === displayedCalls.length}
+            onCheckedChange={toggleSelectAll}
+            aria-label="Select all on this page"
+          />
+          <span className="text-xs text-muted-foreground">
+            {selectedIds.size > 0 ? `${selectedIds.size} selected` : "Select all"}
+          </span>
+        </div>
+      )}
+
       {/* Cards. */}
       <div className="space-y-2">
         {displayedCalls.map((call) => (
-          <CallCard key={call.id} call={call} />
+          <div key={call.id} className="flex items-center gap-2">
+            {canBulkAction && (
+              <Checkbox
+                checked={selectedIds.has(call.id)}
+                onCheckedChange={() => toggleSelect(call.id)}
+                aria-label={`Select call ${call.fileName || call.id}`}
+                className="flex-shrink-0"
+              />
+            )}
+            <div className="flex-1 min-w-0">
+              <CallCard call={call} />
+            </div>
+          </div>
         ))}
       </div>
+
+      {/* Bulk action bar — sticky bottom when items selected */}
+      {canBulkAction && selectedIds.size > 0 && (
+        <div
+          className="sticky bottom-0 flex items-center justify-between gap-3 px-4 py-3 rounded-lg border"
+          style={{ background: t.panel, backdropFilter: "blur(8px)", borderColor: t.panelBorder }}
+        >
+          <span className="text-sm font-medium" style={{ color: t.ink }}>
+            {selectedIds.size} call{selectedIds.size !== 1 ? "s" : ""} selected
+          </span>
+          <div className="flex items-center gap-2">
+            {employees && employees.length > 0 && (
+              <Select onValueChange={(empId) => bulkReassign(empId)}>
+                <SelectTrigger className="h-8 w-auto min-w-[140px] text-xs" aria-label="Reassign to">
+                  <SelectValue placeholder="Reassign to…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {employees.map((e) => (
+                    <SelectItem key={e.id} value={e.id}>
+                      {e.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Button size="sm" variant="destructive" onClick={bulkDelete} disabled={bulkAction !== "idle"}>
+              {bulkAction === "deleting" ? "Deleting…" : "Delete selected"}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setSelectedIds(new Set())}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Pagination — full mode only. */}
       {mode === "full" && totalPages > 1 && (
@@ -358,12 +481,6 @@ export function CallList({ mode = "full", limit = 5, filterFn, title = null, emp
           </Link>
         </div>
       )}
-
-      {/* Suppress unused-var warning while role-aware actions are gated to
-          future versions. Manager/admin gates apply when bulk + delete return. */}
-      <span className="sr-only" aria-hidden>
-        {user?.role || "viewer"}
-      </span>
     </div>
   );
 }

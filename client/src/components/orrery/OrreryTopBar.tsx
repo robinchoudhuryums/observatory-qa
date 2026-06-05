@@ -1,7 +1,6 @@
 /**
  * Sticky top bar used by every full/quiet-tier orrery screen. Composes:
  *   - Brand lockup (owl mark + wordmark) on the left, clickable to navigate home
- *   - Version pill (mono, "v2 · MODEL OF THE PRACTICE")
  *   - Nav links (Atlas / Calls / Patterns / Galaxy / Reports) in the center
  *   - Optional extras + view label on the right
  *
@@ -80,17 +79,6 @@ export function OrreryTopBar({
       >
         <ObservatoryOwlMark size={26} color={t.logoTint || t.ink} />
         <ObservatoryWordmark height={17} color={t.logoTint || t.ink} style={{ marginTop: 1 }} />
-        <span
-          style={{
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 9.5,
-            color: t.inkMute,
-            letterSpacing: "0.16em",
-            marginLeft: 8,
-          }}
-        >
-          v2 · MODEL OF THE PRACTICE
-        </span>
       </div>
       <div style={{ display: "flex", gap: 22, fontSize: 12.5, color: t.inkSoft }}>
         {visibleNavs.map((n) => {

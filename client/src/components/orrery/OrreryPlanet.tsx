@@ -72,7 +72,27 @@ export function OrreryPlanet({
     transition: "opacity 200ms",
   };
   return (
-    <g onMouseEnter={onHover} onMouseLeave={onLeave} onClick={onClick} style={style}>
+    <g
+      onMouseEnter={onHover}
+      onMouseLeave={onLeave}
+      onClick={onClick}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
+      style={style}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      aria-label={onClick ? `Planet at position ${Math.round(p.px)},${Math.round(p.py)}` : undefined}
+      onFocus={onHover}
+      onBlur={onLeave}
+    >
       {/* shadow puddle */}
       <ellipse
         cx={p.px}

@@ -120,6 +120,19 @@ export function CallArc({ t, moments, durationSec, selectedId = null, onSelectMo
             key={m.id}
             style={{ cursor: onSelectMoment ? "pointer" : "default" }}
             onClick={() => onSelectMoment?.(selected ? null : m)}
+            onKeyDown={
+              onSelectMoment
+                ? (e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onSelectMoment(selected ? null : m);
+                    }
+                  }
+                : undefined
+            }
+            role={onSelectMoment ? "button" : undefined}
+            tabIndex={onSelectMoment ? 0 : undefined}
+            aria-label={`Moment: ${m.label} at ${formatTime(m.time)}`}
           >
             {/* halo */}
             <circle cx={px} cy={py} r={sz * 2.4} fill={color} opacity={selected ? 0.3 : 0.18} />
