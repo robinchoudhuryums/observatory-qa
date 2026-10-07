@@ -21,7 +21,16 @@ Read these files carefully in this order:
 3. Package manifest (package.json, pyproject.toml, Cargo.toml, etc.)
 4. All entry points (server/index.ts, client main, route registration)
 5. Database schema files
-6. Test configuration and existing test files (scan for patterns)
+6. Test configuration and existing test files (scan for patterns).
+   If no programmatic test runner exists (no test command in the
+   manifest, no test framework dependency, no test files), note this —
+   OUTPUT 1 will use `Test Command: manual` and require a
+   `Regression Scenarios` block.
+7. Deployment mechanism (look for clasp config, terraform/ directory,
+   .github/workflows/deploy.*, fly.toml, vercel.json, Dockerfile +
+   deploy script, fastlane config, etc.). For each detected deployable,
+   identify the command and the subsystem it deploys. If found, OUTPUT 1
+   will include a `Deploy Command` section.
 
 Produce a PROJECT PROFILE:
 - Project type and domain: [what this application does, who uses it]
@@ -31,6 +40,8 @@ Produce a PROJECT PROFILE:
   error handling patterns, logging patterns]
 - External dependencies: [APIs, databases, cloud services, SDKs]
 - Multi-tenant: [yes/no — how is data isolated?]
+- User-facing surfaces: [web UI / mobile / desktop / TUI / operator
+  console / none — and which subsystem owns each]
 - Key architectural patterns: [monolith/microservices, storage abstraction,
   auth model, job queue, real-time, etc.]
 
@@ -80,7 +91,15 @@ Quality checks — verify all of these before proceeding:
 If any check fails, adjust the groupings and explain the tradeoff.
 
 Flag SEAM FILES — files that sit at the boundary between subsystems
-and could reasonably belong to either.
+and could reasonably belong to either. These are important for the
+Seams & Invariants audit.
+
+Flag FROZEN SUBSYSTEM CANDIDATES — subsystems that are explicitly
+legacy / being retired / being migrated out (e.g., a deprecated
+module kept only until a successor is fully built). For each
+candidate, note: (a) why it's frozen, (b) what's replacing it,
+(c) what conditions would unfreeze it. These appear in OUTPUT 1's
+Frozen Subsystems section.
 
 ═══════════════════════════════════════════
 PHASE 4 — HEALTH DIMENSIONS & POLICY
@@ -91,6 +110,10 @@ Propose health dimensions for this project's scoring. These should:
 - Be scorable with evidence from code reads
 - Cover both technical health and feature/product effectiveness
 - Include domain-specific dimensions
+- Include one interface dimension (e.g. "UI/UX & Accessibility") if the
+  Phase 1 profile found any user-facing surface. Omit it only when the
+  profile found none — otherwise /broad-scan Stage 3's interface
+  findings have no dimension to score against.
 - Be between 10-15 dimensions total
 
 For each dimension:
@@ -99,8 +122,26 @@ For each dimension:
 - Which subsystem(s) primarily feed evidence into this score
 
 Also recommend:
-- Policy threshold: [score ≤ N triggers policy response]
-- Consecutive cycles before trigger: [typically 2]
+- Policy threshold: [the ABSOLUTE FLOOR backstop — recommend a value based
+  on project maturity: 4/10 for mature projects, 5/10 for early-stage
+  projects that need faster feedback loops. Note this is NOT the primary
+  trigger: the primary trigger is relative (a category that declines, or
+  stays lowest without recovering), because a fixed floor never fires on a
+  healthy project]
+- Consecutive cycles before trigger: [typically 2, but 1 for
+  safety-critical projects]
+
+Also propose the project's HORIZONTAL (Axis B) bug-shape categories —
+cross-cutting failure patterns that no single subsystem owns, scored in
+Health Synthesis alongside the vertical dimensions. The default set fits
+most server/SaaS projects: Silent Degradation Posture, Startup Ordering
+Guarantees, Operator-Only State Gaps, Parallel Source-of-Truth Drift,
+Test Coverage Quality. Keep these unless the domain calls for different
+shapes (e.g. a data pipeline might add "Numerical / Precision Drift," a
+mobile app "Offline / Sync Integrity," a library "Public API
+Compatibility," a client-heavy app "Visual / Interaction Regression
+Posture"). Aim for 4–6 categories, each with a name + one-sentence
+"what it measures."
 
 ═══════════════════════════════════════════
 PHASE 5 — INVARIANT EXTRACTION
@@ -138,10 +179,17 @@ OUTPUT 1 — CYCLE WORKFLOW CONFIG (paste into the project's CLAUDE.md):
 ## Cycle Workflow Config
 
 ### Test Command
-[test runner command, e.g. npm test]
+[test runner command, e.g. npm test — OR the literal word `manual`
+ for projects with no programmatic test runner]
 
 ### Health Dimensions
 [dim1], [dim2], [dim3], ...
+(include one interface dimension — e.g. "UI/UX & Accessibility" — if the
+ Phase 1 profile found any user-facing surface)
+
+### Horizontal (Axis B) Categories   ← optional; defaults to the standard 5 if omitted
+[Category name] | [what it measures]
+(repeat for each, 4–6 total)
 
 ### Subsystems
 [Subsystem Name]:
@@ -149,19 +197,45 @@ OUTPUT 1 — CYCLE WORKFLOW CONFIG (paste into the project's CLAUDE.md):
 (repeat for each subsystem)
 
 ### Invariant Library
-INV-XX | [rule text] | Subsystem: [name]
-(repeat for each invariant)
+INV-XX | [rule text] | Subsystem: [name] | Verify: [test name or code ref — optional]
+(repeat for each invariant; carry the Phase 5 "How to verify" detail into
+ the optional Verify field when it names a concrete test or assertion)
 
 ### Policy Configuration
 Policy threshold: [N]/10
 Consecutive cycles: [N]
 
+### Seams Audit Cadence   ← optional; default: every 4 subsystem cycles
+every [N] subsystem cycles
+
+### Regression Scenarios   ← required iff Test Command is `manual`; otherwise optional
+S1 | [short scenario name] | Subsystem: [name]
+  Steps:
+    - [step]
+    - [step]
+  Expected: [outcome]
+(repeat for each scenario; aim for 5–15 covering golden paths and known regression hotspots;
+ include a visual check per user-facing surface — /broad-scan Stage 3 emits
+ OPERATOR VISUAL CHECKS in this format so they can be promoted here directly)
+
+### Frozen Subsystems   ← optional; omit if no subsystems are frozen
+- [subsystem name] — [reason: why frozen, what's replacing it, what would unfreeze it]
+(repeat for each frozen subsystem)
+
+### Deploy Command   ← optional; per-subsystem mapping; omit if project has no deploy step
+[subsystem name]: [command + any context, e.g. "clasp push -f then Apps Script editor → Deploy → New version"]
+[subsystem name]: [command + any context]
+(repeat for each subsystem with a deploy command)
+
 OUTPUT 2 — CYCLE ROTATION PLAN (for operator reference):
 
 Recommended first subsystem to audit: [name — why]
-Recommended cycle order: [ordered list with rationale]
+Recommended cycle order: [ordered list with rationale — exclude
+  any subsystems marked frozen; note that they are skipped by
+  default but can be explicitly named to override]
 Seams audit frequency: every [N] subsystem cycles
 
 CONFIDENCE ASSESSMENT:
 For each subsystem, rate confidence that file list is complete
 and boundary is correct: High / Medium / Low.
+For any Medium or Low, explain what you'd need to verify.

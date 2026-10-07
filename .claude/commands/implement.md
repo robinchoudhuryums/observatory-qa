@@ -1,57 +1,78 @@
-If $ARGUMENTS is empty or missing, respond with exactly this and stop:
+If $ARGUMENTS is empty AND no IMPLEMENTATION HANDOFF BLOCK exists earlier
+in this session, respond with exactly this and stop:
 
-> **Usage:** `/implement <paste Implementation Handoff Block here>`
-> Paste the full `---IMPLEMENTATION HANDOFF BLOCK---` output from the `/plan` command as the argument, or paste it as the first message in this session before running `/implement`.
-> The handoff block must include: Scope, ACTIONS TO IMPLEMENT, HIGH/VERY HIGH RISK ACTIONS, and IMPLEMENT IN THIS ORDER.
+Usage (same session): /implement — run after /plan
+Usage (new session): paste the IMPLEMENTATION HANDOFF BLOCK first, then run
 
 ---
 
-Refer to the systems map summary in CLAUDE.md under "## Systems Map" for architectural context.
+Read CLAUDE.md (especially Common Gotchas) before starting.
 
-$ARGUMENTS
+[PASTE SYSTEMS MAP SUMMARY HERE]
+[PASTE IMPLEMENTATION HANDOFF BLOCK HERE IF FRESH SESSION]
 
-The implementation handoff block above is the agreed scope for this session.
-
---- STEP 1: DEPENDENCY CHECK ---
-Review the HIGH/VERY HIGH RISK ACTIONS listed in the handoff block.
-For each one:
-1. Identify every file outside the current scope that imports from, calls into, or depends on the specific functions, modules, or data structures being changed
-2. Describe what would break or need updating if the change proceeds as described
-3. For each risk, explicitly confirm whether it is real or negated by other factors (cascade configs, zero callers, idempotent operations, existing indexes). Don't just list risks — validate them.
-4. Confirm the implementation order accounts for these dependencies
-
-If no actions are rated High or Very High, state that explicitly and proceed to Step 2.
-
---- STEP 2: IMPLEMENTATION ---
+Before starting: for every action listed as High/Very High risk, run the
+Pre-Implementation Dependency Check (identify every out-of-scope file
+that imports/calls the changed functions/exports; describe what would
+break) and confirm understanding before implementing those actions.
+Low-risk actions may proceed. Also confirm the path your change affects is
+the one that runs in production — not just an in-memory / fallback / mock
+path; where a real (e.g. DB-backed) path exists alongside a fallback,
+implement and test BOTH.
 
 Rules:
-- Implement only the actions listed. Do not fix or refactor anything outside this scope. Flag other issues at the end.
-- Work through actions in the implementation order from the handoff block unless a blocker requires reordering — if so, say why before reordering.
-- Before implementing any High or Very High risk action, confirm your understanding of the change and its intended effect. Wait for acknowledgement before proceeding.
-- If a finding is more complex than the effort estimate suggested, stop and describe what you found. Do not improvise a larger solution without discussion.
-- If an action requires touching files outside the listed scope, stop and flag it rather than proceeding.
-- After completing each action: what changed, which file(s) were touched, anything unexpected.
+- Implement ONLY the actions in the handoff block, in order
+- Do not fix anything outside scope — note it for follow-on
+- Stop on unexpected complexity and describe before continuing
+- Stop if an action requires touching out-of-scope files
+- Check Common Gotchas before each action
+- Before editing a module, scan for its test doubles — mocks/stubs/fixtures
+  of that module, especially ones encoding the OLD behavior (a factory mock
+  that throws on a newly-added export, a non-date-scoped mock, a fixture
+  asserting the prior output). Update them as part of the change, not
+  reactively in RUN TESTS.
+- After each action, note: what changed, files touched, anything unexpected
 
-When all actions are complete, produce an IMPLEMENTATION SUMMARY BLOCK:
+After all actions complete, in order:
+
+1. RUN TESTS — read Test Command from CLAUDE.md. If `manual`, walk the
+   Regression Scenarios for the touched subsystem(s) instead (PASS / FAIL
+   / NOT APPLICABLE; a FAIL = a test failure). Otherwise run the suite,
+   then walk any configured scenarios. Classify failures: this session /
+   pre-existing / real bug exposed by a correct test.
+2. Produce an IMPLEMENTATION SUMMARY BLOCK:
 
 ---IMPLEMENTATION SUMMARY BLOCK---
 Session scope: [subsystem group]
-Actions completed: [list action IDs]
+Actions completed: [IDs]
 Actions not completed (if any): [list with reason]
 
 CHANGES MADE:
-[Action ID] | [File(s) modified] | [Brief description of what changed] | [Finding IDs resolved]
-(repeat for each completed action)
+[Action ID] | [File(s)] | [What changed]
+
+TEST RESULTS: [passed/failed — details, or scenario outcomes if manual]
 
 UNEXPECTED FINDINGS DURING IMPLEMENTATION:
-- [anything discovered that wasn't in the audit — new issues, hidden complexity, etc.]
+- [discovered while implementing, not in the audit] (or "None")
+
+OPERATOR ACTIONS / DEPLOY:
+- [human-only step outside the PR — env var, IaC, console/dashboard, one-time migration] | BLOCKS DEPLOY: Y/N
 (or "None")
+Deploy: [Deploy Command for any touched subsystem if configured, else "N/A — no Deploy Command configured"]
+(Not complete in production until blocking operator actions are done AND the deploy step is confirmed.)
 
 FOLLOW-ON ITEMS:
-- [anything to add to the planning backlog or escalate to the roadmap]
-(or "None")
+- [out-of-scope items to add to the backlog] (or "None")
 
 DOCUMENTATION UPDATES NEEDED:
-- [any CLAUDE.md, README, or inline docs to update]
-(or "None")
+- [CLAUDE.md / README / inline] (or "None")
 ---END IMPLEMENTATION SUMMARY BLOCK---
+
+3. CHECKPOINT (optional — only if .cycle/ exists): create/update
+   .cycle/STATE.md (completed/pending actions, follow-ons, decisions,
+   "Where I left off") so /cycle-resume can continue, AND write the
+   summary block verbatim to
+   .cycle/blocks/<cycle>-<version-or-scope>-implement.md so §4v and §6a
+   can read it in a fresh session. Skip both if no .cycle/.
+
+Suggest /regression, /reflect, /test-sync, /sync-docs as applicable.
