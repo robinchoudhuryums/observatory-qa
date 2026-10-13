@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "NODE_ENV=development tsx server/index.ts",
-    "build": "npm run check && vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --sourcemap --outdir=dist",
+    "build": "npm run check && vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --sourcemap --outdir=dist && npm run workers:build",
     "start": "NODE_ENV=production node dist/index.js",
     "test": "tsx --test tests/*.test.ts",
     "check": "tsc",

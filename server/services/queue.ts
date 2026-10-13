@@ -382,15 +382,36 @@ export async function moveToDeadLetter(
 }
 
 /**
+ * Add a job under a fixed jobId, first clearing a FINISHED job that holds it.
+ *
+ * BullMQ silently ignores add() for an id it still stores, and completed/failed
+ * jobs are retained (removeOnComplete/removeOnFail counts). A bare fixed id
+ * therefore deduplicates against last week's finished run — retention ran once
+ * per org and never again; a reindex after a failure stayed "pending" forever.
+ * Waiting/active/delayed jobs are left in place: deduping in-flight work is
+ * the behavior the fixed id exists for.
+ */
+export async function addDedupedJob<T>(queue: Queue<T>, name: string, data: T, jobId: string): Promise<void> {
+  const existing = await queue.getJob(jobId);
+  if (existing) {
+    const state = await existing.getState();
+    if (state === "completed" || state === "failed") {
+      await existing.remove();
+    }
+  }
+  // BullMQ's name/data generics don't line up with a generic T; the queue is
+  // already typed by its caller.
+  await (queue as Queue).add(name, data, { jobId });
+}
+
+/**
  * Enqueue a document for RAG indexing (chunking + embedding).
  * Falls back to synchronous in-process indexing when queues unavailable.
  */
 export async function enqueueDocumentIndexing(job: DocumentIndexingJob): Promise<void> {
   if (indexingQueue) {
     try {
-      await indexingQueue.add("index-document", job, {
-        jobId: `index-${job.documentId}`, // Deduplicate
-      });
+      await addDedupedJob(indexingQueue, "index-document", job, `index-${job.documentId}`);
       logger.info({ documentId: job.documentId }, "Document indexing job enqueued");
     } catch (error) {
       logger.error({ err: error, documentId: job.documentId }, "Failed to enqueue indexing job");
@@ -429,13 +450,8 @@ export async function trackUsage(event: UsageMeteringJob): Promise<void> {
  */
 export async function enqueueRetention(orgId: string, retentionDays: number): Promise<void> {
   if (retentionQueue) {
-    await retentionQueue.add(
-      "retention",
-      { orgId, retentionDays },
-      {
-        jobId: `retention-${orgId}`, // Deduplicate per org (BullMQ disallows colons in job IDs)
-      },
-    );
+    // Deduplicate per org (BullMQ disallows colons in job IDs)
+    await addDedupedJob(retentionQueue, "retention", { orgId, retentionDays }, `retention-${orgId}`);
   }
 }
 

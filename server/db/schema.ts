@@ -322,7 +322,7 @@ export const coachingSessions = pgTable(
     employeeId: text("employee_id")
       .notNull()
       .references(() => employees.id),
-    callId: text("call_id").references(() => calls.id),
+    callId: text("call_id").references(() => calls.id, { onDelete: "set null" }),
     assignedBy: varchar("assigned_by", { length: 255 }).notNull(),
     category: varchar("category", { length: 50 }).notNull().default("general"),
     title: varchar("title", { length: 500 }).notNull(),
@@ -674,7 +674,7 @@ export const liveSessions = pgTable(
     consentMethod: varchar("consent_method", { length: 20 }),
     consentCapturedAt: timestamp("consent_captured_at"),
     consentCapturedBy: text("consent_captured_by"),
-    callId: text("call_id").references(() => calls.id),
+    callId: text("call_id").references(() => calls.id, { onDelete: "set null" }),
     startedAt: timestamp("started_at").defaultNow(),
     endedAt: timestamp("ended_at"),
   },
@@ -764,7 +764,7 @@ export const insuranceNarratives = pgTable(
     orgId: text("org_id")
       .notNull()
       .references(() => organizations.id),
-    callId: text("call_id").references(() => calls.id),
+    callId: text("call_id").references(() => calls.id, { onDelete: "set null" }),
     patientName: varchar("patient_name", { length: 255 }).notNull(),
     patientDob: varchar("patient_dob", { length: 20 }),
     memberId: varchar("member_id", { length: 100 }),
@@ -807,7 +807,7 @@ export const callRevenues = pgTable(
       .references(() => organizations.id),
     callId: text("call_id")
       .notNull()
-      .references(() => calls.id),
+      .references(() => calls.id, { onDelete: "cascade" }),
     estimatedRevenue: real("estimated_revenue"),
     actualRevenue: real("actual_revenue"),
     revenueType: varchar("revenue_type", { length: 20 }),
@@ -848,7 +848,7 @@ export const calibrationSessions = pgTable(
     title: varchar("title", { length: 500 }).notNull(),
     callId: text("call_id")
       .notNull()
-      .references(() => calls.id),
+      .references(() => calls.id, { onDelete: "cascade" }),
     facilitatorId: text("facilitator_id").notNull(),
     evaluatorIds: jsonb("evaluator_ids").$type<string[]>().notNull(),
     scheduledAt: timestamp("scheduled_at"),

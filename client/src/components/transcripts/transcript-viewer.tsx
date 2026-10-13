@@ -297,6 +297,18 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
     });
   }, [currentTime, moments]);
 
+  // Must stay above the early returns below (INV-19): placed after them it
+  // changed the hook count between the loading and loaded renders and crashed
+  // every cold open of /transcripts/:id. generateSegmentsFromWords is a hoisted
+  // function declaration further down.
+  const transcriptSegments = useMemo(() => {
+    const words = call?.transcript?.words;
+    if (words && Array.isArray(words) && words.length > 0) {
+      return generateSegmentsFromWords(words as TranscriptWord[]);
+    }
+    return [];
+  }, [call?.transcript?.words]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -334,13 +346,6 @@ export default function TranscriptViewer({ callId }: TranscriptViewerProps) {
         return "sentiment-neutral";
     }
   };
-
-  const transcriptSegments = useMemo(() => {
-    if (call.transcript?.words && Array.isArray(call.transcript.words) && call.transcript.words.length > 0) {
-      return generateSegmentsFromWords(call.transcript.words as TranscriptWord[]);
-    }
-    return [];
-  }, [call.transcript?.words]);
 
   function generateSegmentsFromWords(words: TranscriptWord[]) {
     const segments: any[] = [];

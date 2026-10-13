@@ -178,7 +178,9 @@ jobs:
         run: |
           test -f dist/index.js   || (echo "ERROR: dist/index.js missing" && exit 1)
           test -d dist/public     || (echo "ERROR: dist/public/ missing"  && exit 1)
+          test -f dist/workers.js || (echo "ERROR: dist/workers.js missing (Render, Docker and EC2 all start workers from it)" && exit 1)
           echo "dist/index.js  -- $(du -h dist/index.js | cut -f1)"
+          echo "dist/workers.js -- $(du -h dist/workers.js | cut -f1)"
           echo "dist/public/   -- $(du -sh dist/public  | cut -f1)"
           echo "Build artifacts verified"
 

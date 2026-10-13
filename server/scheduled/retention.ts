@@ -20,10 +20,21 @@ export async function runRetention(storage: IStorage, opts: RetentionOptions, or
 
       // Use job queue if available (non-blocking, durable)
       if (opts.queuesReady) {
-        await enqueueRetention(org.id, orgRetention);
+        try {
+          await enqueueRetention(org.id, orgRetention);
+        } catch (err) {
+          logger.error({ err, orgId: org.id }, "Failed to enqueue retention for org — continuing with remaining orgs");
+        }
       } else {
-        // Fallback: run inline
-        const purged = await storage.purgeExpiredCalls(org.id, orgRetention);
+        // Fallback: run inline. Isolate each org — one org's purge failure
+        // must not skip retention for every org after it in the list.
+        let purged = 0;
+        try {
+          purged = await storage.purgeExpiredCalls(org.id, orgRetention);
+        } catch (err) {
+          logger.error({ err, orgId: org.id }, "Retention purge failed for org — continuing with remaining orgs");
+          continue;
+        }
         if (purged > 0) {
           const { logPhiAccess } = await import("../services/audit-log");
           logPhiAccess({

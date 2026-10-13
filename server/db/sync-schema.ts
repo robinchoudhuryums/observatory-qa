@@ -409,7 +409,7 @@ export async function syncSchema(_dbArg: Database): Promise<void> {
         id TEXT PRIMARY KEY,
         org_id TEXT NOT NULL REFERENCES organizations(id),
         employee_id TEXT NOT NULL REFERENCES employees(id),
-        call_id TEXT REFERENCES calls(id),
+        call_id TEXT REFERENCES calls(id) ON DELETE SET NULL,
         assigned_by VARCHAR(255) NOT NULL,
         category VARCHAR(50) NOT NULL DEFAULT 'general',
         title VARCHAR(500) NOT NULL,
@@ -853,7 +853,7 @@ export async function syncSchema(_dbArg: Database): Promise<void> {
         draft_clinical_note JSONB,
         duration_seconds INTEGER NOT NULL DEFAULT 0,
         consent_obtained BOOLEAN NOT NULL DEFAULT false,
-        call_id TEXT REFERENCES calls(id),
+        call_id TEXT REFERENCES calls(id) ON DELETE SET NULL,
         started_at TIMESTAMP DEFAULT NOW(),
         ended_at TIMESTAMP
       )
@@ -941,7 +941,7 @@ export async function syncSchema(_dbArg: Database): Promise<void> {
       CREATE TABLE IF NOT EXISTS insurance_narratives (
         id TEXT PRIMARY KEY,
         org_id TEXT NOT NULL REFERENCES organizations(id),
-        call_id TEXT REFERENCES calls(id),
+        call_id TEXT REFERENCES calls(id) ON DELETE SET NULL,
         patient_name VARCHAR(255) NOT NULL,
         patient_dob VARCHAR(20),
         member_id VARCHAR(100),
@@ -985,7 +985,7 @@ export async function syncSchema(_dbArg: Database): Promise<void> {
       CREATE TABLE IF NOT EXISTS call_revenues (
         id TEXT PRIMARY KEY,
         org_id TEXT NOT NULL REFERENCES organizations(id),
-        call_id TEXT NOT NULL REFERENCES calls(id),
+        call_id TEXT NOT NULL REFERENCES calls(id) ON DELETE CASCADE,
         estimated_revenue REAL,
         actual_revenue REAL,
         revenue_type VARCHAR(20),
@@ -1023,7 +1023,7 @@ export async function syncSchema(_dbArg: Database): Promise<void> {
         id TEXT PRIMARY KEY,
         org_id TEXT NOT NULL REFERENCES organizations(id),
         title VARCHAR(500) NOT NULL,
-        call_id TEXT NOT NULL REFERENCES calls(id),
+        call_id TEXT NOT NULL REFERENCES calls(id) ON DELETE CASCADE,
         facilitator_id TEXT NOT NULL,
         evaluator_ids JSONB NOT NULL,
         scheduled_at TIMESTAMP,
@@ -1441,6 +1441,22 @@ export async function syncSchema(_dbArg: Database): Promise<void> {
       logger.warn({ err: e }, "RLS setup skipped for pattern_subscriptions"),
     );
 
+    // ── call_id foreign-key delete rules ─────────────────────────────────────
+    // Tables created before these rules existed have NO ACTION constraints,
+    // which made call deletes and retention purges fail (23503) once any of
+    // these rows referenced the call. Idempotent; each table isolated.
+    for (const [table, action] of [
+      ["coaching_sessions", "SET NULL"],
+      ["live_sessions", "SET NULL"],
+      ["insurance_narratives", "SET NULL"],
+      ["call_revenues", "CASCADE"],
+      ["calibration_sessions", "CASCADE"],
+    ] as const) {
+      await ensureCallFkOnDelete(db, table, action).catch((e) =>
+        logger.warn({ err: e, table }, "call_id FK delete-rule update skipped"),
+      );
+    }
+
     // ── One-time data migrations ─────────────────────────────────────────────
     // These use runOnceMigration() to ensure they execute exactly once even
     // across repeated server restarts. Add new one-time migrations here.
@@ -1472,6 +1488,36 @@ export async function syncSchema(_dbArg: Database): Promise<void> {
 // ─────────────────────────────────────────────────────────────────────────────
 // DDL helper functions — all idempotent, safe to run on every startup
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Ensure `<table>.call_id → calls(id)` carries the given ON DELETE action.
+ * Only rewrites a constraint whose action differs (drop + add in one ALTER, so
+ * the table is never left without the FK). Tables with no such FK are left
+ * alone. `table` comes from a fixed list in syncSchema, never from input.
+ */
+async function ensureCallFkOnDelete(db: Database, table: string, action: "SET NULL" | "CASCADE"): Promise<void> {
+  const code = action === "CASCADE" ? "c" : "n";
+  const result = await db.execute(
+    sql.raw(`
+      SELECT con.conname, con.confdeltype::text AS confdeltype
+      FROM pg_constraint con
+      JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = ANY (con.conkey)
+      WHERE con.contype = 'f'
+        AND con.conrelid = '${table}'::regclass
+        AND con.confrelid = 'calls'::regclass
+        AND att.attname = 'call_id'
+    `),
+  );
+  const rows = result.rows as Array<{ conname: string; confdeltype: string }>;
+  if (rows.length === 0 || rows.every((r) => r.confdeltype === code)) return;
+  const drops = rows.map((r) => `DROP CONSTRAINT "${r.conname.replace(/"/g, '""')}"`).join(", ");
+  await db.execute(
+    sql.raw(
+      `ALTER TABLE ${table} ${drops}, ADD CONSTRAINT ${table}_call_id_fkey FOREIGN KEY (call_id) REFERENCES calls(id) ON DELETE ${action}`,
+    ),
+  );
+  logger.info({ table, action }, "Updated call_id foreign key delete rule");
+}
 
 /**
  * Add a column to a table if it doesn't already exist.

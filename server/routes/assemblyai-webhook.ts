@@ -2,15 +2,24 @@
  * AssemblyAI webhook handler.
  *
  * When APP_BASE_URL is configured, transcription requests include a webhook_url
- * so AssemblyAI POSTs the completed transcript here instead of requiring polling.
+ * so AssemblyAI POSTs a completion notice here instead of requiring polling.
  * This endpoint is public but verified via the X-Assembly-Webhook-Token header.
+ *
+ * The webhook body is only `{ transcript_id, status }` — not the transcript.
+ * The full transcript is fetched by id before resuming the pipeline.
  */
 import type { Express } from "express";
 import { timingSafeEqual } from "crypto";
 import { storage } from "../storage";
 import { logger } from "../services/logger";
-import { continueAfterTranscription } from "../services/call-processing";
-import type { AssemblyAIResponse } from "../services/assemblyai";
+import { assemblyAIService } from "../services/assemblyai";
+import { continueAfterTranscription, consumeWebhookPipelineOpts } from "../services/call-processing";
+import { ephemeralSetNx, ephemeralDel } from "../services/redis";
+
+const CLAIM_PREFIX = "aai-webhook-claim";
+// Covers AssemblyAI's redelivery window; a claimed call that fails is marked
+// failed (not left processing), so the claim outliving it is harmless.
+const CLAIM_TTL_MS = 6 * 60 * 60 * 1000;
 
 export function registerAssemblyAIWebhookRoutes(app: Express): void {
   // Note: This endpoint is registered BEFORE auth middleware — it is public
@@ -40,9 +49,13 @@ export function registerAssemblyAIWebhookRoutes(app: Express): void {
       return;
     }
 
-    const transcriptResponse = req.body as AssemblyAIResponse;
+    const body = (req.body ?? {}) as { transcript_id?: unknown; id?: unknown; status?: unknown };
+    // `transcript_id` is the documented field; `id` is accepted for robustness.
+    const rawId = body.transcript_id ?? body.id;
+    const transcriptId = typeof rawId === "string" ? rawId : "";
+    const status = typeof body.status === "string" ? body.status : "";
 
-    if (!transcriptResponse?.id) {
+    if (!transcriptId) {
       res.status(400).json({ error: "Missing transcript ID" });
       return;
     }
@@ -50,19 +63,18 @@ export function registerAssemblyAIWebhookRoutes(app: Express): void {
     // Respond immediately — processing happens asynchronously
     res.status(200).json({ received: true });
 
-    if (transcriptResponse.status !== "completed" && transcriptResponse.status !== "error") {
-      logger.info(
-        { transcriptId: transcriptResponse.id, status: transcriptResponse.status },
-        "AssemblyAI webhook: ignoring non-terminal status",
-      );
+    if (status !== "completed" && status !== "error") {
+      logger.info({ transcriptId, status }, "AssemblyAI webhook: ignoring non-terminal status");
       return;
     }
 
-    // Look up the call by assemblyAiId
+    let claimedCallId: string | undefined;
     try {
-      const call = await storage.getCallByAssemblyAiId(transcriptResponse.id);
+      // Intentionally cross-org (INV-11): the transcript id is the only key we
+      // have. Everything below uses the call's own orgId.
+      const call = await storage.getCallByAssemblyAiId(transcriptId);
       if (!call) {
-        logger.warn({ transcriptId: transcriptResponse.id }, "AssemblyAI webhook: call not found for transcript ID");
+        logger.warn({ transcriptId }, "AssemblyAI webhook: call not found for transcript ID");
         return;
       }
 
@@ -70,28 +82,60 @@ export function registerAssemblyAIWebhookRoutes(app: Express): void {
       // Prevents replay attacks from re-processing already-completed calls
       if (call.status !== "processing" && call.status !== "pending") {
         logger.warn(
-          { callId: call.id, status: call.status, transcriptId: transcriptResponse.id },
+          { callId: call.id, status: call.status, transcriptId },
           "AssemblyAI webhook: ignoring callback for call not in processing state",
         );
         return;
       }
 
-      if (transcriptResponse.status === "error") {
+      // Atomic claim: duplicate deliveries both pass the status check above
+      // (the status only changes at the end of the pipeline). Without this,
+      // the second run's insert collided with the first and flipped a
+      // completed call to failed.
+      const claimed = await ephemeralSetNx(CLAIM_PREFIX, call.id, transcriptId, CLAIM_TTL_MS);
+      if (!claimed) {
+        logger.info(
+          { callId: call.id, transcriptId },
+          "AssemblyAI webhook: duplicate delivery — already being processed",
+        );
+        return;
+      }
+      claimedCallId = call.id;
+
+      if (status === "error") {
+        logger.error({ callId: call.id, transcriptId }, "AssemblyAI webhook: transcription error");
+        await storage.updateCall(call.orgId, call.id, { status: "failed" });
+        return;
+      }
+
+      const transcriptResponse = await assemblyAIService.getTranscript(transcriptId);
+      if (transcriptResponse.status !== "completed") {
         logger.error(
-          { callId: call.id, transcriptId: transcriptResponse.id, error: transcriptResponse.error },
-          "AssemblyAI webhook: transcription error",
+          { callId: call.id, transcriptId, status: transcriptResponse.status },
+          "AssemblyAI webhook: fetched transcript is not completed",
         );
         await storage.updateCall(call.orgId, call.id, { status: "failed" });
         return;
       }
 
-      logger.info(
-        { callId: call.id, transcriptId: transcriptResponse.id },
-        "AssemblyAI webhook: resuming pipeline after transcription",
-      );
-      await continueAfterTranscription(call.orgId, call.id, transcriptResponse);
+      const opts = await consumeWebhookPipelineOpts(call.id);
+      logger.info({ callId: call.id, transcriptId }, "AssemblyAI webhook: resuming pipeline after transcription");
+      await continueAfterTranscription(call.orgId, call.id, transcriptResponse, opts);
     } catch (err) {
-      logger.error({ transcriptId: transcriptResponse.id, err }, "AssemblyAI webhook: error processing");
+      logger.error({ transcriptId, err }, "AssemblyAI webhook: error processing");
+      // Don't leave the call stuck in "processing" — nothing else will pick it
+      // up. Release the claim so an operator-triggered retry isn't blocked.
+      if (claimedCallId) {
+        try {
+          const call = await storage.getCallByAssemblyAiId(transcriptId);
+          if (call && call.status === "processing") {
+            await storage.updateCall(call.orgId, call.id, { status: "failed" });
+          }
+        } catch {
+          // Best effort — already logged above
+        }
+        await ephemeralDel(CLAIM_PREFIX, claimedCallId).catch(() => {});
+      }
     }
   });
 }

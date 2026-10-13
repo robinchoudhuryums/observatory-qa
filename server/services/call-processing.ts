@@ -28,7 +28,7 @@ import { calibrateAnalysis } from "./scoring-calibration";
 import { validateClinicalNote } from "./clinical-validation";
 import { estimateBedrockCost, estimateAssemblyAICost } from "./cost-estimation";
 import { safeFloat, withRetry } from "../utils/helpers";
-import { type UsageRecord, type OrgSettings } from "@shared/schema";
+import { type UsageRecord, type OrgSettings, type InsertCallAnalysis } from "@shared/schema";
 import type { AssemblyAIResponse, TranscriptionOptions } from "./assemblyai";
 import {
   loadPromptTemplate,
@@ -235,8 +235,19 @@ export async function processAudioFile(opts: ProcessAudioOptions): Promise<void>
     );
     if (!transcriptResult) return; // Empty transcript handled, or webhook mode (async)
 
-    // In webhook mode, processing continues in the webhook handler
+    // In webhook mode, processing continues in the webhook handler. Stash the
+    // upload-time options it needs (clinical format, uploader, archive state)
+    // because the webhook body carries only the transcript id.
     if (transcriptResult.webhookMode) {
+      await saveWebhookPipelineOpts(callId, {
+        callCategory,
+        userId,
+        clinicalSpecialty,
+        noteFormat,
+        audioArchived: uploadResult.audioArchived,
+        originalName,
+        filePath,
+      });
       logger.info({ callId }, "Webhook mode: transcription submitted, waiting for callback");
       return;
     }
@@ -257,6 +268,44 @@ export async function processAudioFile(opts: ProcessAudioOptions): Promise<void>
     await storage.updateCall(orgId, callId, { status: "failed" });
     broadcastCallUpdate(callId, "failed", { label: "Processing failed" }, orgId);
     await cleanupFile(filePath);
+  }
+}
+
+/** Upload-time options continueAfterTranscription needs on the webhook path. */
+export interface WebhookPipelineOpts {
+  callCategory?: string;
+  userId?: string;
+  clinicalSpecialty?: string;
+  noteFormat?: string;
+  audioArchived?: boolean;
+  originalName?: string;
+  filePath?: string;
+}
+
+const WEBHOOK_OPTS_PREFIX = "aai-webhook-opts";
+// Generous: AssemblyAI normally calls back within minutes, but long files and
+// provider backlogs can stretch that. Redis-backed (in-memory fallback).
+const WEBHOOK_OPTS_TTL_MS = 48 * 60 * 60 * 1000;
+
+async function saveWebhookPipelineOpts(callId: string, opts: WebhookPipelineOpts): Promise<void> {
+  try {
+    const { ephemeralSet } = await import("./redis");
+    await ephemeralSet(WEBHOOK_OPTS_PREFIX, callId, JSON.stringify(opts), WEBHOOK_OPTS_TTL_MS);
+  } catch (err) {
+    // Non-fatal: the webhook falls back to looking the category up from the call.
+    logger.warn({ err, callId }, "Failed to save webhook pipeline options");
+  }
+}
+
+/** Read and remove the options saved at submit time. Undefined if expired/missing. */
+export async function consumeWebhookPipelineOpts(callId: string): Promise<WebhookPipelineOpts | undefined> {
+  try {
+    const { ephemeralConsume } = await import("./redis");
+    const raw = await ephemeralConsume(WEBHOOK_OPTS_PREFIX, callId);
+    return raw ? (JSON.parse(raw) as WebhookPipelineOpts) : undefined;
+  } catch (err) {
+    logger.warn({ err, callId }, "Failed to load webhook pipeline options");
+    return undefined;
   }
 }
 
@@ -406,109 +455,15 @@ export async function continueAfterTranscription(
 
     // Step 5: Process results
     broadcastCallUpdate(callId, "processing", { step: 5, totalSteps: 6, label: "Processing results..." }, orgId);
-    // Load org settings for speaker role configuration
-    const org = await storage.getOrganization(orgId);
-    const orgSettings = org?.settings as OrgSettings | undefined;
-    const { transcript, sentiment, analysis } = assemblyAIService.processTranscriptData(
+    const { transcript, sentiment, analysis, callDuration } = await buildAnalysisRecord({
+      orgId,
+      callId,
       transcriptResponse,
       aiAnalysis,
-      callId,
-      orgId,
-      orgSettings?.defaultSpeakerRoles,
-    );
-
-    // Confidence scoring
-    const wordCount = transcriptResponse.words?.length || 0;
-    const callDuration = Math.floor((transcriptResponse.words?.[transcriptResponse.words.length - 1]?.end || 0) / 1000);
-    const confidence = computeConfidence(
-      transcriptResponse.confidence || 0,
-      wordCount,
-      callDuration,
-      aiAnalysis !== null,
-    );
-    confidence.factors.transcriptLength = (transcriptResponse.text || "").length;
-    analysis.confidenceScore = confidence.score.toFixed(3);
-    analysis.confidenceFactors = {
-      ...confidence.factors,
-      ...(ragCitations ? { ragCitations } : {}),
-    };
-
-    // Sub-scores — only include fields the AI actually returned.
-    // Missing fields are left undefined rather than defaulted to 0,
-    // which would be indistinguishable from a genuine 0/10 score.
-    if (aiAnalysis?.sub_scores) {
-      const ss = aiAnalysis.sub_scores;
-      analysis.subScores = {
-        compliance: ss.compliance != null ? Number(ss.compliance) : undefined,
-        customerExperience: ss.customer_experience != null ? Number(ss.customer_experience) : undefined,
-        communication: ss.communication != null ? Number(ss.communication) : undefined,
-        resolution: ss.resolution != null ? Number(ss.resolution) : undefined,
-      };
-    }
-
-    // Score calibration
-    await applyScoreCalibration(orgId, callId, analysis, aiAnalysis);
-
-    if (aiAnalysis?.detected_agent_name) {
-      analysis.detectedAgentName = aiAnalysis.detected_agent_name;
-    }
-
-    // Score rationale
-    if (aiAnalysis?.score_rationale) {
-      analysis.scoreRationale = aiAnalysis.score_rationale;
-    }
-
-    // Prompt versioning (set by runAiAnalysis via prompt_version_id)
-    if (aiAnalysis?.prompt_version_id) {
-      analysis.promptVersionId = aiAnalysis.prompt_version_id;
-    }
-
-    // Language detection — store detected language and flag non-English calls
-    if (transcriptResponse.language_code) {
-      analysis.detectedLanguage = transcriptResponse.language_code;
-      if (transcriptResponse.language_code !== "en") {
-        const flags = Array.isArray(analysis.flags) ? [...(analysis.flags as string[])] : [];
-        if (!flags.includes("non_english")) flags.push("non_english");
-        analysis.flags = flags;
-      }
-    }
-
-    // Clinical note processing
-    if (aiAnalysis?.clinical_note) {
-      const cn = mapClinicalNote(aiAnalysis.clinical_note);
-      // Extract structured data (vitals, meds, allergies) from note sections
-      // BEFORE encryption — encrypted text can't be parsed for patterns.
-      try {
-        const { extractStructuredDataFromSections } = await import("./clinical-extraction");
-        const structuredData = extractStructuredDataFromSections({
-          objective: typeof cn.objective === "string" ? cn.objective : undefined,
-          subjective: typeof cn.subjective === "string" ? cn.subjective : undefined,
-          plan: Array.isArray(cn.plan) ? cn.plan.join("\n") : undefined,
-        });
-        if (Object.keys(structuredData).length > 0) {
-          cn.structuredData = structuredData;
-        }
-      } catch (extractErr) {
-        logger.debug({ err: extractErr, callId }, "Structured data extraction failed — non-fatal");
-      }
-      validateAndEncryptClinicalNote(callId, cn);
-      analysis.clinicalNote = cn;
-    } else if (clinicalSpecialty || noteFormat) {
-      // AI was expected to produce a clinical note but didn't — flag for retry
-      logger.warn(
-        { callId, clinicalSpecialty, noteFormat },
-        "AI analysis completed but no clinical_note field returned — flagging for retry",
-      );
-      const retryFlags = Array.isArray(analysis.flags) ? [...(analysis.flags as string[])] : [];
-      if (!retryFlags.includes("requires_clinical_retry")) {
-        retryFlags.push("requires_clinical_retry");
-      }
-      analysis.flags = retryFlags;
-    }
-
-    // Server-side flag enforcement
-    const rawFlags: string[] = Array.isArray(analysis.flags) ? [...(analysis.flags as string[])] : [];
-    analysis.flags = enforceServerFlags(rawFlags, confidence.score, safeFloat(analysis.performanceScore));
+      ragCitations,
+      clinicalSpecialty,
+      noteFormat,
+    });
 
     // Step 6: Store results atomically — transcript, sentiment, analysis, and
     // status update all commit together or all roll back. This prevents orphaned
@@ -593,6 +548,218 @@ export async function continueAfterTranscription(
 }
 
 // ==================== PIPELINE SUB-STEPS ====================
+
+/**
+ * Turn a transcript + raw AI result into the records the pipeline stores:
+ * confidence, sub-scores (undefined when the AI omitted them), score
+ * calibration, rationale/prompt version, language flag, clinical note
+ * (structured extraction + validation + PHI encryption) and server-side flag
+ * enforcement. Shared by the upload pipeline and reanalyzeCall so both store
+ * the same shape — the reanalyze route previously spread the raw snake_case
+ * AI result straight into the analysis and lost every score.
+ */
+async function buildAnalysisRecord(params: {
+  orgId: string;
+  callId: string;
+  transcriptResponse: AssemblyAIResponse;
+  aiAnalysis: any;
+  ragCitations?: unknown;
+  clinicalSpecialty?: string;
+  noteFormat?: string;
+}) {
+  const { orgId, callId, transcriptResponse, aiAnalysis, ragCitations, clinicalSpecialty, noteFormat } = params;
+  // Load org settings for speaker role configuration
+  const org = await storage.getOrganization(orgId);
+  const orgSettings = org?.settings as OrgSettings | undefined;
+  const { transcript, sentiment, analysis } = assemblyAIService.processTranscriptData(
+    transcriptResponse,
+    aiAnalysis,
+    callId,
+    orgId,
+    orgSettings?.defaultSpeakerRoles,
+  );
+
+  // Confidence scoring
+  const wordCount = transcriptResponse.words?.length || 0;
+  const callDuration = Math.floor((transcriptResponse.words?.[transcriptResponse.words.length - 1]?.end || 0) / 1000);
+  const confidence = computeConfidence(
+    transcriptResponse.confidence || 0,
+    wordCount,
+    callDuration,
+    aiAnalysis !== null,
+  );
+  confidence.factors.transcriptLength = (transcriptResponse.text || "").length;
+  analysis.confidenceScore = confidence.score.toFixed(3);
+  analysis.confidenceFactors = {
+    ...confidence.factors,
+    ...(ragCitations ? { ragCitations } : {}),
+  };
+
+  // Sub-scores — only include fields the AI actually returned.
+  // Missing fields are left undefined rather than defaulted to 0,
+  // which would be indistinguishable from a genuine 0/10 score.
+  if (aiAnalysis?.sub_scores) {
+    const ss = aiAnalysis.sub_scores;
+    analysis.subScores = {
+      compliance: ss.compliance != null ? Number(ss.compliance) : undefined,
+      customerExperience: ss.customer_experience != null ? Number(ss.customer_experience) : undefined,
+      communication: ss.communication != null ? Number(ss.communication) : undefined,
+      resolution: ss.resolution != null ? Number(ss.resolution) : undefined,
+    };
+  }
+
+  // Score calibration
+  await applyScoreCalibration(orgId, callId, analysis, aiAnalysis);
+
+  if (aiAnalysis?.detected_agent_name) {
+    analysis.detectedAgentName = aiAnalysis.detected_agent_name;
+  }
+
+  // Score rationale
+  if (aiAnalysis?.score_rationale) {
+    analysis.scoreRationale = aiAnalysis.score_rationale;
+  }
+
+  // Prompt versioning (set by runAiAnalysis via prompt_version_id)
+  if (aiAnalysis?.prompt_version_id) {
+    analysis.promptVersionId = aiAnalysis.prompt_version_id;
+  }
+
+  // Language detection — store detected language and flag non-English calls
+  if (transcriptResponse.language_code) {
+    analysis.detectedLanguage = transcriptResponse.language_code;
+    if (transcriptResponse.language_code !== "en") {
+      const flags = Array.isArray(analysis.flags) ? [...(analysis.flags as string[])] : [];
+      if (!flags.includes("non_english")) flags.push("non_english");
+      analysis.flags = flags;
+    }
+  }
+
+  // Clinical note processing
+  if (aiAnalysis?.clinical_note) {
+    const cn = mapClinicalNote(aiAnalysis.clinical_note);
+    // Extract structured data (vitals, meds, allergies) from note sections
+    // BEFORE encryption — encrypted text can't be parsed for patterns.
+    try {
+      const { extractStructuredDataFromSections } = await import("./clinical-extraction");
+      const structuredData = extractStructuredDataFromSections({
+        objective: typeof cn.objective === "string" ? cn.objective : undefined,
+        subjective: typeof cn.subjective === "string" ? cn.subjective : undefined,
+        plan: Array.isArray(cn.plan) ? cn.plan.join("\n") : undefined,
+      });
+      if (Object.keys(structuredData).length > 0) {
+        cn.structuredData = structuredData;
+      }
+    } catch (extractErr) {
+      logger.debug({ err: extractErr, callId }, "Structured data extraction failed — non-fatal");
+    }
+    validateAndEncryptClinicalNote(callId, cn);
+    analysis.clinicalNote = cn;
+  } else if (clinicalSpecialty || noteFormat) {
+    // AI was expected to produce a clinical note but didn't — flag for retry
+    logger.warn(
+      { callId, clinicalSpecialty, noteFormat },
+      "AI analysis completed but no clinical_note field returned — flagging for retry",
+    );
+    const retryFlags = Array.isArray(analysis.flags) ? [...(analysis.flags as string[])] : [];
+    if (!retryFlags.includes("requires_clinical_retry")) {
+      retryFlags.push("requires_clinical_retry");
+    }
+    analysis.flags = retryFlags;
+  }
+
+  // Server-side flag enforcement
+  const rawFlags: string[] = Array.isArray(analysis.flags) ? [...(analysis.flags as string[])] : [];
+  analysis.flags = enforceServerFlags(rawFlags, confidence.score, safeFloat(analysis.performanceScore));
+
+  return { transcript, sentiment, analysis, confidence, callDuration };
+}
+
+/**
+ * Re-run AI analysis for one completed call through the same path as the
+ * upload pipeline (template + RAG via runAiAnalysis, Bedrock protection and
+ * retry, buildAnalysisRecord for mapping/encryption/flags) and replace its
+ * stored analysis. Transcript and sentiment are left as stored.
+ *
+ * Preserved from the existing analysis: the clinical note (attestation,
+ * amendments, cosignature — re-generating it here would discard the signed
+ * record), user-generated artifacts (self-review, dispute, patient summary,
+ * referral letter, billing codes, EHR push status) and the manual-edit trail,
+ * to which a reanalysis entry is appended.
+ *
+ * If the AI step fails the existing analysis is left untouched (returns
+ * ok:false) rather than overwritten with default scores.
+ */
+export async function reanalyzeCall(
+  orgId: string,
+  callId: string,
+  requestedBy: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const call = await storage.getCall(orgId, callId);
+  if (!call) return { ok: false, reason: "Call not found" };
+  const storedTranscript = await storage.getTranscript(orgId, callId);
+  const transcriptText = storedTranscript?.text || "";
+  if (transcriptText.trim().length < 10) return { ok: false, reason: "No valid transcript" };
+
+  const callCategory = call.callCategory || undefined;
+  const transcriptConfidence = Number(storedTranscript?.confidence) || 0;
+  const { aiAnalysis, citations } = await runAiAnalysis(
+    orgId,
+    callId,
+    callCategory,
+    undefined,
+    undefined,
+    undefined,
+    transcriptText,
+    transcriptConfidence,
+  );
+  if (!aiAnalysis) return { ok: false, reason: "AI analysis unavailable" };
+
+  const transcriptResponse = {
+    id: call.assemblyAiId || "",
+    status: "completed",
+    text: transcriptText,
+    confidence: transcriptConfidence,
+    words: (storedTranscript?.words as AssemblyAIResponse["words"]) || [],
+  } as AssemblyAIResponse;
+  const { analysis } = await buildAnalysisRecord({
+    orgId,
+    callId,
+    transcriptResponse,
+    aiAnalysis,
+    ragCitations: citations,
+  });
+
+  const existing = await storage.getCallAnalysis(orgId, callId);
+  if (existing) {
+    // Stored clinical note is still PHI-encrypted (decryption happens in the
+    // clinical routes), so writing it back keeps it encrypted at rest.
+    analysis.clinicalNote = existing.clinicalNote;
+    analysis.selfReview = existing.selfReview;
+    analysis.scoreDispute = existing.scoreDispute;
+    analysis.patientSummary = existing.patientSummary;
+    analysis.referralLetter = existing.referralLetter;
+    analysis.suggestedBillingCodes = existing.suggestedBillingCodes;
+    analysis.ehrPushStatus = existing.ehrPushStatus;
+  }
+  const priorEdits = Array.isArray(existing?.manualEdits) ? existing.manualEdits : [];
+  analysis.manualEdits = [
+    ...priorEdits,
+    {
+      editedBy: "system",
+      editedAt: new Date().toISOString(),
+      reason: `Reanalysis requested by ${requestedBy}`,
+      fieldsChanged: ["reanalysis"],
+      previousValues: { performanceScore: existing?.performanceScore },
+    },
+  ] as InsertCallAnalysis["manualEdits"];
+
+  await storage.createCallAnalysis(orgId, analysis);
+  invalidateDashboardCache(orgId).catch((err) => {
+    logger.debug({ err, orgId }, "Failed to invalidate dashboard cache (non-blocking)");
+  });
+  return { ok: true };
+}
 
 async function uploadAndArchive(
   orgId: string,

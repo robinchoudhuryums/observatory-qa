@@ -930,21 +930,32 @@ export class PostgresStorage {
     return rows[0] ? this.mapTranscript(rows[0]) : undefined;
   }
 
+  /**
+   * Upsert by callId (unique index transcripts_call_id_idx) — matches MemStorage,
+   * which callers rely on to replace an existing transcript. A plain INSERT
+   * failed with 23505 on every second write. The org filter on the conflict
+   * update means another org's row is never overwritten.
+   */
   async createTranscript(orgId: string, transcript: InsertTranscript): Promise<Transcript> {
-    const id = randomUUID();
+    const values = {
+      orgId,
+      callId: transcript.callId,
+      text: typeof transcript.text === "string" ? encryptField(transcript.text) : transcript.text,
+      confidence: transcript.confidence,
+      words: transcript.words || null,
+      corrections: transcript.corrections || null,
+      correctedText: transcript.correctedText || null,
+    };
     const [row] = await this.db
       .insert(tables.transcripts)
-      .values({
-        id,
-        orgId,
-        callId: transcript.callId,
-        text: typeof transcript.text === "string" ? encryptField(transcript.text) : transcript.text,
-        confidence: transcript.confidence,
-        words: transcript.words || null,
-        corrections: transcript.corrections || null,
-        correctedText: transcript.correctedText || null,
+      .values({ id: randomUUID(), ...values })
+      .onConflictDoUpdate({
+        target: tables.transcripts.callId,
+        set: values,
+        setWhere: eq(tables.transcripts.orgId, orgId),
       })
       .returning();
+    if (!row) throw new Error("createTranscript: call belongs to a different organization");
     return this.mapTranscript(row);
   }
 
@@ -976,19 +987,25 @@ export class PostgresStorage {
     return rows[0] ? this.mapSentiment(rows[0]) : undefined;
   }
 
+  /** Upsert by callId — see createTranscript. */
   async createSentimentAnalysis(orgId: string, sentiment: InsertSentimentAnalysis): Promise<SentimentAnalysis> {
-    const id = randomUUID();
+    const values = {
+      orgId,
+      callId: sentiment.callId,
+      overallSentiment: sentiment.overallSentiment,
+      overallScore: sentiment.overallScore,
+      segments: sentiment.segments || null,
+    };
     const [row] = await this.db
       .insert(tables.sentimentAnalyses)
-      .values({
-        id,
-        orgId,
-        callId: sentiment.callId,
-        overallSentiment: sentiment.overallSentiment,
-        overallScore: sentiment.overallScore,
-        segments: sentiment.segments || null,
+      .values({ id: randomUUID(), ...values })
+      .onConflictDoUpdate({
+        target: tables.sentimentAnalyses.callId,
+        set: values,
+        setWhere: eq(tables.sentimentAnalyses.orgId, orgId),
       })
       .returning();
+    if (!row) throw new Error("createSentimentAnalysis: call belongs to a different organization");
     return this.mapSentiment(row);
   }
 
@@ -1002,44 +1019,56 @@ export class PostgresStorage {
     return rows[0] ? normalizeAnalysis(this.mapAnalysis(rows[0])) : undefined;
   }
 
+  /**
+   * Upsert by callId (unique index analyses_call_id_idx). ~20 callers (attest,
+   * consent, note edits, addenda, cosign, disputes, reanalysis) write back a
+   * modified copy of an existing analysis through this method; MemStorage
+   * replaces by callId, so PG must too. Previously a plain INSERT, which threw
+   * 23505 on every one of those writes. Replaces the whole row like MemStorage.
+   */
   async createCallAnalysis(orgId: string, analysis: InsertCallAnalysis): Promise<CallAnalysis> {
-    const id = randomUUID();
+    const values = {
+      orgId,
+      callId: analysis.callId,
+      performanceScore: analysis.performanceScore,
+      talkTimeRatio: analysis.talkTimeRatio,
+      responseTime: analysis.responseTime,
+      keywords: analysis.keywords || null,
+      topics: analysis.topics || null,
+      summary: typeof analysis.summary === "string" ? encryptField(analysis.summary) : analysis.summary,
+      actionItems: analysis.actionItems || null,
+      feedback: analysis.feedback || null,
+      lemurResponse: analysis.lemurResponse || null,
+      callPartyType: analysis.callPartyType,
+      flags: analysis.flags || null,
+      manualEdits: analysis.manualEdits || null,
+      confidenceScore: analysis.confidenceScore,
+      confidenceFactors: analysis.confidenceFactors || null,
+      subScores: analysis.subScores || null,
+      detectedAgentName: analysis.detectedAgentName,
+      clinicalNote: analysis.clinicalNote || null,
+      speechMetrics: analysis.speechMetrics || null,
+      selfReview: analysis.selfReview || null,
+      scoreDispute: analysis.scoreDispute || null,
+      patientSummary: analysis.patientSummary || null,
+      referralLetter: analysis.referralLetter || null,
+      suggestedBillingCodes: analysis.suggestedBillingCodes || null,
+      scoreRationale: analysis.scoreRationale || null,
+      promptVersionId: analysis.promptVersionId || null,
+      speakerRoleMap: analysis.speakerRoleMap || null,
+      detectedLanguage: analysis.detectedLanguage || null,
+      ehrPushStatus: analysis.ehrPushStatus || null,
+    };
     const [row] = await this.db
       .insert(tables.callAnalyses)
-      .values({
-        id,
-        orgId,
-        callId: analysis.callId,
-        performanceScore: analysis.performanceScore,
-        talkTimeRatio: analysis.talkTimeRatio,
-        responseTime: analysis.responseTime,
-        keywords: analysis.keywords || null,
-        topics: analysis.topics || null,
-        summary: typeof analysis.summary === "string" ? encryptField(analysis.summary) : analysis.summary,
-        actionItems: analysis.actionItems || null,
-        feedback: analysis.feedback || null,
-        lemurResponse: analysis.lemurResponse || null,
-        callPartyType: analysis.callPartyType,
-        flags: analysis.flags || null,
-        manualEdits: analysis.manualEdits || null,
-        confidenceScore: analysis.confidenceScore,
-        confidenceFactors: analysis.confidenceFactors || null,
-        subScores: analysis.subScores || null,
-        detectedAgentName: analysis.detectedAgentName,
-        clinicalNote: analysis.clinicalNote || null,
-        speechMetrics: analysis.speechMetrics || null,
-        selfReview: analysis.selfReview || null,
-        scoreDispute: analysis.scoreDispute || null,
-        patientSummary: analysis.patientSummary || null,
-        referralLetter: analysis.referralLetter || null,
-        suggestedBillingCodes: analysis.suggestedBillingCodes || null,
-        scoreRationale: analysis.scoreRationale || null,
-        promptVersionId: analysis.promptVersionId || null,
-        speakerRoleMap: analysis.speakerRoleMap || null,
-        detectedLanguage: analysis.detectedLanguage || null,
-        ehrPushStatus: analysis.ehrPushStatus || null,
+      .values({ id: randomUUID(), ...values })
+      .onConflictDoUpdate({
+        target: tables.callAnalyses.callId,
+        set: values,
+        setWhere: eq(tables.callAnalyses.orgId, orgId),
       })
       .returning();
+    if (!row) throw new Error("createCallAnalysis: call belongs to a different organization");
     return this.mapAnalysis(row);
   }
 

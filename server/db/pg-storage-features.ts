@@ -913,7 +913,9 @@ P.deleteOrgData = async function (
     // 24. Delete subscriptions and usage events
     await tx.execute(sql`DELETE FROM subscriptions WHERE org_id = ${orgId}`);
     await tx.execute(sql`DELETE FROM usage_events WHERE org_id = ${orgId}`);
-    await tx.execute(sql`DELETE FROM usage_records WHERE org_id = ${orgId}`);
+    // Per-call cost records live in spend_records (UsageRecord type). There is no
+    // usage_records table — referencing it aborted the whole purge transaction.
+    await tx.execute(sql`DELETE FROM spend_records WHERE org_id = ${orgId}`);
     // 25. Delete call shares
     await tx.execute(sql`DELETE FROM call_shares WHERE org_id = ${orgId}`);
     // 26. Delete BAA records and security incidents

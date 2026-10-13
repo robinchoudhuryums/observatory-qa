@@ -19,7 +19,7 @@ import { asyncHandler, AppError } from "../middleware/error-handler";
 const validateId = validateUUIDParam("id");
 import { enforceQuota, requireActiveSubscription, reportCallOverageToStripe } from "./billing";
 import { logger } from "../services/logger";
-import { CALL_CATEGORIES, type InsertCallAnalysis } from "@shared/schema";
+import { CALL_CATEGORIES } from "@shared/schema";
 import { decryptClinicalNotePhi } from "../services/phi-encryption";
 import { errorResponse, ERROR_CODES } from "../services/error-codes";
 import { processAudioFile, invalidateRefDocCache, cleanupFile } from "../services/call-processing";
@@ -772,54 +772,14 @@ export function registerCallRoutes(app: Express): void {
             orgId,
           );
 
-          const { getOrgAIProvider } = await import("../services/ai-factory");
-          const org = await storage.getOrganization(orgId);
-          const provider = getOrgAIProvider(orgId, org?.settings);
-
-          if (!provider.isAvailable) {
+          const { reanalyzeCall } = await import("../services/call-processing");
+          const result = await reanalyzeCall(orgId, callId, req.user?.name || req.user?.username || "unknown");
+          if (!result.ok) {
+            // Existing analysis is left untouched when the AI step fails.
             await storage.updateCall(orgId, callId, { status: "completed" });
-            broadcastCallUpdate(callId, "failed", { step: 2, totalSteps: 2, label: "AI provider unavailable" }, orgId);
+            broadcastCallUpdate(callId, "failed", { step: 2, totalSteps: 2, label: result.reason }, orgId);
             return;
           }
-
-          // Load prompt template for this call's category
-          const template = call.callCategory
-            ? await storage.getPromptTemplateByCategory(orgId, call.callCategory)
-            : undefined;
-
-          const result = await provider.analyzeCallTranscript(
-            transcript.text!,
-            callId,
-            call.callCategory || undefined,
-            template
-              ? ({
-                  evaluationCriteria: template.evaluationCriteria || undefined,
-                  scoringWeights: template.scoringWeights,
-                  requiredPhrases: template.requiredPhrases,
-                } as import("../services/ai-provider").PromptTemplateConfig)
-              : undefined,
-          );
-
-          // Preserve existing data that shouldn't be overwritten
-          const existing = await storage.getCallAnalysis(orgId, callId);
-          const manualEdits = existing?.manualEdits || [];
-
-          await storage.createCallAnalysis(orgId, {
-            id: existing?.id || callId,
-            orgId,
-            callId,
-            ...result,
-            manualEdits: [
-              ...(Array.isArray(manualEdits) ? manualEdits : []),
-              {
-                editedBy: "system",
-                editedAt: new Date().toISOString(),
-                reason: `Reanalysis requested by ${req.user?.name || req.user?.username}`,
-                fieldsChanged: ["reanalysis"],
-                previousValues: { performanceScore: existing?.performanceScore },
-              },
-            ],
-          } as InsertCallAnalysis);
 
           await storage.updateCall(orgId, callId, { status: "completed" });
           broadcastCallUpdate(callId, "completed", { step: 2, totalSteps: 2, label: "Reanalysis complete" }, orgId);
