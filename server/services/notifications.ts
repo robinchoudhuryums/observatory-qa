@@ -15,6 +15,7 @@ import { logger } from "./logger";
 import { storage } from "../storage";
 import { sendEmail, buildFlaggedCallEmail } from "./email";
 import { withRetry } from "../utils/helpers";
+import { safeFetch, SsrfBlockedError } from "../utils/url-validation";
 
 // --- Configuration ---
 
@@ -98,12 +99,23 @@ type SlackBlock = {
 
 async function sendWebhook(url: string, payload: Record<string, unknown>): Promise<boolean> {
   const attempt = async () => {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(10000),
-    });
+    // The URL is tenant-configured (org settings): no internal targets, no redirects.
+    let response: Response;
+    try {
+      response = await safeFetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        timeoutMs: 10000,
+        maxBytes: 64 * 1024,
+      });
+    } catch (err) {
+      if (err instanceof SsrfBlockedError) {
+        logger.warn({ reason: err.message }, "Webhook URL blocked by SSRF policy (not retrying)");
+        return false;
+      }
+      throw err;
+    }
 
     if (!response.ok) {
       const body = await response.text().catch(() => "");

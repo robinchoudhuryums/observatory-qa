@@ -16,7 +16,7 @@
 import { randomUUID, createHash } from "crypto";
 import { logger } from "./logger";
 import { redactPhi } from "../utils/phi-redactor";
-import { validateUrl } from "../utils/url-validation";
+import { safeFetch } from "../utils/url-validation";
 
 export interface AuditEntry {
   timestamp?: string;
@@ -357,13 +357,8 @@ async function getSiemUrl(orgId: string): Promise<string | null> {
 
 /** Forward a single audit entry to the org's SIEM webhook endpoint. Fire-and-forget. */
 async function forwardToSiem(entry: AuditEntry & { timestamp: string }, siemUrl: string): Promise<void> {
-  // SSRF validation — reject private/internal network URLs
-  const ssrfCheck = validateUrl(siemUrl);
-  if (!ssrfCheck.valid) {
-    logger.warn({ orgId: entry.orgId, reason: ssrfCheck.reason }, "SSRF: skipping SIEM webhook forward to blocked URL");
-    return;
-  }
-
+  // SSRF: safeFetch rejects private/internal targets (including by DNS
+  // resolution) and does not follow redirects. Failures are logged below.
   try {
     const payload = {
       source: "observatory-qa",
@@ -379,11 +374,12 @@ async function forwardToSiem(entry: AuditEntry & { timestamp: string }, siemUrl:
       ip: entry.ip,
       detail: entry.detail,
     };
-    const resp = await fetch(siemUrl, {
+    const resp = await safeFetch(siemUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Source": "observatory-qa-audit" },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(5000),
+      timeoutMs: 5000,
+      maxBytes: 64 * 1024,
     });
     if (!resp.ok) {
       logger.debug({ status: resp.status, orgId: entry.orgId }, "SIEM webhook returned non-2xx");

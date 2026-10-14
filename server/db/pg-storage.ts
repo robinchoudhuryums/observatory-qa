@@ -2037,14 +2037,15 @@ export class PostgresStorage {
   }
 
   async getInvitationByToken(token: string): Promise<Invitation | undefined> {
-    // Hash the submitted token before lookup — DB stores only hashes.
-    // Also try plaintext match for backward compatibility with pre-hashing invitations.
+    // Hash the submitted token before lookup — DB stores only hashes. No
+    // plaintext match: that made the stored hash (readable via the invitations
+    // list) a redeemable token.
     const { createHash } = await import("crypto");
     const tokenHash = createHash("sha256").update(token).digest("hex");
     const rows = await this.db
       .select()
       .from(tables.invitations)
-      .where(sql`${tables.invitations.token} = ${tokenHash} OR ${tables.invitations.token} = ${token}`)
+      .where(eq(tables.invitations.token, tokenHash))
       .limit(1);
     return rows[0] ? this.mapInvitation(rows[0]) : undefined;
   }

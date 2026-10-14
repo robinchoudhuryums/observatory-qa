@@ -797,3 +797,29 @@ export const requireSuperAdmin: RequestHandler = (req: Request, res: Response, n
   }
   return next();
 };
+
+// ── Pending-MFA marker ─────────────────────────────────────────────────────
+// The password step for an MFA-enabled user does not create a session; it
+// records which user passed it. The MFA login routes (TOTP, backup code,
+// WebAuthn, email OTP) only complete a login for that user. Without this, a
+// bare userId plus a second factor was a login.
+
+export const MFA_PENDING_TTL_MS = 10 * 60 * 1000;
+
+type MfaPendingSession = { mfaPending?: { userId: string; expiresAt: number } };
+
+export function setMfaPending(req: Request, userId: string): void {
+  (req.session as unknown as MfaPendingSession).mfaPending = { userId, expiresAt: Date.now() + MFA_PENDING_TTL_MS };
+}
+
+/**
+ * The userId that passed the password step in this session, or null when no
+ * unexpired marker exists. A `userId` in the request body must match it.
+ */
+export function getMfaPendingUserId(req: Request): string | null {
+  const pending = (req.session as unknown as MfaPendingSession | undefined)?.mfaPending;
+  if (!pending || typeof pending.userId !== "string" || !(pending.expiresAt > Date.now())) return null;
+  const bodyUserId = (req.body as { userId?: unknown } | undefined)?.userId;
+  if (bodyUserId !== undefined && bodyUserId !== pending.userId) return null;
+  return pending.userId;
+}

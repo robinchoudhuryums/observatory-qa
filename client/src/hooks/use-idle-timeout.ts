@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { csrfFetch, queryClient } from "@/lib/queryClient";
 
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 const WARNING_DURATION_MS = 2 * 60 * 1000;
@@ -34,9 +35,13 @@ export function useIdleTimeout(): IdleTimeoutState {
   const performLogout = useCallback(async () => {
     clearTimers();
     try {
-      await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
+      // Logout is CSRF-protected; a raw fetch without the token got a 403 and
+      // the server session survived the idle auto-logout.
+      await csrfFetch("/api/auth/logout", { method: "POST" });
     } catch {}
-    // Clear only auth-related storage, not user preferences (theme, tour state, etc.)
+    // Drop cached API responses (PHI) and auth-related storage, but keep user
+    // preferences in localStorage (theme, tour state, etc.)
+    queryClient.clear();
     sessionStorage.clear();
     window.location.href = "/auth";
   }, [clearTimers]);

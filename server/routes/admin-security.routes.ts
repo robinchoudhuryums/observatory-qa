@@ -7,7 +7,7 @@
 import type { Express } from "express";
 import { z } from "zod";
 import { storage } from "../storage";
-import { requireAuth, requireRole, injectOrgContext, invalidateOrgCache } from "../auth";
+import { requireAuth, requireRole, requireSuperAdmin, injectOrgContext, invalidateOrgCache } from "../auth";
 import { logger } from "../services/logger";
 import { asyncHandler } from "../middleware/error-handler";
 import { queryAuditLogs, exportAuditLogs, verifyAuditChain, logPhiAccess, auditContext } from "../services/audit-log";
@@ -210,28 +210,34 @@ export function registerAdminSecurityRoutes(app: Express): void {
   );
 
   // ==================== WAF ADMIN ROUTES ====================
+  // The WAF block list and stats are process-global, not per-org: blocking an
+  // IP blocks it for every tenant. Platform operators only — a tenant admin
+  // (which self-registration makes anyone) must not be able to lock another
+  // clinic out or read platform-wide attack data.
 
-  app.get("/api/admin/waf-stats", requireAuth, requireRole("admin"), (_req, res) => {
+  app.get("/api/admin/waf-stats", requireAuth, requireSuperAdmin, (_req, res) => {
     res.json(getWafStats());
   });
 
-  app.post("/api/admin/waf/block-ip", requireAuth, requireRole("admin"), (req, res) => {
+  app.post("/api/admin/waf/block-ip", requireAuth, requireSuperAdmin, (req, res) => {
     const { ip } = req.body;
     if (!ip || typeof ip !== "string") {
       res.status(400).json({ message: "IP address is required" });
       return;
     }
     blockIp(ip);
+    logger.warn({ ip, by: req.user?.username }, "WAF: IP blocked by super admin");
     res.json({ success: true, message: `IP ${ip} blocked` });
   });
 
-  app.post("/api/admin/waf/unblock-ip", requireAuth, requireRole("admin"), (req, res) => {
+  app.post("/api/admin/waf/unblock-ip", requireAuth, requireSuperAdmin, (req, res) => {
     const { ip } = req.body;
     if (!ip || typeof ip !== "string") {
       res.status(400).json({ message: "IP address is required" });
       return;
     }
     unblockIp(ip);
+    logger.warn({ ip, by: req.user?.username }, "WAF: IP unblocked by super admin");
     res.json({ success: true, message: `IP ${ip} unblocked` });
   });
 

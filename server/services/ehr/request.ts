@@ -9,7 +9,7 @@
  */
 
 import { logger } from "../logger.js";
-import { validateUrl } from "../../utils/url-validation.js";
+import { safeFetch, SsrfBlockedError } from "../../utils/url-validation.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000; // 30 seconds
 const DEFAULT_RETRIES = 2;
@@ -43,13 +43,9 @@ export async function ehrRequest<T>(opts: EhrRequestOptions): Promise<T> {
     systemLabel = "EHR",
   } = opts;
 
-  // SSRF prevention: validate URL before making any outbound request.
-  // EHR base URLs come from org admin settings and could target internal services.
-  const urlCheck = validateUrl(url);
-  if (!urlCheck.valid) {
-    throw new Error(`${systemLabel}: URL blocked by SSRF validation — ${urlCheck.reason}`);
-  }
-
+  // SSRF prevention: EHR base URLs come from org admin settings and could
+  // target internal services. safeFetch validates the URL, the resolved
+  // address (at connect time) and does not follow redirects.
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -63,7 +59,7 @@ export async function ehrRequest<T>(opts: EhrRequestOptions): Promise<T> {
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const response = await fetch(url, {
+      const response = await safeFetch(url, {
         method,
         headers,
         body: body ? JSON.stringify(body) : undefined,
@@ -87,7 +83,11 @@ export async function ehrRequest<T>(opts: EhrRequestOptions): Promise<T> {
     } catch (err) {
       clearTimeout(timer);
 
-      if (err instanceof DOMException && err.name === "AbortError") {
+      if (err instanceof SsrfBlockedError) {
+        throw new Error(`${systemLabel}: URL blocked by SSRF validation — ${err.message}`);
+      }
+
+      if ((err as Error)?.name === "AbortError") {
         lastError = new Error(`${systemLabel} API request timed out after ${timeoutMs}ms: ${method} ${url}`);
         if (attempt < retries) continue; // Retry timeouts
         throw lastError;

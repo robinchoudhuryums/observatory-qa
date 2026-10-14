@@ -6,7 +6,8 @@ import { logger } from "../services/logger";
 import { logPhiAccess } from "../services/audit-log";
 import { syncSeatUsage } from "./billing";
 import type { Organization, OrgSettings } from "../../shared/schema";
-import { validateUrl } from "../utils/url-validation";
+import { validateUrl, safeFetch } from "../utils/url-validation";
+import { decryptField } from "../services/phi-encryption";
 
 /**
  * SSO authentication (Enterprise plan feature).
@@ -454,7 +455,7 @@ async function fetchOidcDiscovery(discoveryUrl: string): Promise<OidcDiscovery> 
     throw new Error(`OIDC discovery URL blocked by SSRF policy: ${ssrfCheck.reason}`);
   }
 
-  const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  const resp = await safeFetch(url, { timeoutMs: 8000, maxBytes: 1024 * 1024 });
   if (!resp.ok) throw new Error(`OIDC discovery fetch failed: ${resp.status}`);
   return resp.json() as Promise<OidcDiscovery>;
 }
@@ -469,7 +470,7 @@ async function fetchJwks(jwksUri: string): Promise<Record<string, unknown>[]> {
     throw new Error(`JWKS URI blocked by SSRF policy: ${ssrfCheck.reason}`);
   }
 
-  const resp = await fetch(jwksUri, { signal: AbortSignal.timeout(8000) });
+  const resp = await safeFetch(jwksUri, { timeoutMs: 8000, maxBytes: 1024 * 1024 });
   if (!resp.ok) throw new Error(`JWKS fetch failed: ${resp.status}`);
   const data = (await resp.json()) as { keys: Record<string, unknown>[] };
   jwksCache.set(jwksUri, { keys: data.keys, fetchedAt: Date.now() });
@@ -795,7 +796,9 @@ export function registerSsoRoutes(app: Express): void {
       const discovery = await fetchOidcDiscovery(settings.oidcDiscoveryUrl!);
 
       // Exchange code for tokens
-      const tokenResp = await fetch(discovery.token_endpoint, {
+      // token_endpoint comes from the (tenant-chosen) discovery document, so
+      // it gets the same SSRF guard as the discovery URL itself.
+      const tokenResp = await safeFetch(discovery.token_endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
@@ -803,9 +806,11 @@ export function registerSsoRoutes(app: Express): void {
           code,
           redirect_uri: `${baseUrl}/api/auth/oidc/callback`,
           client_id: settings.oidcClientId!,
-          client_secret: settings.oidcClientSecret!,
-        }),
-        signal: AbortSignal.timeout(10000),
+          // Stored encrypted (admin settings PATCH); legacy plaintext passes through.
+          client_secret: decryptField(settings.oidcClientSecret!),
+        }).toString(),
+        timeoutMs: 10000,
+        maxBytes: 1024 * 1024,
       });
 
       const tokens = (await tokenResp.json()) as OidcTokenResponse;

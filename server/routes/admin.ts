@@ -7,7 +7,9 @@ import {
   hashPassword,
   validatePasswordComplexity,
   invalidateOrgCache,
+  ROLE_HIERARCHY,
 } from "../auth";
+import { encryptField } from "../services/phi-encryption";
 import { aiProvider } from "../services/ai-factory";
 import { assemblyAIService } from "../services/assemblyai";
 import { broadcastCallUpdate } from "../services/websocket";
@@ -24,6 +26,60 @@ import { getRedis, invalidateUserSessions } from "../services/redis";
 import { generateScimToken } from "./scim";
 import { parseCertExpiry } from "./sso";
 import { registerAdminSecurityRoutes } from "./admin-security.routes";
+
+// ── Org settings exposure ────────────────────────────────────────────────
+// GET /api/organization is fetched for every user (App.tsx), so stored
+// settings must be filtered before they leave the server.
+
+/** Never sent to any client, admins included. */
+const SECRET_ORG_SETTINGS = ["oidcClientSecret", "scimTokenHash", "encryptedDataKey", "kmsKeyId"] as const;
+/** Configuration only admins need (integration endpoints, alert recipients). */
+const ADMIN_ONLY_ORG_SETTINGS = [
+  "webhookUrl",
+  "webhookEvents",
+  "siemWebhookUrl",
+  "ehrConfig",
+  "scimTokenPrefix",
+  "billingAlerts",
+  "budgetAlerts",
+] as const;
+
+export function redactOrgForRole<T extends { settings?: unknown }>(org: T, role: string | undefined): T {
+  const settings = { ...((org.settings as Record<string, unknown> | undefined) || {}) };
+  const oidcSecretConfigured = !!settings.oidcClientSecret;
+  for (const key of SECRET_ORG_SETTINGS) delete settings[key];
+  const isAdmin = (ROLE_HIERARCHY[role || ""] ?? 0) >= ROLE_HIERARCHY.admin;
+  if (isAdmin) {
+    if (settings.ehrConfig && typeof settings.ehrConfig === "object") {
+      const { apiKey: _apiKey, ...ehrRest } = settings.ehrConfig as Record<string, unknown>;
+      settings.ehrConfig = ehrRest;
+    }
+    // Lets the settings UI show "configured" without the secret itself.
+    if (oidcSecretConfigured) settings.oidcClientSecretConfigured = true;
+  } else {
+    for (const key of ADMIN_ONLY_ORG_SETTINGS) delete settings[key];
+  }
+  return { ...org, settings };
+}
+
+/**
+ * Settings the PATCH route never accepts (zod strips them, so the stored
+ * values are kept by the merge): server-computed state, key material, and
+ * ehrConfig — whose apiKey must go through PUT /api/ehr/config, which
+ * encrypts it, rather than land here in plaintext.
+ */
+const orgSettingsPatchSchema = orgSettingsSchema
+  .omit({
+    encryptedDataKey: true,
+    kmsKeyId: true,
+    scimTokenHash: true,
+    scimTokenPrefix: true,
+    mfaRequiredEnabledAt: true,
+    ssoCertificateExpiry: true,
+    ssoNewCertificateExpiry: true,
+    ehrConfig: true,
+  })
+  .partial();
 
 export function registerAdminRoutes(app: Express): void {
   // ==================== PROMPT TEMPLATE ROUTES (admin only) ====================
@@ -480,7 +536,7 @@ export function registerAdminRoutes(app: Express): void {
     asyncHandler(async (req, res) => {
       const org = await storage.getOrganization(req.orgId!);
       if (!org) return res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Organization not found"));
-      res.json(org);
+      res.json(redactOrgForRole(org, req.user?.role));
     }),
   );
 
@@ -494,7 +550,7 @@ export function registerAdminRoutes(app: Express): void {
       const org = await storage.getOrganization(req.orgId!);
       if (!org) return res.status(404).json(errorResponse(ERROR_CODES.INTERNAL_ERROR, "Organization not found"));
 
-      const parsed = orgSettingsSchema.partial().safeParse(req.body);
+      const parsed = orgSettingsPatchSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid settings", errors: parsed.error.flatten() });
       }
@@ -547,6 +603,10 @@ export function registerAdminRoutes(app: Express): void {
         data.ssoNewCertificate = undefined;
         data.ssoNewCertificateExpiry = undefined;
       }
+      // The OIDC client secret is stored encrypted; sso.ts decrypts it at use.
+      if (typeof data.oidcClientSecret === "string" && data.oidcClientSecret) {
+        data.oidcClientSecret = encryptField(data.oidcClientSecret);
+      }
 
       const updatedSettings = { ...(org.settings || {}), ...parsed.data } as OrgSettings;
 
@@ -583,7 +643,7 @@ export function registerAdminRoutes(app: Express): void {
         detail: JSON.stringify({ changedFields }),
       });
       logger.info({ org: req.orgId, changedFields }, "Organization settings updated");
-      res.json(updated);
+      res.json(updated ? redactOrgForRole(updated, req.user?.role) : updated);
     }),
   );
 

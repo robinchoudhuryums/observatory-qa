@@ -26,7 +26,7 @@ import {
 } from "../services/rag";
 import { isEmbeddingAvailable } from "../services/embeddings";
 import { invalidateRefDocCache } from "./calls";
-import { validateUrl } from "../utils/url-validation";
+import { validateUrl, safeFetch, SsrfBlockedError, ResponseTooLargeError } from "../utils/url-validation";
 import { asyncHandler } from "../middleware/error-handler";
 
 // Configure multer for logo + document uploads
@@ -928,12 +928,16 @@ export function registerOnboardingRoutes(app: Express): void {
         return res.status(400).json({ message: "Invalid URL format" });
       }
 
-      // Fetch the page
+      // Fetch the page. safeFetch re-checks the resolved address at connect
+      // time and on every redirect hop, and caps the body: the stored text is
+      // readable back through GET /api/reference-documents/:id.
       let pageText: string;
       try {
-        const response = await fetch(url, {
+        const response = await safeFetch(url, {
           headers: { "User-Agent": "ObservatoryQA-Bot/1.0" },
-          signal: AbortSignal.timeout(15000),
+          timeoutMs: 15000,
+          maxRedirects: 3,
+          maxBytes: 5 * 1024 * 1024,
         });
         if (!response.ok) {
           return res.status(400).json({ message: `Failed to fetch URL: HTTP ${response.status}` });
@@ -973,7 +977,17 @@ export function registerOnboardingRoutes(app: Express): void {
         if (fetchErr?.name === "TimeoutError" || fetchErr?.name === "AbortError") {
           return res.status(408).json({ message: "URL fetch timed out (15s limit)" });
         }
-        return res.status(400).json({ message: `Failed to fetch URL: ${fetchErr?.message || "Unknown error"}` });
+        if (fetchErr instanceof SsrfBlockedError) {
+          logger.warn({ url, reason: fetchErr.message, orgId }, "SSRF: blocked reference document fetch");
+          return res.status(400).json({ message: "URL targets a disallowed address" });
+        }
+        if (fetchErr instanceof ResponseTooLargeError) {
+          return res.status(400).json({ message: "Page is too large to import (5 MB limit)" });
+        }
+        // Don't echo the underlying error: connection-refused vs reset vs TLS
+        // messages work as an internal port-scan oracle.
+        logger.warn({ err: fetchErr, orgId }, "Reference document URL fetch failed");
+        return res.status(400).json({ message: "Failed to fetch URL" });
       }
 
       if (!pageText || pageText.trim().length < 10) {

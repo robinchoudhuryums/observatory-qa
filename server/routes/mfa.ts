@@ -25,10 +25,10 @@
  *   POST /api/auth/mfa/recovery/:token/verify-email   — Confirm email ownership for recovery
  *   POST /api/auth/mfa/recovery/:useToken/use         — Consume approved recovery token to login
  */
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import { generateSecret, generateURI, verify as verifyOtp } from "otplib";
 import * as QRCode from "qrcode";
-import { randomBytes, createHash } from "crypto";
+import { randomBytes, createHash, randomInt } from "crypto";
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
@@ -36,7 +36,7 @@ import {
   verifyAuthenticationResponse,
 } from "@simplewebauthn/server";
 import { isoBase64URL } from "@simplewebauthn/server/helpers";
-import { requireAuth, injectOrgContext } from "../auth";
+import { requireAuth, injectOrgContext, getMfaPendingUserId } from "../auth";
 import { storage } from "../storage";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { encryptMfaSecret, decryptMfaSecret } from "../services/phi-encryption";
@@ -101,6 +101,23 @@ function generateBackupCodes(count = 10): { plain: string[]; hashed: string[] } 
     hashed.push(createHash("sha256").update(code).digest("hex"));
   }
   return { plain, hashed };
+}
+
+/**
+ * MFA login routes act only for the user that passed the password step in
+ * this session (see setMfaPending in auth.ts). Responds 401 and returns null
+ * when there is no matching, unexpired marker.
+ */
+function requireMfaPending(req: Request, res: Response): string | null {
+  const userId = getMfaPendingUserId(req);
+  if (!userId) {
+    res.status(401).json({
+      message: "MFA session expired or missing. Please sign in with your password again.",
+      errorCode: "OBS-AUTH-003",
+    });
+    return null;
+  }
+  return userId;
 }
 
 function hashBackupCode(code: string): string {
@@ -211,9 +228,11 @@ export function registerMfaRoutes(app: Express): void {
   app.post(
     "/api/auth/mfa/verify",
     asyncHandler(async (req, res) => {
-      const { userId, code, trustDevice } = req.body;
-      if (!userId || !code) {
-        return res.status(400).json({ message: "userId and code are required" });
+      const userId = requireMfaPending(req, res);
+      if (!userId) return;
+      const { code, trustDevice } = req.body;
+      if (!code || typeof code !== "string") {
+        return res.status(400).json({ message: "code is required" });
       }
 
       // F-09: rate limit by userId (not sessionId) so attackers can't rotate
@@ -315,9 +334,11 @@ export function registerMfaRoutes(app: Express): void {
   app.post(
     "/api/auth/mfa/backup",
     asyncHandler(async (req, res) => {
-      const { userId, backupCode } = req.body;
-      if (!userId || !backupCode) {
-        return res.status(400).json({ message: "userId and backupCode are required" });
+      const userId = requireMfaPending(req, res);
+      if (!userId) return;
+      const { backupCode } = req.body;
+      if (!backupCode || typeof backupCode !== "string") {
+        return res.status(400).json({ message: "backupCode is required" });
       }
 
       // F-09: rate limit by userId (not sessionId) so attackers can't rotate
@@ -591,8 +612,9 @@ export function registerMfaRoutes(app: Express): void {
   app.post(
     "/api/auth/mfa/webauthn/authenticate-options",
     asyncHandler(async (req, res) => {
-      const { userId } = req.body;
-      if (!userId) return res.status(400).json({ message: "userId is required" });
+      // Gated too: the options list a user's registered credential IDs.
+      const userId = requireMfaPending(req, res);
+      if (!userId) return;
 
       const user = await storage.getUser(userId);
       if (!user) return res.status(400).json({ message: "User not found" });
@@ -621,12 +643,13 @@ export function registerMfaRoutes(app: Express): void {
   app.post(
     "/api/auth/mfa/webauthn/authenticate-verify",
     asyncHandler(async (req, res) => {
-      const { userId, response, trustDevice } = req.body as {
-        userId: string;
+      const userId = requireMfaPending(req, res);
+      if (!userId) return;
+      const { response, trustDevice } = req.body as {
         response: any;
         trustDevice?: boolean;
       };
-      if (!userId || !response) return res.status(400).json({ message: "userId and response are required" });
+      if (!response) return res.status(400).json({ message: "response is required" });
 
       // F-09: rate limit by userId (not sessionId) so attackers can't rotate
       // sessions. See the MFA_RATE_PREFIX comment at the top of the file.
@@ -867,11 +890,16 @@ export function registerMfaRoutes(app: Express): void {
   app.post(
     "/api/auth/mfa/email-otp/send",
     asyncHandler(async (req, res) => {
-      const { userId } = req.body;
-      if (!userId) return res.status(400).json({ message: "userId is required" });
+      const userId = requireMfaPending(req, res);
+      if (!userId) return;
 
       const user = await storage.getUser(userId);
       if (!user) return res.status(400).json({ message: "User not found" });
+
+      // Email OTP is a fallback second factor, never a first factor.
+      if (!user.mfaEnabled) {
+        return res.status(400).json({ message: "MFA not configured for this user" });
+      }
 
       // Only viewer/manager — admins should use TOTP or WebAuthn
       if (user.role === "admin") {
@@ -884,7 +912,7 @@ export function registerMfaRoutes(app: Express): void {
         return res.status(429).json({ message: "OTP recently sent. Please wait before requesting another." });
       }
 
-      const otp = String(Math.floor(100000 + Math.random() * 900000)); // 6 digits
+      const otp = String(randomInt(100000, 1000000)); // 6 digits, CSPRNG
       const codeHash = createHash("sha256").update(otp).digest("hex");
       await setOtpEntry(userId, { codeHash, expiresAt: Date.now() + EMAIL_OTP_TTL_MS, attempts: 0 });
 
@@ -918,8 +946,10 @@ export function registerMfaRoutes(app: Express): void {
   app.post(
     "/api/auth/mfa/email-otp/verify",
     asyncHandler(async (req, res) => {
-      const { userId, otp } = req.body;
-      if (!userId || !otp) return res.status(400).json({ message: "userId and otp are required" });
+      const userId = requireMfaPending(req, res);
+      if (!userId) return;
+      const { otp } = req.body;
+      if (!otp) return res.status(400).json({ message: "otp is required" });
 
       // F-09: rate limit by userId (not sessionId) so attackers can't rotate
       // sessions. See the MFA_RATE_PREFIX comment at the top of the file.
@@ -954,6 +984,10 @@ export function registerMfaRoutes(app: Express): void {
 
       const user = await storage.getUser(userId);
       if (!user) return res.status(400).json({ message: "User not found" });
+      // Re-check at verify time: MFA or role may have changed since the send.
+      if (!user.mfaEnabled || user.role === "admin") {
+        return res.status(403).json({ message: "Email OTP is not available for this account." });
+      }
 
       const org = await storage.getOrganization(user.orgId);
       const sessionUser = {

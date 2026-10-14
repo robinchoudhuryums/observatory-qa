@@ -18,6 +18,9 @@ export default function InvitationsTab() {
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("viewer");
+  // The raw invite token exists only in the create response — the server
+  // stores a hash and never returns it again — so the link is shown once.
+  const [newInvite, setNewInvite] = useState<{ email: string; link: string } | null>(null);
 
   const createMutation = useMutation({
     mutationFn: async (data: { email: string; role: string }) => {
@@ -26,6 +29,7 @@ export default function InvitationsTab() {
     },
     onSuccess: (data: Invitation) => {
       queryClient.invalidateQueries({ queryKey: ["/api/invitations"] });
+      setNewInvite({ email: data.email, link: `${window.location.origin}?invite=${data.token}` });
       toast({ title: "Invitation Sent", description: `Invitation created for ${data.email}` });
       setInviteEmail("");
       setInviteRole("viewer");
@@ -48,8 +52,7 @@ export default function InvitationsTab() {
     },
   });
 
-  const copyInviteLink = (token: string) => {
-    const url = `${window.location.origin}?invite=${token}`;
+  const copyInviteLink = (url: string) => {
     navigator.clipboard.writeText(url);
     toast({ title: "Link Copied", description: "Invitation link copied to clipboard." });
   };
@@ -129,6 +132,21 @@ export default function InvitationsTab() {
             </Button>
           </form>
 
+          {newInvite && (
+            <div className="mb-6 p-3 rounded-lg border border-border bg-muted/30" data-testid="new-invite-link">
+              <p className="text-sm text-foreground mb-2">
+                Invitation link for <strong>{newInvite.email}</strong>. Copy it now — it won't be shown again.
+              </p>
+              <div className="flex items-center gap-2">
+                <Input readOnly value={newInvite.link} aria-label="Invitation link" className="font-mono text-xs" />
+                <Button variant="outline" size="sm" onClick={() => copyInviteLink(newInvite.link)}>
+                  <RiFileCopyLine className="w-4 h-4 mr-1" />
+                  Copy
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Invitations List */}
           {isLoading ? (
             <div className="space-y-3">
@@ -170,25 +188,15 @@ export default function InvitationsTab() {
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     {inv.status === "pending" && (
-                      <>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => copyInviteLink(inv.token)}
-                          title="Copy invite link"
-                        >
-                          <RiFileCopyLine className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-red-600 hover:text-red-700"
-                          onClick={() => revokeMutation.mutate(inv.id)}
-                          title="Revoke invitation"
-                        >
-                          <RiDeleteBinLine className="w-4 h-4" />
-                        </Button>
-                      </>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-red-600 hover:text-red-700"
+                        onClick={() => revokeMutation.mutate(inv.id)}
+                        title="Revoke invitation"
+                      >
+                        <RiDeleteBinLine className="w-4 h-4" />
+                      </Button>
                     )}
                   </div>
                 </div>

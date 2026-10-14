@@ -97,6 +97,12 @@ function ioredisAdapter(client: Redis) {
 }
 
 /**
+ * Key prefix of the connect-redis session store. invalidateUserSessions scans
+ * by this prefix — the two must stay in sync or session revocation is a no-op.
+ */
+export const SESSION_KEY_PREFIX = "observatory:sess:";
+
+/**
  * Create a Redis-backed session store (connect-redis).
  * Falls back to null if Redis is unavailable (caller should use MemoryStore).
  */
@@ -106,7 +112,7 @@ export function createRedisSessionStore(sessionModule: typeof session): Instance
   try {
     const store = new RedisStore({
       client: ioredisAdapter(redisClient) as any,
-      prefix: "observatory:sess:",
+      prefix: SESSION_KEY_PREFIX,
       ttl: 15 * 60, // 15 min idle timeout (matches HIPAA session config)
     });
     logger.info("Redis session store initialized");
@@ -230,7 +236,7 @@ export async function invalidateUserSessions(userId: string): Promise<number> {
     let cursor = "0";
     let deleted = 0;
     do {
-      const [nextCursor, keys] = await redisClient.scan(cursor, "MATCH", "sess:*", "COUNT", 100);
+      const [nextCursor, keys] = await redisClient.scan(cursor, "MATCH", `${SESSION_KEY_PREFIX}*`, "COUNT", 100);
       cursor = nextCursor;
       for (const key of keys) {
         try {

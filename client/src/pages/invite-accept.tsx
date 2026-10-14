@@ -23,7 +23,6 @@ interface InviteInfo {
 
 export default function InviteAcceptPage({ token, onComplete }: InviteAcceptProps) {
   const { toast } = useToast();
-  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -44,7 +43,8 @@ export default function InviteAcceptPage({ token, onComplete }: InviteAcceptProp
     try {
       await apiRequest("POST", "/api/invitations/accept", {
         token,
-        username,
+        // The account is always the invited email (enforced server-side).
+        username: invite?.email,
         password,
         name,
       });
@@ -130,14 +130,7 @@ export default function InviteAcceptPage({ token, onComplete }: InviteAcceptProp
               <label className="text-sm font-medium text-foreground" htmlFor="invite-username">
                 Username
               </label>
-              <Input
-                id="invite-username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Choose a username"
-                required
-                autoComplete="username"
-              />
+              <Input id="invite-username" value={invite.email} readOnly autoComplete="username" />
             </div>
             <div>
               <label className="text-sm font-medium text-foreground" htmlFor="invite-password">

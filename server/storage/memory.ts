@@ -832,9 +832,8 @@ export class MemStorage implements IStorage {
 
   async getInvitationByToken(token: string): Promise<Invitation | undefined> {
     const tokenHash = createHash("sha256").update(token).digest("hex");
-    return Array.from(this.invitations.values()).find(
-      (i) => i.token === tokenHash || i.token === token, // backward compat for pre-hashing
-    );
+    // Hash-only match: the stored hash must not itself be redeemable.
+    return Array.from(this.invitations.values()).find((i) => i.token === tokenHash);
   }
 
   async listInvitations(orgId: string): Promise<Invitation[]> {

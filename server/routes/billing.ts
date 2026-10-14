@@ -102,6 +102,29 @@ export function enforceQuota(eventType: "transcription" | "ai_analysis" | "api_c
 /**
  * Check max users for org based on plan tier.
  */
+/**
+ * Seat check for adding one user to an org. Returns null when a seat is
+ * available, or the 429 body to send. Throws on storage errors (callers fail closed).
+ */
+export async function checkUserSeatAvailable(orgId: string): Promise<Record<string, unknown> | null> {
+  const sub = await storage.getSubscription(orgId);
+  const tier = (sub?.planTier as PlanTier) || "free";
+  const plan = PLAN_DEFINITIONS[tier];
+  if (!plan || plan.limits.maxUsers === -1) return null;
+
+  const users = await storage.listUsersByOrg(orgId);
+  if (users.length >= plan.limits.maxUsers) {
+    return {
+      message: `User limit reached: ${users.length}/${plan.limits.maxUsers} users`,
+      code: "USER_QUOTA_EXCEEDED",
+      limit: plan.limits.maxUsers,
+      used: users.length,
+      planTier: tier,
+    };
+  }
+  return null;
+}
+
 export function enforceUserQuota() {
   return async (req: Request, res: Response, next: NextFunction) => {
     const orgId = req.orgId;
@@ -110,22 +133,8 @@ export function enforceUserQuota() {
     }
 
     try {
-      const sub = await storage.getSubscription(orgId);
-      const tier = (sub?.planTier as PlanTier) || "free";
-      const plan = PLAN_DEFINITIONS[tier];
-      if (!plan || plan.limits.maxUsers === -1) return next();
-
-      const users = await storage.listUsersByOrg(orgId);
-      if (users.length >= plan.limits.maxUsers) {
-        return res.status(429).json({
-          message: `User limit reached: ${users.length}/${plan.limits.maxUsers} users`,
-          code: "USER_QUOTA_EXCEEDED",
-          limit: plan.limits.maxUsers,
-          used: users.length,
-          planTier: tier,
-        });
-      }
-
+      const exceeded = await checkUserSeatAvailable(orgId);
+      if (exceeded) return res.status(429).json(exceeded);
       next();
     } catch (error) {
       logger.error({ err: error, orgId }, "User quota check failed — blocking request (fail-closed)");

@@ -4,6 +4,7 @@ import { createHash } from "crypto";
 import { storage } from "../storage";
 import { logger } from "../services/logger";
 import { logPhiAccess } from "../services/audit-log";
+import { setMfaPending } from "../auth";
 
 export function registerAuthRoutes(app: Express): void {
   // ==================== AUTH ROUTES (unauthenticated) ====================
@@ -71,11 +72,16 @@ export function registerAuthRoutes(app: Express): void {
               }
             }
           }
-          // Don't create a session yet — require MFA verification
-          return res.json({
-            mfaRequired: true,
-            userId: user.id,
-            message: "MFA verification required",
+          // Don't create a session yet — require MFA verification. Record that
+          // the password step passed; the MFA routes require this marker.
+          setMfaPending(req, user.id);
+          return req.session.save((saveErr) => {
+            if (saveErr) return next(saveErr);
+            res.json({
+              mfaRequired: true,
+              userId: user.id,
+              message: "MFA verification required",
+            });
           });
         }
 

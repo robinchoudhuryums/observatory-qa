@@ -39,7 +39,9 @@ export const orgSettingsSchema = z.object({
   subTeams: z.record(z.string().max(100), z.array(z.string().min(1).max(100)).max(50)).optional(),
   callCategories: z.array(z.string().min(1).max(100)).max(50).optional(),
   callPartyTypes: z.array(z.string().min(1).max(100)).max(20).optional(),
-  retentionDays: z.number().default(90),
+  // Days before calls are purged. 0 (or a negative) would purge every call on
+  // the next retention run, so the floor is 1.
+  retentionDays: z.number().int().min(1).max(3650).default(90),
   branding: orgBrandingSchema.optional(),
   bedrockModel: z.string().optional(), // Per-org model override (e.g., "us.anthropic.claude-haiku-4-5-20251001")
   maxCallsPerDay: z.number().optional(), // Per-org usage quota

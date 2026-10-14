@@ -11,7 +11,8 @@ import { requireAuth, requireRole, injectOrgContext, hashPassword, validatePassw
 import { logger } from "../services/logger";
 import { logPhiAccess, auditContext } from "../services/audit-log";
 import { randomUUID } from "crypto";
-import { enforceUserQuota, syncSeatUsage } from "./billing";
+import { enforceUserQuota, syncSeatUsage, checkUserSeatAvailable } from "./billing";
+import { ephemeralSetNx, ephemeralDel } from "../services/redis";
 import { asyncHandler } from "../middleware/error-handler";
 
 /**
@@ -283,7 +284,8 @@ export function registerRegistrationRoutes(app: Express): void {
     injectOrgContext,
     asyncHandler(async (req, res) => {
       const invitations = await storage.listInvitations(req.orgId!);
-      res.json(invitations);
+      // Never return the token hash: the raw token is shown once, at creation.
+      res.json(invitations.map(({ token: _token, ...rest }) => rest));
     }),
   );
 
@@ -301,6 +303,10 @@ export function registerRegistrationRoutes(app: Express): void {
       }
       if (role && !["viewer", "manager", "admin"].includes(role)) {
         return res.status(400).json({ message: "Invalid role" });
+      }
+      // A manager must not be able to mint an admin account (including for themselves).
+      if (role === "admin" && req.user!.role !== "admin") {
+        return res.status(403).json({ message: "Only admins can invite admins" });
       }
 
       // Check if user with this email already exists in the org
@@ -339,9 +345,9 @@ export function registerRegistrationRoutes(app: Express): void {
   app.post(
     "/api/invitations/accept",
     asyncHandler(async (req, res, next) => {
-      const { token, username, password, name } = req.body;
-      if (!token || !username || !password || !name) {
-        return res.status(400).json({ message: "token, username, password, and name are required" });
+      const { token, username: requestedUsername, password, name } = req.body;
+      if (!token || typeof token !== "string" || !password || !name) {
+        return res.status(400).json({ message: "token, password, and name are required" });
       }
 
       const pwErr = validatePasswordComplexity(password);
@@ -365,30 +371,70 @@ export function registerRegistrationRoutes(app: Express): void {
         return res.status(400).json({ message: "Invitation has expired" });
       }
 
-      // Check username uniqueness within the invitation's org
-      const existingUser = await storage.getUserByUsername(username, invitation.orgId);
-      if (existingUser) {
-        return res.status(409).json({ message: "Username already taken" });
+      // The account is the invited email — an invitation link is not a
+      // blank cheque for any username.
+      const username = invitation.email;
+      if (
+        requestedUsername !== undefined &&
+        String(requestedUsername).trim().toLowerCase() !== username.trim().toLowerCase()
+      ) {
+        return res.status(400).json({ message: "Username must be the invited email address" });
       }
 
-      // Create the user
-      const passwordHash = await hashPassword(password);
-      const user = await storage.createUser({
-        orgId: invitation.orgId,
-        username,
-        passwordHash,
-        name,
-        role: invitation.role,
-      });
+      // Atomic claim: two concurrent accepts of one token both pass the status
+      // check above; only one may create a user.
+      const claimed = await ephemeralSetNx("invite-accept", invitation.id, "1", 60_000);
+      if (!claimed) {
+        return res.status(409).json({ message: "Invitation is already being accepted" });
+      }
+
+      let user;
+      try {
+        // Check username uniqueness within the invitation's org
+        const existingUser = await storage.getUserByUsername(username, invitation.orgId);
+        if (existingUser) {
+          await ephemeralDel("invite-accept", invitation.id);
+          return res.status(409).json({ message: "Username already taken" });
+        }
+
+        // Seats are checked at invite time, but the org may have filled up (or
+        // downgraded) since. Fail closed like enforceUserQuota.
+        let exceeded;
+        try {
+          exceeded = await checkUserSeatAvailable(invitation.orgId);
+        } catch (err) {
+          logger.error({ err, orgId: invitation.orgId }, "Seat check failed at invitation accept (fail-closed)");
+          await ephemeralDel("invite-accept", invitation.id);
+          return res.status(503).json({ message: "Unable to verify user quota. Please try again." });
+        }
+        if (exceeded) {
+          await ephemeralDel("invite-accept", invitation.id);
+          return res.status(429).json(exceeded);
+        }
+
+        // Create the user
+        const passwordHash = await hashPassword(password);
+        user = await storage.createUser({
+          orgId: invitation.orgId,
+          username,
+          passwordHash,
+          name,
+          role: invitation.role,
+        });
+
+        // Mark invitation as accepted
+        await storage.updateInvitation(invitation.orgId, invitation.id, {
+          status: "accepted",
+          acceptedAt: new Date().toISOString(),
+        });
+      } catch (err) {
+        await ephemeralDel("invite-accept", invitation.id).catch(() => {});
+        throw err;
+      }
+      // The claim is left to expire: the invitation is now "accepted".
 
       // Sync seat count to Stripe for the new user (fire-and-forget)
       syncSeatUsage(invitation.orgId).catch(() => {});
-
-      // Mark invitation as accepted
-      await storage.updateInvitation(invitation.orgId, invitation.id, {
-        status: "accepted",
-        acceptedAt: new Date().toISOString(),
-      });
 
       logPhiAccess({
         orgId: invitation.orgId,
