@@ -26,7 +26,7 @@ AI-powered call quality analysis and clinical documentation for healthcare and c
 - **Activity heatmap** — 24-hour x 7-day grid showing call volume or avg performance by time slot, employee-filterable
 - **Performance snapshots** — longitudinal analytics with AI narrative summaries that reference prior periods to identify trajectories, improvements, and coaching effectiveness
 - **Audio waveform display** — canvas-based amplitude visualization with click-to-seek for call playback
-- **SSRF protection** — comprehensive URL validation (protocol, hostname blocklist, private IP blocking, DNS rebinding prevention) for webhooks and external integrations
+- **SSRF protection** — outbound requests to tenant-supplied URLs (webhooks, SIEM, EHR, OIDC, knowledge-base URL import) go through `safeFetch`: protocol and hostname checks, private/reserved IPv4 and IPv6 blocking (including IPv4-mapped forms), a connect-time DNS check that defeats rebinding, re-validated (or refused) redirects and a response size cap
 - **A/B model testing** — compare AI models side-by-side with cost and latency tracking
 - **Batch inference mode** — per-org toggle for Bedrock Batch API (50% AI cost reduction, 24h turnaround). Realtime/batch/hybrid modes with graceful fallback. Admin dashboard for pending items and manual flush
 - **Spend tracking** — per-call cost breakdown for transcription and AI analysis
@@ -162,8 +162,8 @@ shared/
 
 data/dental/          # Dental-specific reference data (CDT codes, prompt templates)
 deploy/ec2/           # EC2 deployment (Caddy, systemd, bootstrap script)
-tests/                # 106 unit test files (Node test runner)
-tests/e2e/            # 12 Playwright E2E spec files
+tests/                # 112 unit test files (Node test runner)
+tests/e2e/            # 19 Playwright E2E spec files
 ```
 
 ## Commands
@@ -173,7 +173,7 @@ tests/e2e/            # 12 Playwright E2E spec files
 | `npm run dev` | Dev server with Vite HMR (port 5000) |
 | `npm run build` | Production build (Vite frontend + esbuild backend + workers bundle) |
 | `npm run start` | Start production server |
-| `npm run test` | Run unit test suite (1298 tests) |
+| `npm run test` | Run unit test suite (2,060 tests) |
 | `npm run test:coverage` | Run tests with c8 coverage (text + lcov) |
 | `npm run test:e2e` | Run Playwright E2E tests |
 | `npm run test:e2e:ui` | Open Playwright interactive UI |
@@ -236,6 +236,11 @@ See [`deploy/ec2/README.md`](deploy/ec2/README.md) for a lean EC2 setup (~$13/mo
 - Start: `npm run start`
 - Configure env vars in Render dashboard — including `PHI_ENCRYPTION_KEY` (64 hex) on **both** the web and worker services (same value); production startup exits without it
 
+### Upgrade notes
+- **Invitation links**: invitation tokens are now shown once, when the invitation is created. Pending invitation links shared before this change no longer work — revoke and re-send them from Settings → Invitations.
+- **OIDC client secret**: now stored encrypted; re-save it in SSO settings to encrypt an existing value (the old plaintext value keeps working).
+- **EHR base URLs** must resolve to public addresses; private-network targets are refused.
+
 ## CI/CD
 
 GitHub Actions pipelines:
@@ -268,7 +273,7 @@ Observatory QA implements healthcare-grade security controls:
 npm run test
 ```
 
-106 unit test files (2,032 tests) covering schemas, routes, multi-tenancy, RBAC, billing, API keys, clinical workflows, EHR, PHI encryption, SSO, speaker detection, RAG pipeline, clinical amendments, load simulation, schema column coverage, AI provider mocks, performance snapshots, SSRF validation, and more. Uses Node.js built-in test runner via tsx. Plus 19 Playwright E2E specs for browser-level testing (including security boundary tests), and opt-in contract tests against real PostgreSQL and Redis (`TEST_DATABASE_URL` / `TEST_REDIS_URL`).
+112 unit test files (2,060 tests) covering schemas, routes, multi-tenancy, RBAC, billing, API keys, clinical workflows, EHR, PHI encryption, SSO, speaker detection, RAG pipeline, clinical amendments, load simulation, schema column coverage, AI provider mocks, performance snapshots, SSRF validation, MFA/invitation/org-settings security over real Express middleware, and more. Uses Node.js built-in test runner via tsx. Plus 19 Playwright E2E specs for browser-level testing (including security boundary tests), and opt-in contract tests against real PostgreSQL and Redis (`TEST_DATABASE_URL` / `TEST_REDIS_URL`).
 
 ### E2E Tests (Playwright)
 ```bash

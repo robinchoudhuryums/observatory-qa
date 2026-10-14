@@ -82,7 +82,7 @@ npx vite build         # Frontend-only build (quick verification)
 - **Unit tests**: Node.js built-in `test` module via `tsx` — `npm run test`
 - **E2E tests**: Playwright (Chromium) — `npm run test:e2e` or `npm run test:e2e:ui`
 - **Location**: `tests/` (unit), `tests/e2e/` (E2E)
-- **Unit test files** (106 files, 2032 tests — the list below is not exhaustive):
+- **Unit test files** (112 files, 2060 tests — the list below is not exhaustive):
   - `tests/schema.test.ts` — Zod schema validation (orgId on all entities, organization schemas)
   - `tests/ai-provider.test.ts` — AI provider utilities (parseJsonResponse, buildAnalysisPrompt, smartTruncate)
   - `tests/routes.test.ts` — API route handler tests
@@ -164,6 +164,12 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/remaining-adaptations.test.ts` — Performance snapshots, SSRF validation, scheduled reports (21 tests)
   - `tests/assemblyai-webhook.test.ts` — AssemblyAI webhook route: `{transcript_id, status}` body, transcript fetch, duplicate-delivery claim, failure → `failed` (not stuck), restored upload-time options (7 tests)
   - `tests/transcript-viewer-hooks.test.ts` — INV-19 static guard: no React hook call after the transcript-viewer early returns
+  - `tests/mfa-pending-session.test.ts` — Real Express + setupAuth: MFA login routes (TOTP, backup, WebAuthn, email OTP) require the password step's pending-MFA session marker; body `userId` must match; email OTP uses a CSPRNG (5 tests)
+  - `tests/invitation-security.test.ts` — Real Express: admin-only admin invites, list never returns tokens, stored hash not redeemable, account bound to invited email, atomic accept under concurrency, seat quota at accept (7 tests)
+  - `tests/ssrf-safe-fetch.test.ts` — `isBlockedIp`/`validateUrl` IPv6 bypasses (bracketed, hex IPv4-mapped, NAT64, 6to4), `safeFetch` refusing a DNS name that resolves to loopback without connecting, and the reference-doc URL import end to end (6 tests)
+  - `tests/org-settings-security.test.ts` — Real Express: `GET /api/organization` redaction by role, settings PATCH (`retentionDays` range, server-managed fields ignored, `oidcClientSecret` encrypted), WAF routes super-admin only (8 tests)
+  - `tests/idle-logout-csrf.test.ts` — Static guard: idle logout goes through `csrfFetch` and clears the query cache; no raw `fetch()` to `/api/auth/logout`
+  - `tests/session-invalidation.test.ts` — **Opt-in, real Redis** (`TEST_REDIS_URL`): `invalidateUserSessions` deletes the user's sessions under the real store prefix and nobody else's. Skipped when unset
   - `tests/pg-storage-contract.test.ts` — **Opt-in, real PostgreSQL** (`TEST_DATABASE_URL`): create* upserts on `call_id`, org-guarded conflicts, call delete/retention with linked coaching/revenue/calibration rows, legacy FK upgrade in syncSchema, GDPR `deleteOrgData`. Skipped when unset. The only test tier that catches PG-only failures MemStorage hides
   - `tests/queue-dedup.test.ts` — **Opt-in, real Redis** (`TEST_REDIS_URL`): `addDedupedJob` re-queues after a finished job, still dedups in-flight jobs. Skipped when unset
   - `tests/rag-ums-adaptations.test.ts` — RAG improvements adapted from ums-knowledge-reference: adaptive query-type weights, confidence reconciliation, domain synonym expansion, table-aware chunking, page tracking, cross-org FAQ patterns, structured short-circuit, query reformulation, response styles (49 tests)
@@ -182,7 +188,7 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/e2e/logout.spec.ts` — Logout flow
   - `tests/e2e/api-health.spec.ts` — Health endpoint
   - `tests/e2e/security.spec.ts` — Security boundaries (auth enforcement, RBAC escalation, CSRF, session fixation, rate limiting)
-- **Opt-in infrastructure tests**: run against disposable services, e.g. `TEST_DATABASE_URL=postgres://user:pass@127.0.0.1:5432/obs_test TEST_REDIS_URL=redis://127.0.0.1:6379 npx tsx --test tests/pg-storage-contract.test.ts tests/queue-dedup.test.ts`. The database needs the `vector` extension; tables are created by `syncSchema`. Not yet wired into CI
+- **Opt-in infrastructure tests**: run against disposable services, e.g. `TEST_DATABASE_URL=postgres://user:pass@127.0.0.1:5432/obs_test TEST_REDIS_URL=redis://127.0.0.1:6379 npx tsx --test tests/pg-storage-contract.test.ts tests/queue-dedup.test.ts tests/session-invalidation.test.ts`. The database needs the `vector` extension; tables are created by `syncSchema`. Not yet wired into CI
 - **E2E auth pattern**: Import `{ adminTest as test, expect } from "./fixtures"` (or `viewerTest`) for authenticated tests. Each Playwright **worker** registers its own unique org via `/api/auth/register` (slug: `e2e-w{workerIndex}-{ts}`), preventing state pollution between parallel spec files. Falls back to env-var `admin:admin123` if registration fails. Tests use `data-testid` selectors for stability.
 
 ## Architecture
@@ -346,7 +352,7 @@ server/middleware/           # Express middleware
 
 server/utils/                # Shared server utilities
   helpers.ts                 #   Pure utility functions (safeFloat, safeInt, withRetry, parseDateParam, parsePagination) — safe to import from services layer
-  url-validation.ts          #   Canonical SSRF URL validation: validateUrl (sync, no DNS), validateAndNormalizeUrl (async, DNS rebinding-safe), isUrlSafe, isBlockedIp. Blocks RFC 1918 + RFC 6598 + link-local + loopback + multicast + reserved IPv4/IPv6 + cloud metadata hostnames
+  url-validation.ts          #   Canonical SSRF protection: safeFetch (fetch-compatible; connect-time DNS check, redirects off by default / re-validated per hop, body cap), validateUrl (sync, no DNS), validateAndNormalizeUrl (async pre-flight, all resolved addresses), isUrlSafe, isBlockedIp (handles bracketed + hex IPv4-mapped IPv6, NAT64, 6to4). Blocks RFC 1918 + RFC 6598 + link-local + loopback + multicast + reserved IPv4/IPv6 + cloud metadata hostnames
   ai-guardrails.ts           #   Prompt injection detection (25 patterns + NFKD Unicode normalization + HTML entity decoding + comment stripping), output safety checks, 10KB input truncation
   phi-redactor.ts            #   PHI regex scrubber (SSN, phone, email, MRN, addresses, NPI, FHIR UUIDs, encounter IDs; preserves clinical codes)
   request-metrics.ts         #   In-memory per-route latency percentiles (p50/p95/p99, 10-min window)
@@ -371,7 +377,7 @@ server/services/ehr/         # EHR integration adapters (11 files)
   dentrix.ts                 #   Dentrix Ascend / G7 adapter (bidirectional)
   fhir-r4.ts                 #   Generic FHIR R4-compliant server adapter (bidirectional, classifyEhrError for typed error handling)
   mock.ts                    #   Development/demo adapter (returns fixture data)
-  request.ts                 #   Shared HTTP request utilities for EHR adapters (includes SSRF URL validation via validateUrl)
+  request.ts                 #   Shared HTTP request utilities for EHR adapters (outbound calls go through safeFetch — SSRF-checked, no redirects)
   secrets-manager.ts         #   AWS Secrets Manager credential resolution (falls back to PHI-encrypted apiKey)
   health-monitor.ts          #   Periodic EHR connection health checks (runs in worker process every 15 min)
   appointment-matcher.ts     #   Call-to-appointment matching logic
@@ -419,7 +425,7 @@ data/dental/                 # Dental-specific reference data
   default-prompt-templates.json  # 5 dental call categories with evaluation criteria
   dental-terminology-reference.md  # CDT codes, insurance terminology, coverage tiers
 deploy/ec2/                  # EC2 deployment config (Caddy, systemd, bootstrap script)
-tests/                       # Unit tests (106 files, Node test runner)
+tests/                       # Unit tests (112 files, Node test runner)
 tests/e2e/                   # Playwright E2E tests (19 spec files)
 ```
 
@@ -472,7 +478,7 @@ tests/e2e/                   # Playwright E2E tests (19 spec files)
 Every data entity has an `orgId` field. All storage methods take `orgId` as the first parameter. Data isolation is enforced at the storage layer — no method can access data without specifying the org.
 
 **Schemas in `shared/schema.ts`**:
-- `Organization` — id, name, slug, status, industryType, settings (departments, subTeams, branding, AI config, quotas, ehrConfig, providerStylePreferences). SSO settings: `ssoProvider` (saml|oidc), `ssoEntityId`, `ssoSignOnUrl`, `ssoCertificate`, `ssoEnforced`, `ssoGroupRoleMap` (group→role map), `ssoGroupAttribute`, `ssoSessionMaxHours`, `ssoLogoutUrl`, `ssoCertificateExpiry` (auto-computed), `ssoNewCertificate` (rotation dual-cert), `ssoNewCertificateExpiry`. OIDC: `oidcDiscoveryUrl`, `oidcClientId`, `oidcClientSecret`. SCIM: `scimEnabled`, `scimTokenHash`, `scimTokenPrefix`. MFA: `mfaRequired`, `mfaGracePeriodDays` (default 7), `mfaRequiredEnabledAt`. Session: `sessionAbsoluteMaxHours` (1–24, falls back to `DEFAULT_SESSION_ABSOLUTE_MAX_HOURS` = 6h in `server/auth.ts` per NIST SP 800-66 Rev. 2 healthcare guidance) — overrides the default per-org via `getEffectiveSessionMaxMs()`. Orrery (Phase 0): `presentation` (`"observatory" | "clinical"`, optional) — controls viz metaphor; defaults from `industryType` (clinical for healthcare/dental/behavioral_health/veterinary). `theme` (`"light" | "dark" | "auto"`, optional) — default user theme preference.
+- `Organization` — id, name, slug, status, industryType, settings (departments, subTeams, branding, AI config, quotas, ehrConfig, providerStylePreferences). SSO settings: `ssoProvider` (saml|oidc), `ssoEntityId`, `ssoSignOnUrl`, `ssoCertificate`, `ssoEnforced`, `ssoGroupRoleMap` (group→role map), `ssoGroupAttribute`, `ssoSessionMaxHours`, `ssoLogoutUrl`, `ssoCertificateExpiry` (auto-computed), `ssoNewCertificate` (rotation dual-cert), `ssoNewCertificateExpiry`. OIDC: `oidcDiscoveryUrl`, `oidcClientId`, `oidcClientSecret` (stored `enc_v1:`-encrypted by the settings PATCH, decrypted in `sso.ts`; legacy plaintext still works). `retentionDays` is an integer 1–3650. SCIM: `scimEnabled`, `scimTokenHash`, `scimTokenPrefix`. MFA: `mfaRequired`, `mfaGracePeriodDays` (default 7), `mfaRequiredEnabledAt`. Session: `sessionAbsoluteMaxHours` (1–24, falls back to `DEFAULT_SESSION_ABSOLUTE_MAX_HOURS` = 6h in `server/auth.ts` per NIST SP 800-66 Rev. 2 healthcare guidance) — overrides the default per-org via `getEffectiveSessionMaxMs()`. Orrery (Phase 0): `presentation` (`"observatory" | "clinical"`, optional) — controls viz metaphor; defaults from `industryType` (clinical for healthcare/dental/behavioral_health/veterinary). `theme` (`"light" | "dark" | "auto"`, optional) — default user theme preference.
 - `User` — id, orgId, username, passwordHash, name, role, mfaEnabled, mfaSecret (encrypted), mfaBackupCodes[], webauthnCredentials[] (credentialId/publicKey/counter/transports/name), mfaTrustedDevices[] (tokenHash/name/expiresAt), mfaEnrollmentDeadline
 - `Employee` — id, orgId, name, email, role, initials, status, subTeam
 - `Call` — id, orgId, employeeId, fileName, status, duration, callCategory, tags
@@ -485,7 +491,7 @@ Every data entity has an `orgId` field. All storage methods take `orgId` as the 
 - `AccessRequest` — id, orgId, name, email, requestedRole, status
 - `CoachingSession` — id, orgId, employeeId, callId, category, title, notes, actionPlan, status
 - `PromptTemplate` — id, orgId, callCategory, evaluationCriteria, requiredPhrases, scoringWeights
-- `Invitation` — id, orgId, email, role, token, status, expiresAt
+- `Invitation` — id, orgId, email, role, token (SHA-256 hash; the raw token is returned only by the create call), status, expiresAt
 - `ApiKey` — id, orgId, name, keyHash, keyPrefix, permissions, status
 - `Subscription` — id, orgId, planTier, status, stripeCustomerId, billingInterval
 - `ReferenceDocument` — id, orgId, name, category, fileName, extractedText, appliesTo, isActive, `version` (integer, monotonically increasing), `previousVersionId` (text, links to prior version), `indexingStatus` (pending/indexing/indexed/failed), `indexingError` (text), `sourceType` (upload/url), `sourceUrl` (text), `retrievalCount` (integer, auto-incremented on RAG retrieval)
@@ -815,7 +821,8 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
 | POST | `/api/auth/register` | Self-service org + admin user registration |
 | GET | `/api/auth/google` | Google OAuth redirect |
 | GET | `/api/auth/google/callback` | Google OAuth callback |
-| POST | `/api/invitations/accept` | Accept team invitation |
+| POST | `/api/invitations/accept` | Accept team invitation — the account username is the invited email (a different `username` → 400); atomic claim; seat quota checked (rate limited: 10/15min per IP) |
+| GET | `/api/invitations/token/:token` | Invitation preview for the accept page (email, role, org name, status) |
 
 ### SSO (Enterprise, per-org SAML 2.0)
 | Method | Path | Description |
@@ -830,7 +837,7 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
 |--------|------|-------------|
 | POST | `/api/auth/mfa/setup` | Generate TOTP secret + QR code |
 | POST | `/api/auth/mfa/enable` | Verify code and enable MFA |
-| POST | `/api/auth/mfa/verify` | Verify MFA code during login |
+| POST | `/api/auth/mfa/verify` | Verify MFA code during login. Like `/backup`, `/webauthn/authenticate-*` and `/email-otp/*`, requires the pending-MFA session marker set by the password step (401 `OBS-AUTH-003` otherwise) |
 | POST | `/api/auth/mfa/disable` | Disable MFA for current user |
 
 ### Password Reset (public)
@@ -924,7 +931,9 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
 | POST | `/api/admin/users` | admin | Create user |
 | PATCH | `/api/admin/users/:id` | admin | Update user |
 | DELETE | `/api/admin/users/:id` | admin | Delete user |
-| POST | `/api/admin/invitations` | admin | Send team invitation |
+| GET | `/api/invitations` | manager+ | List invitations (never includes tokens) |
+| POST | `/api/invitations` | manager+ | Create invitation; returns the raw token once. `role: "admin"` requires an admin |
+| DELETE | `/api/invitations/:id` | manager+ | Revoke invitation |
 | GET | `/api/prompt-templates` | admin | List prompt templates |
 | POST | `/api/prompt-templates` | admin | Create prompt template |
 | PATCH | `/api/prompt-templates/:id` | admin | Update prompt template |
@@ -1404,7 +1413,7 @@ On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add mi
 | **Encryption at rest** | Infrastructure | EBS encryption (EC2), S3 SSE, PostgreSQL disk encryption |
 | **Encryption in transit** | Infrastructure | Caddy auto-TLS (EC2), Render managed TLS |
 | **Tenant isolation** | `server/storage/` | All storage methods require orgId. Per-org username uniqueness (composite index). WebSocket broadcasts require orgId. (RLS is not a second layer today — F24; rate-limit keys are not org-scoped — F6) |
-| **MFA** | `server/routes/mfa.ts` | TOTP + WebAuthn/Passkeys (FIDO2, phishing-resistant). Per-org enforcement with 7-day grace period (`mfaGracePeriodDays`). Trusted devices (30-day cookie, hashed token). Email OTP fallback for non-admin. Emergency recovery (email-verified + admin-approved bypass). |
+| **MFA** | `server/routes/mfa.ts` | TOTP + WebAuthn/Passkeys (FIDO2, phishing-resistant). Per-org enforcement with 7-day grace period (`mfaGracePeriodDays`). Trusted devices (30-day cookie, hashed token). Email OTP fallback for non-admin. Emergency recovery (email-verified + admin-approved bypass). Every MFA login route requires the pending-MFA session marker from the password step, so a second factor alone is never a login. |
 | **SCIM provisioning** | `server/routes/scim.ts` | SCIM 2.0 automated user lifecycle. Bearer token per org (SHA-256 hashed). Create/deactivate/delete via IDP. Enterprise plan only. |
 | **SSO session management** | `server/routes/sso.ts` + `server/auth.ts` | Per-org `ssoSessionMaxHours` is **not enforced**: `ssoLoginAt` is put on the user object at the SAML/OIDC callback but `serializeUser` stores only the id, so `session.ssoLoginAt` is never set and the `requireAuth` check never fires (F41). SLO (Single Logout) terminates the requester's session. Error code `OBS-AUTH-006` |
 | **PHI encryption** | `server/services/phi-encryption.ts` | AES-256-GCM application-level encryption for sensitive fields. **Throws in production** if `PHI_ENCRYPTION_KEY` is not set — PHI must never be stored unencrypted. Dev mode logs a warning and allows plaintext for local development |
@@ -1418,7 +1427,7 @@ On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add mi
 | **Sentry PHI redaction** | `server/services/sentry.ts` | Uses shared `redactPhi()` for selective PHI scrubbing in error messages, request bodies, and exception values. Preserves debugging context while removing SSN, phone, email, MRN patterns |
 | **FAQ analytics PHI safety** | `server/services/faq-analytics.ts` | Sample queries stored in FAQ analytics are PHI-redacted via `redactPhi()` before persistence |
 | **WAF log safety** | `server/middleware/waf.ts` | WAF violation logs use `req.path` (no query string) to prevent logging PHI from query parameters |
-| **Idle timeout** | `client/src/hooks/use-idle-timeout.ts` | 15-min idle timeout with 2-min warning countdown. "Stay Logged In" button resets the timer. Logout clears session storage only (preserves user preferences in localStorage) |
+| **Idle timeout** | `client/src/hooks/use-idle-timeout.ts` | 15-min idle timeout with 2-min warning countdown. "Stay Logged In" button resets the timer. Auto-logout posts to `/api/auth/logout` via `csrfFetch` (ends the server session), clears the TanStack Query cache and session storage, and keeps user preferences in localStorage |
 | **Breach notification** | `server/services/incident-response.ts` | HIPAA §164.404 compliant breach notification: `sendBreachNotificationEmails()` sends templated notification to affected individuals, auto-updates breach report status, logs to audit trail. 60-day deadline tracked per §164.408 |
 | **Incident persistence** | `server/db/schema.ts` | `security_incidents` and `breach_reports` are written to PostgreSQL, but list/read APIs serve only the in-memory Map, which is never reloaded — after a restart (or on another instance) incidents and 60-day deadlines disappear from the API (F48) |
 | **Minimum necessary access** | `server/routes/clinical.ts` | Viewer role sees redacted PHI fields on clinical notes (subjective, objective, assessment, plan stripped). Managers/admins see full content for clinical workflows |
@@ -1452,7 +1461,7 @@ On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add mi
 - **WebAuthn storage**: WebAuthn credentials (credentialId, COSE public key, sign counter) are stored as a JSONB array on the `users` row (`webauthn_credentials`). `@simplewebauthn/server` v13 is used; registration challenge is stored in the session (`req.session.webauthnChallenge`). Public keys are base64url-encoded for JSON storage.
 - **Trusted device cookies**: After successful MFA, `trustDevice: true` in the request body generates a random 32-byte token. SHA-256(token) is stored in `user.mfaTrustedDevices[]` with a 30-day expiry. The cookie `mfa_td` holds `{userId}:{token}`. On login, the trusted device check runs before the MFA challenge — if valid, MFA is skipped for this device.
 - **MFA grace period**: When an org first enables `mfaRequired`, `mfaRequiredEnabledAt` is stamped. Each user without MFA gets an `mfaEnrollmentDeadline` = `mfaRequiredEnabledAt + mfaGracePeriodDays` (default 7). During the grace period, login succeeds with `mfaSetupRequired: true`. After the deadline, login is rejected with a specific error code. Reminder emails are sent at 7, 3, and 1 day before the deadline.
-- **Email OTP for non-admins**: A 6-digit OTP (10-minute TTL, 3 attempts max) is sent to the user's username/email. Restricted to viewer/manager roles — admin users must use TOTP or WebAuthn. Stored via Redis ephemeral API (`ephemeralSet`/`ephemeralGet`/`ephemeralDel` from `redis.ts`) keyed by userId — multi-instance safe when Redis is configured, in-memory fallback otherwise.
+- **Email OTP for non-admins**: A 6-digit OTP (`crypto.randomInt`, 10-minute TTL, 5 attempts max) is sent to the user's username/email. Only for users with `mfaEnabled` who passed the password step (pending-MFA marker), re-checked at verify. Restricted to viewer/manager roles — admin users must use TOTP or WebAuthn. Stored via Redis ephemeral API (`ephemeralSet`/`ephemeralGet`/`ephemeralDel` from `redis.ts`) keyed by userId — multi-instance safe when Redis is configured, in-memory fallback otherwise.
 - **MFA recovery flow**: User submits a recovery request; server emails a time-limited verification token. Admin sees pending requests and approves or denies; on approval a use-token (15-min TTL) is emailed. Requests live in an **in-memory Map** in `mfa.ts` (the `mfa_recovery_requests` table is unused — F50), admins can approve requests whose email was never verified, and using the token does not clear MFA or force re-enrollment (F50)
 
 ## CI/CD Pipeline
@@ -1515,6 +1524,7 @@ Internet → Caddy (:443, auto TLS) → Node.js (:5000) → PostgreSQL + S3 + Be
 - IAM instance role for S3 + Bedrock (no hardcoded AWS keys)
 - **⚠ Known blocker — DB role vs RLS (F24)**: `user-data.sh` creates `observatory_qa` as a plain `LOGIN` role. Tables have `FORCE ROW LEVEL SECURITY` and no request sets `app.org_id`, so under that role every query returns zero rows (nobody can log in). Until F24 lands, either grant `ALTER ROLE observatory_qa BYPASSRLS;` (RLS stays inert, matching Docker/CI) or don't deploy this path
 - **Workers**: `observatory-qa-workers.service` runs `node dist/workers.js`, which `npm run build` (run by `deploy.sh`) now produces. After a deploy, confirm it with `systemctl status observatory-qa-workers`
+- **First deploy after Batch 2** (all hosts): pending invitation links shared before the deploy stop working — the old "copy link" button copied the stored hash, which is no longer redeemable; admins must revoke and re-send them. Re-saving the OIDC client secret in SSO settings encrypts an existing plaintext value (optional — plaintext still works). EHR base URLs whose hostname resolves to a private address are now refused
 - **First deploy after Batch 1**: startup rewrites five `call_id` foreign keys to add `ON DELETE` rules (`ensureCallFkOnDelete`, idempotent) — a brief lock on `coaching_sessions`, `live_sessions`, `insurance_narratives`, `call_revenues`, `calibration_sessions`
 - **Auto-rollback**: deploy.sh saves previous SHA before deploy; if health check fails, automatically rolls back to previous version, rebuilds, and restarts
 - **Pre-flight validation**: required env vars (`DATABASE_URL`, `ASSEMBLYAI_API_KEY`, `SESSION_SECRET`, `PHI_ENCRYPTION_KEY`) are hard-checked before deploy in production; use `--force` to skip
@@ -1613,7 +1623,14 @@ Server serves both API and static frontend from the same process.
 - **Account lockout is Redis-backed**: Login attempt tracking uses `ephemeralSet`/`ephemeralGet`/`ephemeralDel` from `redis.ts` (Redis with in-memory fallback). Records auto-expire via TTL — no manual eviction or cleanup interval needed. Lockout state persists across server restarts and works across multiple instances when Redis is configured
 - **Stripe webhook events are deduplicated atomically**: The billing webhook handler tracks processed event IDs via `ephemeralSetNx` from `redis.ts` (Redis `SET NX PX`, 24h TTL, in-memory fallback). Single atomic call — no TOCTOU window between check and set. Multi-instance safe when Redis is configured
 - **Google OAuth auto-provisioning requires Workspace `hd` claim**: `server/routes/oauth.ts` auto-provisions users when their Google email matches an org's `settings.emailDomain`, but ONLY when (1) `profile.emails[0].verified === true` and (2) `profile._json.hd === emailDomain`. The `hd` claim is Google Workspace's hosted-domain identifier — it's only set when the account is managed by that tenant. Consumer Gmail accounts have no `hd` and are rejected. This prevents domain-squatting account takeover. Orgs with multiple Workspace domains mapped to one Observatory org must use invitation-based onboarding for the secondary domains. Existing-user login path is unchanged — only new-user auto-provisioning is gated.
-- **MFA rate limiting is keyed by userId, not sessionId**: `isMfaLocked`/`recordMfaAttempt`/`clearMfaAttempts` in `routes/mfa.ts` rate-limit MFA verification attempts (TOTP, backup codes, WebAuthn, email OTP) by the target `userId` from the request body. Keyed by userId so attackers can't rotate session cookies to get a fresh rate-limit window — the userId is by definition the target they're attacking. Backed by Redis `INCR` + `PEXPIRE` via `ephemeralIncrement` from `redis.ts` (in-memory counter fallback). Multi-instance safe when Redis is configured. 5 attempts per 15-minute window; the window does NOT reset on each attempt (attackers can't slide the window indefinitely).
+- **MFA login requires the password step's session marker**: for an MFA-enabled user, `POST /api/auth/login` creates no session; it calls `setMfaPending(req, userId)` (server/auth.ts — `{ userId, expiresAt }`, 10 min) and saves the pre-auth session. The MFA login routes resolve the user with `getMfaPendingUserId(req)` and 401 without it. Clients must keep the session cookie between the two steps. Success regenerates the session, which drops the marker
+- **Invitations: raw token shown once, account = invited email**: storage keeps only `sha256(token)`; `getInvitationByToken` matches the hash only (the stored hash is not redeemable). `GET /api/invitations` strips `token`, so the settings UI shows the link once from the create response — there is no way to re-copy a link later (revoke and re-invite). Managers can invite viewers/managers; `role: "admin"` needs an admin. Accept ignores free-form usernames, claims the invitation via `ephemeralSetNx("invite-accept", id)` and re-checks seats with `checkUserSeatAvailable()` (billing.ts)
+- **Outbound requests to tenant-supplied URLs use `safeFetch`** (`server/utils/url-validation.ts`), not `fetch`: it refuses blocked addresses inside the connection's DNS lookup (no rebinding window), returns 3xx unfollowed unless `maxRedirects` is set (each hop re-validated, auth headers stripped cross-origin), and caps the body (`ResponseTooLargeError`). Errors mirror `fetch` (`TypeError("fetch failed")`, `AbortError`) plus `SsrfBlockedError`. Used by the reference-doc URL import, EHR `ehrRequest`, flagged-call webhooks, SIEM forwarding, and OIDC discovery/JWKS/token. It does not decompress (`accept-encoding: identity`) and does not use `HTTPS_PROXY`. Don't echo fetch error messages to clients (port-scan oracle)
+- **Org settings are redacted on the way out**: `GET /api/organization` (fetched for every user) and the settings PATCH response go through `redactOrgForRole()` (admin.ts). `oidcClientSecret`, `scimTokenHash`, `encryptedDataKey`, `kmsKeyId` and `ehrConfig.apiKey` go to no one (admins get `oidcClientSecretConfigured: true`); webhook/SIEM URLs, `ehrConfig`, `scimTokenPrefix` and alert configs go to admins only. The PATCH (`orgSettingsPatchSchema`) silently ignores server-managed fields (key material, SCIM token fields, `mfaRequiredEnabledAt`, cert expiries) and `ehrConfig` — configure EHR via `PUT /api/ehr/config`, which encrypts the key
+- **WAF admin routes are super-admin only**: `/api/admin/waf-stats`, `/api/admin/waf/block-ip` and `/unblock-ip` use `requireSuperAdmin` — the WAF block list is process-global, so a tenant admin must not touch it
+- **Session key prefix is a shared constant**: `SESSION_KEY_PREFIX` (`observatory:sess:`) in `redis.ts` is used by both the connect-redis store and `invalidateUserSessions()`'s SCAN. Change one and revocation silently stops working
+- **`express-session` type augmentation in `server/types.d.ts` doesn't apply**: `SessionData` fields declared there are not visible on `req.session` (tsc rejects them), so session extras (`webauthnChallenge`, `impersonatingOrgId`, the pending-MFA marker) are accessed through casts
+- **MFA rate limiting is keyed by userId, not sessionId**: `isMfaLocked`/`recordMfaAttempt`/`clearMfaAttempts` in `routes/mfa.ts` rate-limit MFA verification attempts (TOTP, backup codes, WebAuthn, email OTP) by the target `userId` (taken from the pending-MFA session marker; a body `userId` must match it). Keyed by userId so attackers can't rotate session cookies to get a fresh rate-limit window — the userId is by definition the target they're attacking. Backed by Redis `INCR` + `PEXPIRE` via `ephemeralIncrement` from `redis.ts` (in-memory counter fallback). Multi-instance safe when Redis is configured. 5 attempts per 15-minute window; the window does NOT reset on each attempt (attackers can't slide the window indefinitely).
 - **Reanalysis worker processes in streaming chunks**: The bulk reanalysis worker fetches and processes calls in 200-call chunks, discarding each chunk before fetching the next, to prevent OOM on large orgs. Progress reporting is approximate for the "all calls" path. **When the AI provider is unavailable, the worker throws** (not silently returns success) so BullMQ marks the job as failed and retries. After max retries, the job moves to the dead letter queue for admin review
 - **Circuit breaker is per-org with global fallback**: `withBedrockProtection()` in `ai-factory.ts` checks two circuit breakers: (1) per-org breaker (5 consecutive failures opens, 60s reset) and (2) global breaker (15 consecutive failures opens). One org's rate limits or Bedrock errors only affect that org's circuit. Platform-wide outages trip the global breaker. `getBedrockCircuitState(orgId?)` returns both per-org and global state. Per-org breakers auto-cleaned every 5 min when idle. Env: `BEDROCK_CIRCUIT_THRESHOLD` (per-org, default 5), `BEDROCK_GLOBAL_CIRCUIT_THRESHOLD` (global, default 15), `BEDROCK_CIRCUIT_RESET_MS` (reset window, default 60000)
 - **AI response validation**: `parseJsonResponse()` in `ai-types.ts` extracts JSON using a **balanced-brace walker** with string-literal awareness (not a greedy regex), so AI responses that contain `{example}`-style placeholders in a preamble before the real JSON block parse correctly. Tries markdown code fences, then full-text parse, then each balanced `{...}` candidate in source order until one parses. Clamps `performanceScore` to 0-10, sentiment scores to 0-1, sub-scores to 0-10, and validates all field types. Missing fields get safe defaults (5.0 for scores, "neutral" for sentiment). **Sub-score fields** (`compliance`, `customer_experience`, `communication`, `resolution`) currently default to **5.0** when the AI omits them (`clampScore(..., 5.0)`), so the pipeline's `!= null` check always passes and an omitted sub-score is stored as a real 5.0 (F58). The pipeline mapping (`buildAnalysisRecord` in call-processing.ts) is written to keep omitted sub-scores `undefined`; the parser default defeats it. `normalizeAnalysis()` in `storage/types.ts` also clamps on read
@@ -1909,7 +1926,7 @@ INV-11 | getCallByAssemblyAiId is intentionally cross-org | Subsystem: Call Anal
 INV-12 | Auth rate limit keys include orgId for tenant isolation | Subsystem: Core Platform & Infrastructure
 INV-13 | postProcessing errors never mark calls as failed | Subsystem: Call Analysis Pipeline
 INV-14 | syncSchema runs on dedicated client, destroyed after | Subsystem: Storage Layer & Database
-INV-15 | EHR requests pass through validateUrl for SSRF prevention | Subsystem: EHR Integration
+INV-15 | EHR requests go through safeFetch (validateUrl + connect-time DNS check, no redirects) for SSRF prevention | Subsystem: EHR Integration
 INV-16 | calibration computeStdDev uses /(n-1) Bessel correction | Subsystem: Coaching, Gamification & LMS
 INV-17 | Webhook signature uses real constructEvent in production | Subsystem: Billing & Revenue
 INV-18 | Tests import ROLE_HIERARCHY from auth.ts (not redefined) | Subsystem: Auth, Security & HIPAA
