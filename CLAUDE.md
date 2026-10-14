@@ -55,7 +55,7 @@ Observatory QA is a multi-tenant, HIPAA-compliant SaaS platform for call quality
 ## Commands
 ```bash
 npm run dev            # Dev server (tsx watch)
-npm run build          # Vite frontend + esbuild backend → dist/
+npm run build          # Vite frontend + esbuild backend + workers → dist/ (index.js, workers.js, public/)
 npm run start          # Production server (NODE_ENV=production node dist/index.js)
 npm run check          # TypeScript type check
 npm run test           # Run tests (tsx --test tests/*.test.ts)
@@ -69,7 +69,7 @@ npm run format         # Prettier write
 npm run format:check   # Prettier check (CI uses this)
 npm run seed           # Seed data (tsx seed.ts)
 npm run workers        # Start BullMQ worker processes (requires REDIS_URL)
-npm run workers:build  # Build workers → dist/workers.js
+npm run workers:build  # Build workers only → dist/workers.js (also run by `npm run build`)
 npm run db:generate    # Generate Drizzle migration files
 npm run db:migrate     # Run Drizzle migrations (tsx server/db/migrate.ts)
 npm run db:push        # Push schema to DB (drizzle-kit push)
@@ -82,7 +82,7 @@ npx vite build         # Frontend-only build (quick verification)
 - **Unit tests**: Node.js built-in `test` module via `tsx` — `npm run test`
 - **E2E tests**: Playwright (Chromium) — `npm run test:e2e` or `npm run test:e2e:ui`
 - **Location**: `tests/` (unit), `tests/e2e/` (E2E)
-- **Unit test files** (82 files, 1623 tests):
+- **Unit test files** (106 files, 2032 tests — the list below is not exhaustive):
   - `tests/schema.test.ts` — Zod schema validation (orgId on all entities, organization schemas)
   - `tests/ai-provider.test.ts` — AI provider utilities (parseJsonResponse, buildAnalysisPrompt, smartTruncate)
   - `tests/routes.test.ts` — API route handler tests
@@ -162,8 +162,12 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/billing-webhook-integration.test.ts` — Billing webhook integration against MemStorage (subscription lifecycle, metered item tracking, payment failure/recovery, re-subscription, 14 tests)
   - `tests/prompt-injection-pipeline.test.ts` — Transcript injection detection + output guardrails + orphan recovery (16 tests)
   - `tests/remaining-adaptations.test.ts` — Performance snapshots, SSRF validation, scheduled reports (21 tests)
+  - `tests/assemblyai-webhook.test.ts` — AssemblyAI webhook route: `{transcript_id, status}` body, transcript fetch, duplicate-delivery claim, failure → `failed` (not stuck), restored upload-time options (7 tests)
+  - `tests/transcript-viewer-hooks.test.ts` — INV-19 static guard: no React hook call after the transcript-viewer early returns
+  - `tests/pg-storage-contract.test.ts` — **Opt-in, real PostgreSQL** (`TEST_DATABASE_URL`): create* upserts on `call_id`, org-guarded conflicts, call delete/retention with linked coaching/revenue/calibration rows, legacy FK upgrade in syncSchema, GDPR `deleteOrgData`. Skipped when unset. The only test tier that catches PG-only failures MemStorage hides
+  - `tests/queue-dedup.test.ts` — **Opt-in, real Redis** (`TEST_REDIS_URL`): `addDedupedJob` re-queues after a finished job, still dedups in-flight jobs. Skipped when unset
   - `tests/rag-ums-adaptations.test.ts` — RAG improvements adapted from ums-knowledge-reference: adaptive query-type weights, confidence reconciliation, domain synonym expansion, table-aware chunking, page tracking, cross-org FAQ patterns, structured short-circuit, query reformulation, response styles (49 tests)
-- **E2E test files** (12 specs):
+- **E2E test files** (19 specs):
   - `tests/e2e/fixtures.ts` — **Per-worker auth fixtures** (`adminTest`, `viewerTest`) — each worker registers unique org via `/api/auth/register`; falls back to env-var admin
   - `tests/e2e/auth.spec.ts` — Login, landing page
   - `tests/e2e/navigation.spec.ts` — Navigation flows
@@ -178,13 +182,14 @@ npx vite build         # Frontend-only build (quick verification)
   - `tests/e2e/logout.spec.ts` — Logout flow
   - `tests/e2e/api-health.spec.ts` — Health endpoint
   - `tests/e2e/security.spec.ts` — Security boundaries (auth enforcement, RBAC escalation, CSRF, session fixation, rate limiting)
+- **Opt-in infrastructure tests**: run against disposable services, e.g. `TEST_DATABASE_URL=postgres://user:pass@127.0.0.1:5432/obs_test TEST_REDIS_URL=redis://127.0.0.1:6379 npx tsx --test tests/pg-storage-contract.test.ts tests/queue-dedup.test.ts`. The database needs the `vector` extension; tables are created by `syncSchema`. Not yet wired into CI
 - **E2E auth pattern**: Import `{ adminTest as test, expect } from "./fixtures"` (or `viewerTest`) for authenticated tests. Each Playwright **worker** registers its own unique org via `/api/auth/register` (slug: `e2e-w{workerIndex}-{ts}`), preventing state pollution between parallel spec files. Falls back to env-var `admin:admin123` if registration fails. Tests use `data-testid` selectors for stability.
 
 ## Architecture
 
 ### Key Directories
 ```
-client/src/pages/            # Route pages (37 pages — includes Phase 1-3 atlas-cluster + galaxy + 4 dev showcases)
+client/src/pages/            # Route pages (51 page files — includes Phase 1-3 atlas-cluster + galaxy + 4 dev showcases)
   atlas-cluster.tsx          # /atlas/cluster/:category — drill-in from Atlas planet click
   galaxy.tsx                 # /galaxy — month spiral (day-bucketed call counts)
   dev/                       # Super-admin showcase routes (Phase 0)
@@ -236,7 +241,7 @@ server/
   types.d.ts                 # Express type augmentations
   logger.ts                  # (Legacy) Logger — prefer server/services/logger.ts
 
-server/routes/               # Modular API route files (44 route files)
+server/routes/               # Modular API route files (50 route files)
   index.ts                   #   Route registration orchestrator
   auth.ts                    #   Login/logout/me (trusted-device cookie check, grace period logic)
   registration.ts            #   Self-service org + user registration (supports industryType)
@@ -283,7 +288,7 @@ server/routes/               # Modular API route files (44 route files)
   admin-security.routes.ts   #   Extracted: audit logs, WAF, incidents, breach reports, GDPR, vocab, MFA recovery
   patterns.ts                #   Pattern subscriptions (Phase 3): GET /api/patterns/subscriptions, POST/DELETE /api/patterns/subscribe
 
-server/services/             # Business logic & integrations (46 files)
+server/services/             # Business logic & integrations (61 top-level files + call-processing/, rag/, ehr/ subdirs)
   ai-factory.ts              #   AI provider setup (Bedrock, per-org model config, per-org circuit breaker with global fallback)
   ai-provider.ts             #   AI analysis interface, prompt building, JSON parsing, clinical note generation
   ai-prompts.ts              #   System/user prompt construction for Bedrock Converse API
@@ -296,7 +301,7 @@ server/services/             # Business logic & integrations (46 files)
   call-clustering.ts         #   TF-IDF cosine similarity topic clustering + trend detection for call pattern discovery
   auto-calibration.ts        #   AI score drift detection over configurable time windows (per-org)
   aws-credentials.ts         #   AWS credential resolution (env vars, instance roles, STS)
-  s3.ts                      #   S3 client (raw REST + SigV4, no AWS SDK)
+  s3.ts                      #   S3 client (@aws-sdk/client-s3)
   redis.ts                   #   Redis connection, session store, rate limiter, pub/sub
   queue.ts                   #   BullMQ queue definitions (6 queues: audio-processing, reanalysis, retention, usage, indexing, ehr-note-push)
   websocket.ts               #   WebSocket for real-time call processing updates (org-scoped, Redis pub/sub for multi-instance)
@@ -414,8 +419,8 @@ data/dental/                 # Dental-specific reference data
   default-prompt-templates.json  # 5 dental call categories with evaluation criteria
   dental-terminology-reference.md  # CDT codes, insurance terminology, coverage tiers
 deploy/ec2/                  # EC2 deployment config (Caddy, systemd, bootstrap script)
-tests/                       # Unit tests (27 files, Node test runner)
-tests/e2e/                   # Playwright E2E tests (11 spec files)
+tests/                       # Unit tests (106 files, Node test runner)
+tests/e2e/                   # Playwright E2E tests (19 spec files)
 ```
 
 ### Frontend Pages
@@ -551,14 +556,16 @@ PostgreSQL + S3 hybrid: When using PostgresStorage, set `S3_BUCKET` alongside `D
 Six queues, all Redis-backed with fallback to in-process execution:
 | Queue | Purpose | Retries |
 |-------|---------|---------|
-| `audio-processing` | Transcription + AI analysis pipeline | 2 (exponential backoff) |
+| `audio-processing` | Retry of failed pipeline runs (`enqueueCallRetry`) | 2 (exponential backoff) — **no worker consumes this queue yet** (F62); jobs accumulate and never run |
 | `bulk-reanalysis` | Re-analyze all calls for an org | 1 |
 | `data-retention` | Purge expired calls per org policy | 3 |
 | `usage-metering` | Track per-org usage events for billing | 3 |
 | `document-indexing` | RAG indexing (chunk + embed) | 2 |
 | `ehr-note-push` | Retry failed EHR clinical note pushes | 5 (exponential backoff → DLQ) |
 
-Workers run as a separate process: `npm run workers` (dev) or `node dist/workers.js` (prod).
+Workers run as a separate process: `npm run workers` (dev) or `node dist/workers.js` (prod; built by `npm run build`).
+
+Fixed job IDs (`retention-{orgId}`, `index-{documentId}`) go through `addDedupedJob()` in `queue.ts`: BullMQ silently ignores `add()` for an id it still stores, and finished jobs are retained, so a bare fixed id would dedup against last week's completed run.
 
 ### AI Provider System (server/services/ai-factory.ts)
 Uses AWS Bedrock (Claude) for AI analysis. Per-org `bedrockModel` can be configured via org's `OrgSettings`. The provider implements the `AIAnalysisProvider` interface defined in `ai-provider.ts`. Per-org providers are cached to avoid re-creation on every call.
@@ -624,7 +631,7 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
    ├─ Step 2-3: transcribe()
    │    ├─ assemblyai.transcribeAudio(audioUrl, opts) → transcriptId
    │    ├─ storage.updateCall(assemblyAiId)
-   │    ├─ [WEBHOOK MODE] return — webhook handler resumes later
+   │    ├─ [WEBHOOK MODE] saveWebhookPipelineOpts() (Redis ephemeral, 48h) → return — webhook handler resumes later
    │    └─ [POLLING MODE] assemblyai.pollTranscript(transcriptId, 60, progressCallback)
    │         └─ Empty transcript guard (<10 chars) → handleEmptyTranscript() → return
    └─ continueAfterTranscription()
@@ -669,12 +676,15 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
 
    [ERROR PATH]
    ├─ storage.updateCall(status: "failed") → broadcastCallUpdate("failed")
-   └─ enqueueCallRetry() [services/queue.ts] → audio-processing queue (max 2 retries)
+   └─ enqueueCallRetry() [services/queue.ts] → audio-processing queue (no consumer yet — F62)
 
    [ASYNC WEBHOOK PATH]
    POST /api/webhooks/assemblyai [routes/assemblyai-webhook.ts]
-     → verify X-Assembly-Webhook-Token (timing-safe) → lookup call by assemblyAiId
-     → continueAfterTranscription() (same as step 2 above)
+     → verify X-Assembly-Webhook-Token (timing-safe) → body is { transcript_id, status } (NOT a transcript)
+     → lookup call by assemblyAiId (INV-11, cross-org) → status must be processing/pending
+     → ephemeralSetNx claim (duplicate deliveries skipped) → assemblyAIService.getTranscript(transcript_id)
+     → consumeWebhookPipelineOpts() → continueAfterTranscription(orgId, callId, transcript, opts)
+     → on fetch/processing error: call marked failed + claim released
 ```
 
 ### Data Flow: RAG Document Indexing
@@ -745,7 +755,7 @@ websocket.ts → {auth (sessionMiddleware, resolveUserOrgId), redis (publishMess
 - **HTTPS enforcement** — HTTP→HTTPS redirect in production
 - **CSRF** — double-submit cookie (timing-safe); exemptions for webhooks, API keys, SCIM, SSO callbacks, pre-auth
 - **Audit logging** — inline middleware logs all API calls with user/org/method/status/duration (separate from `logPhiAccess`)
-- **Rate limiting** — distributed (Redis) with in-memory fallback; per-IP pre-auth, per-IP+orgId for data endpoints
+- **Rate limiting** — distributed (Redis) with in-memory fallback; per-IP. Data-endpoint limiters are meant to add orgId but run before `setupAuth`, so keys are IP-only (F6)
 - **Sentry** (`sentryErrorMiddleware`) — captures unhandled errors before global handler
 - **Global error handler** (`globalErrorHandler`) — handles AppError + HIPAA-safe generic messages
 
@@ -1208,7 +1218,7 @@ Plus **SAML 2.0 SSO** (Enterprise plan) — per-org IDP configuration stored in 
 
 Plus **MFA** (TOTP) — opt-in per user, can be required per org (`mfaRequired` in org settings). Uses TOTP with backup codes.
 
-Plus **API key auth** — header `X-API-Key: obs_k_...` for programmatic access. Keys are hashed (SHA-256), never stored in plaintext.
+Plus **API key auth** — header `Authorization: Bearer obs_k_...` for programmatic access. Keys are hashed (SHA-256), never stored in plaintext. Per-resource scopes are stored on keys but **not enforced** — `checkApiKeyScope()` has no call sites (F45).
 
 On startup, env-var orgSlugs are resolved to orgIds. If an org doesn't exist for a slug, it's auto-created (backward compatibility).
 
@@ -1341,7 +1351,7 @@ TRUST_PROXY                     # Set to "0" to disable trust proxy in productio
 | `call_analyses` | unique on `call_id`, index on `(org_id, performance_score)` | Cascade delete. `confidence_factors` (JSONB incl. `aiAnalysisCompleted`), `sub_scores`, `detected_agent_name`, `manual_edits` |
 | `access_requests` | index on `(org_id, status)` | |
 | `prompt_templates` | index on `(org_id, call_category)` | Per-org evaluation criteria |
-| `coaching_sessions` | index on `(org_id, status)`, `employee_id` | |
+| `coaching_sessions` | index on `(org_id, status)`, `employee_id` | `call_id` FK `ON DELETE SET NULL` |
 | `coaching_recommendations` | index on `org_id` | Auto-generated coaching recommendations |
 | `api_keys` | unique on `key_hash` | SHA-256 hashed, never plaintext |
 | `invitations` | unique on `token` | Expirable team invitations |
@@ -1352,16 +1362,16 @@ TRUST_PROXY                     # Set to "0" to disable trust proxy in productio
 | `password_reset_tokens` | unique on `token_hash`, index on `user_id`, `org_id` | Expirable reset tokens (1h TTL). SHA-256 hashed. `org_id` column for RLS tenant isolation; pre-auth store/consume wrap queries in a transaction with `set_config('app.bypass_rls', 'true', true)`. RLS-protected (`org_isolation` policy). |
 | `audit_logs` | index on `(org_id, event_type)`, `created_at` | Tamper-evident with `integrity_hash`, `prev_hash`, `sequence_num` |
 | `ab_tests` | index on `org_id` | Dual-model comparison results, latency, cost |
-| `usage_records` | index on `(org_id, type)`, `timestamp` | Per-call cost tracking (AssemblyAI + Bedrock spend) |
+| `spend_records` | index on `org_id`, `(org_id, timestamp)` | Per-call cost tracking (AssemblyAI + Bedrock spend) — the `UsageRecord` type. There is no `usage_records` table |
 | `feedbacks` | index on `(org_id, type)`, `created_at` | User feedback: ratings, bug reports, NPS, suggestions |
 | `employee_badges` | unique on `(org_id, employee_id, badge_id)` | Gamification badge awards |
 | `gamification_profiles` | unique on `(org_id, employee_id)`, index on `total_points` | Points, streaks, last activity |
-| `insurance_narratives` | index on `(org_id, status)`, `(org_id, call_id)` | Prior auth and appeal letter drafts |
-| `call_revenues` | unique on `(org_id, call_id)`, index on `conversion_status` | Per-call revenue/conversion tracking |
-| `calibration_sessions` | index on `(org_id, status)` | Multi-evaluator QA alignment sessions |
+| `insurance_narratives` | index on `(org_id, status)`, `(org_id, call_id)` | Prior auth and appeal letter drafts. `call_id` FK `ON DELETE SET NULL` |
+| `call_revenues` | unique on `(org_id, call_id)`, index on `conversion_status` | Per-call revenue/conversion tracking. `call_id` FK `ON DELETE CASCADE` |
+| `calibration_sessions` | index on `(org_id, status)` | Multi-evaluator QA alignment sessions. `call_id` FK `ON DELETE CASCADE` |
 | `calibration_evaluations` | unique on `(session_id, evaluator_id)` | Individual evaluator scores, cascade delete with session |
 | `provider_templates` | index on `(org_id, user_id)`, `(org_id, specialty)` | Per-provider custom clinical note templates. JSONB sections, defaultCodes, tags |
-| `mfa_recovery_requests` | index on `(org_id, status)`, `user_id` | Emergency MFA bypass: user requests → email-verified → admin approves → time-limited use token (15 min). Cascade delete with user/org. RLS-protected (`org_isolation` policy). |
+| `mfa_recovery_requests` | index on `(org_id, status)`, `user_id` | Created and RLS-protected, but **unused** — the recovery flow stores requests in an in-memory Map in `mfa.ts` (lost on restart, not shared across instances; F50) |
 | `security_incidents` | index on `(org_id, phase)` | HIPAA breach tracking: severity, phase lifecycle, timeline, action items, breach notification deadline. RLS-protected |
 | `breach_reports` | index on `(org_id, notification_status)` | HIPAA §164.408: affected individuals count, PHI types, 60-day notification deadline, notification status tracking, corrective actions |
 | `business_associate_agreements` | index on `(org_id, status)`, `(expires_at)` | HIPAA §164.502(e): vendor BAA tracking with expiry dates, renewal reminders, PHI categories, signatory info. RLS-protected |
@@ -1369,8 +1379,10 @@ TRUST_PROXY                     # Set to "0" to disable trust proxy in productio
 
 Requires pgvector extension: `CREATE EXTENSION IF NOT EXISTS vector;`
 
+**`call_id` foreign keys must declare `ON DELETE`.** Every table referencing `calls(id)` needs `SET NULL` (record outlives the call) or `CASCADE` (meaningless without it). A bare `REFERENCES calls(id)` makes `deleteCall` and the retention purge fail with 23503 once any row points at an expired call. `syncSchema` upgrades legacy constraints in place via `ensureCallFkOnDelete()` (idempotent; brief lock on first run).
+
 ### Auto Schema Sync (server/db/sync-schema.ts)
-On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add missing columns using `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`. This eliminates the need for `drizzle-kit push` (a devDependency) in production and prevents cascading 500 errors from missing tables/columns after deploys. Runs on a **dedicated pg client** acquired via `getPool().connect()` and destroyed with `client.release(true)` when sync completes — this isolates the `app.bypass_rls` session setting from the pool so RLS is actually enforced on normal requests.
+On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add missing columns using `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`. This eliminates the need for `drizzle-kit push` (a devDependency) in production and prevents cascading 500 errors from missing tables/columns after deploys. Runs on a **dedicated pg client** acquired via `getPool().connect()` and destroyed with `client.release(true)` when sync completes — this isolates the `app.bypass_rls` session setting from the pool. **Note:** no request path sets `app.org_id` (`withOrgContext()`/`withBypassRls()` have no callers — F24), so RLS is not enforced at runtime; see the RLS gotcha below.
 
 ## HIPAA Compliance
 
@@ -1379,7 +1391,7 @@ On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add mi
 | **Account lockout** | `server/auth.ts` | 5 failed attempts → 15-min lockout per username |
 | **Structured audit logging** | `server/services/audit-log.ts` | `[HIPAA_AUDIT]` JSON — user, org, resource type, timestamps |
 | **API access audit** | `server/index.ts` | Middleware logs all API calls with user, org, method, status, duration |
-| **Rate limiting** | `server/index.ts` | Login: 5/15min per IP. Data endpoints: org-scoped keys (IP + orgId). Redis-backed (distributed) or in-memory fallback |
+| **Rate limiting** | `server/index.ts` | Login: 5/15min per IP. Data endpoints are keyed per IP — limiters are mounted before `setupAuth`, so `orgId` is never part of the key despite the `includeOrg` flag (F6). Redis-backed (distributed) or in-memory fallback |
 | **Session fixation prevention** | `server/routes/mfa.ts` | `req.session.regenerate()` before `req.login()` after MFA verification |
 | **Session destruction on logout** | `server/routes/auth.ts` | `req.session.destroy()` + `res.clearCookie("connect.sid")` — clears server-side session data |
 | **Plan enforcement gates** | `server/routes/billing.ts` | `requirePlanFeature()`, `enforceUserQuota()`, `enforceQuota()`, `requireActiveSubscription()` middlewares — reject missing orgId |
@@ -1391,15 +1403,15 @@ On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add mi
 | **Error logging** | Throughout | Pino structured logs — never log PHI (patient names, transcripts, call content) |
 | **Encryption at rest** | Infrastructure | EBS encryption (EC2), S3 SSE, PostgreSQL disk encryption |
 | **Encryption in transit** | Infrastructure | Caddy auto-TLS (EC2), Render managed TLS |
-| **Tenant isolation** | `server/storage/` | All storage methods require orgId — cross-org access structurally impossible. Per-org username uniqueness (composite index). WebSocket broadcasts require orgId. Rate limit keys include org context for authenticated routes |
+| **Tenant isolation** | `server/storage/` | All storage methods require orgId. Per-org username uniqueness (composite index). WebSocket broadcasts require orgId. (RLS is not a second layer today — F24; rate-limit keys are not org-scoped — F6) |
 | **MFA** | `server/routes/mfa.ts` | TOTP + WebAuthn/Passkeys (FIDO2, phishing-resistant). Per-org enforcement with 7-day grace period (`mfaGracePeriodDays`). Trusted devices (30-day cookie, hashed token). Email OTP fallback for non-admin. Emergency recovery (email-verified + admin-approved bypass). |
 | **SCIM provisioning** | `server/routes/scim.ts` | SCIM 2.0 automated user lifecycle. Bearer token per org (SHA-256 hashed). Create/deactivate/delete via IDP. Enterprise plan only. |
-| **SSO session management** | `server/routes/sso.ts` + `server/auth.ts` | Per-org `ssoSessionMaxHours` forces SAML/OIDC re-auth. `ssoLoginAt` stamped on session. SLO (Single Logout) terminates session on IDP logout. Error code `OBS-AUTH-006`. |
+| **SSO session management** | `server/routes/sso.ts` + `server/auth.ts` | Per-org `ssoSessionMaxHours` is **not enforced**: `ssoLoginAt` is put on the user object at the SAML/OIDC callback but `serializeUser` stores only the id, so `session.ssoLoginAt` is never set and the `requireAuth` check never fires (F41). SLO (Single Logout) terminates the requester's session. Error code `OBS-AUTH-006` |
 | **PHI encryption** | `server/services/phi-encryption.ts` | AES-256-GCM application-level encryption for sensitive fields. **Throws in production** if `PHI_ENCRYPTION_KEY` is not set — PHI must never be stored unencrypted. Dev mode logs a warning and allows plaintext for local development |
 | **PHI decryption audit** | `server/services/phi-encryption.ts` | `decryptClinicalNotePhi()` accepts audit context and logs `[HIPAA_AUDIT] PHI_DECRYPT` events with userId, orgId, resourceId, and field count. All callers in `calls.ts` and `clinical.ts` pass audit context |
 | **Tamper-evident audit** | `server/services/audit-log.ts` | `audit_logs` table with SHA-256 integrity hashes and sequence numbers. Per-org promise-chain mutex serializes concurrent writes to prevent sequence number race conditions |
-| **PostgreSQL RLS** | `server/db/sync-schema.ts` | `ENABLE/FORCE ROW LEVEL SECURITY` on all 27 tenant-scoped tables. `org_isolation` policies using `current_setting('app.org_id')`. DO-block idempotency for PG15 compatibility. `app.bypass_rls` session var for schema-sync and super-admin operations |
-| **Per-org KMS encryption** | `server/services/org-encryption.ts` | Envelope encryption: AWS KMS generates per-org DEK, encrypted DEK stored in org settings, 5-min cache (keys zeroed on eviction), `enc_v2_{orgPrefix}:` format. Falls back to shared `PHI_ENCRYPTION_KEY` when `AWS_KMS_KEY_ID` not set |
+| **PostgreSQL RLS** | `server/db/sync-schema.ts` | `ENABLE/FORCE ROW LEVEL SECURITY` + `org_isolation` policies (`current_setting('app.org_id')`) on tenant tables. **Not enforced at runtime**: nothing sets `app.org_id` per request (F24). Works only because the app's DB role bypasses RLS (superuser in Docker/CI); a non-bypass role sees zero rows — see the EC2 deploy note |
+| **Per-org KMS encryption** | `server/services/org-encryption.ts` | Envelope-encryption helpers exist (`encryptFieldForOrg`/`decryptFieldForOrg`) but have **no callers** — all PHI uses the shared `PHI_ENCRYPTION_KEY` (`enc_v1:`). `/rotate-key` resets an unused DEK (F52) |
 | **GDPR/CCPA compliance** | `server/routes/admin.ts` | `GET /api/admin/org/export` (right to access), `DELETE /api/admin/org/purge` (right to erasure with confirmation). `deleteOrgData()` in all storage backends |
 | **Org suspension gate** | `server/auth.ts` | `injectOrgContext` checks org `status` field: suspended → 403 `OBS-ORG-SUSPENDED`, deleted → 410 `OBS-ORG-DELETED`. Org status lookup failure → 503 in production (fail-closed). SSO session check failures now deny with 503 `OBS-AUTH-007` instead of silently allowing |
 | **Timing-safe token comparison** | `assemblyai-webhook.ts`, `scim.ts` | All secret token comparisons use `crypto.timingSafeEqual()` to prevent timing-based attacks on webhook secrets and SCIM bearer tokens |
@@ -1408,7 +1420,7 @@ On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add mi
 | **WAF log safety** | `server/middleware/waf.ts` | WAF violation logs use `req.path` (no query string) to prevent logging PHI from query parameters |
 | **Idle timeout** | `client/src/hooks/use-idle-timeout.ts` | 15-min idle timeout with 2-min warning countdown. "Stay Logged In" button resets the timer. Logout clears session storage only (preserves user preferences in localStorage) |
 | **Breach notification** | `server/services/incident-response.ts` | HIPAA §164.404 compliant breach notification: `sendBreachNotificationEmails()` sends templated notification to affected individuals, auto-updates breach report status, logs to audit trail. 60-day deadline tracked per §164.408 |
-| **Incident persistence** | `server/db/schema.ts` | `security_incidents` and `breach_reports` tables with RLS policies. All creates/updates persisted to PostgreSQL with in-memory fallback |
+| **Incident persistence** | `server/db/schema.ts` | `security_incidents` and `breach_reports` are written to PostgreSQL, but list/read APIs serve only the in-memory Map, which is never reloaded — after a restart (or on another instance) incidents and 60-day deadlines disappear from the API (F48) |
 | **Minimum necessary access** | `server/routes/clinical.ts` | Viewer role sees redacted PHI fields on clinical notes (subjective, objective, assessment, plan stripped). Managers/admins see full content for clinical workflows |
 
 ## Key Design Decisions
@@ -1428,10 +1440,10 @@ On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add mi
 - **Billing enforcement gates**: Plan feature gating (`requirePlanFeature`), quota enforcement (`enforceQuota`, `enforceUserQuota`), and active subscription checks (`requireActiveSubscription`) are applied as middleware on write routes. All reject requests with missing `orgId` (403). On database errors, all four gates **fail closed** (return 503) rather than allowing the request through — this prevents billing bypass during transient DB outages but means users see errors during DB hiccups
 - **AI response hardening**: `parseJsonResponse()` validates every field type, clamps scores to valid ranges, and provides safe defaults. `normalizeAnalysis()` also clamps on the read path. Server-side flag enforcement overrides AI-set flags
 - **Per-org username uniqueness**: Usernames are unique within an org (composite index `orgId + username`), not globally. `getUserByUsername()` accepts optional `orgId` for scoped lookups. OAuth/SSO flows without org context search globally
-- **Org-scoped rate limiting**: Authenticated data routes include `orgId` in rate limit keys so tenants sharing an IP (corporate networks) don't affect each other. Pre-auth routes (login, register) use IP-only keys
-- **Search scope**: `searchCalls()` searches transcripts, analysis summaries, and topics (not just transcripts). Uses PostgreSQL full-text search (`plainto_tsquery` + GIN tsvector indexes) for queries >=2 chars, falls back to ILIKE for single-char queries. Set-based deduplication across result sources
-- **PostgreSQL RLS for defense-in-depth**: Row-Level Security policies enforce tenant isolation at the database layer — even if application code has a bug, the DB rejects cross-org queries. `withBypassRls()` and `withOrgContext()` helpers in pg-storage.ts manage the `app.bypass_rls` and `app.org_id` session settings
-- **KMS envelope encryption**: Per-org DEKs are generated by AWS KMS and stored encrypted in org settings. Actual PHI encryption uses the DEK (AES-256-GCM), not the master key — enabling efficient rotation. Format prefix (`enc_v1:` vs `enc_v2_{prefix}:`) allows per-field routing to the correct key
+- **Rate limiting keys (intended org-scoped, currently IP-only)**: `distributedRateLimit(..., includeOrg=true)` is meant to key authenticated routes by IP + orgId, but every limiter is mounted before `setupAuth`/`apiKeyAuth`, so `req.orgId` is undefined and keys are per IP (F6, violates INV-12). Pre-auth routes (login, register) use IP-only keys by design
+- **Search scope**: `searchCalls()` searches transcripts, analysis summaries, and topics (not just transcripts). Uses PostgreSQL full-text search (`plainto_tsquery` + GIN tsvector indexes) for queries >=2 chars, falls back to ILIKE for single-char queries. Set-based deduplication across result sources. **Caveat:** `transcripts.text` and `call_analyses.summary` are stored as `enc_v1:` ciphertext whenever `PHI_ENCRYPTION_KEY` is set (always, in production), so the full-text and ILIKE matches run on ciphertext and in practice only `topics` match (F22)
+- **PostgreSQL RLS (not yet active)**: Policies exist on tenant tables, and `withBypassRls()`/`withOrgContext()` in pg-storage.ts set `app.bypass_rls`/`app.org_id` — but neither helper has a caller, so RLS gives no protection today and depends on the DB role bypassing it (F24). Do not count it as a second isolation layer until requests run inside an org context
+- **KMS envelope encryption (scaffolded, unused)**: `org-encryption.ts` implements per-org DEKs from AWS KMS with an `enc_v2_{prefix}:` format, but nothing calls it — PHI is encrypted with the shared key (`enc_v1:`). Do not run `/rotate-key` expecting re-encryption (F52)
 - **Dual-path transcription**: When `APP_BASE_URL` is set, AssemblyAI uses webhooks; otherwise polls. `continueAfterTranscription()` in call-processing.ts handles steps 4–15 of the pipeline for both paths
 - **SCIM token architecture**: SCIM bearer tokens are never stored in plaintext — SHA-256 hash stored in org settings. `generateScimToken()` returns plaintext once (shown to admin), hash + prefix for storage. Token lookup scans `listOrganizations()` for hash match (suitable for current scale; add a DB index for high volume).
 - **OIDC without a library**: OIDC is implemented using native `fetch` (discovery + token exchange) and Node.js `crypto` for RS256/ES256 JWT signature verification via JWKS. No `openid-client` dependency. `isoBase64URL` from `@simplewebauthn/server/helpers` handles encoding.
@@ -1441,7 +1453,7 @@ On startup, `syncSchema(db)` runs idempotent SQL to create all tables and add mi
 - **Trusted device cookies**: After successful MFA, `trustDevice: true` in the request body generates a random 32-byte token. SHA-256(token) is stored in `user.mfaTrustedDevices[]` with a 30-day expiry. The cookie `mfa_td` holds `{userId}:{token}`. On login, the trusted device check runs before the MFA challenge — if valid, MFA is skipped for this device.
 - **MFA grace period**: When an org first enables `mfaRequired`, `mfaRequiredEnabledAt` is stamped. Each user without MFA gets an `mfaEnrollmentDeadline` = `mfaRequiredEnabledAt + mfaGracePeriodDays` (default 7). During the grace period, login succeeds with `mfaSetupRequired: true`. After the deadline, login is rejected with a specific error code. Reminder emails are sent at 7, 3, and 1 day before the deadline.
 - **Email OTP for non-admins**: A 6-digit OTP (10-minute TTL, 3 attempts max) is sent to the user's username/email. Restricted to viewer/manager roles — admin users must use TOTP or WebAuthn. Stored via Redis ephemeral API (`ephemeralSet`/`ephemeralGet`/`ephemeralDel` from `redis.ts`) keyed by userId — multi-instance safe when Redis is configured, in-memory fallback otherwise.
-- **MFA recovery flow**: User submits a recovery request; server sends a time-limited verification token to the user's email. Admin sees pending requests in the admin panel and approves or denies. On approval, a use-token (15-min TTL) is emailed to the user, which completes login and clears MFA — forcing re-enrollment. All steps are HIPAA-audit-logged. Table: `mfa_recovery_requests`.
+- **MFA recovery flow**: User submits a recovery request; server emails a time-limited verification token. Admin sees pending requests and approves or denies; on approval a use-token (15-min TTL) is emailed. Requests live in an **in-memory Map** in `mfa.ts` (the `mfa_recovery_requests` table is unused — F50), admins can approve requests whose email was never verified, and using the token does not clear MFA or force re-enrollment (F50)
 
 ## CI/CD Pipeline
 
@@ -1450,7 +1462,7 @@ Automated pipeline runs on push to `main` and all PRs:
 
 | Job | Description | Gate |
 |-----|-------------|------|
-| **Lint & Format** | ESLint (zero-warning policy) + Prettier check | Blocks build |
+| **Lint & Format** | ESLint (`--max-warnings 275` ceiling; ~241 warnings today) + Prettier check | Blocks build |
 | **Type Check & Tests** | `tsc` + unit tests with c8 coverage | Blocks build |
 | **Security Audit** | `npm audit --audit-level=high` + secret scanning (AWS keys, private keys, API tokens) | Blocks deploy |
 | **Build** | Vite frontend + esbuild backend, artifact verified | Requires lint + test |
@@ -1501,6 +1513,9 @@ Internet → Caddy (:443, auto TLS) → Node.js (:5000) → PostgreSQL + S3 + Be
 ```
 - EC2 t3.micro + Caddy for TLS + systemd for process management
 - IAM instance role for S3 + Bedrock (no hardcoded AWS keys)
+- **⚠ Known blocker — DB role vs RLS (F24)**: `user-data.sh` creates `observatory_qa` as a plain `LOGIN` role. Tables have `FORCE ROW LEVEL SECURITY` and no request sets `app.org_id`, so under that role every query returns zero rows (nobody can log in). Until F24 lands, either grant `ALTER ROLE observatory_qa BYPASSRLS;` (RLS stays inert, matching Docker/CI) or don't deploy this path
+- **Workers**: `observatory-qa-workers.service` runs `node dist/workers.js`, which `npm run build` (run by `deploy.sh`) now produces. After a deploy, confirm it with `systemctl status observatory-qa-workers`
+- **First deploy after Batch 1**: startup rewrites five `call_id` foreign keys to add `ON DELETE` rules (`ensureCallFkOnDelete`, idempotent) — a brief lock on `coaching_sessions`, `live_sessions`, `insurance_narratives`, `call_revenues`, `calibration_sessions`
 - **Auto-rollback**: deploy.sh saves previous SHA before deploy; if health check fails, automatically rolls back to previous version, rebuilds, and restarts
 - **Pre-flight validation**: required env vars (`DATABASE_URL`, `ASSEMBLYAI_API_KEY`, `SESSION_SECRET`, `PHI_ENCRYPTION_KEY`) are hard-checked before deploy in production; use `--force` to skip
 - **Post-deploy migration**: After deploying the F37 audit timestamp fix, run `npx tsx server/db/migrate-audit-chain.ts` once to recompute pre-existing audit hash chains using stored `createdAt` timestamps. Idempotent — safe to run multiple times. Requires `DATABASE_URL`
@@ -1513,13 +1528,15 @@ Internet → Caddy (:443, auto TLS) → Node.js (:5000) → PostgreSQL + S3 + Be
 - IaC via `render.yaml` (web + worker + Redis + PostgreSQL)
 - URL: `https://observatory-qa-product.onrender.com`
 - Uses Neon PostgreSQL (external), Render Redis
-- **Required env vars**: `ASSEMBLYAI_API_KEY`, `SESSION_SECRET`, `DATABASE_URL`, `STORAGE_BACKEND=postgres`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `S3_BUCKET` (for audio storage), `REDIS_URL`
+- **Required env vars**: `ASSEMBLYAI_API_KEY`, `SESSION_SECRET`, `DATABASE_URL`, `STORAGE_BACKEND=postgres`, `PHI_ENCRYPTION_KEY` (64 hex — production startup exits without it), `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `S3_BUCKET` (for audio storage), `REDIS_URL`
+- **Worker service**: needs the **same** `PHI_ENCRYPTION_KEY` as web (it decrypts PHI for EHR pushes) and `STORAGE_BACKEND=postgres` (without it the worker silently runs on MemStorage). Both are declared in `render.yaml`; `PHI_ENCRYPTION_KEY` is `sync: false`, so set it in the dashboard for both services
+- **Redis**: `maxmemoryPolicy: noeviction` (BullMQ requirement — an LRU policy can evict queued jobs and sessions). Re-sync the blueprint to apply it to an existing instance
 - **Port**: Render expects port 10000 — set `PORT=10000`
 
 ### Build Output
-- Frontend: `dist/client/` (Vite)
+- Frontend: `dist/public/` (Vite)
 - Backend: `dist/index.js` (esbuild)
-- Workers: `dist/workers.js` (esbuild)
+- Workers: `dist/workers.js` (esbuild — produced by `npm run build`, which chains `workers:build`; CI's build job fails if it is missing)
 
 Server serves both API and static frontend from the same process.
 
@@ -1540,7 +1557,7 @@ Server serves both API and static frontend from the same process.
 - **CSRF cookie respects `DISABLE_SECURE_COOKIE`**: Both the session cookie and CSRF cookie check `process.env.DISABLE_SECURE_COOKIE` before setting `secure: true`. Without this, the CSRF cookie won't be sent over HTTP in development/testing
 - **ErrorBoundary logs error name+message**: `componentDidCatch` logs `error.name` and `error.message` to console (safe for HIPAA — framework errors don't contain PHI). Full stack traces only logged in non-production. Check browser console for "UI error boundary triggered:" when debugging render crashes
 - AI responses may contain objects where strings are expected — always use `toDisplayString()` on frontend and `normalizeStringArray()` in `server/storage/types.ts` when rendering/storing AI data
-- **AI analysis failure is graceful**: When Bedrock is unavailable (bad credentials, region, permissions), calls still complete with default scores (5.0, neutral sentiment). The `confidenceFactors.aiAnalysisCompleted` flag tracks this. The UI shows an amber banner and hides fake scores when this happens
+- **AI analysis failure is graceful — but scores look real**: When Bedrock is unavailable, calls complete with default scores (5.0, neutral sentiment) and `confidenceFactors.aiAnalysisCompleted = false`. Only `transcript-viewer.tsx` checks the flag; list chips, Atlas KPIs, leaderboards and server-side aggregates treat the 5.0 as real (F136, F181)
 - **`AI_PROVIDER` env var is NOT used** — the code always uses Bedrock exclusively. Don't be confused by legacy comments referencing multiple providers
 - **AWS Bedrock 403 errors**: Usually means invalid credentials, missing `bedrock:InvokeModel` IAM permission, or model not enabled in the target region. Remove `AWS_SESSION_TOKEN` unless using temporary STS credentials
 - The same IAM user is shared across multiple projects — IAM policy covers S3, Bedrock, and Textract
@@ -1550,7 +1567,7 @@ Server serves both API and static frontend from the same process.
 - `AUTH_USERS` format changed from `user:pass:role:name` to `user:pass:role:name:orgSlug` — the 5th field is optional (defaults to `DEFAULT_ORG_SLUG`)
 - Stripe webhook endpoint needs raw body (`express.raw()`) — configured before `express.json()` in `server/index.ts`
 - pgvector extension must be installed manually: `CREATE EXTENSION IF NOT EXISTS vector;`
-- Workers must run as a separate process in production (`npm run workers`). Without Redis, job processing falls back to in-process execution
+- Workers must run as a separate process in production (`npm run workers` / `node dist/workers.js`, built by `npm run build`; CI fails if `dist/workers.js` is missing). With `REDIS_URL` set and no worker running, queued jobs (retention, indexing, usage metering, EHR retries) are never consumed. Without Redis, job processing falls back to in-process execution
 - When adding new storage methods: update `IStorage` interface in `types.ts`, then implement in `memory.ts`, `cloud.ts`, and `pg-storage.ts`
 - **Schema sync on startup**: `sync-schema.ts` auto-creates tables/columns, so `drizzle-kit push` is not needed in production. Schema changes should be added to both `schema.ts` (for Drizzle) and `sync-schema.ts` (for runtime sync)
 - **SSO pre-flight validation**: Always use `/api/auth/sso/check/:orgSlug` before redirecting to `/api/auth/sso/:orgSlug` — prevents users seeing raw JSON error pages for invalid org slugs
@@ -1585,10 +1602,10 @@ Server serves both API and static frontend from the same process.
 - **Billing grace period fails closed on missing data**: `requireActiveSubscription()` defaults `inGracePeriod` to `false` when `pastDueAt` is null (e.g., old subscription records without the field). Past-due accounts with no timestamp are denied write access rather than granted indefinite free access
 - **Billing checkout/portal uses `APP_BASE_URL`**: Stripe redirect URLs use `process.env.APP_BASE_URL` with fallback to `req.protocol + req.get("host")`. Set `APP_BASE_URL` in production to prevent Host header injection in Stripe redirects
 - **WAF uses recursive URL decoding**: `scanRequest()` in `waf.ts` decodes URLs up to 3 times to catch double/triple-encoded payloads (e.g., `%252e%252e` → `%2e%2e` → `..`). The loop exits early when decoding produces no change
-- **Prompt injection detection strips zero-width Unicode**: `normalizeForDetection()` in `ai-guardrails.ts` strips zero-width spaces (U+200B), zero-width joiners (U+200D), soft hyphens (U+00AD), and other invisible characters before pattern matching. This prevents attackers from splitting keywords with invisible chars
+- **Prompt injection detection strips zero-width Unicode**: `normalizeForDetection()` in `ai-guardrails.ts` strips zero-width and other invisible characters before pattern matching. Note: `detectTranscriptInjection()` and `checkOutputGuardrails()` are only called from tests — the live transcript defense is `sanitizeTranscript()` in `ai-prompts.ts` (F156)
 - **Audit log timestamp is application-set**: `persistAuditEntry()` explicitly sets `createdAt` to the application-level timestamp used for hash computation (not PostgreSQL's `defaultNow()`). This ensures `verifyAuditChain()` can recompute matching hashes. Pre-existing entries may have mismatched timestamps
 - **FHIR export decrypts nested cosignature NPI**: `decryptClinicalNotePhi()` decrypts both top-level PHI fields and nested `cosignature.cosignedNpi`. The cosigner NPI is included in the FHIR Practitioner resource as an additional identifier with type "Cosigner NPI"
-- **EHR prefill surfaces lookup failures**: The prefill endpoint returns `ehrLookupFailed: true` and `ehrLookupError` when EHR patient data retrieval fails, instead of silently returning empty allergies/medications. Frontend should display a warning banner when this flag is present
+- **EHR prefill**: `/api/ehr/patients/:id/prefill-data` returns `ehrLookupFailed`/`ehrLookupError` on lookup failure, but `/api/clinical/notes/:callId/prefill-suggestions` is a stub that always returns empty allergies/medications with `ehrConnected: true` — indistinguishable from "EHR reports none" (F88)
 - **Daily task orchestrator is error- and timeout-isolated**: Each task in `runAllDailyTasks()` is wrapped in its own try-catch AND a `Promise.race` timeout (10 min default, 30 min for retention). A task that throws OR hangs does not prevent other tasks from running. Timeouts reject with `ScheduledTaskTimeoutError` so logs distinguish them from thrown errors. Note: JavaScript can't cancel promises, so a hung task's work continues in the background — only the orchestrator moves on
 - **Breach notification is idempotent**: `sendBreachNotificationEmails()` checks `notificationStatus` before sending. If individuals have already been notified, it returns 0 and logs a warning. This prevents duplicate HIPAA notifications on retry or accidental re-invocation
 - **Registration blocks reserved org slugs**: Slugs like "api", "admin", "auth", "sso", "webhook" and 12 other system names are rejected during registration to prevent route collisions
@@ -1599,7 +1616,7 @@ Server serves both API and static frontend from the same process.
 - **MFA rate limiting is keyed by userId, not sessionId**: `isMfaLocked`/`recordMfaAttempt`/`clearMfaAttempts` in `routes/mfa.ts` rate-limit MFA verification attempts (TOTP, backup codes, WebAuthn, email OTP) by the target `userId` from the request body. Keyed by userId so attackers can't rotate session cookies to get a fresh rate-limit window — the userId is by definition the target they're attacking. Backed by Redis `INCR` + `PEXPIRE` via `ephemeralIncrement` from `redis.ts` (in-memory counter fallback). Multi-instance safe when Redis is configured. 5 attempts per 15-minute window; the window does NOT reset on each attempt (attackers can't slide the window indefinitely).
 - **Reanalysis worker processes in streaming chunks**: The bulk reanalysis worker fetches and processes calls in 200-call chunks, discarding each chunk before fetching the next, to prevent OOM on large orgs. Progress reporting is approximate for the "all calls" path. **When the AI provider is unavailable, the worker throws** (not silently returns success) so BullMQ marks the job as failed and retries. After max retries, the job moves to the dead letter queue for admin review
 - **Circuit breaker is per-org with global fallback**: `withBedrockProtection()` in `ai-factory.ts` checks two circuit breakers: (1) per-org breaker (5 consecutive failures opens, 60s reset) and (2) global breaker (15 consecutive failures opens). One org's rate limits or Bedrock errors only affect that org's circuit. Platform-wide outages trip the global breaker. `getBedrockCircuitState(orgId?)` returns both per-org and global state. Per-org breakers auto-cleaned every 5 min when idle. Env: `BEDROCK_CIRCUIT_THRESHOLD` (per-org, default 5), `BEDROCK_GLOBAL_CIRCUIT_THRESHOLD` (global, default 15), `BEDROCK_CIRCUIT_RESET_MS` (reset window, default 60000)
-- **AI response validation**: `parseJsonResponse()` in `ai-types.ts` extracts JSON using a **balanced-brace walker** with string-literal awareness (not a greedy regex), so AI responses that contain `{example}`-style placeholders in a preamble before the real JSON block parse correctly. Tries markdown code fences, then full-text parse, then each balanced `{...}` candidate in source order until one parses. Clamps `performanceScore` to 0-10, sentiment scores to 0-1, sub-scores to 0-10, and validates all field types. Missing fields get safe defaults (5.0 for scores, "neutral" for sentiment). **Sub-score fields** (`compliance`, `customerExperience`, `communication`, `resolution`) are set to `undefined` (not 0) when the AI omits them — this prevents false 0/10 scores from appearing in the UI. `normalizeAnalysis()` in `storage/types.ts` also clamps on read
+- **AI response validation**: `parseJsonResponse()` in `ai-types.ts` extracts JSON using a **balanced-brace walker** with string-literal awareness (not a greedy regex), so AI responses that contain `{example}`-style placeholders in a preamble before the real JSON block parse correctly. Tries markdown code fences, then full-text parse, then each balanced `{...}` candidate in source order until one parses. Clamps `performanceScore` to 0-10, sentiment scores to 0-1, sub-scores to 0-10, and validates all field types. Missing fields get safe defaults (5.0 for scores, "neutral" for sentiment). **Sub-score fields** (`compliance`, `customer_experience`, `communication`, `resolution`) currently default to **5.0** when the AI omits them (`clampScore(..., 5.0)`), so the pipeline's `!= null` check always passes and an omitted sub-score is stored as a real 5.0 (F58). The pipeline mapping (`buildAnalysisRecord` in call-processing.ts) is written to keep omitted sub-scores `undefined`; the parser default defeats it. `normalizeAnalysis()` in `storage/types.ts` also clamps on read
 - **Empty transcript handling**: If transcript text is <10 characters, the pipeline saves the call with `empty_transcript` flag, low confidence, and skips AI analysis entirely — prevents generating junk analysis from silence/noise
 - **Employee auto-assignment safety**: Only considers active employees. If multiple employees match the detected name, prefers exact full-name match; skips assignment if ambiguous (logs the ambiguity)
 - **speakerRoleMap schema change**: Changed from `z.object({ agentSpeaker: z.string() })` to `z.record(z.string(), z.string())` to support proper speaker label → role mapping (e.g., `{ A: "agent", B: "customer" }`). Old `{ agentSpeaker: "A" }` format was a logic error — the property name was always the literal string "agentSpeaker" instead of using the value as a key
@@ -1608,10 +1625,10 @@ Server serves both API and static frontend from the same process.
 - **Prerequisite order in paths** — `enforceOrder` field on `LearningPath` signals that modules must be completed sequentially (index N requires index N-1 completed); combined with per-module `prerequisiteModuleIds` for flexible gating
 - **`toDisplayString()` handles nested objects**: Checks arrays first (before object path), then `text`, `name`, `task`, `label`, `value`, `description`, `message` keys for wrapped strings, caps JSON fallback at 500 chars
 - **Duplicate upload returns 409**: `POST /api/calls/upload` returns `409 { duplicate: true, existingCallId }` when file hash matches an existing call. Frontend should handle this status code and show the user a link to the existing call instead of a generic error
-- **RLS bypass scoped to a dedicated connection in schema-sync**: `syncSchema()` acquires a dedicated pg client via `getPool().connect()`, builds a drizzle instance bound to that client, sets `app.bypass_rls='true'` on it (session-level), runs all DDL, and destroys the client with `client.release(true)` in a finally block. This prevents the bypass from leaking back to the pool and silently disabling RLS on subsequent requests. Runtime RLS enforcement now actually works for all policies, including the auth-adjacent tables added in F-01. All pgvector and super-admin cross-org queries still use `withBypassRls()` (transaction-local)
+- **RLS bypass scoped to a dedicated connection in schema-sync**: `syncSchema()` runs DDL on a dedicated pg client with session-level `app.bypass_rls='true'` and destroys it with `client.release(true)` (INV-14), so the bypass never leaks to the pool. **But runtime RLS is not enforced** — no request sets `app.org_id`, and `withOrgContext()`/`withBypassRls()` have no callers (F24). The app works only because its DB role bypasses RLS: Docker/CI use a superuser; the EC2 bootstrap creates a plain `LOGIN` role, under which every query would return zero rows (see EC2 deploy note)
 - **Org status gate adds latency**: `injectOrgContext` now does an async org status lookup on every authenticated request. For high-traffic deployments, consider a short-lived org status cache (TTL ~30s is already used in some implementations)
 - **GDPR purge is irreversible**: `deleteOrgData()` deletes employees, calls, and users but preserves the org record (status=deleted) for audit trail. The session is destroyed immediately after purge. Backups should be the recovery path
-- **AssemblyAI webhook verification**: `POST /api/webhooks/assemblyai` checks `X-Assembly-Webhook-Token` header against `ASSEMBLYAI_WEBHOOK_SECRET` (falls back to `SESSION_SECRET`). Register this endpoint as the webhook URL in your AssemblyAI account
+- **AssemblyAI webhook**: `POST /api/webhooks/assemblyai` checks `X-Assembly-Webhook-Token` against `ASSEMBLYAI_WEBHOOK_SECRET` (falls back to `SESSION_SECRET`). The body is `{ transcript_id, status }` — **not a transcript**; the handler fetches it with `assemblyAIService.getTranscript()`. A per-call `ephemeralSetNx` claim skips duplicate deliveries, and upload-time options (note format, specialty, uploader, audio-archived) are restored from `consumeWebhookPipelineOpts()`. Register this endpoint as the webhook URL in your AssemblyAI account
 - **SCIM `listOrganizations()` scan**: SCIM auth scans all orgs to match the token hash. This is fine at current scale. For >1000 orgs, add a dedicated `scim_token_hash` index on the `organizations` table.
 - **OIDC state uses atomic SET NX**: OIDC `state` → `{ orgSlug, nonce }` is stored via `ephemeralSetNx` from `redis.ts` (Redis `SET NX PX`, in-memory fallback) — single atomic call, no TOCTOU window between check and set. 10-minute TTL. Multi-instance safe when Redis is configured. Same pattern as Stripe webhook event dedup. State collision (with 128-bit randomness, statistically impossible) returns 500 `Failed to start OIDC flow`.
 - **Upload dedup uses atomic SET NX**: `acquireUploadLock`/`releaseUploadLock` in `routes/helpers.ts` use `ephemeralSetNx`/`ephemeralDel` (`upload-lock` prefix) to prevent TOCTOU races between concurrent same-org uploads with the same file hash. 30-second TTL. Atomic — no window between dedup check and lock acquire.
@@ -1619,7 +1636,7 @@ Server serves both API and static frontend from the same process.
 - **WebAuthn rpID must match origin**: The `rpID` (relying party ID) in WebAuthn is derived from the hostname (e.g. `observatory-qa.com`). It must match what the browser sees. In development, `localhost` works. Behind a reverse proxy, ensure the correct hostname is used. The `expectedOrigin` (full URL) must also match exactly.
 - **WebAuthn challenge stored in session**: `req.session.webauthnChallenge` holds the current registration or authentication challenge. Sessions must be persistent (Redis or DB-backed) across the two WebAuthn round-trips. In-memory sessions will lose the challenge.
 - **Trusted device cookie `mfa_td`**: The cookie stores `{userId}:{base64url-token}` and is `httpOnly`, `sameSite=lax`, `secure` in production. Clearing this cookie or changing devices always prompts for MFA. `mfaTrustedDevices` entries are pruned on each login (expired ones removed automatically).
-- **MFA grace period deadline is per-user**: `mfaEnrollmentDeadline` is set on each user when the org enables `mfaRequired`. Users created *after* `mfaRequiredEnabledAt` have a deadline of `createdAt + mfaGracePeriodDays`. Admins are NOT subject to the grace period — they must enable MFA immediately.
+- **MFA grace period deadline is per-user**: `mfaEnrollmentDeadline` is stamped only on users that exist when the org first enables `mfaRequired`. Users added later (invite, admin create, SSO/SCIM/OAuth) get no deadline and can log in indefinitely without MFA, and admins are not treated differently (F44)
 - **Email OTP is viewer/manager only**: Admin accounts cannot use email OTP as a fallback. This is intentional — email OTP is lower security than TOTP/WebAuthn and admins have higher privilege. If an admin loses their TOTP device, they must use the recovery flow (email verification + admin approval from another admin or super-admin).
 - **OBS-AUTH-006**: New error code returned when an SSO user's session exceeds `ssoSessionMaxHours`. The response includes `requiresSso: true` so the frontend can redirect directly to `/api/auth/sso/{orgSlug}` instead of the generic login page.
 - **OBS-AUTH-008 login ambiguity**: When a username exists in multiple orgs, login returns 409 with `{ errorCode: "OBS-AUTH-008", orgSlugs: [...] }`. The frontend shows an org selector and re-submits with `{ username, password, orgSlug }`. The strategy uses `getOrganizationBySlug()` (not `listOrganizations()`) for the scoped lookup. Call sites that intentionally skip org-scoping (password-reset, OAuth, IDP-initiated SAML) are NOT affected — they still use `getUserByUsername()` without orgId.
@@ -1635,6 +1652,13 @@ Server serves both API and static frontend from the same process.
 - **Check WORK_LOG.md before auditing**: Detailed branch history of all completed audit and implementation work is in `WORK_LOG.md`. Check it before starting new audit sessions to avoid re-investigating resolved issues. The critical invariants from past fixes are captured in the Invariant Library (INV-01 through INV-25) below.
 - **PG pool skips SSL on loopback hosts**: `initDatabase()` in `server/db/index.ts` requires SSL when `NODE_ENV=production`, but carves out `localhost` / `127.0.0.1` / `0.0.0.0` hosts. Real production deployments never connect to the database over loopback plain TCP, so the carve-out can't weaken a real prod posture. Required for the CI E2E job and `npm run test:e2e:pg` to run prod-mode builds against local plain-TCP postgres. Non-loopback hosts (RDS, Neon, Render PG, etc.) still require SSL with cert verification by default; `DB_SSL_REJECT_UNAUTHORIZED=false` remains the escape hatch for managed DBs with self-signed certs.
 - **PostgresStorage prototype mixin uses buffered Proxy**: `server/db/pg-storage.ts` side-effect-imports `pg-storage-features.ts`, which side-effect-imports per-domain mixin files in `server/db/pg-storage/` (calibration, lms, marketing, revenue). esbuild hoists ALL ESM imports to the top of the bundled `__init` wrapper, so the mixin chain runs BEFORE the `class PostgresStorage` declaration in pg-storage.ts itself — synchronously reading `PostgresStorage.prototype` from a mixin file crashes the bundled prod server with `TypeError: Cannot read properties of undefined (reading 'prototype')`. tsx (dev/unit tests) masks this; only the bundled prod path with PG storage actually loaded triggers it. Fix: `_shared.ts` exports `P` as a Proxy that buffers `P.method = fn` assignments in an internal map; `pg-storage.ts` flushes the buffer onto the real prototype via `bindPrototype(PostgresStorage.prototype)` at the very bottom of its body (after the class declaration AND the side-effect mixin import). When adding new mixin files: import `P`, `db`, `blob` from `./pg-storage/_shared`, never reference `PostgresStorage` value-side, never read `.prototype` synchronously.
+- **Postgres `createTranscript` / `createSentimentAnalysis` / `createCallAnalysis` are upserts on `call_id`**: ~20 callers (attest, consent, note edits, addenda, cosign, disputes, reanalysis) write back a modified copy of an existing record through `create*`. MemStorage replaces by `callId`; PG uses `ON CONFLICT (call_id) DO UPDATE` with a `setWhere` org guard, keeping the original row id, and throws `call belongs to a different organization` instead of overwriting another org's row. They replace the **whole row** — always pass the full record
+- **MemStorage hides PG-only failures**: unit tests run on MemStorage (Maps, no constraints, no FKs, no encryption). Unique-index violations, FK violations, missing tables and ciphertext-vs-plaintext search all pass there. Storage changes should also be checked with `tests/pg-storage-contract.test.ts` (`TEST_DATABASE_URL`)
+- **Passing `undefined` never clears a column in PG updates**: `updateSubscription`/`upsertSubscription` (and Drizzle `.set()` generally) skip `undefined` keys, while MemStorage's spread clears them. Use an explicit `null` to clear (e.g. `pastDueAt` after recovery — F108 is still open)
+- **BullMQ fixed job IDs**: `queue.add()` is silently ignored for a `jobId` BullMQ still stores, and completed/failed jobs are retained (`removeOnComplete`/`removeOnFail` counts). Use `addDedupedJob(queue, name, data, jobId)` from `queue.ts`, which clears a *finished* job first and still dedups waiting/active ones
+- **`getCallSummaries` / `getAllCalls` return newest-first** (`ORDER BY uploaded_at DESC`). `.slice(-N)` on their result takes the **oldest** N — several analytics paths still do this (F101)
+- **Global UUID check on `:id` / `:callId`**: `server/routes/index.ts` registers `app.param` for both `id` and `callId` with UUID validation that responds 400 instead of calling `next('route')`. A static path registered after a `/:id` route on the same prefix (e.g. `/api/calibration/analytics` after `/api/calibration/:id`) is unreachable — register static routes first (F8)
+- **Reanalysis goes through `reanalyzeCall()`** (call-processing.ts): `runAiAnalysis` (template, RAG, Bedrock protection, retry) → `buildAnalysisRecord` (same mapping/encryption/flags as uploads). It preserves the clinical note (still encrypted), self-review, dispute, patient summary, referral letter, billing codes and EHR push status, appends a manual-edit entry, and leaves the analysis untouched if the AI step fails. It currently uses the global `aiProvider`, not the org's `bedrockModel` (F63), and records no spend
 
 ## Open Follow-On Items
 
@@ -1661,7 +1685,6 @@ Items marked ✅ were completed in a later session.
 - Add `linkedLearningModuleIds` to `CoachingSession` Zod schema + DB columns (currently `as any` cast)
 - Add `updateLearningProgress` to `IStorage` interface (currently feature-detected via `(storage as any)`)
 - Gamification effectiveness endpoint (`/api/gamification/effectiveness`) still loads unbounded calls
-- Eaglesoft and Dentrix adapters have the same silent error masking — should get `classifyEhrError` treatment
 
 ### Orrery Redesign Follow-Ons (Phase 0-6 + Sprints 1-3 completed; deferred items)
 - Pattern subscription notification delivery — scheduled task (`server/scheduled/pattern-notifications.ts`) runs daily and checks subscriptions against clusters. Currently logs matches but does NOT yet send webhooks/emails to the subscribing manager. Wiring actual delivery via `notifyFlaggedCall()` or a new `notifyPatternMatch()` is a follow-on
@@ -1683,7 +1706,7 @@ Items marked ✅ were completed in a later session.
 - CloudStorage live session consent fields may need updating if CloudStorage backend is used
 - Reconciliation job could re-run missed webhook notifications (currently only re-tracks usage)
 - Frontend chart components should handle undefined sub-scores gracefully (show "N/A" not 0)
-- Admin.ts BAA routes duplicate `baa.ts` registered routes — consider removing dead copy
+- `admin.ts` and `baa.ts` both register BAA list/POST/PATCH/DELETE; `admin.ts` registers first (`routes/index.ts`), so the **`baa.ts`** overlapping handlers are the unreachable ones. The live `admin.ts` copy hard-deletes and ignores `expiresAt`. Decide which copy survives before removing either (F161)
 - Full-corpus IDF for RAG could be computed at index time and cached per-org
 - Revoked sessions should be visually marked in UI and excluded from clinical metrics
 - OAuth multi-domain: `settings.allowedEmailDomains: string[]` for multi-Workspace orgs
@@ -1767,7 +1790,7 @@ Longer-term improvements identified during codebase audits. Work on these increm
 |----------|------|--------|--------|-------|
 | LOW | **Storage layer type safety (remaining)** | 1 day | Low — mostly structural | Prior audits reduced `as any` from ~200 to 3 genuine casts. Typed row types (`$inferSelect`), JSONB field types, and typed mappers are in place. Remaining: (1) `pg-storage-features.ts` prototype extension pattern (`P = prototype as any` — 74 methods, structural, can't be fixed without file restructuring), (2) `rawRows()` helper uses generic `T` but callers don't annotate yet, (3) `as unknown as Database` for Drizzle transaction type mismatch (3 locations, unfixable without Drizzle upstream change). Low priority — diminishing returns |
 | MEDIUM | **Large file decomposition (remaining)** | 3 days | Medium — improves navigability | 14 files still >1000 LOC. Server: `memory.ts` (1.6K → split by domain), `sync-schema.ts` (1.5K → split by table group), `rag.ts` (1.3K → extract synonym/query modules), `call-processing.ts` (1.2K → extract pipeline steps). Client: `transcript-viewer.tsx` (1.3K → extract correction UI), `clinical-notes.tsx` (1.2K → extract print/amendment), `reports.tsx` (1.2K → extract chart sections). Sprint 2-3 |
-| MEDIUM | **MemStorage parity with PostgresStorage** | 2 days | Medium — prevents dev/prod divergence | Key behavioral gaps: `searchCalls` only searches transcript text (PG also searches summaries+topics), `getTopPerformers` has no min-calls threshold (PG requires 5), `deleteOrgData` misses ~15 collections, `deleteExpiredCallShares` ignores orgId. Fix the 4 highest-impact gaps. Sprint 2 |
+| MEDIUM | **MemStorage parity with PostgresStorage** | 2 days | Medium — prevents dev/prod divergence | `deleteOrgData` coverage and `deleteExpiredCallShares` org-scoping are fixed; `create*` upsert semantics now match (Batch 1). Remaining: `searchCalls` (PG matches ciphertext — F22; Mem searches plaintext), `undefined`-clears-field in subscription updates (F108), `getTopPerformers` denominator. Prefer extending `tests/pg-storage-contract.test.ts` over adding more MemStorage-only tests |
 | LOW | **290 ESLint `no-unused-vars` warnings** | 1 day | Low — reduces CI noise | Spread across ~100 files, mostly unused function params. Prefix with `_` or remove. Can be done incrementally. Sprint 3+ |
 | LOW | **UUID validation on remaining routes** | 1 day | Low — defense-in-depth | validateUUIDParam added to critical PHI routes. ~30 non-PHI routes still missing. Add incrementally. Sprint 3+ |
 | LOW | **Scores as VARCHAR→NUMERIC migration** | 2 days | Medium — eliminates parse/cast overhead | performanceScore, confidenceScore, talkTimeRatio, responseTime stored as VARCHAR(20) but always used as numbers. Would require Drizzle migration + update all comparison/sort code. High risk, defer unless performance bottleneck proven. Sprint 4+ |
@@ -1797,7 +1820,7 @@ Longer-term improvements identified during codebase audits. Work on these increm
 ### DevOps / Infrastructure
 | Priority | Item | Effort | Impact | Notes |
 |----------|------|--------|--------|-------|
-| HIGH | **deploy/ec2/ scaffolding modernization** | 1 day | High — blocks staging deploy | Stale CallAnalyzer-era scaffolding: uses `callanalyzer` paths/user/service throughout, `user-data.sh` doesn't bootstrap PostgreSQL+pgvector or Redis (both required at runtime), no systemd unit for `npm run workers`, `deploy.sh` pre-flight only checks `ASSEMBLYAI_API_KEY`+`SESSION_SECRET` (production startup also requires `PHI_ENCRYPTION_KEY`=64-hex, `SESSION_SECRET`≥32 chars, and `DATABASE_URL` when `STORAGE_BACKEND=postgres`). README architecture diagram says `Caddy → Node.js → S3 / Bedrock / AssemblyAI`, missing PG + Redis. Plan: rename `callanalyzer` → `observatory-qa` everywhere, install PG16+pgvector+Redis7 in user-data.sh, add observatory-qa-workers.service unit, tighten deploy.sh pre-flight to match runtime env validation, update README + Caddyfile request_body limit (50MB → 100MB to match multer). Required before first staging deploy. Sprint 1 |
+| HIGH | **EC2 DB role vs RLS** | 0.5 day | High — blocks EC2 deploy | The deploy/ec2 modernization is done (observatory-qa paths, PG16+pgvector+Redis7 in `user-data.sh`, workers unit, tightened pre-flight, 100MB Caddy limit). Remaining blocker: the bootstrap's plain `LOGIN` role + FORCE RLS + no per-request `app.org_id` = zero rows returned. Interim: `ALTER ROLE ... BYPASSRLS`; real fix is F24 |
 | MEDIUM | **Move live session state to Redis or sticky sessions** | 2 days | Medium — enables multi-instance for clinical | 1 remaining in-memory subsystem: live sessions (live-session.ts) with 11 Maps holding WebSocket connections and streaming state. These are inherently process-local (can't serialize connections to Redis). Solution: sticky session routing for clinical live sessions in multi-instance deployments. Email OTP, OIDC state, loginAttempts, Stripe webhook dedup, and rate limiting are already Redis-backed. Sprint 2-3 |
 | MEDIUM | **Canary deployment** | 3 days | Medium — reduces deployment risk | All production traffic switches immediately. Fix: add health-check gated traffic shifting in deploy.sh (10% → 50% → 100% with rollback). Sprint 3 |
 

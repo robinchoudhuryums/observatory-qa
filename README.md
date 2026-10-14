@@ -12,7 +12,7 @@ AI-powered call quality analysis and clinical documentation for healthcare and c
 
 ## Key Features
 
-- **Multi-tenant SaaS** — self-service registration, per-org data isolation (including PostgreSQL Row-Level Security), team invitations, industry-specific setup (dental, medical, behavioral health, veterinary)
+- **Multi-tenant SaaS** — self-service registration, per-org data isolation enforced at the storage layer (PostgreSQL Row-Level Security policies are defined; per-request enforcement is in progress), team invitations, industry-specific setup (dental, medical, behavioral health, veterinary)
 - **AI-powered analysis** — performance scoring (0-10 with sub-scores), compliance checks, sentiment tracking, action items, coaching suggestions, data quality metrics (confidence scoring with high/medium/low breakdown, low-confidence call alerts)
 - **Clinical documentation (AI scribe)** — auto-generate SOAP, DAP, BIRP, and procedure notes from call recordings with provider attestation workflow
 - **Clinical note amendments** — post-attestation amendment/addendum workflow (medical records compliance), FHIR R4 export, co-signature/supervising provider workflow, structured data extraction (vitals, medications, allergies)
@@ -33,13 +33,13 @@ AI-powered call quality analysis and clinical documentation for healthcare and c
 - **Coaching system** — create coaching sessions from call analysis, track action plans with AI-generated coaching plans, effectiveness tracking (pre/post scores), self-assessment workflow, org-scoped coaching templates, and automation rules that trigger sessions based on call outcomes
 - **Role-based access** — viewer / manager / admin with hierarchical permissions. Department/team scoping for managers (subTeam field limits visibility to own team's calls, employees, and coaching). Viewer self-service coaching (`GET /api/coaching/my`)
 - **Resource-level call sharing** — time-limited shareable links for external reviewers (compliance consultants, auditors); configurable 1h-30d expiry; PHI/clinical notes stripped from shared views
-- **API key resource scopes** — keys can be scoped to specific resources (`calls:read`, `employees:read`, etc.) instead of broad read/write/admin; enforced per-route via `checkApiKeyScope()` middleware; `write` implies `read`
+- **API key resource scopes** — keys can be scoped to specific resources (`calls:read`, `employees:read`, etc.) instead of broad read/write/admin; `write` implies `read`. Note: per-route scope enforcement (`checkApiKeyScope()`) is not yet wired into the routes
 - **SSO** — SAML 2.0 + OIDC single sign-on (Enterprise plan). IDP-initiated login, group-to-role mapping, per-org session limits, SLO sync logout, certificate rotation workflow with dual-cert support
 - **SCIM 2.0** — Automated user lifecycle management (Enterprise plan). Okta/Azure AD provisioning: create users when they join, deactivate when they leave. Bearer token auth, full Users CRUD, ServiceProviderConfig endpoint
 - **MFA** — TOTP + WebAuthn/Passkeys (FIDO2, phishing-resistant). Trusted device management ("remember this device 30 days"). Email OTP fallback for clinical staff without smartphones. Emergency recovery workflow (email-verified + admin-approved bypass). Per-org enforcement with configurable grace period (default 7 days)
 - **Billing** — Stripe integration with Free / Starter ($79/mo) / Professional ($199/mo) / Enterprise ($999/mo) tiers, per-call overage pricing, Clinical Documentation add-on ($49/mo for Starter)
 - **Transcript prompt injection detection** — bidirectional guardrails detect score manipulation, instruction override, and role hijacking in call transcripts before AI analysis, plus output-side anomaly detection for injection bypass signs. Flags for review, never blocks analysis
-- **HIPAA compliant** — session timeouts, session fixation prevention, audit logging (PHI access on all sensitive endpoints), MFA, PHI field encryption (AES-256-GCM), PostgreSQL Row-Level Security (RLS) on all tenant-scoped tables, per-org KMS envelope encryption, org-scoped rate limiting, data retention, GDPR/CCPA data export and right-to-erasure
+- **HIPAA compliant** — session timeouts, session fixation prevention, audit logging (PHI access on all sensitive endpoints), MFA, PHI field encryption (AES-256-GCM), PostgreSQL Row-Level Security policies (runtime enforcement in progress), rate limiting, data retention, GDPR/CCPA data export and right-to-erasure
 - **Learning Management System** — AI-generated training courses from call analysis, lesson tracking
 - **Marketing attribution** — UTM parameter tracking, campaign source/medium, ROI calculation
 - **Real-time clinical sessions** — Live transcription with AssemblyAI real-time streaming
@@ -162,7 +162,7 @@ shared/
 
 data/dental/          # Dental-specific reference data (CDT codes, prompt templates)
 deploy/ec2/           # EC2 deployment (Caddy, systemd, bootstrap script)
-tests/                # 65 unit test files (Node test runner)
+tests/                # 106 unit test files (Node test runner)
 tests/e2e/            # 12 Playwright E2E spec files
 ```
 
@@ -171,7 +171,7 @@ tests/e2e/            # 12 Playwright E2E spec files
 | Command | Description |
 |---------|-------------|
 | `npm run dev` | Dev server with Vite HMR (port 5000) |
-| `npm run build` | Production build (Vite frontend + esbuild backend) |
+| `npm run build` | Production build (Vite frontend + esbuild backend + workers bundle) |
 | `npm run start` | Start production server |
 | `npm run test` | Run unit test suite (1298 tests) |
 | `npm run test:coverage` | Run tests with c8 coverage (text + lcov) |
@@ -234,7 +234,7 @@ See [`deploy/ec2/README.md`](deploy/ec2/README.md) for a lean EC2 setup (~$13/mo
 ### Render.com (Staging)
 - Build: `npm run build`
 - Start: `npm run start`
-- Configure env vars in Render dashboard
+- Configure env vars in Render dashboard — including `PHI_ENCRYPTION_KEY` (64 hex) on **both** the web and worker services (same value); production startup exits without it
 
 ## CI/CD
 
@@ -255,9 +255,9 @@ Observatory QA implements healthcare-grade security controls:
 - **Audit logging**: Tamper-evident structured JSON logs with integrity hashes for all PHI access
 - **PHI encryption**: AES-256-GCM application-level field encryption for sensitive data
 - **Data retention**: Auto-purge calls per org policy (configurable, default 90 days)
-- **Tenant isolation**: All data access requires org context — cross-org access is structurally impossible. Per-org username uniqueness, org-scoped rate limiting, org-scoped WebSocket broadcasts
-- **PostgreSQL Row-Level Security** — Database-level tenant isolation via RLS policies on all 27 tenant-scoped tables, enforced at the PostgreSQL layer independent of application code
-- **Per-org KMS encryption** — Envelope encryption with AWS KMS: per-org AES-256 data encryption keys (DEK), encrypted master key stored per org, 5-min cache (keys zeroed on eviction), graceful fallback to shared PHI_ENCRYPTION_KEY
+- **Tenant isolation**: All data access requires org context — cross-org access is structurally impossible. Per-org username uniqueness, org-scoped WebSocket broadcasts
+- **PostgreSQL Row-Level Security** — RLS policies are defined on tenant-scoped tables. Per-request enforcement (setting `app.org_id` on each request's connection) is not wired in yet, so today the database role bypasses RLS and isolation relies on the storage layer
+- **Per-org KMS encryption (scaffolded)** — Envelope-encryption helpers for per-org AWS KMS data keys exist but are not yet used; all PHI is currently encrypted with the shared `PHI_ENCRYPTION_KEY`
 - **Timing-safe comparisons** — All secret token comparisons (webhook, SCIM) use `crypto.timingSafeEqual()` to prevent timing attacks
 - **GDPR/CCPA** — Data export (right to access) and full org purge (right to erasure) with confirmation token
 - **Security headers**: CSP, HSTS, X-Frame-Options, X-Content-Type-Options, X-XSS-Protection
@@ -268,7 +268,7 @@ Observatory QA implements healthcare-grade security controls:
 npm run test
 ```
 
-65 unit test files (1298 tests) covering schemas, routes, multi-tenancy, RBAC, billing, API keys, clinical workflows, EHR, PHI encryption, SSO, speaker detection, RAG pipeline, clinical amendments, load simulation, schema column coverage, AI provider mocks, performance snapshots, SSRF validation, and more. Uses Node.js built-in test runner via tsx. Plus 13 Playwright E2E specs for browser-level testing (including security boundary tests).
+106 unit test files (2,032 tests) covering schemas, routes, multi-tenancy, RBAC, billing, API keys, clinical workflows, EHR, PHI encryption, SSO, speaker detection, RAG pipeline, clinical amendments, load simulation, schema column coverage, AI provider mocks, performance snapshots, SSRF validation, and more. Uses Node.js built-in test runner via tsx. Plus 19 Playwright E2E specs for browser-level testing (including security boundary tests), and opt-in contract tests against real PostgreSQL and Redis (`TEST_DATABASE_URL` / `TEST_REDIS_URL`).
 
 ### E2E Tests (Playwright)
 ```bash
@@ -286,7 +286,7 @@ See [`.env.example`](.env.example) for the full list. Key new additions:
 - `OTEL_ENABLED=true` — Enable OpenTelemetry traces and metrics
 - `SUPER_ADMIN_USERS` — Platform-level admin users (cross-org)
 - `ASSEMBLYAI_WEBHOOK_SECRET` — Webhook token verification for AssemblyAI webhooks (falls back to SESSION_SECRET)
-- `AWS_KMS_KEY_ID` — AWS KMS CMK ARN for per-org envelope encryption (optional; uses shared key if not set)
+- `AWS_KMS_KEY_ID` — AWS KMS CMK ARN for per-org envelope encryption (optional; the per-org path is scaffolded but not yet used — PHI uses the shared `PHI_ENCRYPTION_KEY`)
 - `PHI_ENCRYPTION_KEY` — 64-char hex for AES-256-GCM field-level PHI encryption
 - `DB_SSL_REJECT_UNAUTHORIZED=false` — Disable SSL certificate verification for managed databases with self-signed certs (e.g., Neon, Render). Defaults to `true` (strict verification)
 
